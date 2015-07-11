@@ -1,6 +1,6 @@
 # git
-source ~/dotfiles/git-completion.bash
-source ~/dotfiles/git-prompt.sh
+. ~/dotfiles/git-completion.bash
+. ~/dotfiles/git-prompt.sh
 
 # go
 export GOPATH=~/work/go
@@ -13,3 +13,6 @@ alias h='history | grep'
 alias gs='git branch; git status;'
 alias gd='git diff --color | less -R'
 alias c='clear;clear;'
+
+# load local
+. ~/.bashrc.local

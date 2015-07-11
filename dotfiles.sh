@@ -1,2 +1,4 @@
-printf "\nsource ~/dotfiles/.bashrc\n" >> ~/.bashrc
-source ~/dotfiles/.bashrc
+#!/bin/sh
+
+mv -v ~/.bashrc ~/.bashrc.local
+ln -sv ~/dotfiles/.bashrc ~/.bashrc
