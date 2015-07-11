@@ -1,6 +1,9 @@
+# dotfiles path
+DF=~/.dotfiles
+
 # git
-. ~/dotfiles/git-completion.bash
-. ~/dotfiles/git-prompt.sh
+. $DF/git-completion.bash
+. $DF/git-prompt.sh
 
 # go
 export GOPATH=~/work/go
