@@ -15,7 +15,7 @@ alias ll='ls -l'
 alias h='history | grep'
 alias gs='git branch; git status;'
 alias gd='git diff --color | less -R'
-alias c='clear;clear;'
+alias c='clear; clear;'
 
 # load local
 . ~/.bashrc.local
