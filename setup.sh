@@ -3,9 +3,7 @@
 # dotfiles path
 DF=~/.dotfiles
 
-if [ ! -e ~/.bashrc.local ]; then
-	mv -v ~/.bashrc ~/.bashrc.local
-fi
+[ ! -e ~/.bashrc.local ] && mv -v ~/.bashrc ~/.bashrc.local
 
 ln -fsv $DF/.bashrc ~/.bashrc
 
