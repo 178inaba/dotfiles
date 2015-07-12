@@ -9,4 +9,5 @@ fi
 
 ln -fsv $DF/.bashrc ~/.bashrc
 
+# load
 . ~/.bashrc
