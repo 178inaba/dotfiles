@@ -11,9 +11,9 @@ export PATH=~/work/go/bin:$PATH
 
 # option for each OS
 case $OSTYPE in
-	#mac
+	# mac
 	darwin*) LSCLR='-G';;
-	#linux
+	# linux
 	linux*)  LSCLR='--color';;
 esac
 
