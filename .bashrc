@@ -11,8 +11,8 @@ export PATH=~/work/go/bin:$PATH
 
 # alias
 alias em='emacs'
-alias ll='ls -l'
-alias la='ls -la'
+alias ll='ls -Gl'
+alias la='ls -Gla'
 alias h='history | grep'
 alias c='clear; clear;'
 
