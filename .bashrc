@@ -9,10 +9,18 @@ DF=~/.dotfiles
 export GOPATH=~/work/go
 export PATH=~/work/go/bin:$PATH
 
+# option for each OS
+case $OSTYPE in
+	#mac
+	darwin*) LSCLR='-G';;
+	#linux
+	linux*)  LSCLR='--color';;
+esac
+
 # alias
+alias ll="ls -l $LSCLR"
+alias la="ls -la $LSCLR"
 alias em='emacs'
-alias ll='ls -Gl'
-alias la='ls -Gla'
 alias h='history | grep'
 alias c='clear; clear;'
 
