@@ -21,3 +21,4 @@ $PKGMGR install git
 cd
 git clone https://github.com/178inaba/.dotfiles.git
 sh .dotfiles/setup.sh
+cd -
