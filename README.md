@@ -5,8 +5,7 @@ this is my dotfiles
 ## setup
 
 ```sh
-$ cd && git clone https://github.com/178inaba/.dotfiles.git && \
-  . .dotfiles/setup.sh && cd -
+$ sh -c "`curl -fsSL https://raw.githubusercontent.com/178inaba/dotfiles/master/setup.sh`"
 ```
 
 ## license
