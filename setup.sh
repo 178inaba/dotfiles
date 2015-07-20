@@ -28,10 +28,10 @@ DF=~/.dotfiles
 cd $DF
 
 # download
-. dl.sh
+. ./dl.sh
 
 # install
-. install.sh
+. ./install.sh
 
 [ ! -e ~/.bashrc.local ] && mv -v ~/.bashrc ~/.bashrc.local
 
