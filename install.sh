@@ -3,4 +3,9 @@
 # install package
 PKG=(go)
 
-echo "your package manager is $PKGMGR"
+for I in ${PKG[@]}
+do
+	if ! type $I >/dev/null 2>&1; then
+		$PKGMGR install $I
+	fi
+done
