@@ -39,4 +39,4 @@ ln -fsv $DF/.bashrc ~/.bashrc
 
 # reload shell
 cd $CURPWD
-exec $SHELL -l
+exec -l $SHELL
