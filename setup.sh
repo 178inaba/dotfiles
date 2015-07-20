@@ -1,5 +1,7 @@
 #!/bin/sh
 
+. ./func.sh
+
 # package manager for each OS
 case $OSTYPE in
 	# mac
