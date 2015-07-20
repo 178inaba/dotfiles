@@ -18,7 +18,8 @@ echo "your package manager is $PKGMGR"
 
 $PKGMGR install git
 
+PWD=`pwd`
 cd
 git clone https://github.com/178inaba/.dotfiles.git
 sh .dotfiles/setup.sh
-cd -
+cd $PWD
