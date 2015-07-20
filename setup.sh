@@ -22,17 +22,20 @@ CURPWD=`pwd`
 cd
 git clone https://github.com/178inaba/dotfiles.git .dotfiles
 
-cd .dotfiles
+# dotfiles path
+DF=~/.dotfiles
+
+cd $DF
 
 # download
-sh dl.sh
+. dl.sh
 
 # install
-sh install.sh
+. install.sh
 
 [ ! -e ~/.bashrc.local ] && mv -v ~/.bashrc ~/.bashrc.local
 
-ln -fsv .dotfiles/.bashrc ~/.bashrc
+ln -fsv $DF/.bashrc ~/.bashrc
 
 # reload shell
 cd $CURPWD
