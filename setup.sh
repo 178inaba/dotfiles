@@ -18,33 +18,22 @@ echo "your package manager is $PKGMGR"
 
 $PKGMGR install git
 
-PWD=`pwd`
-echo $PWD
-
+CURPWD=`pwd`
 cd
 git clone https://github.com/178inaba/.dotfiles.git
 
-# dotfiles path
-DF=~/.dotfiles
+cd .dotfiles
 
 # download
-sh $DF/dl.sh
+sh dl.sh
 
 # install
-sh $DF/install.sh
+sh install.sh
 
 [ ! -e ~/.bashrc.local ] && mv -v ~/.bashrc ~/.bashrc.local
 
-ln -fsv $DF/.bashrc ~/.bashrc
+ln -fsv .bashrc ~/.bashrc
 
 # reload shell
+cd $CURPWD
 exec $SHELL -l
-
-# git user set
-cd $DF
-
-pwd
-alias
-
-echo $PWD
-cd $PWD
