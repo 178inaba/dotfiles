@@ -19,6 +19,8 @@ echo "your package manager is $PKGMGR"
 $PKGMGR install git
 
 PWD=`pwd`
+echo $PWD
+
 cd
 git clone https://github.com/178inaba/.dotfiles.git
 
@@ -40,6 +42,9 @@ exec $SHELL -l
 
 # git user set
 cd $DF
-inaba
 
+pwd
+alias
+
+echo $PWD
 cd $PWD
