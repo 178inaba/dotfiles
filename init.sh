@@ -14,12 +14,10 @@ case $OSTYPE in
 		;;
 esac
 
-# result
 echo "your package manager is $PKGMGR"
 
 $PKGMGR install git
 
 cd
 git clone https://github.com/178inaba/.dotfiles.git
-. .dotfiles/setup.sh
-cd -
+sh .dotfiles/setup.sh

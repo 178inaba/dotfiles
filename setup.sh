@@ -13,5 +13,5 @@ sh $DF/install.sh
 
 ln -fsv $DF/.bashrc ~/.bashrc
 
-# load
-. ~/.bashrc
+# reload shell
+exec $SHELL -l

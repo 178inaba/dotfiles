@@ -20,5 +20,4 @@ case $OSTYPE in
 		;;
 esac
 
-# result
 echo "your package manager is $PKGMGR"
