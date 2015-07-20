@@ -5,7 +5,5 @@ DF=~/.dotfiles
 
 # git
 mkdir -v $DF/git
-
-# TODO fix curl
-wget https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash -O $DF/git/git-completion.bash
-wget https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh -O $DF/git/git-prompt.sh
+curl -fsSL -o $DF/git/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
+curl -fsSL -o $DF/git/git-prompt.sh https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh
