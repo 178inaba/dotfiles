@@ -1,11 +1,5 @@
 #!/bin/sh
 
-# dotfiles path
-DF=~/.dotfiles
-
-# install package
-PKG=(go)
-
 # package manager for each OS
 case $OSTYPE in
 	# mac
@@ -22,3 +16,10 @@ esac
 
 # result
 echo "your package manager is $PKGMGR"
+
+$PKGMGR install git
+
+cd
+git clone https://github.com/178inaba/.dotfiles.git
+. .dotfiles/setup.sh
+cd -
