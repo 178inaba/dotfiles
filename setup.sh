@@ -20,7 +20,7 @@ $PKGMGR install git
 
 CURPWD=`pwd`
 cd
-git clone https://github.com/178inaba/.dotfiles.git
+git clone https://github.com/178inaba/dotfiles.git .dotfiles
 
 cd .dotfiles
 
