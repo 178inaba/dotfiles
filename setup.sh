@@ -1,7 +1,5 @@
 #!/bin/sh
 
-. ./func.sh
-
 # package manager for each OS
 case $OSTYPE in
 	# mac
@@ -18,7 +16,9 @@ esac
 
 echo "your package manager is $PKGMGR"
 
-install git
+if ! type git >/dev/null 2>&1; then
+	$PKGMGR install git
+fi
 
 CURPWD=`pwd`
 cd
