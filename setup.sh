@@ -32,7 +32,7 @@ sh install.sh
 
 [ ! -e ~/.bashrc.local ] && mv -v ~/.bashrc ~/.bashrc.local
 
-ln -fsv .bashrc ~/.bashrc
+ln -fsv .dotfiles/.bashrc ~/.bashrc
 
 # reload shell
 cd $CURPWD
