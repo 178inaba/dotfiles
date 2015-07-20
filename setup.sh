@@ -16,7 +16,7 @@ esac
 
 echo "your package manager is $PKGMGR"
 
-$PKGMGR install git
+install git
 
 CURPWD=`pwd`
 cd
