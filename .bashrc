@@ -9,6 +9,9 @@ DF=~/.dotfiles
 export GOPATH=~/work/go
 export PATH=~/work/go/bin:$PATH
 
+# bash prompt
+export PS1='\h:\w\$ '
+
 # option for each OS
 case $OSTYPE in
 	# mac
