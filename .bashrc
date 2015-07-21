@@ -30,11 +30,17 @@ alias gb='git checkout -b'
 alias gc='git checkout'
 alias gd='git diff --color | less -R'
 alias gs='git branch; git status; gu;'
-alias gu='echo "User: `git config user.name` <`git config user.email`>"'
 alias gca='git commit -a -m'
 alias gcm='git commit -m'
 alias gp='git push -u origin'
 alias gpm='git push -u origin master'
+
+# git funcs
+gu() {
+	if [ -d .git ]; then
+		echo "User: `git config user.name` <`git config user.email`>"
+	fi
+}
 
 # load local
 . ~/.bashrc.local
