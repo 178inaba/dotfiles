@@ -10,7 +10,7 @@ export GOPATH=~/work/go
 export PATH=~/work/go/bin:$PATH
 
 # bash prompt
-export PS1='\h:\w\$ '
+export PS1='\h:\W \u\$ '
 
 # option for each OS
 case $OSTYPE in
