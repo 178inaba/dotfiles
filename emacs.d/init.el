@@ -25,10 +25,11 @@
 
 ;;; package installed check
 (setq my-init-pkg-install nil)
-(dolist (pkg my-init-pkgs)
-  (unless (package-installed-p pkg)
-    (setq my-init-pkg-install t)
-    ))
+(catch 'end
+  (dolist (pkg my-init-pkgs)
+    (unless (package-installed-p pkg)
+      (setq my-init-pkg-install t)
+      (throw 'end t))))
 
 ;;; install
 (when my-init-pkg-install
