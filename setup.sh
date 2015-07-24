@@ -20,7 +20,7 @@ if ! type git >/dev/null 2>&1; then
 	$PKGMGR install git
 fi
 
-CURPWD=`pwd`
+CURPWD=$(pwd)
 cd
 
 # dotfiles path

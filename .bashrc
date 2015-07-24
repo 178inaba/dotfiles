@@ -44,7 +44,7 @@ alias gpm='git push -u origin master'
 # git funcs
 gu() {
 	if [ -d .git ]; then
-		echo "User: `git config user.name` <`git config user.email`>"
+		echo "User: $(git config user.name) <$(git config user.email)>"
 	fi
 }
 
