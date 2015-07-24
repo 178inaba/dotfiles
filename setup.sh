@@ -43,7 +43,7 @@ fi
 
 [ ! -e ~/.bashrc.local ] && mv -v ~/.bashrc ~/.bashrc.local
 
-ln -fsv $DF/.bashrc ~/.bashrc
+ln -fsv $DF/bashrc ~/.bashrc
 
 # reload shell
 cd $CURPWD
