@@ -41,9 +41,13 @@ fi
 # install
 . ./install.sh
 
-[ ! -e ~/.bashrc.local ] && mv -v ~/.bashrc ~/.bashrc.local
-
-ln -fsv $DF/bashrc ~/.bashrc
+# link files
+FILES=(bashrc)
+for FILE in ${FILES[@]}
+do
+	[ ! -e ~/.$FILE.local ] && mv -v ~/.$FILE ~/.$FILE.local
+	ln -fsv $DF/$FILE ~/.$FILE
+done
 
 # reload shell
 cd $CURPWD

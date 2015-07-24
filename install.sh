@@ -1,11 +1,11 @@
 #!/bin/sh
 
-# install package
-PKG=(go)
+# install packages
+PKGS=(go)
 
-for I in ${PKG[@]}
+for PKG in ${PKGS[@]}
 do
-	if ! type $I >/dev/null 2>&1; then
-		$PKGMGR install $I
+	if ! type $PKG >/dev/null 2>&1; then
+		$PKGMGR install $PKG
 	fi
 done
