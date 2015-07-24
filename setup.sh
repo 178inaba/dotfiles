@@ -42,7 +42,7 @@ fi
 . ./install.sh
 
 # link files
-FILES=(bashrc)
+FILES=(bashrc emacs.d)
 for FILE in ${FILES[@]}
 do
 	[ ! -e ~/.$FILE.local ] && mv -v ~/.$FILE ~/.$FILE.local
