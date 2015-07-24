@@ -15,7 +15,10 @@ export PS1='\h:\W \u\$ '
 # option for each OS
 case $OSTYPE in
 	# mac
-	darwin*) LSCLR='-G';;
+	darwin*)
+		LSCLR='-G'
+		. /usr/local/Library/Contributions/brew_bash_completion.sh
+		;;
 	# linux
 	linux*)  LSCLR='--color';;
 esac
