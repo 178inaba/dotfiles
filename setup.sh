@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # package manager for each OS
 case $OSTYPE in

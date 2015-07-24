@@ -10,7 +10,13 @@ export GOPATH=~/work/go
 export PATH=~/work/go/bin:$PATH
 
 # bash prompt
-export PS1='\h:\W \u\$ '
+PROMPT_COMMAND='__git_ps1 "\u@\h:\w" "\\\$ "'
+GIT_PS1_SHOWDIRTYSTATE=true
+GIT_PS1_SHOWSTASHSTATE=true
+GIT_PS1_SHOWUNTRACKEDFILES=true
+GIT_PS1_SHOWUPSTREAM=auto
+GIT_PS1_SHOWCOLORHINTS=true
+GIT_PS1_HIDE_IF_PWD_IGNORED=true
 
 # option for each OS
 case $OSTYPE in
