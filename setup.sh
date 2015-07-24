@@ -22,12 +22,18 @@ fi
 
 CURPWD=`pwd`
 cd
-git clone https://github.com/178inaba/dotfiles.git .dotfiles
 
 # dotfiles path
 DF=~/.dotfiles
 
-cd $DF
+# clone or pull
+if [ -d $DF ]; then
+	cd $DF
+	git pull
+else
+	git clone https://github.com/178inaba/dotfiles.git .dotfiles
+	cd $DF
+fi
 
 # download
 . ./dl.sh
