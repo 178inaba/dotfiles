@@ -46,7 +46,7 @@ FILES=(bashrc)
 for FILE in ${FILES[@]}
 do
 	[ ! -e ~/.$FILE.local ] && mv -v ~/.$FILE ~/.$FILE.local
-	ln -fsv $DF/$FILE ~/.$FILE
+	ln -fnsv $DF/$FILE ~/.$FILE
 done
 
 # reload shell
