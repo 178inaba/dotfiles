@@ -36,7 +36,7 @@ else
 fi
 
 # link files
-FILES=(bashrc emacs.d)
+. ./sh/const.sh
 for FILE in ${FILES[@]}
 do
     [ ! -e ~/.$FILE.local ] && mv -v ~/.$FILE ~/.$FILE.local

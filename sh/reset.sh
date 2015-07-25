@@ -1,7 +1,5 @@
 #!/bin/bash
 
-cd
-
 # delete package sub command for each OS
 case $OSTYPE in
     # mac
@@ -18,8 +16,13 @@ case $OSTYPE in
 	;;
 esac
 
+# dotfiles path
+DF=~/.dotfiles
+
+# load const
+. $DF/sh/const.sh
+
 # delete package
-. ./sh/const.sh
 PKGS=(git ${PKGS[@]})
 for PKG in ${PKGS[@]}
 do
@@ -28,5 +31,14 @@ do
     fi
 done
 
-mv .bashrc.local .bashrc
-rm -rf .dotfiles
+# local -> origin
+cd
+for FILE in ${FILES[@]}
+do
+    if [ -L .$FILE ]; then
+	unlink .$FILE
+	mv -v .$FILE.local .$FILE
+    fi
+done
+
+rm -rfv $DF
