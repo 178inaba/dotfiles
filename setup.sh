@@ -7,7 +7,7 @@ case $OSTYPE in
     # linux
     linux*)
 	if type yum >/dev/null 2>&1; then
-	    PKGMGR='sudo yum'
+	    PKGMGR='sudo yum -y'
 	elif type apt-get >/dev/null 2>&1; then
 	    PKGMGR='apt-get'
 	fi
