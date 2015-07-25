@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # install packages
-PKGS=(go)
+PKGS=(go emacs)
 
 for PKG in ${PKGS[@]}
 do
@@ -12,3 +12,6 @@ done
 
 # go
 go get -u -v github.com/golang/lint/golint
+
+# emacs
+emacs -script ~/.emacs.d/setup/setup.el
