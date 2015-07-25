@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# install packages
-PKGS=(go emacs)
-
+# package install
+. pkgs.sh
 for PKG in ${PKGS[@]}
 do
     if ! type $PKG >/dev/null 2>&1; then
