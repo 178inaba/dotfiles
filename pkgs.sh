@@ -4,4 +4,5 @@
 PKGS=(
     go
     emacs
+    tree
 )
