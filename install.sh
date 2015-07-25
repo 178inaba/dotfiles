@@ -9,3 +9,6 @@ do
 		$PKGMGR install $PKG
 	fi
 done
+
+# go
+go get -u -v github.com/golang/lint/golint
