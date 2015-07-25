@@ -13,7 +13,7 @@ case $OSTYPE in
     # linux
     linux*)
 	if type yum >/dev/null 2>&1; then
-	    PKGDEL='sudo yum remove'
+	    PKGDEL='sudo yum -y remove'
 	elif type apt-get >/dev/null 2>&1; then
 	    PKGDEL='apt-get remove'
 	fi
