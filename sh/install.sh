@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # package install
-. pkgs.sh
+. ./sh/const.sh
 for PKG in ${PKGS[@]}
 do
     if ! type $PKG >/dev/null 2>&1; then

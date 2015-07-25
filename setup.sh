@@ -44,10 +44,10 @@ do
 done
 
 # download
-. ./dl.sh
+. ./sh/dl.sh
 
 # install
-. ./install.sh
+. ./sh/install.sh
 
 # reload shell
 cd $CURPWD

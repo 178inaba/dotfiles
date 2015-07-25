@@ -1,8 +1,6 @@
 #!/bin/bash
 
 cd
-rm -rf .dotfiles
-mv .bashrc.local .bashrc
 
 # delete package sub command for each OS
 case $OSTYPE in
@@ -21,7 +19,7 @@ case $OSTYPE in
 esac
 
 # delete package
-. pkgs.sh
+. ./sh/const.sh
 PKGS=(git ${PKGS[@]})
 for PKG in ${PKGS[@]}
 do
@@ -29,3 +27,6 @@ do
 	$PKGDEL $PKG
     fi
 done
+
+mv .bashrc.local .bashrc
+rm -rf .dotfiles
