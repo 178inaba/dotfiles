@@ -13,6 +13,7 @@
 ;;; package list
 (setq my-init-pkgs
       '(
+	go-mode
 	markdown-mode
 	))
 
