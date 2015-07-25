@@ -5,9 +5,9 @@ PKGS=(go emacs)
 
 for PKG in ${PKGS[@]}
 do
-	if ! type $PKG >/dev/null 2>&1; then
-		$PKGMGR install $PKG
-	fi
+    if ! type $PKG >/dev/null 2>&1; then
+	$PKGMGR install $PKG
+    fi
 done
 
 # go
