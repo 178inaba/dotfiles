@@ -20,13 +20,13 @@ GIT_PS1_HIDE_IF_PWD_IGNORED=true
 
 # option for each OS
 case $OSTYPE in
-	# mac
-	darwin*)
-		LSCLR='-G'
-		. /usr/local/Library/Contributions/brew_bash_completion.sh
-		;;
-	# linux
-	linux*)  LSCLR='--color';;
+    # mac
+    darwin*)
+	LSCLR='-G'
+	. /usr/local/Library/Contributions/brew_bash_completion.sh
+	;;
+    # linux
+    linux*)  LSCLR='--color';;
 esac
 
 # alias
@@ -49,9 +49,9 @@ alias gpm='git push -u origin master'
 
 # git funcs
 gu() {
-	if [ -d .git ]; then
-		echo "User: $(git config user.name) <$(git config user.email)>"
-	fi
+    if [ -d .git ]; then
+	echo "User: $(git config user.name) <$(git config user.email)>"
+    fi
 }
 
 # load local
