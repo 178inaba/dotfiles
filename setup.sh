@@ -35,12 +35,6 @@ else
 	cd $DF
 fi
 
-# download
-. ./dl.sh
-
-# install
-. ./install.sh
-
 # link files
 FILES=(bashrc emacs.d)
 for FILE in ${FILES[@]}
@@ -48,6 +42,12 @@ do
 	[ ! -e ~/.$FILE.local ] && mv -v ~/.$FILE ~/.$FILE.local
 	ln -fnsv $DF/$FILE ~/.$FILE
 done
+
+# download
+. ./dl.sh
+
+# install
+. ./install.sh
 
 # reload shell
 cd $CURPWD
