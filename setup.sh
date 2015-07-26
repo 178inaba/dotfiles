@@ -46,9 +46,6 @@ done
 # load bashrc
 . bashrc
 
-# download
-. ./sh/dl.sh
-
 # install
 . ./sh/install.sh
 
