@@ -13,5 +13,10 @@ PKGS=(
     tree
 )
 
+# overinstall packages
+OPKGS=(
+    emacs
+)
+
 # install option
 OPTbrewgo=--with-cc-all
