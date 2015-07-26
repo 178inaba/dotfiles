@@ -12,3 +12,6 @@ PKGS=(
     emacs
     tree
 )
+
+# install option
+OPTbrewgo=--with-cc-all
