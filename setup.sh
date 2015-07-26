@@ -43,9 +43,6 @@ do
     ln -fnsv $DF/$FILE ~/.$FILE
 done
 
-# load bashrc
-. bashrc
-
 # install
 . ./sh/install.sh
 

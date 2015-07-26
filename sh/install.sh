@@ -10,6 +10,7 @@ do
 done
 
 # go
+GOPATH=~/work/go
 go get -u -v github.com/golang/lint/golint
 
 # emacs
