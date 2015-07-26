@@ -7,7 +7,9 @@ case $OSTYPE in
     # linux
     linux*)
 	if type yum >/dev/null 2>&1; then
-	    PKGMGR='sudo yum -y'
+	    PKGMGRSUDO='sudo'
+	    PKGMGR='yum'
+	    PKGMGROPT='-y'
 	elif type apt-get >/dev/null 2>&1; then
 	    PKGMGR='apt-get'
 	fi
@@ -17,7 +19,7 @@ esac
 echo "your package manager is $PKGMGR"
 
 if ! type git >/dev/null 2>&1; then
-    $PKGMGR install git
+    $PKGMGRSUDO $PKGMGR $PKGMGROPT install git
 fi
 
 CURPWD=$(pwd)
@@ -39,7 +41,9 @@ fi
 . ./sh/const.sh
 for FILE in ${FILES[@]}
 do
-    [ ! -e ~/.$FILE.local ] && mv -v ~/.$FILE ~/.$FILE.local
+    if ([ -d ~/.$FILE ] || [ -f ~/.$FILE ]) && [ ! -e ~/.$FILE.local ]; then
+	mv -v ~/.$FILE ~/.$FILE.local
+    fi
     ln -fnsv $DF/$FILE ~/.$FILE
 done
 

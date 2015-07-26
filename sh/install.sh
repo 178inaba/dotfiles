@@ -5,12 +5,12 @@
 for PKG in ${PKGS[@]}
 do
     if ! type $PKG >/dev/null 2>&1; then
-	$PKGMGR install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
+	$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
     else
 	for OPKG in ${OPKGS[@]}
 	do
 	    if [ $PKG = $OPKG ]; then
-		$PKGMGR install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
+		$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
 	    fi
 	done
     fi
