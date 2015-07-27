@@ -20,3 +20,6 @@ OPKGS=(
 
 # install option
 OPTbrewgo=--with-cc-all
+
+# emacs version
+EMACS_VER=24.5

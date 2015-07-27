@@ -24,9 +24,8 @@ go get -u -v github.com/golang/lint/golint
 EMVER=(`emacs --version`)
 echo "emacs version ${EMVER[2]}"
 
-if ! echo ${EMVER[2]} | grep '24' >/dev/null; then
-    mkdir -v $DF/emacs.d/dl
-    curl -fsSL -o $DF/emacs.d/dl/package.el http://git.savannah.gnu.org/cgit/emacs.git/plain/lisp/emacs-lisp/package.el?id=ba08b24186711eaeb3748f3d1f23e2c2d9ed0d09
+if ! echo ${EMVER[2]} | grep $EMACS_VER >/dev/null; then
+    . ./sh/emacs24_$PKGMGR.sh
 fi
 
 emacs -script ~/.emacs.d/setup/setup.el
