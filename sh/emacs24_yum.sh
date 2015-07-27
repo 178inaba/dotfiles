@@ -16,4 +16,4 @@ sudo make install
 
 # delete
 cd ..
-rm -frv emacs-24.5.tar.gz emacs-24.5
+rm -frv emacs-$INSTALL_EMACS_VER.tar.gz emacs-$INSTALL_EMACS_VER
