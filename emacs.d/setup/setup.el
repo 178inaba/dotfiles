@@ -10,6 +10,8 @@
       '(
 	go-mode
 	markdown-mode
+	js2-mode
+	json-mode
 	))
 
 ;;; init

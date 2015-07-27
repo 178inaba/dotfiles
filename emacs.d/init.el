@@ -20,6 +20,9 @@
 (add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
 (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
 
+;;; js2-mode
+(add-to-list 'auto-mode-alist '("\\.js\\'" . js2-mode))
+
 ;;;; other settings
 
 ;;; golint
