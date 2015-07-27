@@ -41,7 +41,7 @@ fi
 . ./sh/const.sh
 for FILE in ${FILES[@]}
 do
-    if ([ -d ~/.$FILE ] || [ -f ~/.$FILE ]) && [ ! -e ~/.$FILE.local ]; then
+    if [ -e ~/.$FILE ] && [ ! -L ~/.$FILE ] && [ ! -e ~/.$FILE.local ]; then
 	mv -v ~/.$FILE ~/.$FILE.local
     fi
     ln -fnsv $DF/$FILE ~/.$FILE
