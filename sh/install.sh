@@ -21,10 +21,10 @@ export GOPATH=~/work/go
 go get -u -v github.com/golang/lint/golint
 
 # emacs
-EMVER=(`emacs --version`)
-echo "emacs version ${EMVER[2]}"
+NOW_EMACS_VER=(`emacs --version`)
+echo "emacs version ${NOW_EMACS_VER[2]}"
 
-if ! echo ${EMVER[2]} | grep $EMACS_VER >/dev/null; then
+if ! echo ${NOW_EMACS_VER[2]} | grep $INSTALL_EMACS_VER >/dev/null; then
     . ./sh/emacs24_$PKGMGR.sh
 fi
 

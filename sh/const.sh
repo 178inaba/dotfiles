@@ -22,4 +22,4 @@ OPKGS=(
 OPTbrewgo=--with-cc-all
 
 # emacs version
-EMACS_VER=24.5
+INSTALL_EMACS_VER=24.5

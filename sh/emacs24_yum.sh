@@ -5,9 +5,9 @@ sudo yum -y install gcc
 sudo yum -y install ncurses-devel
 
 # download
-curl -fsSL -o emacs-$EMACS_VER.tar.gz http://ftp.gnu.org/gnu/emacs/emacs-$EMACS_VER.tar.gz
-tar -zxvf emacs-$EMACS_VER.tar.gz
-cd emacs-$EMACS_VER
+curl -fsSL -o emacs-$INSTALL_EMACS_VER.tar.gz http://ftp.gnu.org/gnu/emacs/emacs-$INSTALL_EMACS_VER.tar.gz
+tar -zxvf emacs-$INSTALL_EMACS_VER.tar.gz
+cd emacs-$INSTALL_EMACS_VER
 
 # install
 ./configure
