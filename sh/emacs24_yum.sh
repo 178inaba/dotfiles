@@ -13,3 +13,6 @@ cd emacs-$EMACS_VER
 ./configure
 make
 sudo make install
+
+# delete
+rm -frv emacs-24.5.tar.gz emacs-24.5
