@@ -11,6 +11,7 @@ PKGS=(
     go
     emacs
     tree
+    wget
 )
 
 # overinstall packages
