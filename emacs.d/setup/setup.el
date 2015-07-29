@@ -7,6 +7,7 @@
 	markdown-mode
 	js2-mode
 	json-mode
+	dockerfile-mode
 	))
 
 ;;; load package.el
