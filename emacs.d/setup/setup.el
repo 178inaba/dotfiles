@@ -2,22 +2,23 @@
 
 ;;; package list
 (setq my-init-pkgs
-      '(
-	go-mode
-	markdown-mode
-	js2-mode
-	json-mode
-	dockerfile-mode
-	))
+	  '(
+		go-mode
+		toml-mode
+		markdown-mode
+		js2-mode
+		json-mode
+		dockerfile-mode
+		))
 
 ;;; load package.el
 (require 'package)
 
 ;;; add repo
 (add-to-list 'package-archives
-	     '("marmalade" . "http://marmalade-repo.org/packages/"))
+			 '("marmalade" . "http://marmalade-repo.org/packages/"))
 (add-to-list 'package-archives
-	     '("melpa" . "http://melpa.org/packages/"))
+			 '("melpa" . "http://melpa.org/packages/"))
 (package-initialize)
 
 ;;; package installed check
