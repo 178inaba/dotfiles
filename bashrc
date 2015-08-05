@@ -35,6 +35,7 @@ alias la="ls -la $LSCLR"
 alias em='emacs'
 alias h='history | grep'
 alias c='clear; clear;'
+alias sudo='sudo -E '
 
 # git alias
 alias ga='git add -A'
@@ -46,6 +47,7 @@ alias gca='git commit -a -m'
 alias gcm='git commit -m'
 alias gp='git push -u origin'
 alias gpm='git push -u origin master'
+alias inaba='git config user.name "178inaba"; git config user.email "178inaba@users.noreply.github.com"'
 
 # git funcs
 gu() {
