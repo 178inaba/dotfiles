@@ -1,6 +1,3 @@
-# tab width
-tabs -4
-
 # dotfiles path
 DF=~/.dotfiles
 
