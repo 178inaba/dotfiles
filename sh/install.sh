@@ -4,16 +4,16 @@
 . ./sh/const.sh
 for PKG in ${PKGS[@]}
 do
-    if ! type $PKG >/dev/null 2>&1; then
-	$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
-    else
-	for OPKG in ${OPKGS[@]}
-	do
-	    if [ $PKG = $OPKG ]; then
+	if ! type $PKG >/dev/null 2>&1; then
 		$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
-	    fi
-	done
-    fi
+	else
+		for OPKG in ${OPKGS[@]}
+		do
+			if [ $PKG = $OPKG ]; then
+				$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
+			fi
+		done
+	fi
 done
 
 # go
@@ -25,7 +25,7 @@ NOW_EMACS_VER=(`emacs --version`)
 echo "emacs version ${NOW_EMACS_VER[2]}"
 
 if ! echo ${NOW_EMACS_VER[2]} | grep $INSTALL_EMACS_VER >/dev/null; then
-    . ./sh/emacs24_$PKGMGR.sh
+	. ./sh/emacs24_$PKGMGR.sh
 fi
 
 emacs -script ~/.emacs.d/setup/setup.el

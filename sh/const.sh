@@ -2,21 +2,21 @@
 
 # link files
 FILES=(
-    bashrc
-    emacs.d
+	bashrc
+	emacs.d
 )
 
 # install packages
 PKGS=(
-    go
-    emacs
-    tree
-    wget
+	go
+	emacs
+	tree
+	wget
 )
 
 # overinstall packages
 OPKGS=(
-    emacs
+	emacs
 )
 
 # install option
