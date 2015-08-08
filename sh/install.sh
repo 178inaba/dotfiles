@@ -18,7 +18,7 @@ done
 
 # go
 export GOPATH=~/work/go
-go get code.google.com/p/rog-go/exp/cmd/godef
+go get -u -v code.google.com/p/rog-go/exp/cmd/godef
 go get -u -v github.com/golang/lint/golint
 
 # emacs
