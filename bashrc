@@ -37,7 +37,6 @@ alias lah="ls -lah $LSCLR"
 alias em='emacs'
 alias h='history | grep'
 alias c='clear; clear;'
-alias sudo='sudo -E '
 
 # git alias
 alias ga='git add -A'
