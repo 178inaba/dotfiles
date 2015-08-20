@@ -18,6 +18,9 @@
 
 ;;;; install package settings
 
+;;; gitconfig-mode
+(add-to-list 'auto-mode-alist '("gitconfig\\'" . gitconfig-mode))
+
 ;;; go-mode
 (setq gofmt-command "goimports")
 (add-hook 'before-save-hook 'gofmt-before-save)

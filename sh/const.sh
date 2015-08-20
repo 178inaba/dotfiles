@@ -4,6 +4,7 @@
 FILES=(
 	bashrc
 	emacs.d
+	gitconfig
 )
 
 # install packages
