@@ -3,6 +3,7 @@
 ;;; package list
 (setq my-init-pkgs
 	  '(
+		gitconfig-mode
 		go-mode
 		toml-mode
 		markdown-mode
