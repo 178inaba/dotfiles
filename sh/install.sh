@@ -32,7 +32,8 @@ fi
 
 emacs -script ~/.emacs.d/setup/setup.el
 
-# git
-mkdir -v $DF/git
-curl -fsSL -o $DF/git/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
-curl -fsSL -o $DF/git/git-prompt.sh https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh
+# download
+mkdir -pv $DF/download/shellscript $DF/download/bin
+curl -fsSL -o $DF/download/shellscript/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
+curl -fsSL -o $DF/download/shellscript/git-prompt.sh https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh
+curl -fsSL -o $DF/download/bin/diff-highlight https://raw.githubusercontent.com/git/git/master/contrib/diff-highlight/diff-highlight
