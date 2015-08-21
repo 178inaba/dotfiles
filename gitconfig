@@ -1,3 +1,5 @@
+[alias]
+	cc = checkout .
 [pager]
 	log = diff-highlight | less
 	show = diff-highlight | less
