@@ -40,6 +40,7 @@ alias lah="ls -lah $LSCLR"
 alias em='emacs'
 alias h='history | grep'
 alias c='clear; clear;'
+alias dfiles='cd ~/.dotfiles'
 
 # git alias
 alias ga='git add -A'
@@ -55,7 +56,7 @@ alias inaba='git config user.name "178inaba"; git config user.email "178inaba@us
 
 # git funcs
 gu() {
-	if [ -d .git ]; then
+	if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
 		echo "User: $(git config user.name) <$(git config user.email)>"
 	fi
 }
