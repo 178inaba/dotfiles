@@ -40,7 +40,7 @@ alias lah="ls -lah $LSCLR"
 alias em='emacs'
 alias h='history | grep'
 alias c='clear; clear;'
-alias dfiles='cd ~/.dotfiles'
+alias dfiles="cd $DF"
 
 # git alias
 alias ga='git add -A'
