@@ -20,6 +20,7 @@
 
 ;;; gitconfig-mode
 (add-to-list 'auto-mode-alist '("gitconfig\\'" . gitconfig-mode))
+(add-to-list 'auto-mode-alist '("gitconfig\\.local\\'" . gitconfig-mode))
 
 ;;; go-mode
 (setq gofmt-command "goimports")
