@@ -1,4 +1,7 @@
 [alias]
+	d = !git diff --color | diff-highlight | less -R
+	l = !git log --color | diff-highlight | less -R
+	s = !git show --color | diff-highlight | less -R
 	cc = checkout .
 [pager]
 	log = diff-highlight | less
