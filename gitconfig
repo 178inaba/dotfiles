@@ -1,13 +1,13 @@
 [core]
 	editor = emacs
+[pager]
+	log = diff-highlight | less
+	show = diff-highlight | less
+	diff = diff-highlight | less
 [alias]
 	d = !git diff --color | diff-highlight | less -R
 	l = !git log --color | diff-highlight | less -R
 	s = !git show --color | diff-highlight | less -R
 	cc = checkout .
-[pager]
-	log = diff-highlight | less
-	show = diff-highlight | less
-	diff = diff-highlight | less
 [include]
 	path = ~/.gitconfig.local
