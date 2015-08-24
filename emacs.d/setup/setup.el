@@ -3,14 +3,14 @@
 ;;; package list
 (setq my-init-pkgs
 	  '(
+		dockerfile-mode
 		gitconfig-mode
 		go-mode
-		toml-mode
-		markdown-mode
 		js2-mode
 		json-mode
-		dockerfile-mode
+		markdown-mode
 		nginx-mode
+		toml-mode
 		web-mode
 		))
 
