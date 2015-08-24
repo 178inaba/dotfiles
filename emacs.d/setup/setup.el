@@ -10,6 +10,8 @@
 		js2-mode
 		json-mode
 		dockerfile-mode
+		nginx-mode
+		web-mode
 		))
 
 ;;; load package.el
