@@ -35,6 +35,9 @@
 (add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
 (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
 
+;;; web-mode
+(add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
+
 ;;;; other settings
 
 ;;; golint
