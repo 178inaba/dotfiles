@@ -22,6 +22,9 @@
 (add-to-list 'auto-mode-alist '("gitconfig\\'" . gitconfig-mode))
 (add-to-list 'auto-mode-alist '("gitconfig\\.local\\'" . gitconfig-mode))
 
+;;; go-eldoc
+(add-hook 'go-mode-hook 'go-eldoc-setup)
+
 ;;; go-mode
 (setq gofmt-command "goimports")
 (add-hook 'before-save-hook 'gofmt-before-save)

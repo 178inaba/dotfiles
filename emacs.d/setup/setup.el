@@ -6,6 +6,7 @@
 		auto-complete
 		dockerfile-mode
 		gitconfig-mode
+		go-eldoc
 		go-mode
 		js2-mode
 		json-mode
