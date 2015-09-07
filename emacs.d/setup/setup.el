@@ -3,6 +3,7 @@
 ;;; package list
 (setq my-init-pkgs
 	  '(
+		auto-complete
 		dockerfile-mode
 		gitconfig-mode
 		go-mode

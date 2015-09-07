@@ -40,6 +40,12 @@
 
 ;;;; other settings
 
+;;; gocode
+(add-to-list 'load-path (concat (getenv "GOPATH")  "/src/github.com/nsf/gocode/emacs"))
+(require 'go-autocomplete)
+(require 'auto-complete-config)
+(ac-config-default)
+
 ;;; golint
 (add-to-list 'load-path (concat (getenv "GOPATH")  "/src/github.com/golang/lint/misc/emacs"))
 (require 'golint)
