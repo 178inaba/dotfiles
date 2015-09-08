@@ -18,6 +18,9 @@
 
 ;;;; install package settings
 
+;;; flycheck
+(add-hook 'go-mode-hook #'global-flycheck-mode)
+
 ;;; gitconfig-mode
 (add-to-list 'auto-mode-alist '("gitconfig\\'" . gitconfig-mode))
 (add-to-list 'auto-mode-alist '("gitconfig\\.local\\'" . gitconfig-mode))

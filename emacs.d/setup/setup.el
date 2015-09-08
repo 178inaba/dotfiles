@@ -5,6 +5,7 @@
 	  '(
 		auto-complete
 		dockerfile-mode
+		flycheck
 		gitconfig-mode
 		go-eldoc
 		go-mode
