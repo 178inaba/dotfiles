@@ -15,6 +15,7 @@
 		nginx-mode
 		toml-mode
 		web-mode
+		yaml-mode
 		))
 
 ;;; load package.el
