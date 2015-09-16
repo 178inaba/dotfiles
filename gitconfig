@@ -1,5 +1,6 @@
 [core]
 	editor = emacs
+	attributesFile = ~/.dotfiles/gitattributes
 [pager]
 	log = diff-highlight | less
 	show = diff-highlight | less
