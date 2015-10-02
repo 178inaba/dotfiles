@@ -9,6 +9,9 @@ DF=~/.dotfiles
 export GOPATH=~/work/go
 export PATH=~/work/go/bin:$PATH
 
+# composer(php)
+export PATH=~/.composer/vendor/bin:$PATH
+
 # download bin path
 export PATH=~/.dotfiles/download/bin:$PATH
 
