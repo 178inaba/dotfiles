@@ -13,6 +13,7 @@
 		json-mode
 		markdown-mode
 		nginx-mode
+		php-mode
 		toml-mode
 		web-mode
 		yaml-mode
