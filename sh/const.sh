@@ -2,6 +2,7 @@
 
 # link files
 FILES=(
+	bash_profile
 	bashrc
 	emacs.d
 	gitconfig
