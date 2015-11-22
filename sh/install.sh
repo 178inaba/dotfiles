@@ -4,13 +4,15 @@
 . ./sh/const.sh
 for PKG in ${PKGS[@]}
 do
+	# remove hyphen(-)
+	PKGVAR=$(echo $PKG | sed s/-//g)
 	if ! type $PKG >/dev/null 2>&1; then
-		$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
+		$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKGVAR)
 	else
 		for OPKG in ${OPKGS[@]}
 		do
 			if [ $PKG = $OPKG ]; then
-				$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKG)
+				$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKGVAR)
 			fi
 		done
 	fi

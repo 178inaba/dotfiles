@@ -10,6 +10,7 @@ FILES=(
 
 # install packages
 PKGS=(
+	bash-completion
 	go
 	emacs
 	tree
