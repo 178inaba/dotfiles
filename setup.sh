@@ -9,7 +9,7 @@ case $OSTYPE in
 		if type yum >/dev/null 2>&1; then
 			PKGMGRSUDO='sudo'
 			PKGMGR='yum'
-			PKGMGROPT='-y'
+			PKGMGROPT='-y --enablerepo=epel'
 		elif type apt-get >/dev/null 2>&1; then
 			PKGMGR='apt-get'
 		fi
