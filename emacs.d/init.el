@@ -45,6 +45,8 @@
 
 ;;; web-mode
 (add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
+;; html now is go
+(setq web-mode-engines-alist '(("go" . "\\.html\\'")))
 
 ;;; yaml-mode
 (add-hook 'yaml-mode-hook
