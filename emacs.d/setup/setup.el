@@ -14,6 +14,7 @@
 		markdown-mode
 		nginx-mode
 		php-mode
+		sql-indent
 		toml-mode
 		web-mode
 		yaml-mode
