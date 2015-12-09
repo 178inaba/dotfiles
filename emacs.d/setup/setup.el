@@ -13,6 +13,7 @@
 		json-mode
 		markdown-mode
 		nginx-mode
+		perl6-mode
 		php-mode
 		sql-indent
 		toml-mode
