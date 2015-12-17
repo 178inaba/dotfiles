@@ -1,6 +1,7 @@
-# get dir for mac
+# only mac
 if [ $(echo $OSTYPE | grep darwin) ]; then
 	BASH_COMP_DIR=$(brew --prefix)
+	eval "$(docker-machine env default)"
 fi
 
 # bash-completion load
