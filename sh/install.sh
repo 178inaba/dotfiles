@@ -21,7 +21,7 @@ done
 # go
 export GOPATH=~/work/go
 go get -u -v golang.org/x/tools/cmd/goimports
-go get -u -v code.google.com/p/rog-go/exp/cmd/godef
+go get -u -v github.com/rogpeppe/godef
 go get -u -v github.com/golang/lint/golint
 go get -u -v github.com/nsf/gocode
 go get -u -v github.com/tokuhirom/git-xlsx-textconv
