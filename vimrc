@@ -1,4 +1,5 @@
 syntax on
+set whichwrap=b,s,h,l,<,>,~,[,]
 
 "NeoBundle Scripts-----------------------------
 if has('vim_starting')
