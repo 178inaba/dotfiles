@@ -37,6 +37,9 @@ fi
 
 emacs -script ~/.emacs.d/setup/setup.el
 
+# neobundle(vim)
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/Shougo/neobundle.vim/master/bin/install.sh)"
+
 # download
 mkdir -pv $DF/download/shellscript $DF/download/bin
 curl -fsSL -o $DF/download/shellscript/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash

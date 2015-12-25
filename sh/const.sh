@@ -6,6 +6,7 @@ FILES=(
 	bashrc
 	emacs.d
 	gitconfig
+	vimrc
 )
 
 # install packages
