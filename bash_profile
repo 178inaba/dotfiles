@@ -1,12 +1,12 @@
 # only mac
 if [ $(echo $OSTYPE | grep darwin) ]; then
+	# bash-completion load
 	BASH_COMP_DIR=$(brew --prefix)
-	eval "$(docker-machine env default)"
-fi
+	if [ -f $BASH_COMP_DIR/etc/bash_completion ]; then
+		. $BASH_COMP_DIR/etc/bash_completion
+	fi
 
-# bash-completion load
-if [ -f $BASH_COMP_DIR/etc/bash_completion ]; then
-	. $BASH_COMP_DIR/etc/bash_completion
+	eval "$(docker-machine env default)"
 fi
 
 # path
