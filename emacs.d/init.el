@@ -20,6 +20,9 @@
 
 ;;;; install package settings
 
+;;; dockerfile-mode
+(add-hook 'dockerfile-mode-hook '(lambda () (setq indent-tabs-mode nil)))
+
 ;;; flycheck
 (add-hook 'go-mode-hook #'global-flycheck-mode)
 
