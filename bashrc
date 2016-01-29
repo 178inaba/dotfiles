@@ -5,16 +5,6 @@ DF=~/.dotfiles
 . $DF/download/shellscript/git-completion.bash
 . $DF/download/shellscript/git-prompt.sh
 
-# go
-export GOPATH=~/work/go
-export PATH=~/work/go/bin:$PATH
-
-# composer(php)
-export PATH=~/.composer/vendor/bin:$PATH
-
-# download bin path
-export PATH=~/.dotfiles/download/bin:$PATH
-
 # bash prompt
 PROMPT_COMMAND='__git_ps1 "\u@\h:\w" "\\\$ "'
 GIT_PS1_SHOWDIRTYSTATE=true
