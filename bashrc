@@ -6,8 +6,8 @@ DF=~/.dotfiles
 . $DF/download/shellscript/git-prompt.sh
 
 # bash prompt
-YELLOW=''
-RESET_COLOR=''
+YELLOW='\[\e[0;33m\]'
+RESET_COLOR='\[\e[0m\]'
 PROMPT_COMMAND='__git_ps1 "${VIRTUAL_ENV:+($YELLOW$(basename $VIRTUAL_ENV)$RESET_COLOR)}\u@\h:\w" "\\\$ "'
 GIT_PS1_SHOWDIRTYSTATE=true
 GIT_PS1_SHOWSTASHSTATE=true
