@@ -37,6 +37,7 @@ alias h='history | grep'
 alias c='clear; clear;'
 alias gohome="cd $GOPATH/src/github.com/178inaba"
 alias dfiles="cd $DF"
+alias rmd='docker stop $(docker ps -aq) && docker rm $(docker ps -aq) && docker rmi $(docker images -q)'
 
 # git alias
 alias ga='git add -A'
