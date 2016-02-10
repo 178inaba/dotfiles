@@ -28,6 +28,7 @@ case $OSTYPE in
 esac
 
 # alias
+alias sudo='sudo -E '
 alias ll="ls -l $LSCLR"
 alias lh="ls -lh $LSCLR"
 alias la="ls -la $LSCLR"
