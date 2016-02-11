@@ -20,7 +20,7 @@ export PATH=~/work/go/bin:$PATH
 export PATH=~/.composer/vendor/bin:$PATH
 
 # download bin path
-export PATH=~/.dotfiles/download/bin:$PATH
+export PATH=~/.dotfiles/dl/bin:$PATH
 
 # load local
 . ~/.bash_profile.local

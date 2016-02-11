@@ -41,8 +41,8 @@ emacs -script ~/.emacs.d/setup/setup.el
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/Shougo/neobundle.vim/master/bin/install.sh)"
 
 # download
-mkdir -pv $DF/download/shellscript $DF/download/bin
-curl -fsSL -o $DF/download/shellscript/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
-curl -fsSL -o $DF/download/shellscript/git-prompt.sh https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh
-curl -fsSL -o $DF/download/bin/diff-highlight https://raw.githubusercontent.com/git/git/master/contrib/diff-highlight/diff-highlight
-chmod -v a+x $DF/download/bin/diff-highlight
+mkdir -pv $DF/dl/sh $DF/dl/bin
+curl -fsSL -o $DF/dl/sh/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
+curl -fsSL -o $DF/dl/sh/git-prompt.sh https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh
+curl -fsSL -o $DF/dl/bin/diff-highlight https://raw.githubusercontent.com/git/git/master/contrib/diff-highlight/diff-highlight
+chmod -v a+x $DF/dl/bin/diff-highlight

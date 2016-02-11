@@ -2,8 +2,8 @@
 DF=~/.dotfiles
 
 # git
-. $DF/download/shellscript/git-completion.bash
-. $DF/download/shellscript/git-prompt.sh
+. $DF/dl/sh/git-completion.bash
+. $DF/dl/sh/git-prompt.sh
 
 # bash prompt
 YELLOW='\[\e[0;33m\]'
