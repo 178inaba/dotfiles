@@ -12,7 +12,7 @@
       auto-save-default nil
       auto-save-list-file-prefix nil)
 
-;;; bashrc, .bashrc.local -> sh-mode
+;;; bash*, .bash*.local -> sh-mode
 (add-to-list 'auto-mode-alist '("bash_profile\\'" . sh-mode))
 (add-to-list 'auto-mode-alist '("\\.bash_profile\\.local\\'" . sh-mode))
 (add-to-list 'auto-mode-alist '("bashrc\\'" . sh-mode))
