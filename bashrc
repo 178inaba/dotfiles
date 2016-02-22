@@ -49,7 +49,7 @@ alias gca='git commit -a -m'
 alias gcm='git commit -m'
 alias gp='git push -u origin'
 alias gpm='git push -u origin master'
-alias inaba='git config user.name "178inaba"; git config user.email "178inaba@users.noreply.github.com";'
+alias inaba='git config user.name "178inaba" && git config user.email "178inaba@users.noreply.github.com"'
 
 # git funcs
 gu() {
