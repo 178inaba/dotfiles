@@ -18,6 +18,9 @@
 (add-to-list 'auto-mode-alist '("bashrc\\'" . sh-mode))
 (add-to-list 'auto-mode-alist '("\\.bashrc\\.local\\'" . sh-mode))
 
+;;; conf-mode is 8 tab
+(add-hook 'conf-mode-hook '(lambda () (setq indent-tabs-mode t) (setq tab-width 8)))
+
 ;;;; install package settings
 
 ;;; dockerfile-mode
