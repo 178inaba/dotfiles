@@ -4,9 +4,6 @@
 
 ;;;; base settings
 
-;;; tab is 4
-(setq-default tab-width 4)
-
 ;;; not backup
 (setq make-backup-files nil
       auto-save-default nil
