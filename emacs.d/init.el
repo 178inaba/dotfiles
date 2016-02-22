@@ -19,12 +19,12 @@
 (add-to-list 'auto-mode-alist '("\\.bashrc\\.local\\'" . sh-mode))
 
 ;;; conf-mode is 8 tab
-(add-hook 'conf-mode-hook '(lambda () (setq indent-tabs-mode t) (setq tab-width 8)))
+(add-hook 'conf-mode-hook (lambda () (setq indent-tabs-mode t) (setq tab-width 8)))
 
 ;;;; install package settings
 
 ;;; dockerfile-mode
-(add-hook 'dockerfile-mode-hook '(lambda () (setq indent-tabs-mode nil)))
+(add-hook 'dockerfile-mode-hook (lambda () (setq indent-tabs-mode nil)))
 
 ;;; flycheck
 (add-hook 'go-mode-hook #'global-flycheck-mode)
@@ -61,9 +61,7 @@
 (setq web-mode-engines-alist '(("go" . "\\.tpl\\'")))
 
 ;;; yaml-mode
-(add-hook 'yaml-mode-hook
-		  '(lambda ()
-			 (define-key yaml-mode-map "\C-m" 'newline-and-indent)))
+(add-hook 'yaml-mode-hook (lambda () (define-key yaml-mode-map "\C-m" 'newline-and-indent)))
 
 ;;;; other settings
 
