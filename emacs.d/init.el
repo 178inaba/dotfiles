@@ -12,6 +12,9 @@
       auto-save-default nil
       auto-save-list-file-prefix nil)
 
+;;; delete space
+(add-hook 'before-save-hook 'delete-trailing-whitespace)
+
 ;;; bash*, .bash*.local -> sh-mode
 (add-to-list 'auto-mode-alist '("bash_profile\\'" . sh-mode))
 (add-to-list 'auto-mode-alist '("\\.bash_profile\\.local\\'" . sh-mode))
