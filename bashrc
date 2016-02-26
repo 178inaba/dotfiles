@@ -73,13 +73,13 @@ docker() {
 		eval "$(docker-machine env default)"
 
 		# clean
-		command docker stop $(docker ps -aq)
-		command docker rm $(docker ps -aq)
-		command docker rmi $(docker images -q)
+		docker stop $(docker ps -aq)
+		docker rm $(docker ps -aq)
+		docker rmi $(docker images -q)
 
 		# check
-		command docker ps -a
-		command docker images
+		docker ps -a
+		docker images
 	else
 		command docker "$@"
 	fi
