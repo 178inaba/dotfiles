@@ -61,12 +61,12 @@ docker() {
 			PORT=${BASH_REMATCH[2]}
 		else
 			echo 'not get ip and port!!'
-			exit 1
+			return 1
 		fi
 
 		until nc -z $IP $PORT
 		do
-			echo "wait port open..."
+			echo 'wait port open...'
 			sleep 1s
 		done
 
