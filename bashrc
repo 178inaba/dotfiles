@@ -51,6 +51,40 @@ alias gp='git push -u origin'
 alias gpm='git push -u origin master'
 alias inaba='git config user.name "178inaba" && git config user.email "178inaba@users.noreply.github.com"'
 
+# funcs
+docker() {
+	if [[ $@ == 'reset' ]]; then
+		docker-machine restart default
+
+		if [[ $(docker-machine url default) =~ ^tcp://(.+):(.+)$ ]]; then
+			IP=${BASH_REMATCH[1]}
+			PORT=${BASH_REMATCH[2]}
+		else
+			echo 'not get ip and port!!'
+			exit 1
+		fi
+
+		until nc -z $IP $PORT
+		do
+			echo "wait port open..."
+			sleep 1s
+		done
+
+		eval "$(docker-machine env default)"
+
+		# clean
+		command docker stop $(docker ps -aq)
+		command docker rm $(docker ps -aq)
+		command docker rmi $(docker images -q)
+
+		# check
+		command docker ps -a
+		command docker images
+	else
+		command docker "$@"
+	fi
+}
+
 # git funcs
 gu() {
 	if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
