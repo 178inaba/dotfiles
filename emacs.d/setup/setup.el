@@ -4,6 +4,7 @@
 (setq my-init-pkgs
 	  '(
 		auto-complete
+		coffee-mode
 		dockerfile-mode
 		flycheck
 		gitconfig-mode
