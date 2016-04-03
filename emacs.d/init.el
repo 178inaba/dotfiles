@@ -59,9 +59,8 @@
 (add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
 (add-to-list 'auto-mode-alist '("\\.tpl\\'" . web-mode))
 
-;; engine is go
-(setq web-mode-engines-alist '(("go" . "\\.html\\'")))
-(setq web-mode-engines-alist '(("go" . "\\.tpl\\'")))
+;; set engine
+(setq web-mode-engines-alist '(("smarty" . "\\.tpl\\'")))
 
 ;;; yaml-mode
 (add-hook 'yaml-mode-hook (lambda () (define-key yaml-mode-map "\C-m" 'newline-and-indent)))
