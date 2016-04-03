@@ -59,6 +59,12 @@
 (add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
 (add-to-list 'auto-mode-alist '("\\.tpl\\'" . web-mode))
 
+;; indent
+(defun web-mode-hooks ()
+  (setq indent-tabs-mode nil)
+  (setq web-mode-markup-indent-offset 2))
+(add-hook 'web-mode-hook 'web-mode-hooks)
+
 ;; set engine
 (setq web-mode-engines-alist '(("smarty" . "\\.tpl\\'")))
 
