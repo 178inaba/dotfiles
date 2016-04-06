@@ -19,9 +19,9 @@ GIT_PS1_HIDE_IF_PWD_IGNORED=true
 # option for each OS
 case $OSTYPE in
 	# mac
-	darwin*) LSCLR='-G'      ;;
+	darwin*) LSCLR='-G' ;;
 	# linux
-	linux*)  LSCLR='--color' ;;
+	linux*) LSCLR='--color' ;;
 esac
 
 # alias
