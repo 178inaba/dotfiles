@@ -1,5 +1,11 @@
 "*":
+  core: {}
+  editor:
+    invisibles: {}
   "exception-reporting":
     userId: "ca4ba82f-55d9-6783-63e8-7a2a1588920c"
   welcome:
     showOnStartup: false
+".html.php.text":
+  editor:
+    tabLength: 4
