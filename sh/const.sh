@@ -2,6 +2,7 @@
 
 # link files
 FILES=(
+	atom
 	bash_profile
 	bashrc
 	emacs.d
