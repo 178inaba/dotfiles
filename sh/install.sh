@@ -18,6 +18,14 @@ do
 	fi
 done
 
+# package installation of each package manager
+case $PKGMGR in
+	brew)
+		$PKGMGR cask install atom
+		apm install package-sync
+		;;
+esac
+
 # go
 export GOPATH=~/work/go
 go get -u -v golang.org/x/tools/cmd/goimports
@@ -39,9 +47,6 @@ emacs -script ~/.emacs.d/setup/setup.el
 
 # neobundle(vim)
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/Shougo/neobundle.vim/master/bin/install.sh)"
-
-# atom
-apm install package-sync
 
 # download
 mkdir -pv $DF/dl/sh $DF/dl/bin
