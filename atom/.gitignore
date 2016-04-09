@@ -2,6 +2,6 @@ blob-store
 compile-cache
 dev
 storage
+.apm/.apmrc
 .node-gyp
 .npm
-.apm/.apmrc
