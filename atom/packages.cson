@@ -1,6 +1,8 @@
 packages: [
   "atom-beautify"
+  "autocomplete-php"
   "file-icons"
+  "highlight-selected"
   "linter"
   "minimap"
   "package-sync"
