@@ -4,6 +4,7 @@ packages: [
   "file-icons"
   "highlight-selected"
   "linter"
+  "linter-php"
   "minimap"
   "package-sync"
   "seti-syntax"
