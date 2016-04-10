@@ -1,4 +1,5 @@
 packages: [
+  "atom-alignment"
   "atom-beautify"
   "autocomplete-php"
   "docblockr"
