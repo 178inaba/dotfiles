@@ -5,6 +5,7 @@ packages: [
   "docblockr"
   "file-icons"
   "highlight-selected"
+  "language-smarty"
   "linter"
   "linter-php"
   "minimap"
