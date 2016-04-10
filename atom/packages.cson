@@ -1,4 +1,6 @@
 packages: [
+  "atom-beautify"
   "file-icons"
+  "linter"
   "package-sync"
 ]
