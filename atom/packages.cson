@@ -1,6 +1,7 @@
 packages: [
   "atom-beautify"
   "autocomplete-php"
+  "docblockr"
   "file-icons"
   "highlight-selected"
   "linter"
