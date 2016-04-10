@@ -4,4 +4,6 @@ packages: [
   "linter"
   "minimap"
   "package-sync"
+  "seti-syntax"
+  "seti-ui"
 ]

@@ -1,5 +1,9 @@
 "*":
-  core: {}
+  core:
+    themes: [
+      "seti-ui"
+      "seti-syntax"
+    ]
   editor:
     fontFamily: "Andale Mono"
     fontSize: 13
