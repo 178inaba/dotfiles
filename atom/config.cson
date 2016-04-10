@@ -4,6 +4,8 @@
       "seti-ui"
       "seti-syntax"
     ]
+  docblockr:
+    extend_double_slash: false
   editor:
     fontFamily: "Andale Mono"
     fontSize: 13
