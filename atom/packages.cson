@@ -2,5 +2,6 @@ packages: [
   "atom-beautify"
   "file-icons"
   "linter"
+  "minimap"
   "package-sync"
 ]
