@@ -33,3 +33,5 @@
 'atom-workspace atom-text-editor:not([mini])':
   'shift-alt-up': 'editor:add-selection-above'
   'shift-alt-down': 'editor:add-selection-below'
+  'cmd-s': 'unset!'
+  'ctrl-x ctrl-s': 'core:save'
