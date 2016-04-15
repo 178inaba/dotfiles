@@ -4,8 +4,9 @@
 
 ;;;; base settings
 
-;;; tab is 4
+;;; indent is 4, not tab
 (setq-default tab-width 4)
+(setq-default indent-tabs-mode nil)
 
 ;;; not backup
 (setq make-backup-files nil
@@ -24,13 +25,7 @@
 ;;; conf-mode is 8 tab
 (add-hook 'conf-mode-hook (lambda () (setq indent-tabs-mode t) (setq tab-width 8)))
 
-;;; json-mode
-(add-hook 'json-mode-hook (lambda () (setq indent-tabs-mode nil)))
-
 ;;;; install package settings
-
-;;; dockerfile-mode
-(add-hook 'dockerfile-mode-hook (lambda () (setq indent-tabs-mode nil)))
 
 ;;; flycheck
 (add-hook 'go-mode-hook #'global-flycheck-mode)
@@ -63,10 +58,7 @@
 (add-to-list 'auto-mode-alist '("\\.tpl\\'" . web-mode))
 
 ;; indent
-(defun web-mode-hooks ()
-  (setq indent-tabs-mode nil)
-  (setq web-mode-markup-indent-offset 2))
-(add-hook 'web-mode-hook 'web-mode-hooks)
+(add-hook 'web-mode-hook (lambda () (setq web-mode-markup-indent-offset 2)))
 
 ;; set engine
 (setq web-mode-engines-alist '(("smarty" . "\\.tpl\\'")))
