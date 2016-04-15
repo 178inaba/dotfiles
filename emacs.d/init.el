@@ -24,6 +24,9 @@
 ;;; conf-mode is 8 tab
 (add-hook 'conf-mode-hook (lambda () (setq indent-tabs-mode t) (setq tab-width 8)))
 
+;;; json-mode
+(add-hook 'json-mode-hook (lambda () (setq indent-tabs-mode nil)))
+
 ;;;; install package settings
 
 ;;; dockerfile-mode
