@@ -2,6 +2,7 @@ packages: [
   "atom-alignment"
   "atom-beautify"
   "autocomplete-php"
+  "change-case"
   "docblockr"
   "file-icons"
   "highlight-selected"
