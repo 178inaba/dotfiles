@@ -24,9 +24,6 @@ case $OSTYPE in
 	linux*) LSCLR='--color' ;;
 esac
 
-# etc var
-GREP_OPTIONS='-nr --color=auto'
-
 # alias
 alias sudo='sudo -E '
 alias ll="ls -l $LSCLR"
