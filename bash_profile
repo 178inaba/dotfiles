@@ -22,8 +22,5 @@ export PATH=~/.composer/vendor/bin:$PATH
 # download bin path
 export PATH=~/.dotfiles/dl/bin:$PATH
 
-# etc
-export GREP_OPTIONS='-nr --color=auto'
-
 # load local
 . ~/.bash_profile.local
