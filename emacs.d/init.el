@@ -49,6 +49,7 @@
   "Major mode for editing Markdown files" t)
 (add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-mode))
 (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
+(add-hook 'markdown-mode-hook (lambda () (remove-hook 'before-save-hook 'delete-trailing-whitespace)))
 
 ;;; sql-indent
 (eval-after-load "sql" '(load-library "sql-indent"))
