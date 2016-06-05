@@ -56,10 +56,12 @@
 
 ;;; web-mode
 (add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.css\\'" . web-mode))
 (add-to-list 'auto-mode-alist '("\\.tpl\\'" . web-mode))
 
 ;; indent
-(add-hook 'web-mode-hook (lambda () (setq web-mode-markup-indent-offset 2)))
+(add-hook 'web-mode-hook (lambda () (setq web-mode-markup-indent-offset 2
+                                          web-mode-css-indent-offset 2)))
 
 ;; set engine
 (setq web-mode-engines-alist '(("smarty" . "\\.tpl\\'")))
