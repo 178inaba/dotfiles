@@ -15,6 +15,7 @@
 		markdown-mode
 		nginx-mode
 		perl6-mode
+        php-completion
 		php-mode
 		sql-indent
 		toml-mode
