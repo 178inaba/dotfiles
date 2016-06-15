@@ -44,6 +44,7 @@
 ;;; js2-mode
 (add-to-list 'auto-mode-alist '("\\.js\\'" . js2-mode))
 (add-to-list 'auto-mode-alist '("/jsx/.+\\.js\\'" . js2-jsx-mode))
+(setq js2-basic-offset 2)
 
 ;;; markdown-mode
 (autoload 'markdown-mode "markdown-mode"
