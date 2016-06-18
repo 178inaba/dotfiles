@@ -47,7 +47,6 @@
 
 ;; indent
 (add-hook 'js2-mode-hook (lambda () (setq js2-basic-offset 2)))
-(add-hook 'js2-jsx-mode-hook (lambda () (setq-local sgml-basic-offset js2-basic-offset)))
 
 ;;; markdown-mode
 (autoload 'markdown-mode "markdown-mode"
