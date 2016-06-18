@@ -44,7 +44,10 @@
 ;;; js2-mode
 (add-to-list 'auto-mode-alist '("\\.js\\'" . js2-mode))
 (add-to-list 'auto-mode-alist '("/jsx/.+\\.js\\'" . js2-jsx-mode))
-(setq js2-basic-offset 2)
+
+;; indent
+(add-hook 'js2-mode-hook (lambda () (setq js2-basic-offset 2)))
+(add-hook 'js2-jsx-mode-hook (lambda () (setq-local sgml-basic-offset js2-basic-offset)))
 
 ;;; markdown-mode
 (autoload 'markdown-mode "markdown-mode"
