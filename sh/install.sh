@@ -4,26 +4,26 @@
 . ./sh/const.sh
 for PKG in ${PKGS[@]}
 do
-	# remove hyphen(-)
-	PKGVAR=$(echo $PKG | sed s/-//g)
-	if ! type $PKG >/dev/null 2>&1; then
-		$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKGVAR)
-	else
-		for OPKG in ${OPKGS[@]}
-		do
-			if [ $PKG = $OPKG ]; then
-				$PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKGVAR)
-			fi
-		done
-	fi
+    # remove hyphen(-)
+    PKGVAR=$(echo $PKG | sed s/-//g)
+    if ! type $PKG >/dev/null 2>&1; then
+        $PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKGVAR)
+    else
+        for OPKG in ${OPKGS[@]}
+        do
+            if [ $PKG = $OPKG ]; then
+                $PKGMGRSUDO $PKGMGR $PKGMGROPT install $PKG $(eval 'echo $OPT'$PKGMGR$PKGVAR)
+            fi
+        done
+    fi
 done
 
 # package installation of each package manager
 case $PKGMGR in
-	brew)
-		$PKGMGR cask install atom
-		apm install package-sync
-		;;
+    brew)
+        $PKGMGR cask install atom
+        apm install package-sync
+        ;;
 esac
 
 # go
@@ -40,7 +40,7 @@ NOW_EMACS_VER=(`emacs --version`)
 echo "emacs version ${NOW_EMACS_VER[2]}"
 
 if ! echo ${NOW_EMACS_VER[2]} | grep $INSTALL_EMACS_VER >/dev/null; then
-	. ./sh/emacs24_$PKGMGR.sh
+    . ./sh/emacs24_$PKGMGR.sh
 fi
 
 emacs -script ~/.emacs.d/setup/setup.el
