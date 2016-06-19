@@ -92,5 +92,5 @@
 (require 'golint)
 
 ;;; load download elisp
-(add-to-list 'load-path (concat (getenv "DF") "/dl/emacs"))
+(add-to-list 'load-path "~/.dotfiles/dl/emacs")
 (add-hook 'js2-jsx-mode-hook (lambda () (load "sgml-mode-patch")))
