@@ -52,5 +52,6 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/Shougo/neobundle.vim/maste
 mkdir -pv $DF/dl/sh $DF/dl/bin
 curl -fsSL -o $DF/dl/sh/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
 curl -fsSL -o $DF/dl/sh/git-prompt.sh https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh
+curl -fsSL -o $DF/dl/emacs/sgml-mode-patch.el https://gist.githubusercontent.com/178inaba/b143a6f4621e0fcb240cf27e07312eef/raw/db49ed9caaafcb08f16a0389787a1991cbd70727/sgml-mode-patch.el
 curl -fsSL -o $DF/dl/bin/diff-highlight https://raw.githubusercontent.com/git/git/master/contrib/diff-highlight/diff-highlight
 chmod -v a+x $DF/dl/bin/diff-highlight
