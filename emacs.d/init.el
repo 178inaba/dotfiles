@@ -16,6 +16,11 @@
 ;;; delete space
 (add-hook 'before-save-hook 'delete-trailing-whitespace)
 
+;;; elisp byte compile
+(defun after-save-byte-compile ()
+  (when (eq major-mode 'emacs-lisp-mode) (byte-compile-file buffer-file-name t)))
+(add-hook 'after-save-hook 'after-save-byte-compile)
+
 ;;; bash*, .bash*.local -> sh-mode
 (add-to-list 'auto-mode-alist '("bash_profile\\'" . sh-mode))
 (add-to-list 'auto-mode-alist '("\\.bash_profile\\.local\\'" . sh-mode))
