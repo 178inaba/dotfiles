@@ -6,6 +6,7 @@
         auto-complete
         coffee-mode
         dockerfile-mode
+        editorconfig
         flycheck
         gitconfig-mode
         go-eldoc

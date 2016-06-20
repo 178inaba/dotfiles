@@ -32,6 +32,9 @@
 
 ;;;; install package settings
 
+;;; editorconfig
+(editorconfig-mode 1)
+
 ;;; flycheck
 (add-hook 'go-mode-hook #'global-flycheck-mode)
 
