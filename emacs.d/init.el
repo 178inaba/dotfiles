@@ -96,3 +96,4 @@
 ;;; load download elisp
 (add-to-list 'load-path "~/.dotfiles/dl/emacs")
 (add-hook 'js2-jsx-mode-hook (lambda () (load "sgml-mode-patch")))
+(add-hook 'before-save-hook 'php-cs-fixer-before-save)
