@@ -98,3 +98,6 @@
 (add-hook 'js2-jsx-mode-hook (lambda () (load "sgml-mode-patch")))
 (require 'php-cs-fixer)
 (add-hook 'before-save-hook 'php-cs-fixer-before-save)
+(add-hook 'php-mode-hook (lambda ()
+                           (load "fixers")
+                           (setq php-cs-fixer-level-option nil)))
