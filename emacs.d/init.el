@@ -64,7 +64,10 @@
 (add-hook 'markdown-mode-hook (lambda () (remove-hook 'before-save-hook 'delete-trailing-whitespace)))
 
 ;;; php-mode
-(add-hook 'php-mode-hook (lambda () (setq c-basic-offset 4) (c-set-offset 'statement-cont '+)))
+(add-hook 'php-mode-hook (lambda ()
+                           (setq c-basic-offset 4)
+                           (c-set-offset 'statement-cont '+)
+                           (c-set-offset 'case-label '+)))
 
 ;;; sql-indent
 (eval-after-load "sql" '(load-library "sql-indent"))
