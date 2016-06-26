@@ -4,6 +4,15 @@ this is my dotfiles
 
 ## setup
 
+### require
+
+#### macOS
+
+* Xcode
+* [Homebrew](http://brew.sh/)
+
+### run
+
 ```bash
 $ bash -c "$(curl -fsSL\
   https://raw.githubusercontent.com/178inaba/dotfiles/master/setup.sh)"
