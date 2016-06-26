@@ -5,8 +5,6 @@ if [ $(echo $OSTYPE | grep darwin) ]; then
 	if [ -f $BASH_COMP_DIR/etc/bash_completion ]; then
 		. $BASH_COMP_DIR/etc/bash_completion
 	fi
-
-	eval "$(docker-machine env default)"
 fi
 
 # path
@@ -23,4 +21,11 @@ export PATH=~/.composer/vendor/bin:$PATH
 export PATH=~/.dotfiles/dl/bin:$PATH
 
 # load local
-. ~/.bash_profile.local
+if [ -f ~/.bash_profile.local ]; then
+    . ~/.bash_profile.local
+fi
+
+# load .bashrc
+if [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
