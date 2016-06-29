@@ -68,7 +68,8 @@
                            (setq c-basic-offset 4)
                            (c-set-offset 'arglist-cont-nonempty '+)
                            (c-set-offset 'case-label '+)
-                           (c-set-offset 'statement-cont '+)))
+                           (c-set-offset 'statement-cont '+)
+                           (c-set-offset 'arglist-cont '+)))
 
 ;;; sql-indent
 (eval-after-load "sql" '(load-library "sql-indent"))
