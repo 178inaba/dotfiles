@@ -66,10 +66,10 @@
 ;;; php-mode
 (add-hook 'php-mode-hook (lambda ()
                            (setq c-basic-offset 4)
-                           (c-set-offset 'arglist-cont-nonempty '+)
+                           (c-set-offset 'arglist-cont 0)
+                           (c-set-offset 'arglist-cont-nonempty 0)
                            (c-set-offset 'case-label '+)
-                           (c-set-offset 'statement-cont '+)
-                           (c-set-offset 'arglist-cont '+)))
+                           (c-set-offset 'statement-cont '+)))
 
 ;;; sql-indent
 (eval-after-load "sql" '(load-library "sql-indent"))
