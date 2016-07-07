@@ -22,6 +22,7 @@ done
 case $PKGMGR in
     brew)
         $PKGMGR install composer
+        composer global require friendsofphp/php-cs-fixer
         $PKGMGR cask install atom
         apm install package-sync
         ;;
