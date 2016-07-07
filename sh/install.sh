@@ -21,6 +21,7 @@ done
 # package installation of each package manager
 case $PKGMGR in
     brew)
+        $PKGMGR install composer
         $PKGMGR cask install atom
         apm install package-sync
         ;;
