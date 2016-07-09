@@ -51,24 +51,6 @@ alias inaba='git config user.name "178inaba" && git config user.email "178inaba@
 # funcs
 docker() {
 	if [[ $@ == 'reset' ]]; then
-		docker-machine restart default
-
-		if [[ $(docker-machine url default) =~ ^tcp://(.+):(.+)$ ]]; then
-			IP=${BASH_REMATCH[1]}
-			PORT=${BASH_REMATCH[2]}
-		else
-			echo 'not get ip and port!!'
-			return 1
-		fi
-
-		until nc -z $IP $PORT
-		do
-			echo 'wait port open...'
-			sleep 1s
-		done
-
-		eval "$(docker-machine env default)"
-
 		# clean
 		docker stop $(docker ps -aq)
 		docker rm $(docker ps -aq)
