@@ -21,6 +21,7 @@ done
 # package installation of each package manager
 case $PKGMGR in
     brew)
+        $PKGMGR install homebrew/php/composer
         $PKGMGR cask install atom
         apm install package-sync
         ;;
@@ -34,6 +35,9 @@ go get -u -v github.com/golang/lint/golint
 go get -u -v github.com/nsf/gocode
 go get -u -v github.com/tokuhirom/git-xlsx-textconv
 go get -u -v github.com/jingweno/ccat
+
+# composer(php)
+composer global require friendsofphp/php-cs-fixer
 
 # emacs
 NOW_EMACS_VER=(`emacs --version`)
