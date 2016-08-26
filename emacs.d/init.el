@@ -32,6 +32,9 @@
 
 ;;;; install package settings
 
+;;; coffee-mode
+(add-hook 'coffee-mode-hook (lambda () (setq coffee-tab-width 2)))
+
 ;;; editorconfig
 (editorconfig-mode 1)
 
