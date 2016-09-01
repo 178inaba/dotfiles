@@ -83,7 +83,7 @@
 (add-to-list 'auto-mode-alist '("\\.css\\'" . web-mode))
 
 ;; set engine
-(setq web-mode-engines-alist '(("smarty" . "\\.tpl\\'")))
+(setq web-mode-engines-alist '(("django" . "\\.tpl\\'")))
 
 ;; indent
 (add-hook 'web-mode-hook
