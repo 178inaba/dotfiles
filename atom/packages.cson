@@ -6,11 +6,13 @@ packages: [
   "docblockr"
   "file-icons"
   "highlight-selected"
+  "language-plantuml"
   "language-smarty"
   "linter"
   "linter-php"
   "minimap"
   "package-sync"
+  "plantuml-viewer"
   "seti-syntax"
   "seti-ui"
 ]
