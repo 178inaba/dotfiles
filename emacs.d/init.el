@@ -77,6 +77,9 @@
 ;;; sql-indent
 (eval-after-load "sql" '(load-library "sql-indent"))
 
+;;; typescript-mode
+(add-to-list 'auto-mode-alist '("\\.tsx?\\'" . typescript-mode))
+
 ;;; web-mode
 (add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
 (add-to-list 'auto-mode-alist '("\\.tpl\\'" . web-mode))

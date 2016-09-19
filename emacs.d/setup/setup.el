@@ -20,6 +20,7 @@
         php-mode
         sql-indent
         toml-mode
+        typescript-mode
         web-mode
         yaml-mode
         ))
