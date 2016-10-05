@@ -12,7 +12,7 @@ export PATH="/usr/local/sbin:$PATH"
 
 # go
 export GOPATH=~/work/go
-export PATH=~/work/go/bin:$PATH
+export PATH=/usr/local/go/bin:~/work/go/bin:$PATH
 
 # composer(php)
 export PATH=~/.composer/vendor/bin:$PATH
