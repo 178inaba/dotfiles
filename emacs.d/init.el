@@ -10,6 +10,9 @@
 
 ;;;; base settings
 
+;;; Display column number.
+(column-number-mode t)
+
 ;;; indent is 4, not tab
 (setq-default tab-width 4)
 (setq-default indent-tabs-mode nil)
