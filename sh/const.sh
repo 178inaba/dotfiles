@@ -25,4 +25,4 @@ OPKGS=(
 )
 
 # emacs version
-INSTALL_EMACS_VER=24.5
+INSTALL_EMACS_VER=25.1

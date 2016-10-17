@@ -44,7 +44,7 @@ NOW_EMACS_VER=(`emacs --version`)
 echo "emacs version ${NOW_EMACS_VER[2]}"
 
 if ! echo ${NOW_EMACS_VER[2]} | grep $INSTALL_EMACS_VER >/dev/null; then
-    . ./sh/emacs24_$PKGMGR.sh
+    . ./sh/emacs_$PKGMGR.sh
 fi
 
 emacs -script ~/.emacs.d/setup/setup.el

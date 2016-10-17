@@ -1,19 +1,18 @@
 #!/bin/bash
 
-# dependent package installation
-sudo yum -y install gcc
-sudo yum -y install ncurses-devel
+# Dependent package installation.
+sudo yum -y install gcc ncurses-devel
 
-# download
+# Download.
 curl -fsSL -o emacs-$INSTALL_EMACS_VER.tar.gz http://ftp.gnu.org/gnu/emacs/emacs-$INSTALL_EMACS_VER.tar.gz
 tar -zxvf emacs-$INSTALL_EMACS_VER.tar.gz
 cd emacs-$INSTALL_EMACS_VER
 
-# install
+# Install.
 ./configure
 make
 sudo make install
 
-# delete
+# Remove.
 cd ..
 rm -frv emacs-$INSTALL_EMACS_VER.tar.gz emacs-$INSTALL_EMACS_VER
