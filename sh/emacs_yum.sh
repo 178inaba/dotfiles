@@ -9,7 +9,7 @@ tar -zxvf emacs-$INSTALL_EMACS_VER.tar.gz
 cd emacs-$INSTALL_EMACS_VER
 
 # Install.
-./configure
+./configure --with-x-toolkit=no --with-xpm=no --with-png=no --with-gif=no
 make
 sudo make install
 
