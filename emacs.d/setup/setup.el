@@ -13,6 +13,7 @@
         go-mode
         js2-mode
         json-mode
+        lua-mode
         markdown-mode
         nginx-mode
         perl6-mode
