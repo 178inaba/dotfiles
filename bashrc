@@ -30,11 +30,12 @@ alias ll="ls -l $LSCLR"
 alias lh="ls -lh $LSCLR"
 alias la="ls -la $LSCLR"
 alias lah="ls -lah $LSCLR"
-alias em='emacs'
 alias h='history | grep'
 alias c='clear && clear'
 alias gohome="cd $GOPATH/src/github.com/178inaba"
 alias dfiles="cd $DF"
+alias em=emacs
+alias cat=ccat
 
 # git alias
 alias ga='git add -A'
