@@ -1,0 +1,22 @@
+#!/bin/sh
+
+if [ "$(git config user.name)" != 178inaba ]; then
+    if git config remote.origin.url | grep github.com >/dev/null; then
+        echo "Remote: $(git config remote.origin.url)"
+        echo "User: $(git config user.name) <$(git config user.email)>"
+        echo "Error: This git user can not be committed to this remote."
+        exit 1
+    elif [ "$(git config remote.origin.url)" == "" ]; then
+        echo "Remote is empty."
+        echo "User: $(git config user.name) <$(git config user.email)>"
+        printf "Commit from this user? [Y/n]: "
+        exec < /dev/tty
+        read A
+        case $A in
+            "Y"|"y"|"yes"|"Yes"|"YES");;
+            *)
+                echo "Not commit."
+                exit 1;;
+        esac
+    fi
+fi

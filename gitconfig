@@ -4,6 +4,8 @@
 [core]
 	editor = emacs
 	attributesFile = ~/.dotfiles/gitattributes
+[init]
+	templateDir = ~/.dotfiles/git
 [pager]
 	log = diff-highlight | less
 	show = diff-highlight | less
