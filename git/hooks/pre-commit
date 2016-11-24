@@ -10,8 +10,9 @@ if [ "$(git config user.name)" != 178inaba ]; then
         echo "Remote is empty."
         echo "User: $(git config user.name) <$(git config user.email)>"
         printf "Commit from this user? [Y/n]: "
-        exec < /dev/tty
+        exec </dev/tty
         read A
+        exec <&-
         case $A in
             "Y"|"y"|"yes"|"Yes"|"YES");;
             *)
