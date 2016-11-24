@@ -14,7 +14,7 @@ if [ "$(git config user.name)" != 178inaba ]; then
         read A
         exec <&-
         case $A in
-            "Y"|"y"|"yes"|"Yes"|"YES");;
+            "Y"|"y"|"Yes"|"yes");;
             *)
                 echo "Not commit."
                 exit 1;;
