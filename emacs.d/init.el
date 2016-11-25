@@ -4,11 +4,14 @@
 ;; You may delete these explanatory comments.
 (package-initialize)
 
-;;;; setup
+;;;; Setup.
 (add-to-list 'load-path "~/.emacs.d/setup")
 (load "setup")
 
-;;;; base settings
+;;;; Base settings.
+
+;;; Hide menu bar.
+(menu-bar-mode 0)
 
 ;;; Display column number.
 (column-number-mode t)
