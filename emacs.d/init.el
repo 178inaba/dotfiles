@@ -139,7 +139,7 @@
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
    (quote
-    (lua-mode yaml-mode web-mode typescript-mode toml-mode sql-indent php-mode php-completion perl6-mode nginx-mode markdown-mode json-mode js2-mode go-mode go-eldoc gitconfig-mode flycheck editorconfig dockerfile-mode coffee-mode auto-complete))))
+    (csharp-mode lua-mode yaml-mode web-mode typescript-mode toml-mode sql-indent php-mode php-completion perl6-mode nginx-mode markdown-mode json-mode js2-mode go-mode go-eldoc gitconfig-mode flycheck editorconfig dockerfile-mode coffee-mode auto-complete))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.

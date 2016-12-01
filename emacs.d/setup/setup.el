@@ -5,6 +5,7 @@
       '(
         auto-complete
         coffee-mode
+        csharp-mode
         dockerfile-mode
         editorconfig
         flycheck
