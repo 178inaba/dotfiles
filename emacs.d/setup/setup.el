@@ -9,6 +9,7 @@
         dockerfile-mode
         editorconfig
         flycheck
+        git-gutter+
         gitconfig-mode
         go-eldoc
         go-mode
