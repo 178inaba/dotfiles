@@ -20,3 +20,7 @@
 	textconv = git-xlsx-textconv
 [include]
 	path = ~/.gitconfig.local
+[merge]
+	ff = false
+[pull]
+	ff = only
