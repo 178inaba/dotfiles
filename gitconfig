@@ -4,6 +4,10 @@
 [core]
 	editor = emacs
 	attributesFile = ~/.dotfiles/gitattributes
+[merge]
+	ff = false
+[pull]
+	ff = only
 [init]
 	templateDir = ~/.dotfiles/git
 [pager]
@@ -20,7 +24,3 @@
 	textconv = git-xlsx-textconv
 [include]
 	path = ~/.gitconfig.local
-[merge]
-	ff = false
-[pull]
-	ff = only
