@@ -22,7 +22,7 @@ done
 case $PKGMGR in
     brew)
         $PKGMGR install homebrew/php/composer
-        $PKGMGR cask install atom
+        $PKGMGR cask install atom iterm2
         apm install package-sync
         ;;
 esac
