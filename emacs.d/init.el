@@ -91,6 +91,7 @@
 
 ;;; sql-indent
 (eval-after-load "sql" '(load-library "sql-indent"))
+(add-hook 'sql-mode-hook (lambda () (setq sql-indent-offset 2)))
 
 ;;; typescript-mode
 (add-to-list 'auto-mode-alist '("\\.tsx?\\'" . typescript-mode))
