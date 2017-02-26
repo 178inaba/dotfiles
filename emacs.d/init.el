@@ -98,11 +98,13 @@
 
 ;;; web-mode
 (add-to-list 'auto-mode-alist '("\\.html?\\'" . web-mode))
+(add-to-list 'auto-mode-alist '("\\.tmpl\\'" . web-mode))
 (add-to-list 'auto-mode-alist '("\\.tpl\\'" . web-mode))
 (add-to-list 'auto-mode-alist '("\\.erb\\'" . web-mode))
 (add-to-list 'auto-mode-alist '("\\.css\\'" . web-mode))
 
 ;; set engine
+(setq web-mode-engines-alist '(("go" . "\\.tmpl\\'")))
 (setq web-mode-engines-alist '(("django" . "\\.tpl\\'")))
 
 ;; indent
