@@ -4,6 +4,8 @@
 [core]
 	editor = emacs
 	attributesFile = ~/.dotfiles/gitattributes
+[url "git@bitbucket.org:"]
+	insteadOf = https://bitbucket.org/
 [merge]
 	ff = false
 [pull]
