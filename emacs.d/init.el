@@ -39,6 +39,9 @@
 (add-to-list 'auto-mode-alist '("bashrc\\'" . sh-mode))
 (add-to-list 'auto-mode-alist '("\\.bashrc\\.local\\'" . sh-mode))
 
+;;; ruby-mode
+(setq ruby-insert-encoding-magic-comment nil)
+
 ;;; conf-mode is 8 tab
 (add-hook 'conf-mode-hook (lambda () (setq indent-tabs-mode t) (setq tab-width 8)))
 
