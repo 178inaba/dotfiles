@@ -8,6 +8,7 @@
         csharp-mode
         dockerfile-mode
         editorconfig
+        elixir-mode
         flycheck
         git-gutter+
         gitconfig-mode
