@@ -25,6 +25,7 @@
         sql-indent
         toml-mode
         typescript-mode
+        vimrc-mode
         web-mode
         yaml-mode
         ))
