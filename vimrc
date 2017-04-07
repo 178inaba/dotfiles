@@ -1,4 +1,4 @@
-syntax on
+syntax enable
 set whichwrap=b,s,h,l,<,>,~,[,]
 
 "NeoBundle Scripts-----------------------------
