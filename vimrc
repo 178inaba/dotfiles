@@ -10,7 +10,7 @@ Plug 'Shougo/neocomplete.vim'
 call plug#end()
 
 " Basics
-set whichwrap=h,l
+set whichwrap=b,s,h,l,<,>,~,[,]
 
 " vim-go
 let g:go_fmt_command = "goimports"
