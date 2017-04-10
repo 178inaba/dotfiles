@@ -8,5 +8,8 @@ call plug#begin('~/.vim/plugged')
 Plug 'fatih/vim-go'
 call plug#end()
 
+" Basics
+set whichwrap=h,l
+
 " vim-go
 let g:go_fmt_command = "goimports"
