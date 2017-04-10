@@ -7,3 +7,6 @@ endif
 call plug#begin('~/.vim/plugged')
 Plug 'fatih/vim-go'
 call plug#end()
+
+" vim-go
+let g:go_fmt_command = "goimports"
