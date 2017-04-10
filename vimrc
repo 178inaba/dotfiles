@@ -6,6 +6,7 @@ endif
 
 call plug#begin('~/.vim/plugged')
 Plug 'fatih/vim-go'
+Plug 'Shougo/neocomplete.vim'
 call plug#end()
 
 " Basics
@@ -13,3 +14,6 @@ set whichwrap=h,l
 
 " vim-go
 let g:go_fmt_command = "goimports"
+
+" neocomplete.vim
+let g:neocomplete#enable_at_startup = 1
