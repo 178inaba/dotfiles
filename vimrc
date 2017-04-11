@@ -11,6 +11,7 @@ Plug 'fatih/vim-go'
 call plug#end()
 
 " Basics
+set backspace=indent,eol,start
 set whichwrap=b,s,h,l,<,>,~,[,]
 
 " neocomplete.vim
