@@ -6,6 +6,7 @@ endif
 
 call plug#begin('~/.vim/plugged')
 Plug 'Shougo/neocomplete.vim'
+Plug 'tomasr/molokai'
 Plug 'fatih/vim-go'
 call plug#end()
 
@@ -15,6 +16,9 @@ set whichwrap=b,s,h,l,<,>,~,[,]
 " neocomplete.vim
 let g:neocomplete#enable_at_startup = 1
 let g:neocomplete#enable_auto_select = 1
+
+" molokai
+colorscheme molokai
 
 " vim-go
 let g:go_fmt_command = "goimports"
