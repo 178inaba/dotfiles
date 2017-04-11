@@ -18,10 +18,10 @@ GIT_PS1_HIDE_IF_PWD_IGNORED=true
 
 # option for each OS
 case $OSTYPE in
-	# mac
-	darwin*) LSCLR='-G' ;;
-	# linux
-	linux*) LSCLR='--color' ;;
+    # mac
+    darwin*) LSCLR='-G' ;;
+    # linux
+    linux*) LSCLR='--color' ;;
 esac
 
 # alias
@@ -53,25 +53,25 @@ alias inaba='git config user.name 178inaba && git config user.email 178inaba@use
 
 # funcs
 docker() {
-	if [[ $@ == 'reset' ]]; then
-		# clean
-		docker stop $(docker ps -aq)
-		docker rm $(docker ps -aq)
-		docker rmi $(docker images -q)
+    if [[ $@ == 'reset' ]]; then
+        # clean
+        docker stop $(docker ps -aq)
+        docker rm $(docker ps -aq)
+        docker rmi $(docker images -q)
 
-		# check
-		docker ps -a
-		docker images
-	else
-		command docker "$@"
-	fi
+        # check
+        docker ps -a
+        docker images
+    else
+        command docker "$@"
+    fi
 }
 
 # git funcs
 gu() {
-	if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
-		echo "User: $(git config user.name) <$(git config user.email)>"
-	fi
+    if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
+        echo "User: $(git config user.name) <$(git config user.email)>"
+    fi
 }
 
 # load local

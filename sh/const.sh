@@ -2,26 +2,26 @@
 
 # link files
 FILES=(
-	atom
-	bash_profile
-	bashrc
-	emacs.d
-	gitconfig
-	vimrc
+    atom
+    bash_profile
+    bashrc
+    emacs.d
+    gitconfig
+    vimrc
 )
 
 # install packages
 PKGS=(
-	bash-completion
-	go
-	emacs
-	tree
-	wget
+    bash-completion
+    go
+    emacs
+    tree
+    wget
 )
 
 # overinstall packages
 OPKGS=(
-	emacs
+    emacs
 )
 
 # emacs version

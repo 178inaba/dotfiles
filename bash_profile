@@ -1,10 +1,10 @@
 # only mac
 if [ $(echo $OSTYPE | grep darwin) ]; then
-	# bash-completion load
-	BASH_COMP_DIR=$(brew --prefix)
-	if [ -f $BASH_COMP_DIR/etc/bash_completion ]; then
-		. $BASH_COMP_DIR/etc/bash_completion
-	fi
+    # bash-completion load
+    BASH_COMP_DIR=$(brew --prefix)
+    if [ -f $BASH_COMP_DIR/etc/bash_completion ]; then
+        . $BASH_COMP_DIR/etc/bash_completion
+    fi
 fi
 
 # path
