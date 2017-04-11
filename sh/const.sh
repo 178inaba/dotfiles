@@ -22,7 +22,11 @@ PKGS=(
 # overinstall packages
 OPKGS=(
     emacs
+    vim
 )
+
+# install option
+OPTbrewvim=--with-lua
 
 # emacs version
 INSTALL_EMACS_VER=25.1
