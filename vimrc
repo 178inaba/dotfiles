@@ -12,8 +12,9 @@ call plug#end()
 
 " Basics
 set backspace=indent,eol,start
-set ruler
 set hlsearch
+set ruler
+set tabstop=4
 set whichwrap=b,s,h,l,<,>,~,[,]
 
 " neocomplete.vim
