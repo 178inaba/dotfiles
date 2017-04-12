@@ -12,6 +12,7 @@ call plug#end()
 
 " Basics
 set backspace=indent,eol,start
+set directory=~/tmp,/var/tmp,/tmp
 set hlsearch
 set ruler
 set tabstop=4
