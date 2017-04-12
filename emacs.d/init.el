@@ -84,6 +84,9 @@
 (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
 (add-hook 'markdown-mode-hook (lambda () (remove-hook 'before-save-hook 'delete-trailing-whitespace)))
 
+;;; monokai-theme
+(load-theme 'monokai t)
+
 ;;; php-mode
 (add-hook 'php-mode-hook (lambda ()
                            (setq c-basic-offset 4)
@@ -148,7 +151,7 @@
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
    (quote
-    (vimrc-mode elixir-mode git-gutter+ csharp-mode lua-mode yaml-mode web-mode typescript-mode toml-mode sql-indent php-mode php-completion perl6-mode nginx-mode markdown-mode json-mode js2-mode go-mode go-eldoc gitconfig-mode flycheck editorconfig dockerfile-mode coffee-mode auto-complete))))
+    (monokai-theme vimrc-mode elixir-mode git-gutter+ csharp-mode lua-mode yaml-mode web-mode typescript-mode toml-mode sql-indent php-mode php-completion perl6-mode nginx-mode markdown-mode json-mode js2-mode go-mode go-eldoc gitconfig-mode flycheck editorconfig dockerfile-mode coffee-mode auto-complete))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
