@@ -15,8 +15,11 @@ set backspace=indent,eol,start
 set directory=~/tmp,/var/tmp,/tmp
 set hlsearch
 set ruler
-set tabstop=4
 set whichwrap=b,s,h,l,<,>,~,[,]
+
+" Indents
+set shiftwidth=4
+set tabstop=4
 
 " neocomplete.vim
 let g:neocomplete#enable_at_startup = 1
