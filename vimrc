@@ -13,6 +13,7 @@ call plug#end()
 " Basics
 set backspace=indent,eol,start
 set ruler
+set hlsearch
 set whichwrap=b,s,h,l,<,>,~,[,]
 
 " neocomplete.vim
