@@ -26,7 +26,7 @@ OPKGS=(
 )
 
 # install option
-OPTbrewvim=--with-lua
+OPTbrewvim=--with-luajit
 
 # emacs version
 INSTALL_EMACS_VER=25.1
