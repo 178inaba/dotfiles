@@ -67,6 +67,11 @@ docker() {
     fi
 }
 
+# Grep as the current directory.
+grec() {
+    grep -nr --color=always $@ .
+}
+
 # git funcs
 gu() {
     if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
