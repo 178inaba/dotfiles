@@ -68,7 +68,7 @@ docker() {
 }
 
 # Grep as the current directory.
-grec() {
+gre() {
     grep -nr --color=always $@ .
 }
 
