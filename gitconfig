@@ -21,6 +21,14 @@
 	l = !git log --color | diff-highlight | less -R
 	s = !git show --color | diff-highlight | less -R
 	cc = checkout .
+
+	# codereview
+	change = codereview change
+	gofmt = codereview gofmt
+	mail = codereview mail
+	pending = codereview pending
+	submit = codereview submit
+	sync = codereview sync
 [diff "xlsx"]
 	binary = true
 	textconv = git-xlsx-textconv
