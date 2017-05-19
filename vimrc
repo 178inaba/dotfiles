@@ -10,6 +10,7 @@ Plug 'tomasr/molokai'
 Plug 'fatih/vim-go'
 Plug 'udalov/kotlin-vim'
 Plug 'tpope/vim-fugitive'
+Plug 'kchmck/vim-coffee-script'
 call plug#end()
 
 " Basics
