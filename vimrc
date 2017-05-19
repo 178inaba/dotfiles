@@ -11,6 +11,7 @@ Plug 'fatih/vim-go'
 Plug 'udalov/kotlin-vim'
 Plug 'tpope/vim-fugitive'
 Plug 'kchmck/vim-coffee-script'
+Plug 'editorconfig/editorconfig-vim'
 call plug#end()
 
 " Basics
