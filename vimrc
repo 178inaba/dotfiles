@@ -8,6 +8,7 @@ call plug#begin('~/.vim/plugged')
 Plug 'Shougo/neocomplete.vim'
 Plug 'tomasr/molokai'
 Plug 'fatih/vim-go'
+Plug 'udalov/kotlin-vim'
 call plug#end()
 
 " Basics
