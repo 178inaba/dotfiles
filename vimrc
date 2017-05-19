@@ -9,6 +9,7 @@ Plug 'Shougo/neocomplete.vim'
 Plug 'tomasr/molokai'
 Plug 'fatih/vim-go'
 Plug 'udalov/kotlin-vim'
+Plug 'tpope/vim-fugitive'
 call plug#end()
 
 " Basics
