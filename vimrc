@@ -6,13 +6,13 @@ endif
 
 call plug#begin('~/.vim/plugged')
 Plug 'airblade/vim-gitgutter'
+Plug 'editorconfig/editorconfig-vim'
+Plug 'fatih/vim-go'
+Plug 'kchmck/vim-coffee-script'
 Plug 'Shougo/neocomplete.vim'
 Plug 'tomasr/molokai'
-Plug 'fatih/vim-go'
-Plug 'udalov/kotlin-vim'
 Plug 'tpope/vim-fugitive'
-Plug 'kchmck/vim-coffee-script'
-Plug 'editorconfig/editorconfig-vim'
+Plug 'udalov/kotlin-vim'
 call plug#end()
 
 " Basics
