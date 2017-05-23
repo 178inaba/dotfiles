@@ -5,6 +5,7 @@ if empty(glob('~/.vim/autoload/plug.vim'))
 endif
 
 call plug#begin('~/.vim/plugged')
+Plug 'airblade/vim-gitgutter'
 Plug 'Shougo/neocomplete.vim'
 Plug 'tomasr/molokai'
 Plug 'fatih/vim-go'
