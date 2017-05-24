@@ -28,6 +28,7 @@
         vimrc-mode
         web-mode
         yaml-mode
+        zenburn-theme
         ))
 
 ;;; load package.el
