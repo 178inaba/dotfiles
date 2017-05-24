@@ -28,6 +28,7 @@ set tabstop=4
 
 " altercation/vim-colors-solarized
 set background=dark
+let g:solarized_termcolors = 256
 colorscheme solarized
 
 " fatih/vim-go
