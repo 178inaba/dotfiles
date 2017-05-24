@@ -18,7 +18,6 @@
         json-mode
         lua-mode
         markdown-mode
-        monokai-theme
         nginx-mode
         perl6-mode
         php-completion
