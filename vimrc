@@ -10,6 +10,7 @@ Plug 'altercation/vim-colors-solarized'
 Plug 'editorconfig/editorconfig-vim'
 Plug 'fatih/vim-go', { 'for': 'go' }
 Plug 'kchmck/vim-coffee-script'
+Plug 'mattn/sonictemplate-vim'
 Plug 'Shougo/neocomplete.vim'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
