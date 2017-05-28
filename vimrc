@@ -8,7 +8,7 @@ call plug#begin('~/.vim/plugged')
 Plug 'airblade/vim-gitgutter'
 Plug 'altercation/vim-colors-solarized'
 Plug 'editorconfig/editorconfig-vim'
-Plug 'fatih/vim-go'
+Plug 'fatih/vim-go', { 'for': 'go' }
 Plug 'kchmck/vim-coffee-script'
 Plug 'Shougo/neocomplete.vim'
 Plug 'tpope/vim-fugitive'
