@@ -24,6 +24,7 @@ set directory=~/tmp,/var/tmp,/tmp
 set hlsearch
 set laststatus=2
 set ruler
+set statusline=%f\ %m\ %r%h%w%q%=%l/%L(%p%%),%v\ %y\ %{strftime('%R')}
 set whichwrap=b,s,h,l,<,>,~,[,]
 
 " Indents
