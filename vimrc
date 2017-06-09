@@ -25,6 +25,7 @@ set backspace=indent,eol,start
 set directory=~/tmp,/var/tmp,/tmp
 set hlsearch
 set laststatus=2
+set noshowmode
 set ruler
 set whichwrap=b,s,h,l,<,>,~,[,]
 
