@@ -15,6 +15,7 @@ Plug 'mattn/sonictemplate-vim'
 Plug 'Shougo/neocomplete.vim'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
+Plug 'vim-airline/vim-airline'
 Plug 'vim-syntastic/syntastic'
 call plug#end()
 
@@ -24,7 +25,6 @@ set directory=~/tmp,/var/tmp,/tmp
 set hlsearch
 set laststatus=2
 set ruler
-set statusline=%f\ %m\ %r%h%w%q%=%l/%L(%p%%),%v\ %y\ %{strftime('%R')}
 set whichwrap=b,s,h,l,<,>,~,[,]
 
 " Indents
