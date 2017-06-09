@@ -16,6 +16,7 @@ Plug 'Shougo/neocomplete.vim'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
 Plug 'vim-airline/vim-airline'
+Plug 'vim-airline/vim-airline-themes'
 Plug 'vim-syntastic/syntastic'
 call plug#end()
 
@@ -51,6 +52,10 @@ let g:go_list_type = "quickfix"
 " Shougo/neocomplete.vim
 let g:neocomplete#enable_at_startup = 1
 let g:neocomplete#enable_auto_select = 1
+
+" vim-airline/vim-airline-themes
+let g:airline_theme = 'solarized'
+let g:airline_solarized_bg = 'dark'
 
 " vim-syntastic/syntastic
 set statusline+=%#warningmsg#
