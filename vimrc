@@ -28,6 +28,7 @@ set laststatus=2
 set noshowmode
 set ruler
 set whichwrap=b,s,h,l,<,>,~,[,]
+au BufNewFile,BufRead gitconfig setf gitconfig
 
 " Indents
 set shiftwidth=4
