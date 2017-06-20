@@ -2,7 +2,6 @@
 	name = 178inaba
 	email = 178inaba@users.noreply.github.com
 [core]
-	editor = emacs
 	attributesFile = ~/.dotfiles/gitattributes
 [url "git@bitbucket.org:"]
 	insteadOf = https://bitbucket.org/
