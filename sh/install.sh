@@ -55,8 +55,8 @@ curl -fsSL -o $DF/dl/sh/git-completion.bash https://raw.githubusercontent.com/gi
 curl -fsSL -o $DF/dl/sh/git-prompt.sh https://raw.githubusercontent.com/git/git/master/contrib/completion/git-prompt.sh
 curl -fsSL -o $DF/dl/emacs/sgml-mode-patch.el https://gist.githubusercontent.com/178inaba/b143a6f4621e0fcb240cf27e07312eef/raw/db49ed9caaafcb08f16a0389787a1991cbd70727/sgml-mode-patch.el
 curl -fsSL -o $DF/dl/emacs/php-cs-fixer.el https://raw.githubusercontent.com/OVYA/php-cs-fixer/master/php-cs-fixer.el
-curl -fsSL -o $DF/dl/bin/diff-highlight https://raw.githubusercontent.com/git/git/master/contrib/diff-highlight/diff-highlight
+curl -fsSL -o $DF/dl/bin/diff-so-fancy https://raw.githubusercontent.com/so-fancy/diff-so-fancy/master/third_party/build_fatpack/diff-so-fancy
 
 # download file settings
 emacs --batch -f batch-byte-compile $DF/dl/emacs/*.el
-chmod -v a+x $DF/dl/bin/diff-highlight
+chmod -v a+x $DF/dl/bin/diff-so-fancy
