@@ -4,7 +4,7 @@
 [core]
 	editor = vim
 	attributesFile = ~/.dotfiles/gitattributes
-	pager = diff-so-fancy | less --tabs=4 -RFX
+	pager = diff-so-fancy | less --tabs=4 -R -+FX
 [color]
 	ui = true
 [color "diff-highlight"]
@@ -28,9 +28,6 @@
 [init]
 	templateDir = ~/.dotfiles/git
 [alias]
-	d = !git diff --color | diff-highlight | less -R
-	l = !git log --color | diff-highlight | less -R
-	s = !git show --color | diff-highlight | less -R
 	cc = checkout .
 
 	# codereview
