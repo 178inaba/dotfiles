@@ -12,10 +12,6 @@
 	ff = only
 [init]
 	templateDir = ~/.dotfiles/git
-[pager]
-	log = diff-highlight | less
-	show = diff-highlight | less
-	diff = diff-highlight | less
 [alias]
 	d = !git diff --color | diff-highlight | less -R
 	l = !git log --color | diff-highlight | less -R
