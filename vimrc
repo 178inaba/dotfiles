@@ -29,6 +29,7 @@ set noshowmode
 set ruler
 set whichwrap=b,s,h,l,<,>,~,[,]
 au BufNewFile,BufRead gitconfig setf gitconfig
+au BufWritePre * :%s/\s\+$//e
 
 " Indents
 set shiftwidth=4
