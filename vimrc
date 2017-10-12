@@ -44,6 +44,7 @@ set ruler
 set whichwrap=b,s,h,l,<,>,~,[,]
 au BufNewFile,BufRead gitconfig setf gitconfig
 au BufWritePre *.php :%s/\s\+$//e
+let g:PHP_vintage_case_default_indent = 1
 
 " Indents
 set shiftwidth=4
