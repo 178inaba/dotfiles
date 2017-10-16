@@ -35,7 +35,7 @@ alias c='clear && clear'
 alias gohome="cd $GOPATH/src/github.com/178inaba"
 alias dfiles="cd $DF"
 alias em=emacs
-alias cat=ccat
+alias cat='ccat --bg=dark'
 alias goc='go test -coverprofile=/tmp/goc && go tool cover -html=/tmp/goc && rm /tmp/goc'
 
 # git alias
