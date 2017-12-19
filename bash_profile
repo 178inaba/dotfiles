@@ -20,6 +20,9 @@ export PATH=~/.composer/vendor/bin:$PATH
 # download bin path
 export PATH=~/.dotfiles/dl/bin:$PATH
 
+# grep option
+export GREP_OPTIONS='--color=auto'
+
 # load local
 if [ -f ~/.bash_profile.local ]; then
     . ~/.bash_profile.local
