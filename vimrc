@@ -47,6 +47,7 @@ set noshowmode
 set ruler
 set whichwrap=b,s,h,l,<,>,~,[,]
 au BufNewFile,BufRead gitconfig setf gitconfig
+au BufNewFile,BufRead *.tf set expandtab
 au BufWritePre *.php :%s/\s\+$//e
 let g:PHP_vintage_case_default_indent = 1
 
@@ -83,6 +84,9 @@ let g:syntastic_go_gometalinter_args = ['--disable-all', '--enable=errcheck']
 let g:syntastic_mode_map = { 'mode': 'active', 'passive_filetypes': ['go'] }
 let g:go_list_type = "quickfix"
 autocmd FileType go set omnifunc=
+
+" hashivim/vim-terraform
+let g:terraform_align = 1
 
 " Shougo/neocomplete.vim
 let g:neocomplete#enable_at_startup = 1
