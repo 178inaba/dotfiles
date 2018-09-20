@@ -61,7 +61,7 @@ let g:solarized_termcolors = 256
 colorscheme solarized
 
 " fatih/vim-go
-let g:go_fmt_command = "goimports"
+let g:go_fmt_command = 'goimports'
 let g:go_highlight_array_whitespace_error = 1
 let g:go_highlight_chan_whitespace_error = 1
 let g:go_highlight_extra_types = 1
@@ -82,7 +82,7 @@ let g:go_highlight_variable_assignments = 1
 let g:syntastic_go_checkers = ['golint', 'govet', 'gometalinter']
 let g:syntastic_go_gometalinter_args = ['--disable-all', '--enable=errcheck']
 let g:syntastic_mode_map = { 'mode': 'active', 'passive_filetypes': ['go'] }
-let g:go_list_type = "quickfix"
+let g:go_list_type = 'quickfix'
 autocmd FileType go set omnifunc=
 
 " hashivim/vim-terraform
