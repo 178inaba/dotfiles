@@ -92,6 +92,19 @@ let g:go_list_type = 'quickfix'
 let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
+" prabirshrestha/vim-lsp
+if executable('golsp')
+  augroup LspGo
+    au!
+    autocmd User lsp_setup call lsp#register_server({
+        \ 'name': 'go-lang',
+        \ 'cmd': {server_info->['golsp', '-mode', 'stdio']},
+        \ 'whitelist': ['go'],
+        \ })
+    autocmd FileType go setlocal omnifunc=lsp#complete
+  augroup END
+endif
+
 " Shougo/neocomplete.vim
 let g:neocomplete#enable_at_startup = 1
 let g:neocomplete#enable_auto_select = 1
