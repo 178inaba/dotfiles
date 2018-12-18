@@ -107,6 +107,9 @@ if executable('golsp')
   augroup END
 endif
 
+" prabirshrestha/asyncomplete.vim
+autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
+
 " prabirshrestha/asyncomplete-lsp.vim
 let g:lsp_async_completion = 1
 
