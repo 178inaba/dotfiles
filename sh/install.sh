@@ -39,6 +39,9 @@ go get -u -v github.com/jingweno/ccat
 # composer(php)
 composer global require friendsofphp/php-cs-fixer
 
+# vim
+pip3 install --user --upgrade pynvim
+
 # emacs
 NOW_EMACS_VER=(`emacs --version`)
 echo "emacs version ${NOW_EMACS_VER[2]}"
