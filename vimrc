@@ -32,7 +32,10 @@ Plug 'JuliaEditorSupport/julia-vim'
 Plug 'kchmck/vim-coffee-script'
 Plug 'leafgarland/typescript-vim'
 Plug 'mattn/sonictemplate-vim'
+Plug 'natebosch/vim-lsc'
 Plug 'prabirshrestha/async.vim'
+Plug 'prabirshrestha/asyncomplete.vim'
+Plug 'prabirshrestha/asyncomplete-lsp.vim'
 Plug 'prabirshrestha/vim-lsp'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
@@ -103,6 +106,9 @@ if executable('golsp')
     autocmd FileType go setlocal omnifunc=lsp#complete
   augroup END
 endif
+
+" prabirshrestha/asyncomplete-lsp.vim
+let g:lsp_async_completion = 1
 
 " vim-airline/vim-airline-themes
 let g:airline_theme = 'solarized'
