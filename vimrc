@@ -34,7 +34,6 @@ Plug 'leafgarland/typescript-vim'
 Plug 'mattn/sonictemplate-vim'
 Plug 'prabirshrestha/async.vim'
 Plug 'prabirshrestha/vim-lsp'
-Plug 'Shougo/neocomplete.vim'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
 Plug 'vim-airline/vim-airline'
@@ -104,10 +103,6 @@ if executable('golsp')
     autocmd FileType go setlocal omnifunc=lsp#complete
   augroup END
 endif
-
-" Shougo/neocomplete.vim
-let g:neocomplete#enable_at_startup = 1
-let g:neocomplete#enable_auto_select = 1
 
 " vim-airline/vim-airline-themes
 let g:airline_theme = 'solarized'
