@@ -35,6 +35,8 @@ Plug 'mattn/sonictemplate-vim'
 Plug 'natebosch/vim-lsc'
 Plug 'prabirshrestha/async.vim'
 Plug 'prabirshrestha/asyncomplete.vim'
+Plug 'prabirshrestha/asyncomplete-buffer.vim'
+Plug 'prabirshrestha/asyncomplete-file.vim'
 Plug 'prabirshrestha/asyncomplete-lsp.vim'
 Plug 'prabirshrestha/vim-lsp'
 Plug 'tpope/vim-fugitive'
@@ -96,6 +98,22 @@ let g:terraform_fmt_on_save = 1
 
 " prabirshrestha/asyncomplete.vim
 autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
+
+" prabirshrestha/asyncomplete-buffer.vim
+call asyncomplete#register_source(asyncomplete#sources#buffer#get_source_options({
+  \ 'name': 'buffer',
+  \ 'whitelist': ['*'],
+  \ 'blacklist': ['go'],
+  \ 'completor': function('asyncomplete#sources#buffer#completor'),
+  \ }))
+
+" prabirshrestha/asyncomplete-file.vim
+au User asyncomplete_setup call asyncomplete#register_source(asyncomplete#sources#file#get_source_options({
+  \ 'name': 'file',
+  \ 'whitelist': ['*'],
+  \ 'priority': 10,
+  \ 'completor': function('asyncomplete#sources#file#completor')
+  \ }))
 
 " prabirshrestha/asyncomplete-lsp.vim
 let g:lsp_async_completion = 1
