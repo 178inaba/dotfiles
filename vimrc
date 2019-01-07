@@ -96,15 +96,11 @@ let g:terraform_fmt_on_save = 1
 
 " prabirshrestha/vim-lsp
 if executable('golsp')
-  augroup LspGo
-    au!
-    autocmd User lsp_setup call lsp#register_server({
-        \ 'name': 'go-lang',
-        \ 'cmd': {server_info->['golsp', '-mode', 'stdio']},
-        \ 'whitelist': ['go'],
-        \ })
-    autocmd FileType go setlocal omnifunc=lsp#complete
-  augroup END
+  au User lsp_setup call lsp#register_server({
+    \ 'name': 'golsp',
+    \ 'cmd': {server_info->['golsp', '-mode', 'stdio']},
+    \ 'whitelist': ['go'],
+    \ })
 endif
 
 " prabirshrestha/asyncomplete.vim
