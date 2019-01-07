@@ -94,6 +94,12 @@ let g:go_list_type = 'quickfix'
 let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
+" prabirshrestha/asyncomplete.vim
+autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
+
+" prabirshrestha/asyncomplete-lsp.vim
+let g:lsp_async_completion = 1
+
 " prabirshrestha/vim-lsp
 if executable('golsp')
   au User lsp_setup call lsp#register_server({
@@ -102,13 +108,6 @@ if executable('golsp')
     \ 'whitelist': ['go'],
     \ })
 endif
-
-" prabirshrestha/asyncomplete.vim
-autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
-
-" prabirshrestha/asyncomplete-lsp.vim
-let g:lsp_async_completion = 1
-
 
 " vim-airline/vim-airline-themes
 let g:airline_theme = 'solarized'
