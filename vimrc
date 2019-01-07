@@ -37,9 +37,6 @@ Plug 'prabirshrestha/async.vim'
 Plug 'prabirshrestha/asyncomplete.vim'
 Plug 'prabirshrestha/asyncomplete-lsp.vim'
 Plug 'prabirshrestha/vim-lsp'
-Plug 'roxma/nvim-yarp'
-Plug 'roxma/vim-hug-neovim-rpc'
-Plug 'Shougo/deoplete.nvim'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
 Plug 'vim-airline/vim-airline'
@@ -116,9 +113,6 @@ autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
 " prabirshrestha/asyncomplete-lsp.vim
 let g:lsp_async_completion = 1
 
-" Shougo/deoplete.nvim
-let g:deoplete#enable_at_startup = 1
-set completeopt+=noinsert
 
 " vim-airline/vim-airline-themes
 let g:airline_theme = 'solarized'
