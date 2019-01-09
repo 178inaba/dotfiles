@@ -21,6 +21,8 @@
 	whitespace = red reverse
 [url "git@bitbucket.org:"]
 	insteadOf = https://bitbucket.org/
+[url "git@github.com:"]
+	insteadOf = https://github.com/
 [merge]
 	ff = false
 [pull]
