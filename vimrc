@@ -41,6 +41,7 @@ Plug 'prabirshrestha/asyncomplete-buffer.vim'
 Plug 'prabirshrestha/asyncomplete-file.vim'
 Plug 'prabirshrestha/asyncomplete-lsp.vim'
 Plug 'prabirshrestha/vim-lsp'
+Plug 'rhysd/vim-clang-format'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
 Plug 'vim-airline/vim-airline'
@@ -127,6 +128,9 @@ if executable('golsp')
     \ 'whitelist': ['go'],
     \ })
 endif
+
+" rhysd/vim-clang-format
+let g:clang_format#auto_format = 1
 
 " vim-airline/vim-airline-themes
 let g:airline_theme = 'solarized'
