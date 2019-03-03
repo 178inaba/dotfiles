@@ -120,10 +120,10 @@ au User asyncomplete_setup call asyncomplete#register_source(asyncomplete#source
 let g:lsp_async_completion = 1
 
 " prabirshrestha/vim-lsp
-if executable('golsp')
+if executable('gopls')
   au User lsp_setup call lsp#register_server({
-    \ 'name': 'golsp',
-    \ 'cmd': {server_info->['golsp', '-mode', 'stdio']},
+    \ 'name': 'gopls',
+    \ 'cmd': {server_info->['gopls', '-mode', 'stdio']},
     \ 'whitelist': ['go'],
     \ })
 endif

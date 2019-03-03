@@ -30,7 +30,7 @@ esac
 # go
 export GOPATH=~/work/go
 go get -u -v golang.org/x/tools/cmd/goimports
-go get -u -v golang.org/x/tools/cmd/golsp
+go get -u -v golang.org/x/tools/cmd/gopls
 go get -u -v github.com/rogpeppe/godef
 go get -u -v github.com/golang/lint/golint
 go get -u -v github.com/nsf/gocode
