@@ -23,10 +23,6 @@
 	insteadOf = https://bitbucket.org/
 [url "git@github.com:"]
 	insteadOf = https://github.com/
-[merge]
-	ff = false
-[pull]
-	ff = only
 [init]
 	templateDir = ~/.dotfiles/git
 [alias]
