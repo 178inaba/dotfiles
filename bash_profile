@@ -17,6 +17,9 @@ export PATH=/usr/local/go/bin:~/work/go/bin:$PATH
 # composer(php)
 export PATH=~/.composer/vendor/bin:$PATH
 
+# node
+eval "$(nodenv init -)"
+
 # download bin path
 export PATH=~/.dotfiles/dl/bin:$PATH
 
