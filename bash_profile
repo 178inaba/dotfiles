@@ -20,6 +20,9 @@ export PATH=~/.composer/vendor/bin:$PATH
 # download bin path
 export PATH=~/.dotfiles/dl/bin:$PATH
 
+# nodebrew
+export PATH=$HOME/.nodebrew/current/bin:$PATH
+
 # grep option
 export GREP_OPTIONS='--color=auto'
 
