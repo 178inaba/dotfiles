@@ -8,7 +8,7 @@ if [ $(echo $OSTYPE | grep darwin) ]; then
 fi
 
 # path
-export PATH="/usr/local/sbin:$PATH"
+export PATH=~/bin:/usr/local/sbin:$PATH
 
 # go
 export GOPATH=~/work/go
