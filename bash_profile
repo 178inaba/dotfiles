@@ -17,6 +17,9 @@ export PATH=/usr/local/go/bin:~/work/go/bin:$PATH
 # composer(php)
 export PATH=~/.composer/vendor/bin:$PATH
 
+# flutter
+export PATH=~/tools/flutter/bin:$PATH
+
 # node
 eval "$(nodenv init -)"
 
