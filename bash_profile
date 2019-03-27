@@ -5,6 +5,12 @@ if [ $(echo $OSTYPE | grep darwin) ]; then
     if [ -f $BASH_COMP_DIR/etc/bash_completion ]; then
         . $BASH_COMP_DIR/etc/bash_completion
     fi
+
+    # Android tools
+    export PATH=~/Library/Android/sdk/platform-tools:$PATH
+
+    # Java (Android Studio)
+    export PATH='/Applications/Android Studio.app/Contents/jre/jdk/Contents/Home/bin':$PATH
 fi
 
 # path
@@ -16,9 +22,6 @@ export PATH=/usr/local/go/bin:~/work/go/bin:$PATH
 
 # composer(php)
 export PATH=~/.composer/vendor/bin:$PATH
-
-# Android
-export PATH=~/Library/Android/sdk/platform-tools:$PATH
 
 # flutter
 export PATH=~/tools/flutter/bin:$PATH
