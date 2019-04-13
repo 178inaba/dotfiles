@@ -28,7 +28,6 @@ case $PKGMGR in
 esac
 
 # go
-export GOPATH=~/work/go
 go get -u -v golang.org/x/tools/cmd/goimports
 go get -u -v golang.org/x/tools/cmd/gopls
 go get -u -v github.com/rogpeppe/godef
