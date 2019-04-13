@@ -32,7 +32,6 @@ alias la="ls -la $LSCLR"
 alias lah="ls -lah $LSCLR"
 alias h='history | grep'
 alias c='clear && clear'
-alias gohome="cd $GOPATH/src/github.com/178inaba"
 alias dfiles="cd $DF"
 alias em=emacs
 alias cat='ccat --bg=dark'
