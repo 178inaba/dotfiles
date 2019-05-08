@@ -8,9 +8,6 @@ if [ $(echo $OSTYPE | grep darwin) ]; then
 
     # Android tools
     export PATH=~/Library/Android/sdk/platform-tools:$PATH
-
-    # Java (Android Studio)
-    export PATH='/Applications/Android Studio.app/Contents/jre/jdk/Contents/Home/bin':$PATH
 fi
 
 # path
