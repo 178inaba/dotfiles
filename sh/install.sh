@@ -28,13 +28,14 @@ case $PKGMGR in
 esac
 
 # go
-go get -u -v golang.org/x/tools/cmd/goimports
-go get -u -v golang.org/x/tools/cmd/gopls
-go get -u -v github.com/rogpeppe/godef
-go get -u -v golang.org/x/lint/golint
-go get -u -v github.com/nsf/gocode
-go get -u -v github.com/tokuhirom/git-xlsx-textconv
-go get -u -v github.com/jingweno/ccat
+go get -u -v \
+golang.org/x/tools/cmd/goimports \
+golang.org/x/tools/cmd/gopls \
+github.com/rogpeppe/godef \
+golang.org/x/lint/golint \
+github.com/nsf/gocode \
+github.com/tokuhirom/git-xlsx-textconv \
+github.com/jingweno/ccat
 
 # composer(php)
 composer global require friendsofphp/php-cs-fixer
