@@ -21,7 +21,7 @@ done
 # package installation of each package manager
 case $PKGMGR in
     brew)
-        $PKGMGR install homebrew/php/composer
+        $PKGMGR install composer
         $PKGMGR cask install atom iterm2 visual-studio-code
         apm install package-sync
         ;;
