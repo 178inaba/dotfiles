@@ -22,7 +22,7 @@ export PATH=~/.composer/vendor/bin:$PATH
 # flutter
 export PATH=~/tools/flutter/bin:$PATH
 
-# node
+# node (Require nodenv install.)
 eval "$(nodenv init -)"
 
 # download bin path
