@@ -6,6 +6,8 @@ This is my dotfiles.
 
 ### Require
 
+* SSH key registration to GitHub
+
 #### macOS
 
 * Xcode
