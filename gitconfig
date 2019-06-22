@@ -23,8 +23,6 @@
 	insteadOf = https://bitbucket.org/
 [url "git@github.com:"]
 	insteadOf = https://github.com/
-[init]
-	templateDir = ~/.dotfiles/git
 [alias]
 	cc = checkout .
 
