@@ -131,6 +131,9 @@ if executable('gopls')
     \ })
 endif
 
+" https://github.com/prabirshrestha/asyncomplete.vim/issues/156#issuecomment-530170947
+let g:lsp_text_edit_enabled = 0
+
 " vim-airline/vim-airline-themes
 let g:airline_theme = 'solarized'
 let g:airline_solarized_bg = 'dark'
