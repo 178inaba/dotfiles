@@ -61,6 +61,7 @@ au BufNewFile,BufRead gitconfig setf gitconfig
 au BufNewFile,BufRead *.tf set expandtab
 au BufWritePre *.php :%s/\s\+$//e
 let g:PHP_vintage_case_default_indent = 1
+autocmd FileType yaml setlocal sw=2 sts=2 ts=2 et
 
 " Indents
 set shiftwidth=4
