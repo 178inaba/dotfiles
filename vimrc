@@ -103,7 +103,19 @@ let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
 " prabirshrestha/asyncomplete.vim
+let g:asyncomplete_auto_popup = 0
 autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
+
+function! s:check_back_space() abort
+  let col = col('.') - 1
+  return !col || getline('.')[col - 1] =~ '\s'
+endfunction
+
+inoremap <silent><expr> <TAB>
+  \ pumvisible() ? "\<C-n>" :
+  \ <SID>check_back_space() ? "\<TAB>" :
+  \ asyncomplete#force_refresh()
+inoremap <expr><S-TAB> pumvisible() ? "\<C-p>" : "\<C-h>"
 
 " prabirshrestha/asyncomplete-buffer.vim
 call asyncomplete#register_source(asyncomplete#sources#buffer#get_source_options({
