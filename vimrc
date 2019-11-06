@@ -42,6 +42,7 @@ Plug 'prabirshrestha/asyncomplete-buffer.vim'
 Plug 'prabirshrestha/asyncomplete-file.vim'
 Plug 'prabirshrestha/asyncomplete-lsp.vim'
 Plug 'prabirshrestha/vim-lsp'
+Plug 'scrooloose/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
 Plug 'vim-airline/vim-airline'
@@ -146,6 +147,9 @@ endif
 
 " https://github.com/prabirshrestha/asyncomplete.vim/issues/156#issuecomment-530170947
 let g:lsp_text_edit_enabled = 0
+
+" scrooloose/nerdtree
+autocmd vimenter * NERDTree
 
 " vim-airline/vim-airline-themes
 let g:airline_theme = 'solarized'
