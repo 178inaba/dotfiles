@@ -104,7 +104,6 @@ let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
 " prabirshrestha/asyncomplete.vim
-let g:asyncomplete_auto_popup = 0
 autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
 
 function! s:check_back_space() abort
