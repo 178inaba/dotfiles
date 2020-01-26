@@ -35,8 +35,6 @@ if [ -d $DF ]; then
 else
     git clone https://github.com/178inaba/dotfiles.git .dotfiles
     cd $DF
-    git config user.name "178inaba"
-    git config user.email "178inaba@users.noreply.github.com"
 fi
 
 # link files
