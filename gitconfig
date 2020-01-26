@@ -1,6 +1,6 @@
 [user]
 	name = 178inaba
-	email = 178inaba@users.noreply.github.com
+	email = 178inaba.git@gmail.com
 [core]
 	editor = vim
 	attributesFile = ~/.dotfiles/gitattributes
