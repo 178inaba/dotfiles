@@ -73,6 +73,9 @@ set background=dark
 let g:solarized_termcolors = 256
 colorscheme solarized
 
+" aairblade/vim-gitgutter
+highlight! link SignColumn LineNr
+
 " fatih/vim-go
 let g:go_fmt_command = 'goimports'
 let g:go_gocode_unimported_packages = 1
