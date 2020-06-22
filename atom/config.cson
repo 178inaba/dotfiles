@@ -12,7 +12,7 @@
   docblockr:
     extend_double_slash: false
   editor:
-    fontFamily: "Andale Mono"
+    fontFamily: "Myrica M"
     fontSize: 13
     invisibles: {}
     softWrap: true
