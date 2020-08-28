@@ -20,7 +20,6 @@ endfunction
 
 call plug#begin('~/.vim/plugged')
 Plug 'airblade/vim-gitgutter'
-Plug 'altercation/vim-colors-solarized'
 Plug 'cespare/vim-toml'
 Plug 'ctrlpvim/ctrlp.vim'
 Plug 'dart-lang/dart-vim-plugin'
@@ -34,6 +33,7 @@ Plug 'kchmck/vim-coffee-script'
 Plug 'keith/swift.vim'
 Plug 'leafgarland/typescript-vim'
 Plug 'mattn/sonictemplate-vim'
+Plug 'morhetz/gruvbox'
 Plug 'natebosch/vim-lsc'
 Plug 'posva/vim-vue'
 Plug 'prabirshrestha/async.vim'
@@ -46,7 +46,6 @@ Plug 'scrooloose/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
 Plug 'vim-airline/vim-airline'
-Plug 'vim-airline/vim-airline-themes'
 Plug 'vim-syntastic/syntastic'
 call plug#end()
 
@@ -57,6 +56,7 @@ set hlsearch
 set laststatus=2
 set noshowmode
 set ruler
+set termguicolors
 set whichwrap=b,s,h,l,<,>,~,[,]
 au BufNewFile,BufRead gitconfig setf gitconfig
 au BufNewFile,BufRead *.tf,*.vue set expandtab
@@ -67,14 +67,6 @@ autocmd FileType yaml setlocal sw=2 sts=2 ts=2 et
 " Indents
 set shiftwidth=4
 set tabstop=4
-
-" altercation/vim-colors-solarized
-set background=dark
-let g:solarized_termcolors = 256
-colorscheme solarized
-
-" aairblade/vim-gitgutter
-highlight! link SignColumn LineNr
 
 " fatih/vim-go
 let g:go_fmt_command = 'goimports'
@@ -105,6 +97,10 @@ au BufRead,BufNewFile *.tmpl set ft=gohtmltmpl
 " hashivim/vim-terraform
 let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
+
+" morhetz/gruvbox
+autocmd vimenter * colorscheme gruvbox
+autocmd vimenter * let g:airline_theme = 'gruvbox'
 
 " prabirshrestha/asyncomplete.vim
 let g:asyncomplete_auto_popup = 0
@@ -150,10 +146,6 @@ endif
 
 " https://github.com/prabirshrestha/asyncomplete.vim/issues/156#issuecomment-530170947
 let g:lsp_text_edit_enabled = 0
-
-" vim-airline/vim-airline-themes
-let g:airline_theme = 'solarized'
-let g:airline_solarized_bg = 'dark'
 
 " vim-syntastic/syntastic
 set statusline+=%#warningmsg#
