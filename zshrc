@@ -2,10 +2,10 @@
 DF=~/.dotfiles
 
 # git
-. $DF/dl/sh/git-completion.bash
+. $DF/dl/sh/git-completion.zsh
 . $DF/dl/sh/git-prompt.sh
 
-# bash prompt
+# prompt
 YELLOW='\[\e[0;33m\]'
 RESET_COLOR='\[\e[0m\]'
 PROMPT_COMMAND='__git_ps1 "${VIRTUAL_ENV:+($YELLOW$(basename $VIRTUAL_ENV)$RESET_COLOR)}\u@\H:\w" "\\\$ "'
@@ -80,9 +80,8 @@ gu() {
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 # load local
-if [ -f ~/.bashrc.local ]; then
-    . ~/.bashrc.local
+if [ -f ~/.zshrc.local ]; then
+    . ~/.zshrc.local
 fi
