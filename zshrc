@@ -6,15 +6,13 @@ DF=~/.dotfiles
 . $DF/dl/sh/git-prompt.sh
 
 # prompt
-YELLOW='\[\e[0;33m\]'
-RESET_COLOR='\[\e[0m\]'
-PROMPT_COMMAND='__git_ps1 "${VIRTUAL_ENV:+($YELLOW$(basename $VIRTUAL_ENV)$RESET_COLOR)}\u@\H:\w" "\\\$ "'
 GIT_PS1_SHOWDIRTYSTATE=true
 GIT_PS1_SHOWSTASHSTATE=true
 GIT_PS1_SHOWUNTRACKEDFILES=true
 GIT_PS1_SHOWUPSTREAM=auto
 GIT_PS1_SHOWCOLORHINTS=true
 GIT_PS1_HIDE_IF_PWD_IGNORED=true
+setopt PROMPT_SUBST ; PS1='[%n@%m %c$(__git_ps1 " (%s)")]\$ '
 
 # option for each OS
 case $OSTYPE in
