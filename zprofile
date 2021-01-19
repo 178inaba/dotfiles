@@ -1,11 +1,5 @@
 # only mac
 if [ $(echo $OSTYPE | grep darwin) ]; then
-    # bash-completion load
-    BASH_COMP_DIR=$(brew --prefix)
-    if [ -f $BASH_COMP_DIR/etc/bash_completion ]; then
-        . $BASH_COMP_DIR/etc/bash_completion
-    fi
-
     # Android tools
     export PATH=~/Library/Android/sdk/platform-tools:$PATH
 fi
@@ -32,17 +26,11 @@ export PATH=~/.dotfiles/dl/bin:$PATH
 export GREP_OPTIONS='--color=auto'
 
 # load local
-if [ -f ~/.bash_profile.local ]; then
-    . ~/.bash_profile.local
+if [ -f ~/.zprofile.local ]; then
+    . ~/.zprofile.local
 fi
 
-# load .bashrc
-if [ -f ~/.bashrc ]; then
-    . ~/.bashrc
+# load .zshrc
+if [ -f ~/.zshrc ]; then
+    . ~/.zshrc
 fi
-
-# The next line updates PATH for the Google Cloud SDK.
-if [ -f "${HOME}/tools/google-cloud-sdk/path.bash.inc" ]; then . "${HOME}/tools/google-cloud-sdk/path.bash.inc"; fi
-
-# The next line enables shell command completion for gcloud.
-if [ -f "${HOME}/tools/google-cloud-sdk/completion.bash.inc" ]; then . "${HOME}/tools/google-cloud-sdk/completion.bash.inc"; fi
