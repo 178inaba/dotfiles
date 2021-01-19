@@ -1,11 +1,14 @@
 # dotfiles path
 DF=~/.dotfiles
 
-# git
-. $DF/dl/sh/git-completion.zsh
-. $DF/dl/sh/git-prompt.sh
+# git completion
+fpath=($DF/dl/zsh/completion $fpath)
+zstyle ':completion:*:*:git:*' script $DF/dl/sh/git-completion.bash
+autoload -U compinit
+compinit -u
 
 # prompt
+. $DF/dl/sh/git-prompt.sh
 GIT_PS1_SHOWDIRTYSTATE=true
 GIT_PS1_SHOWSTASHSTATE=true
 GIT_PS1_SHOWUNTRACKEDFILES=true
