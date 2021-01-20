@@ -29,8 +29,3 @@ export GREP_OPTIONS='--color=auto'
 if [ -f ~/.zprofile.local ]; then
     . ~/.zprofile.local
 fi
-
-# load .zshrc
-if [ -f ~/.zshrc ]; then
-    . ~/.zshrc
-fi
