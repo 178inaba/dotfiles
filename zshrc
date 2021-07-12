@@ -7,6 +7,10 @@ zstyle ':completion:*:*:git:*' script $DF/dl/sh/git-completion.bash
 autoload -U compinit
 compinit -u
 
+# terraform completion
+autoload -U +X bashcompinit && bashcompinit
+complete -o nospace -C /usr/local/bin/terraform terraform
+
 # prompt
 . $DF/dl/sh/git-prompt.sh
 GIT_PS1_SHOWDIRTYSTATE=true
