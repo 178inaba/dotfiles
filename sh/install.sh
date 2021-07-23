@@ -21,8 +21,7 @@ done
 # package installation of each package manager
 case $PKGMGR in
     brew)
-        $PKGMGR install composer
-        $PKGMGR cask install atom iterm2 visual-studio-code
+        $PKGMGR install composer atom iterm2 visual-studio-code
         apm install package-sync
         ;;
 esac
