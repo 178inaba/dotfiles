@@ -3,8 +3,8 @@
 # link files
 FILES=(
     atom
-    bash_profile
-    bashrc
+    zprofile
+    zshrc
     emacs.d
     gitconfig
     vimrc
