@@ -99,8 +99,7 @@ let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
 " morhetz/gruvbox
-autocmd vimenter * colorscheme gruvbox
-autocmd vimenter * let g:airline_theme = 'gruvbox'
+autocmd vimenter * ++nested colorscheme gruvbox
 
 " prabirshrestha/asyncomplete.vim
 let g:asyncomplete_auto_popup = 0
