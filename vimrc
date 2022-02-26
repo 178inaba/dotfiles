@@ -135,15 +135,6 @@ au User asyncomplete_setup call asyncomplete#register_source(asyncomplete#source
 " prabirshrestha/asyncomplete-lsp.vim
 let g:lsp_async_completion = 1
 
-" prabirshrestha/vim-lsp
-if executable('gopls')
-  au User lsp_setup call lsp#register_server({
-    \ 'name': 'gopls',
-    \ 'cmd': {server_info->['gopls', '-mode', 'stdio']},
-    \ 'whitelist': ['go'],
-    \ })
-endif
-
 " https://github.com/prabirshrestha/asyncomplete.vim/issues/156#issuecomment-530170947
 let g:lsp_text_edit_enabled = 0
 
