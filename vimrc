@@ -28,6 +28,7 @@ Plug 'fatih/vim-go'
 Plug 'godlygeek/tabular'
 Plug 'hashivim/vim-terraform'
 Plug 'IN3D/vim-raml'
+Plug 'itchyny/lightline.vim'
 Plug 'JuliaEditorSupport/julia-vim'
 Plug 'kchmck/vim-coffee-script'
 Plug 'keith/swift.vim'
@@ -45,7 +46,6 @@ Plug 'Rigellute/rigel'
 Plug 'scrooloose/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
-Plug 'vim-airline/vim-airline'
 Plug 'vim-syntastic/syntastic'
 call plug#end()
 
@@ -97,6 +97,9 @@ au BufRead,BufNewFile *.tmpl set ft=gohtmltmpl
 let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
+" itchyny/lightline.vim
+let g:lightline = { 'colorscheme': 'rigel' }
+
 " prabirshrestha/asyncomplete.vim
 let g:asyncomplete_auto_popup = 0
 autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
@@ -136,6 +139,7 @@ let g:lsp_text_edit_enabled = 0
 " Rigellute/rigel
 syntax enable
 colorscheme rigel
+let g:rigel_lightline = 1
 
 " vim-syntastic/syntastic
 set statusline+=%#warningmsg#
