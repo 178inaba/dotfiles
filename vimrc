@@ -33,7 +33,6 @@ Plug 'kchmck/vim-coffee-script'
 Plug 'keith/swift.vim'
 Plug 'mattn/sonictemplate-vim'
 Plug 'mattn/vim-lsp-settings'
-Plug 'morhetz/gruvbox'
 Plug 'natebosch/vim-lsc'
 Plug 'posva/vim-vue'
 Plug 'prabirshrestha/async.vim'
@@ -42,6 +41,7 @@ Plug 'prabirshrestha/asyncomplete-buffer.vim'
 Plug 'prabirshrestha/asyncomplete-file.vim'
 Plug 'prabirshrestha/asyncomplete-lsp.vim'
 Plug 'prabirshrestha/vim-lsp'
+Plug 'Rigellute/rigel'
 Plug 'scrooloose/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'udalov/kotlin-vim'
@@ -97,9 +97,6 @@ au BufRead,BufNewFile *.tmpl set ft=gohtmltmpl
 let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
-" morhetz/gruvbox
-autocmd vimenter * ++nested colorscheme gruvbox
-
 " prabirshrestha/asyncomplete.vim
 let g:asyncomplete_auto_popup = 0
 autocmd! CompleteDone * if pumvisible() == 0 | pclose | endif
@@ -135,6 +132,10 @@ let g:lsp_async_completion = 1
 
 " https://github.com/prabirshrestha/asyncomplete.vim/issues/156#issuecomment-530170947
 let g:lsp_text_edit_enabled = 0
+
+" Rigellute/rigel
+syntax enable
+colorscheme rigel
 
 " vim-syntastic/syntastic
 set statusline+=%#warningmsg#
