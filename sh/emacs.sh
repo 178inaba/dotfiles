@@ -2,4 +2,4 @@
 
 set -eu
 
-emacs -script ~/.emacs.d/setup/setup.el
+emacs -script $DF/.emacs.d/setup/setup.el
