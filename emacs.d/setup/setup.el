@@ -11,7 +11,6 @@
         elixir-mode
         flycheck
         git-gutter+
-        gitconfig-mode
         go-eldoc
         go-mode
         js2-mode
@@ -19,8 +18,6 @@
         lua-mode
         markdown-mode
         nginx-mode
-        perl6-mode
-        php-completion
         php-mode
         sql-indent
         toml-mode
