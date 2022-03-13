@@ -116,7 +116,7 @@ inoremap <silent><expr> <TAB>
 inoremap <expr><S-TAB> pumvisible() ? "\<C-p>" : "\<C-h>"
 
 " prabirshrestha/asyncomplete-buffer.vim
-call asyncomplete#register_source(asyncomplete#sources#buffer#get_source_options({
+silent! call asyncomplete#register_source(asyncomplete#sources#buffer#get_source_options({
   \ 'name': 'buffer',
   \ 'whitelist': ['*'],
   \ 'completor': function('asyncomplete#sources#buffer#completor'),
@@ -138,7 +138,7 @@ let g:lsp_text_edit_enabled = 0
 
 " Rigellute/rigel
 syntax enable
-colorscheme rigel
+silent! colorscheme rigel
 let g:rigel_lightline = 1
 
 " vim-syntastic/syntastic
