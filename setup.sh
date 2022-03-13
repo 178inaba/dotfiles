@@ -34,15 +34,6 @@ else
   cd $DF
 fi
 
-# Link files.
-for FILE in 'atom' 'zprofile' 'zshrc' 'emacs.d' 'gitconfig' 'vimrc'
-do
-  if [ -e ~/.$FILE ] && [ ! -L ~/.$FILE ] && [ ! -e ~/.$FILE.local ]; then
-    mv -v ~/.$FILE ~/.$FILE.local
-  fi
-  ln -fnsv $DF/$FILE ~/.$FILE
-done
-
 # Install software, application, tools.
 if type brew >/dev/null 2>&1; then
   . ./sh/brew.sh
@@ -53,6 +44,15 @@ fi
 . ./sh/go.sh
 . ./sh/composer.sh
 . ./sh/download.sh
+
+# Link files.
+for FILE in 'atom' 'zprofile' 'zshrc' 'emacs.d' 'gitconfig' 'vimrc'
+do
+  if [ -e ~/.$FILE ] && [ ! -L ~/.$FILE ] && [ ! -e ~/.$FILE.local ]; then
+    mv -v ~/.$FILE ~/.$FILE.local
+  fi
+  ln -fnsv $DF/$FILE ~/.$FILE
+done
 
 # Reload shell.
 cd $CURPWD
