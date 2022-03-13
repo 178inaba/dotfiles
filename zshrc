@@ -23,10 +23,10 @@ setopt PROMPT_SUBST ; PS1='[%n@%m %c$(__git_ps1 " (%s)")]\$ '
 
 # option for each OS
 case $OSTYPE in
-    # mac
-    darwin*) LSCLR='-G' ;;
-    # linux
-    linux*) LSCLR='--color' ;;
+  # mac
+  darwin*) LSCLR='-G' ;;
+  # linux
+  linux*) LSCLR='--color' ;;
 esac
 
 # alias
@@ -57,33 +57,37 @@ alias gpp='git pull --prune'
 
 # funcs
 docker() {
-    if [[ $@ == 'reset' ]]; then
-        # clean
-        docker stop $(docker ps -aq)
-        docker rm $(docker ps -aq)
-        docker rmi $(docker images -q)
+  if [[ $@ == 'reset' ]]; then
+    # clean
+    docker stop $(docker ps -aq)
+    docker rm $(docker ps -aq)
+    docker rmi $(docker images -q)
 
-        # check
-        docker ps -a
-        docker images
-    else
-        command docker "$@"
-    fi
+    # check
+    docker ps -a
+    docker images
+  else
+    command docker "$@"
+  fi
 }
 
 # Grep as the current directory.
 gre() {
-    grep -nr --color=always "$@" .
+  grep -nr --color=always "$@" .
 }
 
 # git funcs
 gu() {
-    if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
-        echo "User: $(git config user.name) <$(git config user.email)>"
-    fi
+  if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
+    echo "User: $(git config user.name) <$(git config user.email)>"
+  fi
 }
+
+# Hooks.
+eval "$(direnv hook zsh)"
+eval "$(nodenv init -)"
 
 # load local
 if [ -f ~/.zshrc.local ]; then
-    . ~/.zshrc.local
+  . ~/.zshrc.local
 fi

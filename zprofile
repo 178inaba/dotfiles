@@ -1,7 +1,7 @@
 # only mac
 if [ $(echo $OSTYPE | grep darwin) ]; then
-    # Android tools
-    export PATH=~/Library/Android/sdk/platform-tools:$PATH
+  # Android tools
+  export PATH=~/Library/Android/sdk/platform-tools:$PATH
 fi
 
 # path
@@ -16,9 +16,6 @@ export PATH=~/.composer/vendor/bin:$PATH
 # flutter
 export PATH=~/tools/flutter/bin:$PATH
 
-# node (Require nodenv install.)
-eval "$(nodenv init -)"
-
 # download bin path
 export PATH=~/.dotfiles/dl/bin:$PATH
 
@@ -27,5 +24,5 @@ export GREP_OPTIONS='--color=auto'
 
 # load local
 if [ -f ~/.zprofile.local ]; then
-    . ~/.zprofile.local
+  . ~/.zprofile.local
 fi
