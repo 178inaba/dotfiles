@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eu
+
 brew install bash-completion
 brew install go
 brew install emacs

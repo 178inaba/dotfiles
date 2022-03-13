@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eu
+
 mkdir -pv $DF/dl/{bin,emacs,sh/zsh/completion}
 curl -fsSL -o $DF/dl/sh/git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
 curl -fsSL -o $DF/dl/sh/zsh/completion/_git https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.zsh
