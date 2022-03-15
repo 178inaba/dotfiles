@@ -37,7 +37,7 @@ fi
 # Install software, application, tools.
 if type brew >/dev/null 2>&1; then
   . ./sh/brew.sh
-  . ./sh/apm.sh
+  . ./sh/atom.sh
 fi
 . ./sh/vim.sh
 . ./sh/emacs.sh
