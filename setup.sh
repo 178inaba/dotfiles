@@ -34,6 +34,15 @@ else
   cd $DF
 fi
 
+# Link dotfiles before install.
+for FILE in 'atom' 'emacs.d' 'vimrc'
+do
+  if [ -e ~/.$FILE ] && [ ! -L ~/.$FILE ] && [ ! -e ~/.$FILE.local ]; then
+    mv -v ~/.$FILE ~/.$FILE.local
+  fi
+  ln -fnsv $DF/$FILE ~/.$FILE
+done
+
 # Install software, application, tools.
 if type brew >/dev/null 2>&1; then
   . ./sh/brew.sh
@@ -45,8 +54,8 @@ fi
 . ./sh/composer.sh
 . ./sh/download.sh
 
-# Link files.
-for FILE in 'atom' 'zprofile' 'zshrc' 'emacs.d' 'gitconfig' 'vimrc'
+# Link dotfiles after install.
+for FILE in 'zprofile' 'zshrc' 'gitconfig'
 do
   if [ -e ~/.$FILE ] && [ ! -L ~/.$FILE ] && [ ! -e ~/.$FILE.local ]; then
     mv -v ~/.$FILE ~/.$FILE.local
