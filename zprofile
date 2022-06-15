@@ -4,6 +4,8 @@ if [ $(echo $OSTYPE | grep darwin) ]; then
   export PATH=~/Library/Android/sdk/platform-tools:$PATH
 fi
 
+setopt interactivecomments
+
 # path
 export PATH=~/bin:/usr/local/sbin:$PATH
 
