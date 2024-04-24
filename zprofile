@@ -2,6 +2,9 @@
 if [ $(echo $OSTYPE | grep darwin) ]; then
   # Android tools
   export PATH=~/Library/Android/sdk/platform-tools:$PATH
+
+  # Homebrew
+  eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
 setopt interactivecomments
