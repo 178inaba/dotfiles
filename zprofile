@@ -18,9 +18,6 @@ export PATH=~/.composer/vendor/bin:$PATH
 # flutter
 export PATH=~/tools/flutter/bin:$PATH
 
-# download bin path
-export PATH=~/.dotfiles/dl/bin:$PATH
-
 # grep option
 export GREP_OPTIONS='--color=auto'
 

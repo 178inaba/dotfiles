@@ -3,6 +3,8 @@
 set -eu
 
 brew install bash-completion
+brew install php-cs-fixer
+brew install diff-so-fancy
 brew install go
 brew install emacs
 brew install vim
