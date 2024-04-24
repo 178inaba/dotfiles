@@ -41,7 +41,6 @@ fi
 . ./sh/vim.sh
 . ./sh/emacs.sh
 . ./sh/go.sh
-. ./sh/composer.sh
 . ./sh/download.sh
 
 # Link dotfiles.
