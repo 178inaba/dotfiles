@@ -11,5 +11,8 @@ brew install wget
 brew install composer
 brew install nodenv
 brew install direnv
-brew install iterm2
 brew install visual-studio-code
+
+set +e
+
+brew install iterm2
