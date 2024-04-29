@@ -9,7 +9,7 @@ compinit -u
 
 # terraform completion
 autoload -U +X bashcompinit && bashcompinit
-complete -o nospace -C /usr/local/bin/terraform terraform
+complete -o nospace -C /opt/homebrew/bin/terraform terraform
 
 # prompt
 . $DF/dl/sh/git-prompt.sh
