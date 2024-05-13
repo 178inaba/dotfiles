@@ -21,6 +21,10 @@ export PATH=~/.composer/vendor/bin:$PATH
 # flutter
 export PATH=~/tools/flutter/bin:$PATH
 
+# volta
+export VOLTA_HOME="$HOME/.volta"
+export PATH="$VOLTA_HOME/bin:$PATH"
+
 # grep option
 export GREP_OPTIONS='--color=auto'
 
