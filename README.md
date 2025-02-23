@@ -10,7 +10,6 @@ This is my dotfiles.
 
 #### macOS
 
-* Xcode
 * [Homebrew](http://brew.sh/)
 
 ### Run
@@ -18,12 +17,6 @@ This is my dotfiles.
 ```console
 $ /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/178inaba/dotfiles/master/setup.sh)"
 ```
-
-## TODO
-
-### Add install script
-
-- [ ] [jsfmt](http://rdio.github.io/jsfmt/)
 
 ## License
 
