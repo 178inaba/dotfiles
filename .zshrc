@@ -1,6 +1,3 @@
-# dotfiles path
-DF=~/.dotfiles
-
 # Completion
 autoload -Uz compinit
 compinit
@@ -35,7 +32,7 @@ alias la="ls -la $LSCLR"
 alias lah="ls -lah $LSCLR"
 alias h='history 1 | grep'
 alias c='clear && clear'
-alias dfiles="cd $DF"
+alias dfiles="cd ~/.dotfiles"
 alias em=emacs
 alias cat='ccat --bg=dark'
 alias goc='go test -coverprofile=/tmp/goc && go tool cover -html=/tmp/goc && rm /tmp/goc'
