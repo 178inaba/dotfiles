@@ -1,34 +1,17 @@
-# only mac
-if [ $(echo $OSTYPE | grep darwin) ]; then
-  # Android tools
-  export PATH=~/Library/Android/sdk/platform-tools:$PATH
-
-  # Homebrew
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-fi
-
 setopt interactivecomments
+export PATH=~/bin:$PATH
 
-# path
-export PATH=~/bin:/usr/local/sbin:$PATH
+# Homebrew
+eval "$(/opt/homebrew/bin/brew shellenv)"
 
-# go
-export PATH=/usr/local/go/bin:~/go/bin:$PATH
+# Go
+export PATH=$(go env GOPATH):$PATH
 
-# composer(php)
-export PATH=~/.composer/vendor/bin:$PATH
-
-# flutter
-export PATH=~/tools/flutter/bin:$PATH
-
-# volta
+# Volta
 export VOLTA_HOME="$HOME/.volta"
 export PATH="$VOLTA_HOME/bin:$PATH"
 
-# grep option
-export GREP_OPTIONS='--color=auto'
-
-# load local
+# Load local
 if [ -f ~/.zprofile.local ]; then
   . ~/.zprofile.local
 fi
