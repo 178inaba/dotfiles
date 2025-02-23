@@ -37,7 +37,7 @@
 	sync = codereview sync
 [http]
 	cookiefile = ~/.gitcookies
-[include]
-	path = ~/.gitconfig.local
 [pull]
 	rebase = false
+[include]
+	path = ~/.gitconfig.local
