@@ -71,7 +71,7 @@ docker() {
 
 # Grep as the current directory.
 gre() {
-  grep -nr --color=always "$@" .
+  grep -nr --color=auto "$@" .
 }
 
 # git funcs
