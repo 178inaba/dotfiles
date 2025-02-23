@@ -1,11 +1,9 @@
 # dotfiles path
 DF=~/.dotfiles
 
-# git completion
-fpath=($DF/dl/zsh/completion $fpath)
-zstyle ':completion:*:*:git:*' script $DF/dl/sh/git-completion.bash
-autoload -U compinit
-compinit -u
+# Completion
+autoload -Uz compinit
+compinit
 
 # terraform completion
 autoload -U +X bashcompinit && bashcompinit
