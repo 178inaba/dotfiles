@@ -2,11 +2,7 @@
 autoload -Uz compinit
 compinit
 
-# terraform completion
-autoload -U +X bashcompinit && bashcompinit
-complete -o nospace -C /opt/homebrew/bin/terraform terraform
-
-# prompt
+# Prompt
 . $(brew --prefix git)/etc/bash_completion.d/git-prompt.sh
 GIT_PS1_SHOWDIRTYSTATE=true
 GIT_PS1_SHOWSTASHSTATE=true
