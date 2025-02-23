@@ -3,7 +3,6 @@
 	email = 178inaba.git@gmail.com
 [core]
 	editor = vim
-	attributesFile = ~/.dotfiles/gitattributes
 	pager = diff-so-fancy | less --tabs=4 -RFX
 [color]
 	ui = true
@@ -33,9 +32,6 @@
 	pending = codereview pending
 	submit = codereview submit
 	sync = codereview sync
-[diff "xlsx"]
-	binary = true
-	textconv = git-xlsx-textconv
 [http]
 	cookiefile = ~/.gitcookies
 [include]
