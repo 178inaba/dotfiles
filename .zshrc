@@ -1,3 +1,5 @@
+setopt interactivecomments
+
 # Completion
 autoload -Uz compinit
 compinit

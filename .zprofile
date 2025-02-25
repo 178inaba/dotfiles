@@ -1,4 +1,3 @@
-setopt interactivecomments
 export PATH=~/bin:$PATH
 
 # Homebrew
