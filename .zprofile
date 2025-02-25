@@ -5,7 +5,7 @@ export PATH=~/bin:$PATH
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
 # Go
-export PATH=$(go env GOPATH):$PATH
+export PATH=$(go env GOPATH)/bin:$PATH
 
 # Volta
 export VOLTA_HOME="$HOME/.volta"
