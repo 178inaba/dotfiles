@@ -24,4 +24,5 @@ $ /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/178inaba/dotfiles
 
 ## Author
 
-[178inaba](https://github.com/178inaba)
+Masahiro Furudate (a.k.a. [178inaba](https://github.com/178inaba))  
+<178inaba.git@gmail.com>
