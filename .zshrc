@@ -20,43 +20,24 @@ alias la='ls -la'
 alias h='history 1 | grep'
 alias dfiles='cd ~/.dotfiles'
 alias cat='ccat --bg=dark'
-alias goc='go test -coverprofile=/tmp/goc && go tool cover -html=/tmp/goc && rm /tmp/goc'
 
-# git alias
+# Git alias
 alias ga='git add -A'
-alias gb='git checkout -b'
-alias gc='git checkout'
 alias gd='git diff'
+alias gp='git push -u origin'
 alias gs='git branch && git status && gu'
 alias gca='git commit -a -m'
 alias gcm='git commit -m'
-alias gp='git push -u origin'
-alias gpm='git push -u origin master'
-alias gpd='git push -u origin develop'
+alias gfp='git fetch --prune'
 alias gpp='git pull --prune'
+alias gsu='git submodule update'
 
-# funcs
-docker() {
-  if [[ $@ == 'reset' ]]; then
-    # clean
-    docker stop $(docker ps -aq)
-    docker rm $(docker ps -aq)
-    docker rmi $(docker images -q)
-
-    # check
-    docker ps -a
-    docker images
-  else
-    command docker "$@"
-  fi
-}
-
-# Grep as the current directory.
+# Recursive search under the current directory
 gre() {
   grep -nr --color=auto "$@" .
 }
 
-# git funcs
+# Git user
 gu() {
   if [ "true" = "$(git rev-parse --is-inside-work-tree 2>/dev/null)" ]; then
     echo "User: $(git config user.name) <$(git config user.email)>"
@@ -67,7 +48,7 @@ gu() {
 eval "$(direnv hook zsh)"
 eval "$(nodenv init -)"
 
-# load local
+# Load local
 if [ -f ~/.zshrc.local ]; then
   . ~/.zshrc.local
 fi
