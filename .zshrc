@@ -14,24 +14,11 @@ GIT_PS1_SHOWCOLORHINTS=1
 GIT_PS1_HIDE_IF_PWD_IGNORED=1
 setopt PROMPT_SUBST ; PS1='[%n@%m %c$(__git_ps1 " (%s)")]\$ '
 
-# option for each OS
-case $OSTYPE in
-  # mac
-  darwin*) LSCLR='-G' ;;
-  # linux
-  linux*) LSCLR='--color' ;;
-esac
-
-# alias
-alias sudo='sudo -E '
-alias ll="ls -l $LSCLR"
-alias lh="ls -lh $LSCLR"
-alias la="ls -la $LSCLR"
-alias lah="ls -lah $LSCLR"
+# Alias
+alias ls='ls --color=auto'
+alias la='ls -la'
 alias h='history 1 | grep'
-alias c='clear && clear'
-alias dfiles="cd ~/.dotfiles"
-alias em=emacs
+alias dfiles='cd ~/.dotfiles'
 alias cat='ccat --bg=dark'
 alias goc='go test -coverprofile=/tmp/goc && go tool cover -html=/tmp/goc && rm /tmp/goc'
 
@@ -76,7 +63,7 @@ gu() {
   fi
 }
 
-# Hooks.
+# Hooks
 eval "$(direnv hook zsh)"
 eval "$(nodenv init -)"
 
