@@ -2,15 +2,17 @@
 
 This is my dotfiles.
 
+## Requirement
+
+- [Adding a new SSH key to your GitHub account](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account)
+- [Homebrew](https://brew.sh)
+
 ## Setup
 
-### Require
-
-* SSH key registration to GitHub
-
-#### macOS
-
-* [Homebrew](http://brew.sh/)
+```zsh
+brew install git vim go ccat diff-so-fancy direnv nodenv stow
+stow git vim zsh
+```
 
 ## License
 
