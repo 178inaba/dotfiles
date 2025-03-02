@@ -12,12 +12,6 @@ This is my dotfiles.
 
 * [Homebrew](http://brew.sh/)
 
-### Run
-
-```console
-$ /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/178inaba/dotfiles/master/setup.sh)"
-```
-
 ## License
 
 [MIT](LICENSE)
