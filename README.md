@@ -10,8 +10,8 @@ This is my dotfiles.
 ## Setup
 
 ```zsh
-brew install git vim go ccat diff-so-fancy direnv nodenv stow
-stow git vim zsh
+$ brew install git vim go ccat diff-so-fancy direnv nodenv stow
+$ stow git vim zsh
 ```
 
 ## License
