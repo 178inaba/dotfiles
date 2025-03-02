@@ -12,8 +12,10 @@ This is my dotfiles.
 ```zsh
 $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
+$ eval "$(/opt/homebrew/bin/brew shellenv)"
 $ brew install git vim go ccat diff-so-fancy direnv nodenv stow
 $ stow git vim zsh
+$ zsh -l
 ```
 
 ## License
