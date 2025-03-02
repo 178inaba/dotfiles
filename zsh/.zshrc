@@ -17,7 +17,7 @@ setopt PROMPT_SUBST ; PS1='[%n@%m %c$(__git_ps1 " (%s)")]\$ '
 # Alias
 alias ls='ls --color=auto'
 alias la='ls -la'
-alias h='history 1 | grep'
+alias h='history 1 | grep --color=auto'
 alias dfiles='cd ~/.dotfiles'
 alias cat='ccat --bg=dark'
 
