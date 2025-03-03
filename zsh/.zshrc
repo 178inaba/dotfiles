@@ -18,7 +18,7 @@ setopt PROMPT_SUBST ; PS1='[%n@%m %c$(__git_ps1 " (%s)")]\$ '
 alias ls='ls --color=auto'
 alias la='ls -la'
 alias h='history 1 | grep --color=auto'
-alias dfs='cd ~/.dotfiles'
+alias dfs="cd ${HOME}/.dotfiles"
 alias cat='ccat --bg=dark'
 
 # Git alias
@@ -48,7 +48,13 @@ gu() {
 eval "$(direnv hook zsh)"
 eval "$(nodenv init -)"
 
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f "${HOME}/google-cloud-sdk/path.zsh.inc" ]; then . "${HOME}/google-cloud-sdk/path.zsh.inc"; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f "${HOME}/google-cloud-sdk/completion.zsh.inc" ]; then . "${HOME}/google-cloud-sdk/completion.zsh.inc"; fi
+
 # Load local
-if [ -f ~/.zshrc.local ]; then
-  . ~/.zshrc.local
+if [ -f "${HOME}/.zshrc.local" ]; then
+  . "${HOME}/.zshrc.local"
 fi
