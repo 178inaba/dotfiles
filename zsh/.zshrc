@@ -4,6 +4,10 @@ setopt interactivecomments
 autoload -Uz compinit
 compinit
 
+# Terraform completion
+autoload -U +X bashcompinit && bashcompinit
+complete -o nospace -C $(brew --prefix terraform)/bin/terraform terraform
+
 # Prompt
 . $(brew --prefix git)/etc/bash_completion.d/git-prompt.sh
 GIT_PS1_SHOWDIRTYSTATE=1
