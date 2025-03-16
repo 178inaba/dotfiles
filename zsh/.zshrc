@@ -1,6 +1,7 @@
 setopt interactivecomments
 
 # Completion
+FPATH="${HOME}/.docker/completions:${FPATH}"
 autoload -Uz compinit
 compinit
 
