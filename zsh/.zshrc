@@ -29,6 +29,7 @@ alias cat='ccat --bg=dark'
 # Git alias
 alias ga='git add -A'
 alias gd='git diff'
+alias gdc='git diff --cached'
 alias gp='git push -u origin'
 alias gs='git branch && git status && gu'
 alias gca='git commit -a -m'
