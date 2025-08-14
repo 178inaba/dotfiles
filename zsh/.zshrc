@@ -3,7 +3,7 @@ setopt interactivecomments
 # Completion
 FPATH="${HOME}/.docker/completions:${FPATH}"
 autoload -Uz compinit
-compinit
+compinit -C
 
 # Terraform completion
 autoload -U +X bashcompinit && bashcompinit
