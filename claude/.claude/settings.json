@@ -13,7 +13,7 @@
       "Bash(rg:*)"
     ],
     "deny": [
-      "Read(./.env)"
+      "Read(.env*)"
     ],
     "additionalDirectories": [
       "~/.claude/"
