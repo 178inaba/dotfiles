@@ -10,7 +10,10 @@
       "Bash(go test:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "WebFetch(domain:mermaid.js.org)",
+      "WebFetch(domain:docs.mermaidchart.com)",
+      "WebSearch"
     ],
     "deny": [
       "Read(.env*)"
