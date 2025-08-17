@@ -4,6 +4,7 @@
     "allow": [
       "Bash(git add:*)",
       "Bash(git commit:*)",
+      "Bash(git switch:*)",
       "Bash(go build:*)",
       "Bash(go doc:*)",
       "Bash(go mod:*)",
