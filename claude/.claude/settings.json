@@ -2,6 +2,7 @@
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
+      "Bash(gh pr list:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git switch:*)",
