@@ -2,6 +2,7 @@
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
+      "Bash(cat:*)",
       "Bash(gh pr list:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
@@ -10,6 +11,8 @@
       "Bash(go doc:*)",
       "Bash(go mod:*)",
       "Bash(go test:*)",
+      "Bash(go version)",
+      "Bash(go vet:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(rg:*)",
