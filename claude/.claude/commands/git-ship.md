@@ -24,7 +24,7 @@
 - `gh pr list --head [current-branch]` で既存PRの有無を確認
 - mainブランチの場合は先にフィーチャーブランチを作成して切り替え
 - 処理の実行：
-  1. 未コミットの変更がある場合: `/git-commit` を実行
-  2. 未プッシュのコミットがある場合: `/git-push` を実行
-  3. 既存PRがない場合: `/git-pr` を実行してPR作成
+  1. 未コミットの変更がある場合: @~/.claude/commands/git-commit.md の仕様に従ってコミット
+  2. 未プッシュのコミットがある場合: @~/.claude/commands/git-push.md の仕様に従ってプッシュ
+  3. 既存PRがない場合: @~/.claude/commands/git-pr.md の仕様に従ってPR作成
 - 注意: 既存PRがある場合はプッシュで自動的にPRが更新されるため、PR作成はスキップ
