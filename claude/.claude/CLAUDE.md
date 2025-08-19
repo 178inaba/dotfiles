@@ -4,6 +4,26 @@
 - **ファイル形式**: ファイルの最後に改行文字を必ず追加してください（POSIX標準準拠）
 - **EditorConfig**: プロジェクトに.editorconfigファイルが存在する場合は、その設定に必ず従ってください（indent_style, indent_size, insert_final_newline, end_of_line等）
 - **コメント**: 既存のコメント言語（英語/日本語）を踏襲し、コードベース全体で一貫性を保ってください
+- **エラーハンドリング**: Go言語では戻り値を使わない場合、条件文内でエラーハンドリングを行う慣用パターンを使用する
+  ```go
+  // 推奨パターン（戻り値を使わない場合）
+  if _, err := someFunction(); err != nil {
+      return err
+  }
+
+  // 避けるパターン（戻り値を使わない場合）
+  _, err := someFunction()
+  if err != nil {
+      return err
+  }
+
+  // 戻り値を使う場合は分離してOK
+  result, err := someFunction()
+  if err != nil {
+      return err
+  }
+  // resultを使用
+  ```
 
 ## 差分レビュー方針
 
