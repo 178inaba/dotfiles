@@ -16,6 +16,7 @@
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(rg:*)",
+      "WebFetch(domain:docs.anthropic.com)",
       "WebFetch(domain:mermaid.js.org)",
       "WebFetch(domain:docs.mermaidchart.com)",
       "WebSearch"
