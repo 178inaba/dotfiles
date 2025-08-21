@@ -12,6 +12,7 @@
       "Bash(git switch:*)",
       "Bash(go build:*)",
       "Bash(go doc:*)",
+      "Bash(go help:*)",
       "Bash(go mod:*)",
       "Bash(go test:*)",
       "Bash(go version)",
@@ -20,6 +21,8 @@
       "Bash(ls:*)",
       "Bash(rg:*)",
       "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:go.dev)",
+      "WebFetch(domain:pkg.go.dev)",
       "WebFetch(domain:mermaid.js.org)",
       "WebFetch(domain:docs.mermaidchart.com)",
       "WebSearch"
