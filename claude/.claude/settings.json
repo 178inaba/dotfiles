@@ -3,7 +3,10 @@
   "permissions": {
     "allow": [
       "Bash(cat:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
       "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git switch:*)",
