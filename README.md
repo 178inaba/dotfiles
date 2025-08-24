@@ -14,7 +14,7 @@ $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
 $ eval "$(/opt/homebrew/bin/brew shellenv)"
 $ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow
-$ stow tmux git vim zsh claude
+$ stow tmux git vim zsh claude ghostty
 $ zsh -l
 ```
 
