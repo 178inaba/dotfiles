@@ -39,7 +39,7 @@ Plug 'prabirshrestha/asyncomplete-buffer.vim'
 Plug 'prabirshrestha/asyncomplete-file.vim'
 Plug 'prabirshrestha/asyncomplete-lsp.vim'
 Plug 'prabirshrestha/vim-lsp'
-Plug 'Rigellute/rigel'
+Plug 'lifepillar/vim-solarized8'
 Plug 'scrooloose/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'vim-syntastic/syntastic'
@@ -93,7 +93,7 @@ let g:terraform_align = 1
 let g:terraform_fmt_on_save = 1
 
 " itchyny/lightline.vim
-let g:lightline = { 'colorscheme': 'rigel' }
+let g:lightline = { 'colorscheme': 'solarized' }
 
 " prabirshrestha/asyncomplete.vim
 let g:asyncomplete_auto_popup = 0
@@ -131,10 +131,10 @@ let g:lsp_async_completion = 1
 " https://github.com/prabirshrestha/asyncomplete.vim/issues/156#issuecomment-530170947
 let g:lsp_text_edit_enabled = 0
 
-" Rigellute/rigel
+" lifepillar/vim-solarized8
 syntax enable
-silent! colorscheme rigel
-let g:rigel_lightline = 1
+set background=dark
+autocmd vimenter * ++nested colorscheme solarized8
 
 " vim-syntastic/syntastic
 set statusline+=%#warningmsg#
