@@ -4,3 +4,5 @@ font-family = HackGen Console NF
 font-feature = -dlig
 keybind = shift+enter=text:\n
 scrollback-limit = 104857600
+
+theme = Solarized Dark Higher Contrast
