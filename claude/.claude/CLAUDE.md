@@ -44,6 +44,10 @@
 - **ブランチ切り替え**: `git switch`を使用（`git checkout`ではなく）
 - **コミットメッセージ**: プロジェクト標準に従う
 
+## GitHub操作
+
+- **Sub-Issues管理**: @~/.claude/context/tools/github-sub-issues.md
+
 ## コンテキスト管理
 
 - **自動更新**: 重要な汎用的コンテキスト（開発ワークフロー、よく使うツール・コマンド、環境設定等）を発見した場合、このCLAUDE.mdまたは適切な context/ ファイルに自動で追記してください
