@@ -38,6 +38,9 @@ alias gfp='git fetch --prune'
 alias gpp='git pull --prune'
 alias gsu='git submodule update'
 
+# Tmux alias
+alias tmux-help='ccat --color=always --bg=dark ~/.dotfiles/docs/tmux-cheatsheet.md | less -R'
+
 # Recursive search under the current directory
 gre() {
   grep -nr --color=auto "$@" .
