@@ -10,7 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 ├── claude/     # Claude AI設定
+├── docs/       # ドキュメント・チートシート
 ├── git/        # Git設定（.gitconfig）
+├── tmux/       # tmux設定（.tmux.conf）
 ├── vim/        # Vim設定（.vimrc）
 └── zsh/        # Zsh設定（.zprofile, .zshrc）
 ```
@@ -24,21 +26,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 cd ~/.dotfiles
 eval "$(/opt/homebrew/bin/brew shellenv)"
-brew install git vim go ccat diff-so-fancy direnv nodenv stow
-stow git vim zsh claude
+brew install git vim go ccat diff-so-fancy direnv nodenv stow tmux
+stow git vim zsh claude tmux
 zsh -l
 ```
 
 ### Stow操作
 - 設定を適用: `stow <ディレクトリ名>`
 - 設定を削除: `stow -D <ディレクトリ名>`
-- 利用可能なパッケージ: git, vim, zsh, claude
+- 利用可能なパッケージ: git, vim, zsh, claude, tmux
 
 ## 設定の特徴
 
 - **Git**: diff-so-fancy、SSH URL書き換え、Go code review用エイリアス
 - **Vim**: vim-plug、GitHub Copilot、Go/Terraform/Vue.js開発環境、Solarized8テーマ
 - **Zsh**: Git統合プロンプト、豊富なエイリアス、direnv/gcloud統合
+- **tmux**: 初心者向け設定、Vimスタイル操作、Solarized配色、詳細チートシート
 - **Claude**: 日本語対応設定、カスタムコマンド
 
 ## ローカル設定
@@ -59,6 +62,7 @@ zsh -l
 ### その他
 - `dfs`: dotfilesディレクトリへ移動
 - `cat`: ccat（カラー表示）使用
+- `tmux-help`: tmuxチートシートを色付きページングで表示
 
 ## Claude設定の詳細
 
@@ -82,4 +86,11 @@ zsh -l
 ## テーマ統一
 - **ターミナル**: Ghostty (Solarized Dark Higher Contrast)
 - **Vim**: Solarized8 Dark
-- **統一方針**: 全エディタでSolarizedテーマ使用
+- **tmux**: Solarized配色のステータスバー
+- **統一方針**: 全エディタ・ターミナルツールでSolarizedテーマ使用
+
+## ドキュメント
+
+### チートシート
+- **tmux**: `docs/tmux-cheatsheet.md` - 初心者向け包括的リファレンス
+- **参照方法**: `tmux-help` コマンドで色付きページング表示
