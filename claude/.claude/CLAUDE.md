@@ -52,6 +52,7 @@
 
 - **Sub-Issues管理**: @~/.claude/context/tools/github-sub-issues.md
 - **TypeScript/ESLint アップグレード**: @~/.claude/context/workflows/typescript-eslint-upgrade.md
+- **大規模機能開発**: @~/.claude/context/workflows/feature-development.md
 
 ## コンテキスト管理
 
