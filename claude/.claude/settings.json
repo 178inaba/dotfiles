@@ -15,6 +15,7 @@
       "Bash(go build:*)",
       "Bash(go doc:*)",
       "Bash(go generate:*)",
+      "Bash(go get:*)",
       "Bash(go help:*)",
       "Bash(go mod:*)",
       "Bash(go test:*)",
