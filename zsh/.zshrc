@@ -17,7 +17,25 @@ GIT_PS1_SHOWUNTRACKEDFILES=1
 GIT_PS1_SHOWUPSTREAM=auto
 GIT_PS1_SHOWCOLORHINTS=1
 GIT_PS1_HIDE_IF_PWD_IGNORED=1
-setopt PROMPT_SUBST ; PS1='[%* %~$(__git_ps1 " (%s)")]\$ '
+setopt PROMPT_SUBST
+
+## Command execution time tracking
+preexec() {
+  timer=${timer:-$SECONDS}
+}
+
+precmd() {
+  exec_time=''
+  if [[ -n $timer ]]; then
+    local elapsed=$(($SECONDS - $timer))
+    if (( elapsed >= 1 )); then
+      exec_time="[${elapsed}s]"
+    fi
+    unset timer
+  fi
+}
+
+PS1='${exec_time}[%* %~$(__git_ps1 " (%s)")]\$ '
 
 # Alias
 alias ls='ls --color=auto'
