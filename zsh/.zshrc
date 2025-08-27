@@ -28,14 +28,15 @@ precmd() {
   exec_time=''
   if [[ -n $timer ]]; then
     local elapsed=$(($SECONDS - $timer))
-    if (( elapsed >= 1 )); then
+    if (( elapsed >= 5 )); then
       exec_time="[${elapsed}s]"
     fi
     unset timer
   fi
 }
 
-PS1='${exec_time}[%* %~$(__git_ps1 " (%s)")]\$ '
+PS1='[%* %~$(__git_ps1 " (%s)")]\$ '
+RPROMPT='${exec_time}'
 
 # Alias
 alias ls='ls --color=auto'
