@@ -17,7 +17,7 @@ GIT_PS1_SHOWUNTRACKEDFILES=1
 GIT_PS1_SHOWUPSTREAM=auto
 GIT_PS1_SHOWCOLORHINTS=1
 GIT_PS1_HIDE_IF_PWD_IGNORED=1
-setopt PROMPT_SUBST ; PS1='[%n@%m %c$(__git_ps1 " (%s)")]\$ '
+setopt PROMPT_SUBST ; PS1='[%* %~$(__git_ps1 " (%s)")]\$ '
 
 # Alias
 alias ls='ls --color=auto'
