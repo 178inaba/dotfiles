@@ -248,6 +248,61 @@ pwd  # 移動後確認
 - **異なるGitリポジトリの混同**: サブモジュールとルートリポジトリの操作ミス
   - 対策: `git status`でリポジトリ状況を確認してから作業
 
+## ESLint複雑度対策パターン
+
+複雑度エラー（Complexity > 10）を解決する実証済みリファクタリング手法：
+
+### 分割の基本原則
+1. **単一責任**: 各メソッドは1つの明確な責任のみを持つ
+2. **命名規則**: 処理内容が分かる動詞ベースの関数名
+3. **データフロー**: 前のメソッドの結果を次のメソッドが受け取る設計
+
+### 分割パターン例
+```typescript
+// Before: 複雑度15のメソッド
+processData(): Promise<void> { /* 60行の複雑な処理 */ }
+
+// After: 5個の小さなメソッドに分割
+processData(): Promise<void>     // メイン制御フロー
+validateInput(): boolean         // 入力値検証
+transformData(): DataModel       // データ変換
+executeOperation(): Promise<Result> // 主要処理実行
+handleResult(result: Result): void  // 結果処理
+```
+
+### 効果
+- **複雑度**: 15 → 各メソッド3-5に改善
+- **可読性**: 処理の流れが明確化
+- **保守性**: 個別機能の修正が容易
+- **テスタビリティ**: 単体テスト作成が簡単
+
+## Go パフォーマンス監視パターン
+
+### defer を使った処理時間測定
+```go
+func (s *Service) ProcessRequest(ctx context.Context, req *Request) (*Response, error) {
+    logger := log.FromContext(ctx)
+    start := time.Now()
+    
+    defer func() {
+        duration := time.Since(start)
+        logger.WithFields(map[string]interface{}{
+            "operation":     "process_request",
+            "duration_ms":   duration.Milliseconds(),
+            "request_type":  req.Type,
+        }).Info("Request processing completed")
+    }()
+    
+    // メイン処理...
+    return processBusinessLogic(ctx, req)
+}
+```
+
+### 適用場面
+- 検索・DB操作等の時間がかかる処理
+- パフォーマンス監視が必要なAPI
+- ボトルネック特定のためのメトリクス収集
+
 ## コンテキスト管理
 
 - **自動更新**: 重要な汎用的コンテキスト（開発ワークフロー、よく使うツール・コマンド、環境設定等）を発見した場合、このCLAUDE.mdまたは適切な context/ ファイルに自動で追記してください
