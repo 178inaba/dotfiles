@@ -77,13 +77,11 @@ GitHubのレビューコメントを確認して適切に対応するコマン�
      ```bash
      gh api graphql --field query='
      mutation {
-       addPullRequestReviewComment(input: {
-         pullRequestId: "PR_NODE_ID"
-         pullRequestReviewId: "REVIEW_NODE_ID"
+       addPullRequestReviewThreadReply(input: {
+         pullRequestReviewThreadId: "THREAD_NODE_ID"
          body: "返信内容"
-         inReplyTo: "COMMENT_NODE_ID"
        }) {
-         comment { id }
+         comment { id body }
        }
      }'
      ```
@@ -119,6 +117,16 @@ GitHubのレビューコメントを確認して適切に対応するコマン�
 | **API呼び出し効率** | 3-4回必要 | 1回で完結 |
 | **データ整合性** | 分散取得でズレの可能性 | 単一クエリで保証 |
 | **見落とし防止** | 手動でエンドポイント選択 | 包括的取得で見落としなし |
+
+### 重要な実装ポイント
+- **レビュースレッド返信**: `pullRequestReviewId` パラメータは**不要**
+  - ❌ `pullRequestReviewId` を含めると `comment: null` が返される
+  - ✅ `pullRequestReviewThreadId` のみで正常動作
+- **修正完了報告**: コミットURLを含めてわかりやすく報告
+  ```
+  <修正内容>を<変更後の内容>に変更して対応しました。
+  https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシュ>
+  ```
 
 ### 言語別品質確認コマンド例
 - **Node.js**: `npm run lint`, `npm run test`, `npm run typecheck`
