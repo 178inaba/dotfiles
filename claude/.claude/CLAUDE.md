@@ -283,7 +283,7 @@ handleResult(result: Result): void  // 結果処理
 func (s *Service) ProcessRequest(ctx context.Context, req *Request) (*Response, error) {
     logger := log.FromContext(ctx)
     start := time.Now()
-    
+
     defer func() {
         duration := time.Since(start)
         logger.WithFields(map[string]interface{}{
@@ -292,7 +292,7 @@ func (s *Service) ProcessRequest(ctx context.Context, req *Request) (*Response, 
             "request_type":  req.Type,
         }).Info("Request processing completed")
     }()
-    
+
     // メイン処理...
     return processBusinessLogic(ctx, req)
 }
