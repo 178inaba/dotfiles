@@ -79,7 +79,7 @@ GitHubのレビューコメントを確認して適切に対応するコマン�
      mutation {
        addPullRequestReviewComment(input: {
          pullRequestId: "PR_NODE_ID"
-         pullRequestReviewId: "REVIEW_NODE_ID" 
+         pullRequestReviewId: "REVIEW_NODE_ID"
          body: "返信内容"
          inReplyTo: "COMMENT_NODE_ID"
        }) {
