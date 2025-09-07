@@ -51,7 +51,8 @@ gh api graphql --field query='
 ```
 
 ### スレッドに返信
-```graphql
+```bash
+gh api graphql --field query='
 mutation {
   addPullRequestReviewThreadReply(input: {
     pullRequestReviewThreadId: "THREAD_ID"
@@ -59,18 +60,19 @@ mutation {
   }) {
     comment { id }
   }
-}
+}'
 ```
 
 ### スレッド解決
-```graphql
+```bash
+gh api graphql --field query='
 mutation {
   resolveReviewThread(input: {
     threadId: "THREAD_ID"
   }) {
     thread { isResolved }
   }
-}
+}'
 ```
 
 ## 重要な実装ポイント
