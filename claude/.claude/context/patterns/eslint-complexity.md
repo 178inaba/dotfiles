@@ -11,8 +11,8 @@
 
 ### Before: 複雑度15のメソッド
 ```typescript
-processData(): Promise<void> { 
-    /* 60行の複雑な処理 */ 
+processData(): Promise<void> {
+    /* 60行の複雑な処理 */
 }
 ```
 

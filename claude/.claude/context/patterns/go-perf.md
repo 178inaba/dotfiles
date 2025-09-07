@@ -47,7 +47,7 @@ go func() {
 ```go
 var m runtime.MemStats
 runtime.ReadMemStats(&m)
-logger.Info("Memory stats", 
+logger.Info("Memory stats",
     "alloc_mb", m.Alloc/1024/1024,
     "total_alloc_mb", m.TotalAlloc/1024/1024,
     "sys_mb", m.Sys/1024/1024,
