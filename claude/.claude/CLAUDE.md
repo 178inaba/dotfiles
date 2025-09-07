@@ -53,6 +53,9 @@
 - **Sub-Issues管理**: @~/.claude/context/tools/github-sub-issues.md
 - **TypeScript/ESLint アップグレード**: @~/.claude/context/workflows/typescript-eslint-upgrade.md
 - **大規模機能開発**: @~/.claude/context/workflows/feature-development.md
+- **SCSS大規模移行戦略**: @~/.claude/context/workflows/scss-migration.md
+- **マークダウン記載注意点**: @~/.claude/context/tools/markdown-syntax.md
+- **Git操作トラブルシューティング**: @~/.claude/context/workflows/git-troubleshooting.md
 
 ## 仕様遵守原則
 
