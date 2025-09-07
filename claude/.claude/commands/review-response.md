@@ -31,21 +31,23 @@ GitHubのレビューコメントを確認して適切に対応
 ## GraphQL API 実装
 
 ### 未解決コメント取得
-```graphql
-query {
+```bash
+# GraphQL APIで取得後、jqでフィルタリング
+gh api graphql --field query='
+{
   repository(owner: "OWNER", name: "REPO") {
     pullRequest(number: PR_NUMBER) {
       reviewThreads(first: 50) {
         nodes {
           id, isResolved
           comments(first: 10) {
-            nodes { body, path, line }
+            nodes { body, path, line, author { login } }
           }
         }
       }
     }
   }
-}
+}' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
 ```
 
 ### スレッドに返信
