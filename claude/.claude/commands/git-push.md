@@ -1,3 +1,8 @@
+---
+description: コミット済みの変更をプッシュ
+argument-hint: [branch-name]
+---
+
 # /git-push
 
 コミット済みの変更をプッシュ

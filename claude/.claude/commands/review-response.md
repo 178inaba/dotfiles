@@ -1,3 +1,7 @@
+---
+description: GitHubのレビューコメントを確認して適切に対応
+---
+
 # /review-response
 
 GitHubのレビューコメントを確認して適切に対応
