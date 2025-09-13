@@ -60,6 +60,10 @@
           {
             "type": "command",
             "command": "for i in {1..5}; do afplay -t 0.1 /System/Library/Sounds/Ping.aiff; done"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/slack-notify.sh"
           }
         ]
       }
