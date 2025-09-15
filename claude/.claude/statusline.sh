@@ -65,11 +65,12 @@ if command -v top >/dev/null 2>&1; then
     fi
 fi
 
-# メモリ使用率（簡易版）
-if command -v vm_stat >/dev/null 2>&1; then
-    memory_pressure=$(memory_pressure 2>/dev/null | head -1 | awk '{print $5}' 2>/dev/null || echo "")
-    if [[ -n "$memory_pressure" ]]; then
-        system_info="${system_info} MEM:${memory_pressure}"
+# メモリ使用率（memory_pressureコマンド使用）
+if command -v memory_pressure >/dev/null 2>&1; then
+    memory_free_pct=$(memory_pressure 2>/dev/null | grep "System-wide memory free percentage:" | awk '{print $5}' | sed 's/%//')
+    if [[ -n "$memory_free_pct" ]]; then
+        memory_used_pct=$((100 - memory_free_pct))
+        system_info="${system_info} MEM:${memory_used_pct}%"
     fi
 fi
 
