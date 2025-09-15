@@ -33,20 +33,27 @@ cost_above_threshold() {
 get_claude_info() {
     local claude_info=""
 
-    if [ -p /dev/stdin ]; then
-        local input=$(timeout 0.1s cat 2>/dev/null || echo "")
-        if [[ -n "$input" ]] && safe_command jq; then
-            local model_name=$(echo "$input" | jq -r '.model.display_name // empty' 2>/dev/null)
-            local total_cost=$(echo "$input" | jq -r '.cost.total_cost_usd // empty' 2>/dev/null)
+    # stdin から入力を読み取り（より確実な方法）
+    local input=""
+    if [ -t 0 ]; then
+        # 標準入力がターミナルの場合は何もしない
+        :
+    else
+        # パイプまたはリダイレクトから入力がある場合
+        input=$(cat 2>/dev/null || echo "")
+    fi
 
-            if [[ -n "$model_name" ]]; then
-                claude_info=" [${model_name}]"
+    if [[ -n "$input" ]] && safe_command jq; then
+        local model_name=$(echo "$input" | jq -r '.model.display_name // empty' 2>/dev/null)
+        local total_cost=$(echo "$input" | jq -r '.cost.total_cost_usd // empty' 2>/dev/null)
 
-                # コストが0.01以上の場合のみ表示（小額は省略）
-                if [[ -n "$total_cost" ]] && cost_above_threshold "$total_cost"; then
-                    local cost_display=$(printf "%.2f" "$total_cost")
-                    claude_info="${claude_info} \$${cost_display}"
-                fi
+        if [[ -n "$model_name" ]]; then
+            claude_info=" [${model_name}]"
+
+            # コストが0.01以上の場合のみ表示（小額は省略）
+            if [[ -n "$total_cost" ]] && cost_above_threshold "$total_cost"; then
+                local cost_display=$(printf "%.2f" "$total_cost")
+                claude_info="${claude_info} \$${cost_display}"
             fi
         fi
     fi
