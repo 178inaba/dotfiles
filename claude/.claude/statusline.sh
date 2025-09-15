@@ -33,7 +33,6 @@ cost_above_threshold() {
 get_claude_info() {
     local claude_info=""
 
-    # ドキュメント通りのシンプルな方法
     local input=$(cat 2>/dev/null || echo "")
 
     if [[ -n "$input" ]] && safe_command jq; then
