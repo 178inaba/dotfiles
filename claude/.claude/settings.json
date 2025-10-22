@@ -76,5 +76,6 @@
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
-  }
+  },
+  "awsAuthRefresh": "$CLAUDE_AWS_AUTH_REFRESH_SCRIPT"
 }
