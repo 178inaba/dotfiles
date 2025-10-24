@@ -67,6 +67,7 @@
 ### ワークフロー
 - **差分レビュー**: @~/.claude/context/workflows/code-review.md
 - **Git操作**: @~/.claude/context/workflows/git.md
+- **CI/CDデプロイ**: @~/.claude/context/workflows/cicd-deployment.md
 - **大規模機能開発**: @~/.claude/context/workflows/feature-development.md
 - **TypeScript/ESLint**: @~/.claude/context/workflows/typescript-eslint-upgrade.md
 
