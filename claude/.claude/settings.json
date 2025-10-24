@@ -1,4 +1,5 @@
 {
+  "awsAuthRefresh": "$CLAUDE_AWS_AUTH_REFRESH_SCRIPT",
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
@@ -76,6 +77,5 @@
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
-  },
-  "awsAuthRefresh": "$CLAUDE_AWS_AUTH_REFRESH_SCRIPT"
+  }
 }
