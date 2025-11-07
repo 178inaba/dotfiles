@@ -54,6 +54,7 @@
 ## 開発ワークフロー
 
 ### パターン集
+- **テスト実装**: @~/.claude/context/patterns/test-implementation.md
 - **SPA状態保持**: @~/.claude/context/patterns/spa-state.md
 - **データテーブル**: @~/.claude/context/patterns/data-table.md
 - **Goパフォーマンス**: @~/.claude/context/patterns/go-perf.md
