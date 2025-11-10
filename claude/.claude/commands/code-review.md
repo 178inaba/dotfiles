@@ -28,14 +28,32 @@ description: コード差分を詳細にレビュー
 
 ## 実行内容
 
-### 1. 差分取得と確認
+### 1. 引数の解析
+- 第1引数（`--`で始まらない）があればベースブランチ名として使用
+- 第1引数がない、または`--`で始まる場合は `git symbolic-ref refs/remotes/origin/HEAD` でベースブランチを自動判定
+- `--issue ISSUE_NUMBER`: Issue番号を抽出
+- `--uncommitted`: 未コミット差分フラグを設定
+
+**解析例**:
+```
+/code-review feature/auth --issue 123
+→ base-branch: "feature/auth", issue: 123, uncommitted: false
+
+/code-review --issue 456 --uncommitted
+→ base-branch: (自動判定), issue: 456, uncommitted: true
+
+/code-review origin/main
+→ base-branch: "origin/main", issue: null, uncommitted: false
+```
+
+### 2. 差分取得と確認
 - `--uncommitted`が指定されている場合:
   - `git diff` で既存ファイルの未コミット差分を取得
   - `git ls-files --others --exclude-standard` でトラックされていない新規ファイルを確認
   - トラックされていないファイルがあれば、その内容も読み込んでレビュー対象に含める
   - トラックされていないファイルがある場合は、レビュー結果で明示的に言及する
 - 指定されていない場合:
-  - ベースブランチの決定: 引数がなければ `git symbolic-ref refs/remotes/origin/HEAD` で自動判定
+  - **必ず解析済みのベースブランチを使用** (`git diff <base-branch>...HEAD`)
   - 差分が大きい場合は `git diff <base-branch>...HEAD --name-only` で変更ファイル一覧を先に確認
   - 各ファイルを `git diff <base-branch>...HEAD <ファイル名>` で個別に確認
   - 全体を把握してからレビュー評価を実施
@@ -46,11 +64,11 @@ description: コード差分を詳細にレビュー
 - 部分的判断禁止: 一部の差分や最初の部分だけを見て結論を出さない
 - 見落とし防止: 特に新規追加ファイルや定数・インターフェース変更は必ず確認する
 
-### 2. Issue情報取得（`--issue`指定時）
+### 3. Issue情報取得（`--issue`指定時）
 - `gh issue view <ISSUE_NUMBER>` でIssue内容を取得
 - 要件・仕様を確認
 
-### 3. レビュー実行
+### 4. レビュー実行
 以下の観点から詳細にレビュー:
 
 #### 基本観点
@@ -78,7 +96,7 @@ description: コード差分を詳細にレビュー
 - [ ] 仕様から逸脱していないか
 - [ ] 関連する要件がすべて実装されているか
 
-### 4. レビュー結果出力
+### 5. レビュー結果出力
 以下の形式で出力:
 
 ```markdown
