@@ -8,13 +8,13 @@ description: コード差分を詳細にレビュー
 
 ## 使用方法
 ```
-/code-review [base-branch] [--issue ISSUE_NUMBER] [--staged]
+/code-review [base-branch] [--issue ISSUE_NUMBER] [--uncommitted]
 ```
 
 **引数**:
 - `base-branch`: 比較対象のブランチ（省略時: `git symbolic-ref refs/remotes/origin/HEAD` で自動判定）
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
-- `--staged`: 未コミットの差分をレビュー（`git diff`を使用）
+- `--uncommitted`: 未コミットの差分をレビュー（`git diff`を使用）
 
 **例**:
 ```
@@ -22,15 +22,18 @@ description: コード差分を詳細にレビュー
 /code-review main                         # mainブランチとの差分をレビュー
 /code-review origin/feature-auth          # feature-authブランチとの差分をレビュー
 /code-review main --issue 123             # Issue #123の要件も確認
-/code-review --staged                     # 未コミットの差分をレビュー
-/code-review --issue 456 --staged         # 未コミット差分をIssue #456の観点で確認
+/code-review --uncommitted                # 未コミットの差分をレビュー
+/code-review --issue 456 --uncommitted    # 未コミット差分をIssue #456の観点で確認
 ```
 
 ## 実行内容
 
 ### 1. 差分取得と確認
-- `--staged`が指定されている場合:
-  - `git diff` で未コミットの差分を取得
+- `--uncommitted`が指定されている場合:
+  - `git diff` で既存ファイルの未コミット差分を取得
+  - `git ls-files --others --exclude-standard` でトラックされていない新規ファイルを確認
+  - トラックされていないファイルがあれば、その内容も読み込んでレビュー対象に含める
+  - トラックされていないファイルがある場合は、レビュー結果で明示的に言及する
 - 指定されていない場合:
   - ベースブランチの決定: 引数がなければ `git symbolic-ref refs/remotes/origin/HEAD` で自動判定
   - 差分が大きい場合は `git diff <base-branch>...HEAD --name-only` で変更ファイル一覧を先に確認
