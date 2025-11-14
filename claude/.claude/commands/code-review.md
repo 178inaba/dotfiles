@@ -55,7 +55,7 @@ description: コード差分を詳細にレビュー
 - 指定されていない場合:
   - **必ず解析済みのベースブランチを使用** (`git diff <base-branch>...HEAD`)
   - 差分が大きい場合は `git diff <base-branch>...HEAD --name-only` で変更ファイル一覧を先に確認
-  - 各ファイルを `git diff <base-branch>...HEAD <ファイル名>` で個別に確認
+  - 各ファイルを `git diff <base-branch>...HEAD -- <ファイル名>` で個別に確認
   - 全体を把握してからレビュー評価を実施
 
 **重要原則**:
