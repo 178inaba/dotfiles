@@ -20,6 +20,7 @@
       "Bash(go generate:*)",
       "Bash(go get:*)",
       "Bash(go help:*)",
+      "Bash(go list:*)",
       "Bash(go mod:*)",
       "Bash(go test:*)",
       "Bash(go tool vet:*)",
