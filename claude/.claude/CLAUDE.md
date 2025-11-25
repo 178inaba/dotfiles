@@ -77,6 +77,7 @@
 - **スラッシュコマンド**: @~/.claude/context/tools/slash-commands.md
 
 ### ワークフロー
+- **トラブルシューティング**: @~/.claude/context/workflows/troubleshooting.md
 - **差分レビュー**: @~/.claude/context/workflows/code-review.md
 - **Git操作**: @~/.claude/context/workflows/git.md
 - **CI/CDデプロイ**: @~/.claude/context/workflows/cicd-deployment.md
