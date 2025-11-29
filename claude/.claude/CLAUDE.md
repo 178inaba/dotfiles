@@ -69,6 +69,7 @@
 - **SPA状態保持**: @~/.claude/context/patterns/spa-state.md
 - **データテーブル**: @~/.claude/context/patterns/data-table.md
 - **Goパフォーマンス**: @~/.claude/context/patterns/go-perf.md
+- **Go Clean Archエラー**: @~/.claude/context/patterns/go-clean-arch-errors.md
 - **ESLint複雑度**: @~/.claude/context/patterns/eslint-complexity.md
 
 ### ツール
