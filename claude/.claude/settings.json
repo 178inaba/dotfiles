@@ -4,6 +4,7 @@
   "permissions": {
     "allow": [
       "Bash(cat:*)",
+      "Bash(docker compose:*)",
       "Bash(gh issue list:*)",
       "Bash(gh issue view:*)",
       "Bash(gh pr checks:*)",
