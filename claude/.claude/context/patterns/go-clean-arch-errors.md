@@ -77,6 +77,35 @@ func (r *UserRepository) List(ctx context.Context) ([]*entity.User, error) {
     }
     return users, nil  // 0件でもnil, nilではなく空スライス, nil
 }
+
+// Update/DeleteはRowsAffectedで存在確認
+func (r *UserRepository) Delete(ctx context.Context, id int) error {
+    query, args, err := sq.
+        Update("users").
+        Set("deleted_at", sq.Expr("NOW()")).
+        Where(sq.And{
+            sq.Eq{"id": id},
+            sq.Eq{"deleted_at": nil},  // 論理削除済みは対象外
+        }).
+        ToSql()
+    if err != nil {
+        return fmt.Errorf("to sql: %w", err)
+    }
+
+    result, err := r.db.ExecContext(ctx, query, args...)
+    if err != nil {
+        return fmt.Errorf("exec: %w", err)
+    }
+
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("rows affected: %w", err)
+    }
+    if rowsAffected == 0 {
+        return entity.ErrUserNotFound  // センチネルエラー
+    }
+    return nil
+}
 ```
 
 ### UseCase層: エラーをそのまま伝播
