@@ -1,8 +1,89 @@
-# Go Clean Architecture エラーハンドリングパターン
+# Go Clean Architecture パターン
 
-Clean Architecture（Handler/UseCase/Repository）でのエラーハンドリング設計パターン。
+Clean Architecture（Handler/UseCase/Repository）でのエラーハンドリングおよびデータフロー設計パターン。
 
-## 基本原則
+## レイヤー間のデータフロー
+
+### 基本原則: UseCaseはEntityを返す
+
+```
+Handler (HTTP固有)
+  ├── Response型を定義（private）
+  └── Entity → Response 変換
+       ↓
+UseCase (ビジネスロジック)
+  └── Entity を返す（DTOではない）
+       ↓
+Repository (データアクセス)
+  └── Entity を返す
+```
+
+**理由:**
+- UseCase層はトランスポート（HTTP/gRPC/CLI）を意識すべきでない
+- 同じUseCaseを異なるトランスポートで再利用可能
+- Handler層がHTTP固有の変換（レスポンス形式）を担当
+
+### Handler層でのレスポンス型定義
+
+```go
+// handler/user.go - レスポンス型はhandler内でprivateに定義
+type userResponse struct {
+    ID    int64  `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+type userListResponse struct {
+    Results    []userResponse `json:"results"`
+    TotalCount int            `json:"total_count"`
+}
+
+// Entity → Response 変換関数
+func newUserResponse(u *entity.User) userResponse {
+    return userResponse{
+        ID:    u.ID,
+        Name:  u.Name,
+        Email: u.Email,
+    }
+}
+
+func (h *UserHandler) List(c echo.Context) error {
+    users, err := h.useCase.List(ctx)  // []*entity.User を返す
+    if err != nil {
+        // エラーハンドリング
+    }
+
+    results := make([]userResponse, len(users))
+    for i, u := range users {
+        results[i] = newUserResponse(u)
+    }
+
+    return c.JSON(http.StatusOK, userListResponse{
+        Results:    results,
+        TotalCount: len(results),
+    })
+}
+```
+
+### リクエスト型もHandler層で定義
+
+リクエスト/レスポンス型はHTTP固有の概念のため、すべてHandler層で定義する。
+`dto/`パッケージは不要。
+
+```go
+// handler/user.go - リクエスト/レスポンス型はhandler内でprivateに定義
+type createUserRequest struct {
+    Name  string `json:"name" validate:"required"`
+    Email string `json:"email" validate:"required,email"`
+}
+
+type userListFilter struct {
+    Page *int `query:"page"`
+    Per  *int `query:"per"`
+}
+```
+
+## エラーハンドリング原則
 
 | 層 | 責務 | エラーの扱い |
 |---|---|---|
