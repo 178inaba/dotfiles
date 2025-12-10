@@ -121,6 +121,148 @@ type userListFilter struct {
 | 422 Unprocessable Entity | なし | バリデーションエラー |
 | 500 Internal Server Error | **あり** | 調査が必要 |
 
+## Entity層の純粋性（dbタグの分離）
+
+### 原則: Entity層はインフラ詳細を持たない
+
+Entity層は純粋なドメインモデルとして、`db`タグなどのインフラ詳細を持たない。DBマッピングはRepository層の内部で行う。
+
+```
+Entity層（純粋なドメイン）
+  └── タグなし、Goプリミティブ型
+       ↓
+Repository層（データアクセス）
+  ├── private *Record型（dbタグ付き）
+  └── entity()変換メソッド
+```
+
+**理由:**
+1. **Entity層の純粋性**: ドメインモデルがインフラ詳細（DBタグ）から完全に独立
+2. **Repository層が変換責務を持つ**: DBモデル↔Entityの変換はRepository内部で完結
+3. **依存関係の方向が正しい**: Repository層がEntity層に依存し、逆はない
+
+### Entity層: タグなし、Goプリミティブ型
+
+```go
+// entity/article.go - 純粋なドメインモデル
+type Article struct {
+    ID          int64
+    AuthorID    int64
+    Title       string
+    Body        string
+    Summary     *string    // nullable は *型
+    PublishedAt *time.Time
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
+}
+```
+
+### Repository層: private Record型 + entity()変換
+
+```go
+// repository/article.go
+type articleRecord struct {
+    ID          int64          `db:"id"`
+    AuthorID    int64          `db:"author_id"`
+    Title       string         `db:"title"`
+    Body        string         `db:"body"`
+    Summary     sql.NullString `db:"summary"`
+    PublishedAt sql.NullTime   `db:"published_at"`
+    CreatedAt   time.Time      `db:"created_at"`
+    UpdatedAt   time.Time      `db:"updated_at"`
+}
+
+func (r *articleRecord) entity() *entity.Article {
+    a := &entity.Article{
+        ID:        r.ID,
+        AuthorID:  r.AuthorID,
+        Title:     r.Title,
+        Body:      r.Body,
+        CreatedAt: r.CreatedAt,
+        UpdatedAt: r.UpdatedAt,
+    }
+    // sql.Null* → *型 への変換
+    if r.Summary.Valid {
+        a.Summary = &r.Summary.String
+    }
+    if r.PublishedAt.Valid {
+        a.PublishedAt = &r.PublishedAt.Time
+    }
+    return a
+}
+```
+
+### Repository層: 読み取りメソッドでの使用
+
+```go
+var articleColumns = []string{
+    "id", "author_id", "title", "body", "summary", "published_at", "created_at", "updated_at",
+}
+
+func (r *ArticleRepository) GetByID(ctx context.Context, id int64) (*entity.Article, error) {
+    query, args, err := r.sq.Select(articleColumns...).From("articles").Where(sq.Eq{"id": id}).ToSql()
+    if err != nil {
+        return nil, fmt.Errorf("to sql: %w", err)
+    }
+
+    var rec articleRecord  // DBスキャンはRecord型へ
+    if err := r.db.GetContext(ctx, &rec, query, args...); err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return nil, entity.ErrArticleNotFound
+        }
+        return nil, fmt.Errorf("get: %w", err)
+    }
+
+    return rec.entity(), nil  // Entity型に変換して返す
+}
+
+func (r *ArticleRepository) ListByAuthor(ctx context.Context, authorID int64) ([]entity.Article, error) {
+    query, args, err := r.sq.Select(articleColumns...).From("articles").Where(sq.Eq{"author_id": authorID}).ToSql()
+    if err != nil {
+        return nil, fmt.Errorf("to sql: %w", err)
+    }
+
+    var records []articleRecord
+    if err := r.db.SelectContext(ctx, &records, query, args...); err != nil {
+        return nil, fmt.Errorf("select: %w", err)
+    }
+
+    articles := make([]entity.Article, len(records))
+    for i, rec := range records {
+        articles[i] = *rec.entity()
+    }
+    return articles, nil
+}
+```
+
+### Repository層: 書き込みメソッドでの変換
+
+```go
+func (r *ArticleRepository) Create(ctx context.Context, article *entity.Article) error {
+    // *型 → sql.Null* への変換
+    var summary sql.NullString
+    if article.Summary != nil {
+        summary = sql.NullString{String: *article.Summary, Valid: true}
+    }
+    var publishedAt sql.NullTime
+    if article.PublishedAt != nil {
+        publishedAt = sql.NullTime{Time: *article.PublishedAt, Valid: true}
+    }
+
+    query, args, err := r.sq.Insert("articles").
+        Columns("author_id", "title", "body", "summary", "published_at").
+        Values(article.AuthorID, article.Title, article.Body, summary, publishedAt).
+        Suffix("RETURNING id, created_at, updated_at").
+        ToSql()
+    if err != nil {
+        return fmt.Errorf("to sql: %w", err)
+    }
+
+    return r.db.QueryRowContext(ctx, query, args...).
+        Scan(&article.ID, &article.CreatedAt, &article.UpdatedAt)
+}
+```
+
 ## 実装パターン
 
 ### Entity層: センチネルエラー定義
