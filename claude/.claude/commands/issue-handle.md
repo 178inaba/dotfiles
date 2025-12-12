@@ -36,3 +36,6 @@ argument-hint: <issue-number> [--english]
 5. **Test, Lint成功確認**
    - プロジェクトのテスト・Lintコマンドを実行して成功を確認
    - 例: `make all`, `npm test && npm run lint`, `go test ./... && golangci-lint run`
+
+## 注意事項
+- **長時間作業時**: compact後は必ずIssueの実装方針コメントを `gh issue view` で再確認し、TODOリストを再構築すること
