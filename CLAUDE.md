@@ -76,16 +76,21 @@ zsh -l
 - `/issue-handle` - Issueの調査から実装完了までを一貫して対応（`--english`で英語コミット）
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
 - `/review-response` - GitHubレビューコメントの自動対応
+- `/code-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携、未コミット差分対応）
+- `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
 
 ### 設定ファイル構造
 ```
 ~/.claude/
 ├── CLAUDE.md           # グローバル基本方針
 ├── commands/           # スラッシュコマンド定義
-└── context/            # 詳細コンテキスト
-    ├── patterns/       # 設計パターン集
-    ├── tools/          # ツール使用方法
-    └── workflows/      # 開発ワークフロー
+├── context/            # 詳細コンテキスト
+│   ├── patterns/       # 設計パターン集
+│   ├── tools/          # ツール使用方法
+│   └── workflows/      # 開発ワークフロー
+├── hooks/              # イベントフック（通知等）
+├── settings.json       # Claude Code設定
+└── statusline.sh       # ステータスライン表示スクリプト
 ```
 
 ## 開発ワークフロー
