@@ -12,13 +12,13 @@ description: コード差分を詳細にレビュー
 ```
 
 **引数**:
-- `base-branch`: 比較対象のブランチ（省略時: `git symbolic-ref refs/remotes/origin/HEAD` で自動判定）
+- `base-branch`: 比較対象のブランチ（省略時: PRがあればPRのベースブランチ、なければデフォルトブランチを自動判定）
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
 - `--uncommitted`: 未コミットの差分をレビュー（`git diff`を使用）
 
 **例**:
 ```
-/code-review                              # デフォルトブランチとの差分をレビュー
+/code-review                              # PRがあればPRのベースブランチ、なければデフォルトブランチとの差分をレビュー
 /code-review main                         # mainブランチとの差分をレビュー
 /code-review origin/feature-auth          # feature-authブランチとの差分をレビュー
 /code-review main --issue 123             # Issue #123の要件も確認
@@ -30,7 +30,9 @@ description: コード差分を詳細にレビュー
 
 ### 1. 引数の解析
 - 第1引数（`--`で始まらない）があればベースブランチ名として使用
-- 第1引数がない、または`--`で始まる場合は `git symbolic-ref refs/remotes/origin/HEAD` でベースブランチを自動判定
+- 第1引数がない、または`--`で始まる場合はベースブランチを自動判定:
+  1. `gh pr view --json baseRefName --jq '.baseRefName'` でPRのベースブランチを取得し、`origin/` を付加
+  2. PRがなければ `git symbolic-ref refs/remotes/origin/HEAD` でデフォルトブランチを取得
 - `--issue ISSUE_NUMBER`: Issue番号を抽出
 - `--uncommitted`: 未コミット差分フラグを設定
 
@@ -40,15 +42,14 @@ description: コード差分を詳細にレビュー
 → base-branch: "feature/auth", issue: 123, uncommitted: false
 
 /code-review --issue 456 --uncommitted
-→ base-branch: (自動判定), issue: 456, uncommitted: true
+→ base-branch: (自動判定: PRがあれば "origin/<PRのベースブランチ>"), issue: 456, uncommitted: true
 
 /code-review origin/main
 → base-branch: "origin/main", issue: null, uncommitted: false
 ```
 
 ### 2. PRコンテキスト確認（自動）
-- 現在のブランチにPRが存在するか `gh pr view` で確認
-- PRが存在する場合:
+- セクション1でPRからベースブランチを取得できた場合、同時にPR情報も取得:
   1. PRの説明・目的を確認
   2. 関連Issueがあれば要件を確認（`--issue`未指定時）
   3. レビュー後、説明と実際の変更の整合性を評価
@@ -133,4 +134,4 @@ description: コード差分を詳細にレビュー
 ## 注意事項
 - ベースブランチが存在しない場合はエラーを通知
 - Issue番号が不正な場合はエラーを通知
-- デフォルトブランチの自動判定が失敗した場合は `origin/main` をフォールバック
+- ベースブランチの自動判定優先順位: PRのベースブランチ → デフォルトブランチ → `origin/main`（フォールバック）
