@@ -1,5 +1,6 @@
 ---
 description: プッシュ済みのブランチからプルリクエストを作成
+argument-hint: [--base BASE_BRANCH] [--draft]
 ---
 
 # /git-pr
