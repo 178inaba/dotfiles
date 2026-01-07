@@ -73,7 +73,7 @@ zsh -l
 - `/git-push` - コミット済み変更をプッシュ（ブランチ指定可能）
 - `/git-pr` - プルリクエスト作成
 - `/git-ship` - 状況に応じた統合処理（コミット・プッシュ・PR作成）
-- `/issue-handle` - Issueの調査から実装完了まで対応（デフォルト: Planモードで対話型、`--auto`で一気に実装、`--english`で英語コミット）
+- `/issue-handle` - Issueの調査から実装完了まで対応（デフォルト: Planモードで対話型、`--auto`で一気に実装、`--file`でファイルから仕様読み込み、`--english`で英語コミット）
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
 - `/review-response` - GitHubレビューコメントの自動対応
 - `/code-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携、未コミット差分対応）

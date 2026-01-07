@@ -1,19 +1,21 @@
 ---
 description: Issueの調査から実装完了までを一貫して対応
-argument-hint: <issue-number> [--auto] [--english]
+argument-hint: <issue-number | --file FILE_PATH> [--auto] [--english]
 ---
 
 # /issue-handle
 
 ## 使用方法
 ```
-/issue-handle 99              # 対話型（Planモード）
-/issue-handle 99 --auto       # 一気に実装
-/issue-handle 99 --auto --english  # 英語コミット
+/issue-handle 99                    # Issue番号（対話型）
+/issue-handle 99 --auto             # Issue番号（一気に実装）
+/issue-handle --file spec.md        # ファイル（対話型）
+/issue-handle --file spec.md --auto # ファイル（一気に実装）
 ```
 
 ## 引数
-- `<issue-number>`: 対応するIssue番号（必須）
+- `<issue-number>`: 対応するIssue番号（`--file`と排他）
+- `--file FILE_PATH`: 仕様ファイルのパス（`<issue-number>`と排他）
 - `--auto`: 対話・承認なしで一気に実装まで進める（オプション）
 - `--english`: コミットメッセージを英語で記述（オプション）
 
@@ -25,8 +27,9 @@ argument-hint: <issue-number> [--auto] [--english]
 
 Planモードにより、ファイル編集はシステム的にブロックされる。
 
-1. **Issue確認・調査**
-   - `gh issue view <issue-number>` でIssue内容を確認
+1. **要件確認・調査**
+   - Issue番号指定時: `gh issue view <issue-number>` でIssue内容を確認
+   - --file指定時: Readツールで仕様ファイルを読み込み
    - 関連コードを調査し、実装方針を検討
 
 2. **ユーザーとの対話**
@@ -48,8 +51,9 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 
 Planモードを使用せず、対話・承認なしで一気に進める。
 
-1. **Issue確認・調査**
-   - `gh issue view <issue-number>` でIssue内容を確認
+1. **要件確認・調査**
+   - Issue番号指定時: `gh issue view <issue-number>` でIssue内容を確認
+   - --file指定時: Readツールで仕様ファイルを読み込み
    - 関連コードを調査し、実装方針を検討
 
 2. **TODOリスト作成**
@@ -61,9 +65,10 @@ Planモードを使用せず、対話・承認なしで一気に進める。
 ### 実装フェーズ（共通）
 
 1. **作業ブランチ作成**
-   - 例: `issue-99`
+   - Issue番号指定時: `issue-{番号}` (例: `issue-99`)
+   - --file指定時: 計画内容から要約したブランチ名を自動生成 (例: `feature/add-login-validation`)
 
-2. **実装方針をIssueにコメント**
+2. **実装方針をIssueにコメント**（Issue番号指定時のみ）
    - 調査結果と実装方針を `gh issue comment` でIssueに投稿
 
 3. **実装・テスト修正**
@@ -78,5 +83,5 @@ Planモードを使用せず、対話・承認なしで一気に進める。
    - 例: `make all`, `npm test && npm run lint`, `go test ./... && golangci-lint run`
 
 ## 注意事項
-- **Planモード中**: ファイル編集・ブランチ作成・Issueコメントはシステム的にブロックされる
-- **長時間作業時**: compact後は必ずIssueの実装方針コメントを `gh issue view` で再確認し、TODOリストを再構築すること
+- **Planモード中**: ファイル編集・ブランチ作成はシステム的にブロックされる
+- **長時間作業時**: compact後は計画ファイルまたはTODOリストを参照し、必要に応じて再構築すること
