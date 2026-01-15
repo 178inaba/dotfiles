@@ -79,6 +79,20 @@ mutation {
 }'
 ```
 
+### 一括返信・解決（推奨）
+複数の指摘に同時対応する場合、1リクエストでまとめて実行：
+```bash
+gh api graphql -f query='
+mutation {
+  r1: addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "PRRT_1", body: "修正しました"}) { comment { id } }
+  s1: resolveReviewThread(input: {threadId: "PRRT_1"}) { thread { isResolved } }
+  r2: addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "PRRT_2", body: "修正しました"}) { comment { id } }
+  s2: resolveReviewThread(input: {threadId: "PRRT_2"}) { thread { isResolved } }
+}'
+```
+- エイリアス（r1, s1, r2, s2...）で複数のmutationを1リクエストに結合
+- 返信と解決を交互に記述することで、各スレッドの処理が完結
+
 ## 重要な実装ポイント
 
 ### レビュアー別の解決ポリシー
