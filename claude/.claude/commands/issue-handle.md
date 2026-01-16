@@ -41,6 +41,13 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
    - 方針確定後、TodoWriteツールで実装フェーズの各タスクを整理
 
 4. **計画完了**
+   - **計画ファイルに以下を必ず含める**:
+     - ブランチ名（typeを含む完全な形式）
+     - 実装手順チェックリスト:
+       - [ ] 実装方針をIssueにコメント（Issue番号指定時のみ）
+       - [ ] 作業ブランチ作成
+       - [ ] 実装・テスト（論理的な単位ごとに都度コミット）
+       - [ ] Test, Lint成功確認
    - ExitPlanModeツールで計画完了を通知
    - ユーザーの承認を待つ
 
@@ -65,12 +72,30 @@ Planモードを使用せず、対話・承認なしで一気に進める。
 ### 実装フェーズ（共通）
 
 1. **実装方針をIssueにコメント**（Issue番号指定時のみ）
-   - **計画ファイルの内容をそのまま投稿**（要約しない）
+   - 以下のフォーマットで投稿:
+     ```
+     ## 実装方針
+
+     ### 概要
+     （何を実装するかの1-2文の説明）
+
+     ### 主な変更点
+     - （変更点1）
+     - （変更点2）
+
+     ### 影響範囲
+     - （影響するファイル/コンポーネント）
+
+     ### 対応ブランチ
+     `<ブランチ名>`
+     ```
    - `gh issue comment` でIssueに投稿
 
 2. **作業ブランチ作成**
-   - Issue番号指定時: `issue-{番号}` (例: `issue-99`)
-   - --file指定時: 計画内容から要約したブランチ名を自動生成 (例: `feature/add-login-validation`)
+   - フォーマット: `<type>/<issue-number>-<short-description>`
+   - typeはIssue内容から判断: feature, fix, hotfix, refactor, chore, docs
+   - 例: `feature/99-add-oauth-login`, `fix/42-null-pointer`
+   - --file指定時（Issue番号なし）: `<type>/<short-description>` (例: `feature/add-login-validation`)
 
 3. **実装・テスト修正**
    - 実装とテストの順序は柔軟に対応
