@@ -18,6 +18,7 @@
       "Bash(git commit:*)",
       "Bash(git log:*)",
       "Bash(git pull:*)",
+      "Bash(git push)",
       "Bash(git switch:*)",
       "Bash(git symbolic-ref:*)",
       "Bash(go build:*)",
