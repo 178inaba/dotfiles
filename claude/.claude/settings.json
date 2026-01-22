@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "afplay -t 0.1 /System/Library/Sounds/Ping.aiff"
+            "command": "afplay /System/Library/Sounds/Ping.aiff"
           },
           {
             "type": "command",
