@@ -29,6 +29,9 @@ disable-model-invocation: false
 /code-review --issue 456 --uncommitted    # 未コミット差分をIssue #456の観点で確認
 ```
 
+## 差分サマリ（自動取得）
+!`git diff --stat $(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/@@' || echo "origin/main")...HEAD 2>/dev/null || git diff --stat`
+
 ## 実行内容
 
 ### 1. 引数の解析

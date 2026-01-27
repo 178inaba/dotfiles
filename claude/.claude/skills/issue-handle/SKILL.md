@@ -15,6 +15,9 @@ disable-model-invocation: true
 /issue-handle --file spec.md --auto # ファイル（一気に実装）
 ```
 
+## Issue情報（自動取得）
+!`gh issue view $0 --json title,body,labels,assignees,comments 2>/dev/null || echo "Issue情報の取得をスキップ（--file指定時）"`
+
 ## 引数
 - `<issue-number>`: 対応するIssue番号（`--file`と排他）
 - `--file FILE_PATH`: 仕様ファイルのパス（`<issue-number>`と排他）

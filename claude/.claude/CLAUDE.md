@@ -1,6 +1,5 @@
 ## コーディング・対応方針
 
-- **言語**: 日本語での質問・回答をお願いします
 - **ファイル形式**: ファイルの最後に改行文字を必ず追加してください（POSIX標準準拠）
 - **EditorConfig**: プロジェクトに.editorconfigファイルが存在する場合は、その設定に必ず従ってください
 - **コメント規約**:
@@ -79,8 +78,6 @@
 
 ### ワークフロー
 - **トラブルシューティング**: @~/.claude/context/workflows/troubleshooting.md
-- **差分レビュー**: @~/.claude/context/workflows/code-review.md
-- **Git操作**: @~/.claude/context/workflows/git.md
 - **CI/CDデプロイ**: @~/.claude/context/workflows/cicd-deployment.md
 - **大規模機能開発**: @~/.claude/context/workflows/feature-development.md
 - **TypeScript/ESLint**: @~/.claude/context/workflows/typescript-eslint-upgrade.md
@@ -92,3 +89,11 @@
   - CLAUDE.md: 基本方針・原則、必須コンテキスト
   - context/: 詳細ドキュメント、特定用途専用のもの
 - **リンク形式**: `@~/.claude/context/カテゴリ/ファイル名.md`
+
+## Compact instructions
+
+コンパクション時は以下を優先的に保持してください：
+- 現在のタスクコンテキストと目標
+- エラーメッセージとテスト出力
+- コード変更と修正内容
+- ユーザーの指示と要件
