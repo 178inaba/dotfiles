@@ -75,7 +75,7 @@
 ### ツール
 - **GitHub Sub-Issues**: @~/.claude/context/tools/github-sub-issues.md
 - **マークダウン記載**: @~/.claude/context/tools/markdown-syntax.md
-- **スラッシュコマンド**: @~/.claude/context/tools/slash-commands.md
+- **スキル**: @~/.claude/context/tools/skills.md
 
 ### ワークフロー
 - **トラブルシューティング**: @~/.claude/context/workflows/troubleshooting.md

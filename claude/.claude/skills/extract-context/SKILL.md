@@ -1,5 +1,7 @@
 ---
+name: extract-context
 description: 最近の会話から汎用的・プロジェクト固有のコンテキストを抽出してCLAUDE.mdに追記
+disable-model-invocation: true
 ---
 
 # /extract-context

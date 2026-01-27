@@ -44,7 +44,7 @@ zsh -l
 - **Zsh**: Git統合プロンプト、豊富なエイリアス、direnv/gcloud統合
 - **tmux**: 初心者向け設定、Vimスタイル操作、Solarized配色、詳細チートシート
 - **Ghostty**: Solarized Dark Higher Contrastテーマ
-- **Claude**: 日本語対応設定、カスタムコマンド、構造化されたコンテキスト
+- **Claude**: 日本語対応設定、スキル、構造化されたコンテキスト
 
 ## ローカル設定
 
@@ -68,7 +68,7 @@ zsh -l
 
 ## Claude設定の詳細
 
-### カスタムコマンド
+### スキル
 - `/git-commit` - 変更を適切な単位でコミット
 - `/git-push` - コミット済み変更をプッシュ（ブランチ指定可能）
 - `/git-pr` - プルリクエスト作成
@@ -83,7 +83,7 @@ zsh -l
 ```
 ~/.claude/
 ├── CLAUDE.md           # グローバル基本方針
-├── commands/           # スラッシュコマンド定義
+├── skills/             # スキル定義
 ├── context/            # 詳細コンテキスト
 │   ├── patterns/       # 設計パターン集
 │   ├── tools/          # ツール使用方法

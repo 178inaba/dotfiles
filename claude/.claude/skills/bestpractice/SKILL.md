@@ -1,6 +1,8 @@
 ---
+name: bestpractice
 description: プロジェクト慣習を無視した一般的なベストプラクティスを確認
 argument-hint: <技術分野> <質問>
+disable-model-invocation: false
 ---
 
 このプロジェクト・リポジトリの慣習等は一旦無視して、**一般的なベストプラクティス**について回答してください。

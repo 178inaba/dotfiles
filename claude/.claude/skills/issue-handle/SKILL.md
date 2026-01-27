@@ -1,6 +1,8 @@
 ---
+name: issue-handle
 description: Issueの調査から実装完了までを一貫して対応
 argument-hint: <issue-number | --file FILE_PATH> [--auto] [--english]
+disable-model-invocation: true
 ---
 
 # /issue-handle
@@ -120,7 +122,7 @@ Planモードを使用せず、対話・承認なしで一気に進める。
    - 例: `make all`, `npm test && npm run lint`, `go test ./... && golangci-lint run`
 
 5. **実装完了処理**
-   - @~/.claude/commands/git-ship.md に従ってプッシュ・PR作成
+   - @~/.claude/skills/git-ship/SKILL.md に従ってプッシュ・PR作成
    - PR説明にIssue番号を含める（例: `Closes #99`）
 
 ## 完了条件

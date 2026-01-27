@@ -1,5 +1,7 @@
 ---
+name: git-commit
 description: 変更ファイルを適切な単位でコミット
+disable-model-invocation: true
 ---
 
 # /git-commit

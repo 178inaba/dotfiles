@@ -1,5 +1,7 @@
 ---
+name: review-response
 description: GitHubのレビューコメントを確認して適切に対応
+disable-model-invocation: true
 ---
 
 # /review-response

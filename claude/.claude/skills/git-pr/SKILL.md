@@ -1,6 +1,8 @@
 ---
+name: git-pr
 description: プッシュ済みのブランチからプルリクエストを作成
 argument-hint: [--base BASE_BRANCH] [--draft]
+disable-model-invocation: true
 ---
 
 # /git-pr

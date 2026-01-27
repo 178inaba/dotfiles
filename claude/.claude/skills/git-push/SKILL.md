@@ -1,6 +1,8 @@
 ---
+name: git-push
 description: コミット済みの変更をプッシュ
 argument-hint: [branch-name]
+disable-model-invocation: true
 ---
 
 # /git-push
