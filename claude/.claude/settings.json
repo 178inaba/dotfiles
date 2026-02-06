@@ -19,6 +19,7 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git log:*)",
+      "Bash(git mv:*)",
       "Bash(git pull:*)",
       "Bash(git push)",
       "Bash(git status:*)",
