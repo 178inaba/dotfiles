@@ -14,6 +14,7 @@
     - **TODO/FIXME**: 将来の改善予定や既知の制約
     - **複雑なアルゴリズム**: ビジネスロジックや計算式の意図
     - **非自明な回避策**: フレームワークの制約やバグ回避
+- **gitコマンド**: `git -C` オプションは使用しない。作業ディレクトリ内でgitコマンドを実行すること
 - **ブランチ操作**: `git checkout` ではなく `git switch` / `git restore` を使用する
   - ブランチ作成: `git switch -c branch-name`
   - ブランチ切り替え: `git switch branch-name`
