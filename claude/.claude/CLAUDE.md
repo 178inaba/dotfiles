@@ -82,10 +82,18 @@
 - **スキル**: @~/.claude/context/tools/skills.md
 
 ### ワークフロー
+- **計画作成**: @~/.claude/context/workflows/plan-writing.md
 - **トラブルシューティング**: @~/.claude/context/workflows/troubleshooting.md
 - **CI/CDデプロイ**: @~/.claude/context/workflows/cicd-deployment.md
 - **大規模機能開発**: @~/.claude/context/workflows/feature-development.md
 - **TypeScript/ESLint**: @~/.claude/context/workflows/typescript-eslint-upgrade.md
+
+## 計画モード原則
+
+- **自己完結性**: 計画ファイルはコンテキストクリア後に単独で実装可能な状態にする
+- **詳細**: @~/.claude/context/workflows/plan-writing.md に従う
+- **必須要素**: 背景・対象ファイル（絶対パス）・既存コード引用・具体的変更内容・実装順序・検証コマンド・受け入れ基準
+- **禁止**: 会話への後方参照（「上記で議論した」等）、曖昧な指示（「適切に修正」等）
 
 ## コンテキスト管理
 
