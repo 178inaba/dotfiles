@@ -70,9 +70,7 @@ main() {
         local model_name=$(echo "$input" | jq -r '.model.display_name // empty' 2>/dev/null)
         local total_cost=$(echo "$input" | jq -r '.cost.total_cost_usd // empty' 2>/dev/null)
         local used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty' 2>/dev/null)
-        local input_tokens=$(echo "$input" | jq -r '.context_window.current_usage.input_tokens // empty' 2>/dev/null)
-        local lines_added=$(echo "$input" | jq -r '.cost.total_lines_added // empty' 2>/dev/null)
-        local lines_removed=$(echo "$input" | jq -r '.cost.total_lines_removed // empty' 2>/dev/null)
+        local duration_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // empty' 2>/dev/null)
 
         if [[ -n "$model_name" ]]; then
             local claude_info=" [${model_name}]"
@@ -83,34 +81,34 @@ main() {
         fi
 
         if [[ -n "$used_pct" ]]; then
+            local bar_width=10
+            local filled=$((used_pct * bar_width / 100))
+            local empty=$((bar_width - filled))
+            local bar=""
+            [[ $filled -gt 0 ]] && bar=$(printf "%${filled}s" | tr ' ' '▓')
+            [[ $empty -gt 0 ]] && bar="${bar}$(printf "%${empty}s" | tr ' ' '░')"
+
             local ctx_color="$GREEN"
             if [[ $used_pct -ge 90 ]]; then
                 ctx_color="$RED"
             elif [[ $used_pct -ge 70 ]]; then
                 ctx_color="$YELLOW"
             fi
-            output="${output} ${ctx_color}Ctx:${used_pct}%${NC}"
+            output="${output} ${ctx_color}${bar} ${used_pct}%${NC}"
         fi
 
-        if [[ -n "$input_tokens" ]]; then
-            local tokens_k=$(echo "$input_tokens" | awk '{printf "%.0f", $1 / 1000}')
-            output="${output} ${PURPLE}${tokens_k}K${NC}"
-        fi
-
-        if [[ -n "$lines_added" || -n "$lines_removed" ]]; then
-            local lines_info=""
-            if [[ -n "$lines_added" && "$lines_added" -gt 0 ]]; then
-                lines_info="${GREEN}+${lines_added}${NC}"
+        if [[ -n "$duration_ms" ]]; then
+            local total_sec=$((duration_ms / 1000))
+            local hours=$((total_sec / 3600))
+            local mins=$(( (total_sec % 3600) / 60 ))
+            local duration_str=""
+            if [[ $hours -gt 0 ]]; then
+                duration_str="${hours}h${mins}m"
+            elif [[ $mins -gt 0 ]]; then
+                duration_str="${mins}m"
             fi
-            if [[ -n "$lines_removed" && "$lines_removed" -gt 0 ]]; then
-                if [[ -n "$lines_info" ]]; then
-                    lines_info="${lines_info}/${RED}-${lines_removed}${NC}"
-                else
-                    lines_info="${RED}-${lines_removed}${NC}"
-                fi
-            fi
-            if [[ -n "$lines_info" ]]; then
-                output="${output} ${lines_info}"
+            if [[ -n "$duration_str" ]]; then
+                output="${output} ${CYAN}${duration_str}${NC}"
             fi
         fi
     fi
