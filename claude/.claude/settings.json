@@ -42,6 +42,8 @@
       "Bash(rg:*)",
       "Bash(sed:*)",
       "Bash(test:*)",
+      "Bash(tree:*)",
+      "Bash(wc:*)",
       "Skill",
       "WebFetch",
       "WebSearch"
