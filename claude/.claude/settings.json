@@ -18,6 +18,7 @@
       "Bash(gh run view:*)",
       "Bash(gh search:*)",
       "Bash(git add:*)",
+      "Bash(git clone:*)",
       "Bash(git commit:*)",
       "Bash(git log:*)",
       "Bash(git mv:*)",
