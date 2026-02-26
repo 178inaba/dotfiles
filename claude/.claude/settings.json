@@ -13,6 +13,7 @@
       "Bash(gh pr diff:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
+      "Bash(gh repo clone:*)",
       "Bash(gh repo view:*)",
       "Bash(gh run view:*)",
       "Bash(gh search:*)",
