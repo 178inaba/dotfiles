@@ -51,6 +51,7 @@
     ],
     "defaultMode": "acceptEdits",
     "additionalDirectories": [
+      "/tmp/",
       "~/.claude/"
     ]
   },
