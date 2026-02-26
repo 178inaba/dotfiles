@@ -1,7 +1,7 @@
 ---
 name: code-review
 description: コード差分を詳細にレビュー
-argument-hint: [base-branch] [--issue NUMBER] [--uncommitted]
+argument-hint: [base-branch] [--issue NUMBER] [--uncommitted] [--comment] [--no-comment]
 disable-model-invocation: false
 ---
 
@@ -11,13 +11,15 @@ disable-model-invocation: false
 
 ## 使用方法
 ```
-/code-review [base-branch] [--issue ISSUE_NUMBER] [--uncommitted]
+/code-review [base-branch] [--issue ISSUE_NUMBER] [--uncommitted] [--comment] [--no-comment]
 ```
 
 **引数**:
 - `base-branch`: 比較対象のブランチ（省略時: PRがあればPRのベースブランチ、なければデフォルトブランチを自動判定）
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
 - `--uncommitted`: 未コミットの差分をレビュー（`git diff`を使用）
+- `--comment`: 強制的にPRにレビューコメントを投稿
+- `--no-comment`: 強制的にローカル出力のみ（PRコメント投稿しない）
 
 **例**:
 ```
@@ -27,6 +29,8 @@ disable-model-invocation: false
 /code-review main --issue 123             # Issue #123の要件も確認
 /code-review --uncommitted                # 未コミットの差分をレビュー
 /code-review --issue 456 --uncommitted    # 未コミット差分をIssue #456の観点で確認
+/code-review --comment                    # 強制的にPRにコメント投稿
+/code-review --no-comment                 # 他人のPRでもローカル出力のみ
 ```
 
 ## 実行内容
@@ -38,6 +42,8 @@ disable-model-invocation: false
   2. PRがなければ `git symbolic-ref refs/remotes/origin/HEAD` でデフォルトブランチを取得
 - `--issue ISSUE_NUMBER`: Issue番号を抽出
 - `--uncommitted`: 未コミット差分フラグを設定
+- `--comment`: コメント投稿フラグを設定
+- `--no-comment`: コメント非投稿フラグを設定
 
 **解析例**:
 ```
@@ -49,6 +55,12 @@ disable-model-invocation: false
 
 /code-review origin/main
 → base-branch: "origin/main", issue: null, uncommitted: false
+
+/code-review --comment
+→ base-branch: (自動判定), comment: true
+
+/code-review --no-comment
+→ base-branch: (自動判定), comment: false
 ```
 
 ### 2. PRコンテキスト確認（自動）
@@ -58,7 +70,20 @@ disable-model-invocation: false
   3. レビュー後、説明と実際の変更の整合性を評価
 - PRが存在しない場合はスキップ
 
-### 3. 差分取得と確認
+### 3. コメントモード判定
+PRにレビューコメントを投稿するかを判定:
+1. `--comment` 指定時 → コメントモードON
+2. `--no-comment` 指定時 → コメントモードOFF
+3. 両方未指定時 → 自動判定:
+   - PRが存在しない場合 → コメントモードOFF
+   - `--uncommitted` 指定時 → コメントモードOFF
+   - PR作成者と現在のユーザーを比較:
+     - `gh api user --jq '.login'` で現在のユーザー取得
+     - `gh pr view --json author --jq '.author.login'` でPR作成者取得
+     - 異なる（他人のPR）→ コメントモードON
+     - 同じ（自分のPR）→ コメントモードOFF
+
+### 4. 差分取得と確認
 - `--uncommitted`が指定されている場合:
   - `git diff` で既存ファイルの未コミット差分を取得
   - `git ls-files --others --exclude-standard` でトラックされていない新規ファイルを確認
@@ -76,11 +101,11 @@ disable-model-invocation: false
 - 部分的判断禁止: 一部の差分や最初の部分だけを見て結論を出さない
 - 見落とし防止: 特に新規追加ファイルや定数・インターフェース変更は必ず確認する
 
-### 4. Issue情報取得（`--issue`指定時）
+### 5. Issue情報取得（`--issue`指定時）
 - `gh issue view <ISSUE_NUMBER>` でIssue内容を取得
 - 要件・仕様を確認
 
-### 5. レビュー実行
+### 6. レビュー実行
 以下の観点から詳細にレビュー:
 
 #### 基本観点
@@ -108,7 +133,12 @@ disable-model-invocation: false
 - [ ] 仕様から逸脱していないか
 - [ ] 関連する要件がすべて実装されているか
 
-### 6. レビュー結果出力
+#### コメントモードON時の追加要件
+各指摘事項について、該当するファイルパスと行番号を特定する。
+- 差分内の具体的な行に紐づく指摘 → ファイルパスと行番号を記録（PRコメント投稿時に使用）
+- 行番号が特定できない指摘（設計レベルの問題、テスト不足等）→ レビュー本文に含める
+
+### 7. レビュー結果出力
 以下の形式で出力:
 
 ```markdown
@@ -134,7 +164,59 @@ disable-model-invocation: false
 - ...
 ```
 
+### コメントモードON時: PRにレビュー投稿
+
+ローカル出力に加えて、PRにレビューコメントを投稿する。
+
+#### 1. PR情報を取得
+```bash
+gh pr view --json number,headRefOid,url
+gh repo view --json owner,name --jq '.owner.login + "/" + .name'
+```
+
+#### 2. レビューイベントを決定
+
+| 総合評価 | event |
+|---|---|
+| Approve可能 | `APPROVE` |
+| 修正が必要 | `REQUEST_CHANGES` |
+| 要議論 | `COMMENT` |
+
+#### 3. REST APIでレビューを投稿
+```bash
+gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews \
+  --method POST \
+  --input - <<'EOF'
+{
+  "commit_id": "<HEAD commit SHA>",
+  "event": "APPROVE" or "REQUEST_CHANGES" or "COMMENT",
+  "body": "## レビュー結果\n\n### 総合評価\n...\n\n### 良い点\n...\n\n### 行に紐づかない指摘\n...",
+  "comments": [
+    {
+      "path": "src/main.go",
+      "line": 30,
+      "body": "指摘内容"
+    }
+  ]
+}
+EOF
+```
+
+**パラメータ説明**:
+- `commit_id`: PRのHEADコミットSHA（`headRefOid`）
+- `event`: レビューイベント（上記の表に従う）
+- `body`: レビュー全体のサマリー（総合評価、良い点、行に紐づかない指摘）
+- `comments[]`: 行単位の指摘コメント
+  - `path`: リポジトリルートからの相対パス
+  - `line`: 差分内の行番号（新ファイル側の行番号）
+  - `body`: 指摘内容
+
+#### 4. 投稿完了後、PRのレビューURLを表示
+
 ## 注意事項
 - ベースブランチが存在しない場合はエラーを通知
 - Issue番号が不正な場合はエラーを通知
 - ベースブランチの自動判定優先順位: PRのベースブランチ → デフォルトブランチ → `origin/main`（フォールバック）
+- `--comment` 指定時にPRが存在しない場合はエラーを通知
+- `--uncommitted` と `--comment` の併用時: PRが存在すればコメント投稿可能だが、未コミット差分はPR上の差分と異なる可能性があるため警告を表示
+- `comments` 配列が空の場合（行に紐づく指摘がない場合）でも `body` のみでレビュー投稿は可能
