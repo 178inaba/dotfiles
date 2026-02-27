@@ -27,10 +27,10 @@ get_git_info() {
     local branch=$(git branch --show-current 2>/dev/null)
     local git_status=""
 
-    local porcelain_output=$(git status --porcelain 2>/dev/null)
+    local porcelain_output=$(git --no-optional-locks status --porcelain 2>/dev/null)
     if [[ -n "$porcelain_output" ]]; then
-        local staged_count=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
-        local modified_count=$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')
+        local staged_count=$(git --no-optional-locks diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+        local modified_count=$(git --no-optional-locks diff --name-only 2>/dev/null | wc -l | tr -d ' ')
 
         if [[ $staged_count -gt 0 ]]; then
             git_status=" +${staged_count}"
