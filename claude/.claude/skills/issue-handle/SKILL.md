@@ -125,7 +125,8 @@ Planモードを使用せず、対話・承認なしで一気に進める。
    - 例: `make all`, `npm test && npm run lint`, `go test ./... && golangci-lint run`
 
 5. **実装完了処理**
-   - @~/.claude/skills/git-ship/SKILL.md に従ってプッシュ・PR作成
+   - 未コミットの変更があれば @~/.claude/skills/git-commit/SKILL.md に従ってコミット
+   - @~/.claude/skills/git-pr/SKILL.md に従ってプッシュ・PR作成
    - PR説明にIssue/仕様の背景・動機を含める（リンクだけでなく「なぜこの変更が必要か」を本文に書く）
    - Issue番号指定時: `Closes #<issue-number>` を含める
 

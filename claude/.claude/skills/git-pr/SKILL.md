@@ -1,13 +1,13 @@
 ---
 name: git-pr
-description: プッシュ済みのブランチからプルリクエストを作成
+description: プルリクエストを作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
 argument-hint: [--base BASE_BRANCH] [--draft]
 disable-model-invocation: true
 ---
 
 # /git-pr
 
-プッシュ済みのブランチからプルリクエストを作成（既存PRがあれば更新）
+プルリクエストを作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
 
 ## 使用方法
 ```
@@ -28,31 +28,32 @@ disable-model-invocation: true
 
 ## 実行内容
 
-### 1. 状態確認
-1. `git status` で現在のブランチを確認
-2. `gh pr list --head [current-branch]` で既存PRの有無を確認
+### 1. 状態確認・プッシュ
+1. `git status` で現在のブランチと未プッシュコミットを確認
+2. 未プッシュのコミットがあれば `git push -u origin [current-branch]` でプッシュ
+3. `gh pr list --head [current-branch]` で既存PRの有無を確認
 
 ### 2. 差分確認
-3. `git diff [base]...HEAD` でベースブランチからの差分を確認
+4. `git diff [base]...HEAD` でベースブランチからの差分を確認
    - 差分が大きい場合は `--name-only` で変更ファイル一覧を取得後、個別に確認
    - 変更内容を把握してからPR説明文を作成
 
 ### 3A. 既存PRがない場合（新規作成）
-4. `gh pr list --limit 5` で最近のPRから言語慣例（日本語/英語）を確認
-5. プルリクエストテンプレート（.github/pull_request_template.md）があれば参照
-6. プロジェクトの言語慣例に従ってタイトルと説明を決定（下記ガイドライン参照）
-7. `gh pr create` でPRを作成：
+5. `gh pr list --limit 5` で最近のPRから言語慣例（日本語/英語）を確認
+6. プルリクエストテンプレート（.github/pull_request_template.md）があれば参照
+7. プロジェクトの言語慣例に従ってタイトルと説明を決定（下記ガイドライン参照）
+8. `gh pr create` でPRを作成：
    - `--base` オプション: 指定されたベースブランチ（省略時はデフォルト）
    - `--draft` オプション: 指定された場合のみドラフトPRとして作成
 
 ### 3B. 既存PRがある場合（更新判定）
-4. `gh pr view` で現在のPRタイトル・説明を取得
-5. 差分内容と現在のPR説明を比較し、乖離がないか確認：
+5. `gh pr view` で現在のPRタイトル・説明を取得
+6. 差分内容と現在のPR説明を比較し、乖離がないか確認：
    - 新しいコミットが追加されている
    - PR説明に記載されていない変更がある
    - PR説明が古い実装内容を参照している
-6. 乖離がある場合、更新内容を提案しユーザーに確認
-7. 承認されれば `gh pr edit` でタイトル・説明を更新
+7. 乖離がある場合、更新内容を提案しユーザーに確認
+8. 承認されれば `gh pr edit` でタイトル・説明を更新
 
 ## PR説明のガイドライン
 

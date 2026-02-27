@@ -70,9 +70,7 @@ zsh -l
 
 ### スキル
 - `/git-commit` - 変更を適切な単位でコミット
-- `/git-push` - コミット済み変更をプッシュ（ブランチ指定可能）
-- `/git-pr` - プルリクエスト作成
-- `/git-ship` - 状況に応じた統合処理（コミット・プッシュ・PR作成）
+- `/git-pr` - プルリクエスト作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
 - `/issue-handle` - Issueの調査から実装完了まで対応（デフォルト: Planモードで対話型、`--auto`で一気に実装、`--file`でファイルから仕様読み込み、`--english`で英語コミット）
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
 - `/review-response` - GitHubレビューコメントの自動対応
@@ -96,10 +94,8 @@ zsh -l
 ## 開発ワークフロー
 
 ### Git操作の段階別コマンド
-1. **コミットのみ**: `/git-commit`
-2. **プッシュ**: `/git-push [branch-name]`
-3. **PR作成**: `/git-pr`
-4. **統合処理**: `/git-ship`
+1. **コミット**: `/git-commit`
+2. **PR作成**: `/git-pr`
 
 ### コンテキスト管理
 - 汎用的なパターンは`~/.claude/CLAUDE.md`または`~/.claude/context/`に自動追記
