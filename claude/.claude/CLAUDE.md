@@ -88,6 +88,11 @@
 - **大規模機能開発**: @~/.claude/context/workflows/feature-development.md
 - **TypeScript/ESLint**: @~/.claude/context/workflows/typescript-eslint-upgrade.md
 
+## Git操作
+
+- コミット: `/git-commit` スキルに従う
+- PR作成: `/git-pr` スキルに従う
+
 ## 計画モード原則
 
 - **自己完結性**: 計画ファイルはコンテキストクリア後に単独で実装可能な状態にする
