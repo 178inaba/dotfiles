@@ -90,8 +90,8 @@
 
 ## Git操作
 
-- コミット: `/git-commit` スキルに従う
-- PR作成: `/git-pr` スキルに従う
+- コミット: @~/.claude/skills/git-commit/SKILL.md に従う
+- PR作成: @~/.claude/skills/git-pr/SKILL.md に従う
 
 ## 計画モード原則
 
