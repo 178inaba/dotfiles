@@ -67,8 +67,44 @@ disable-model-invocation: false
 - セクション1でPRからベースブランチを取得できた場合、同時にPR情報も取得:
   1. PRの説明・目的を確認
   2. 関連Issueがあれば要件を確認（`--issue`未指定時）
-  3. レビュー後、説明と実際の変更の整合性を評価
+  3. 既存のレビューコメント・スレッドを取得（下記GraphQLクエリ）
+  4. レビュー後、説明と実際の変更の整合性を評価
 - PRが存在しない場合はスキップ
+
+#### 既存レビュースレッド・コメント取得
+GraphQL APIで通常コメントとレビュースレッドを1クエリで取得:
+```bash
+gh api graphql -f query='{
+  repository(owner: "OWNER", name: "REPO") {
+    pullRequest(number: PR_NUMBER) {
+      comments(first: 50) {
+        nodes { author { login } body createdAt }
+      }
+      reviews(first: 50) {
+        nodes { author { login } state body }
+      }
+      reviewThreads(first: 100) {
+        nodes {
+          isResolved
+          isOutdated
+          path
+          line
+          resolvedBy { login }
+          comments(first: 20) {
+            nodes { author { login } body createdAt }
+          }
+        }
+      }
+    }
+  }
+}'
+```
+
+取得した情報はレビュー実行時に以下のように活用する:
+- **解決済みスレッド（`isResolved: true`）**: 既に議論・解決済みのため、同じ内容を指摘しない
+- **未解決スレッド（`isResolved: false`）**: 他レビュアーが既に指摘済みのため、同じ内容を重複して指摘しない。ただし、補足や異なる観点がある場合は言及してよい
+- **古くなったスレッド（`isOutdated: true`）**: コードが変更されているため、必要に応じて再確認
+- **通常コメント・レビュー本文**: PRの議論経緯を把握し、レビューの文脈に活用
 
 ### 3. コメントモード・個人ルールモード判定
 
@@ -117,6 +153,10 @@ PRにレビューコメントを投稿するかを判定:
 
 ### 6. レビュー実行
 以下の観点から詳細にレビュー:
+
+#### 既存レビュー考慮
+- [ ] 他レビュアーが既に指摘・議論・解決済みの内容を重複して指摘していないか
+- [ ] 未解決の既存指摘と矛盾する指摘をしていないか
 
 #### プロジェクトルール観点
 - [ ] リポジトリのCLAUDE.mdに記載されたルール・方針に準拠しているか
