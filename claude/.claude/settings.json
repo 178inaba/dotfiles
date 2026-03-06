@@ -1,7 +1,6 @@
 {
-  "language": "japanese",
-  "respectGitignore": true,
   "awsAuthRefresh": "$CLAUDE_AWS_AUTH_REFRESH_SCRIPT",
+  "respectGitignore": true,
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
@@ -80,5 +79,7 @@
   },
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true
-  }
+  },
+  "language": "japanese",
+  "effortLevel": "high"
 }
