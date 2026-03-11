@@ -71,7 +71,7 @@ zsh -l
 ### スキル
 - `/git-commit` - 変更を適切な単位でコミット
 - `/git-pr` - プルリクエスト作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
-- `/issue-handle` - Issueの調査から実装完了まで対応（デフォルト: Planモードで対話型、`--auto`で一気に実装、`--file`でファイルから仕様読み込み、`--english`で英語コミット）
+- `/issue-handle` - Issueの調査から実装完了まで対応（Planモードで対話型、`--file`でファイルから仕様読み込み）
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
 - `/review-response` - GitHubレビューコメントの自動対応
 - `/code-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携、未コミット差分対応）
