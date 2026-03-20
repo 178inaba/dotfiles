@@ -20,12 +20,25 @@ Playwright CLI（Headedモード）でブラウザ検索を実行する。
 
 ## 実行内容
 
-### 1. 検索実行
+### 1. ブラウザセッション確認
+```bash
+npx @playwright/cli list
+```
+
+### 2. 検索実行
+セッションの有無に応じてコマンドを選択する。
+
+**セッションなし（初回）:**
 ```bash
 PLAYWRIGHT_MCP_OUTPUT_DIR=/tmp/playwright-cli-output npx @playwright/cli open --headed "https://www.google.com/search?q=<URLエンコード済みクエリ>"
 ```
 
-### 2. 検索結果の読み取り
+**セッションあり（2回目以降）:**
+```bash
+PLAYWRIGHT_MCP_OUTPUT_DIR=/tmp/playwright-cli-output npx @playwright/cli goto "https://www.google.com/search?q=<URLエンコード済みクエリ>"
+```
+
+### 3. 検索結果の読み取り
 コマンド出力に含まれるスナップショットファイルパスを確認し、そのファイルを読み取って検索結果を抽出・要約する。
 
 ## 注意事項

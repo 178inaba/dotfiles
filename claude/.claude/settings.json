@@ -41,6 +41,7 @@
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(mkdir:*)",
+      "Bash(npx @playwright/cli:*)",
       "Bash(rg:*)",
       "Bash(sed:*)",
       "Bash(test:*)",
