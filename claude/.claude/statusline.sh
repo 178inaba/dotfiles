@@ -226,9 +226,9 @@ main() {
         rate_str=" ${rate_str}"
     fi
 
-    # --- 組み立て ---
+    # --- 組み立て（コンテキスト→識別→残量→消費） ---
     local output="${CYAN}${current_time}${NC} ${BLUE}${display_dir}${NC}${GREEN}${git_info}${NC}"
-    output="${output}${PURPLE}${model_str}${cost_str}${NC}${ctx_bar}${duration_str}${rate_str}"
+    output="${output}${PURPLE}${model_str}${NC}${ctx_bar}${rate_str}${CYAN}${cost_str}${NC}${duration_str}"
     echo -e "$output"
 }
 
