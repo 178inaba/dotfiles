@@ -76,6 +76,7 @@ zsh -l
 - `/review-response` - GitHubレビューコメントの自動対応
 - `/code-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携、未コミット差分対応）
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
+- `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 
 ### 設定ファイル構造
 ```
