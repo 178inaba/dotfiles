@@ -57,6 +57,9 @@ gh api graphql --field query='
 {
   repository(owner: "OWNER", name: "REPO") {
     pullRequest(number: PR_NUMBER) {
+      reviews(first: 50) {
+        nodes { author { login } state body }
+      }
       reviewThreads(first: 50) {
         nodes {
           id, isResolved
