@@ -2,7 +2,6 @@
 name: code-review
 description: コード差分を詳細にレビュー
 argument-hint: "[base-branch] [--issue NUMBER] [--uncommitted] [--comment] [--no-comment]"
-disable-model-invocation: false
 ---
 
 # /code-review

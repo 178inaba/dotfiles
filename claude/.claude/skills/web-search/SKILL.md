@@ -2,7 +2,6 @@
 name: web-search
 description: WebSearchツールが利用不可の場合にPlaywright CLIでWeb検索を代替実行
 argument-hint: <検索クエリ>
-disable-model-invocation: false
 ---
 
 # /web-search
