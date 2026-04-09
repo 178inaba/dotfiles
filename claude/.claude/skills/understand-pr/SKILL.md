@@ -1,7 +1,6 @@
 ---
 name: understand-pr
 description: 現在のブランチのPRを理解し、目的・変更内容・現状を構造化して報告
-disable-model-invocation: false
 ---
 
 # /understand-pr
@@ -19,6 +18,7 @@ disable-model-invocation: false
 1. `git branch --show-current` で現在のブランチを確認
 2. `gh pr view` でPRのタイトル・説明・ステータスを取得
 3. PRが見つからない場合はその旨を報告して終了
+4. PR説明文に関連Issue（`Closes #N`、`Fixes #N`、`#N` への言及等）があれば `gh issue view` で内容を確認
 
 ### 2. 変更内容の把握
 4. `gh pr view --json baseRefName --jq '.baseRefName'` でベースブランチを取得
