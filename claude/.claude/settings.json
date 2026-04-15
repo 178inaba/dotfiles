@@ -81,6 +81,5 @@
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true
   },
-  "language": "japanese",
-  "effortLevel": "high"
+  "language": "japanese"
 }
