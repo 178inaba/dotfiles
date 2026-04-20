@@ -79,7 +79,8 @@
     "command": "~/.claude/statusline.sh"
   },
   "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true
+    "gopls-lsp@claude-plugins-official": true,
+    "figma@claude-plugins-official": true
   },
   "language": "japanese"
 }
