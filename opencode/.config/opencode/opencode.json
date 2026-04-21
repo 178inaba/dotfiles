@@ -3,5 +3,60 @@
   "model": "github-copilot/claude-sonnet-4.6",
   "instructions": [
     "~/.claude/CLAUDE.md"
-  ]
+  ],
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "cat *": "allow",
+      "docker compose *": "allow",
+      "gh api user *": "allow",
+      "gh issue list *": "allow",
+      "gh issue view *": "allow",
+      "gh pr checks *": "allow",
+      "gh pr diff *": "allow",
+      "gh pr list *": "allow",
+      "gh pr view *": "allow",
+      "gh repo clone *": "allow",
+      "gh repo view *": "allow",
+      "gh run view *": "allow",
+      "gh search *": "allow",
+      "git add *": "allow",
+      "git clone *": "allow",
+      "git commit *": "allow",
+      "git log *": "allow",
+      "git mv *": "allow",
+      "git pull *": "allow",
+      "git push": "allow",
+      "git status *": "allow",
+      "git switch *": "allow",
+      "git symbolic-ref *": "allow",
+      "go build *": "allow",
+      "go doc *": "allow",
+      "go generate *": "allow",
+      "go get *": "allow",
+      "go help *": "allow",
+      "go list *": "allow",
+      "go mod *": "allow",
+      "go test *": "allow",
+      "go tool vet *": "allow",
+      "go version": "allow",
+      "go vet *": "allow",
+      "grep *": "allow",
+      "ls *": "allow",
+      "mkdir *": "allow",
+      "npx @playwright/cli *": "allow",
+      "rg *": "allow",
+      "sed *": "allow",
+      "test *": "allow",
+      "tree *": "allow",
+      "wc *": "allow"
+    },
+    "edit": "allow",
+    "skill": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "external_directory": {
+      "/tmp/**": "allow"
+    }
+  }
 }
