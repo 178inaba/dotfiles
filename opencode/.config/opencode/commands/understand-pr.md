@@ -1,5 +1,4 @@
 ---
-name: understand-pr
 description: 現在のブランチのPRを理解し、目的・変更内容・現状を構造化して報告
 ---
 

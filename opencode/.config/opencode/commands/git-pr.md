@@ -1,7 +1,5 @@
 ---
-name: git-pr
 description: プルリクエストを作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
-argument-hint: "[--base BASE_BRANCH] [--draft]"
 ---
 
 # /git-pr
