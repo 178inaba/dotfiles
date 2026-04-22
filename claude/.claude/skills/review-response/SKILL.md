@@ -18,20 +18,24 @@ GitHubのレビューコメントを確認して適切に対応
 ## 実行内容
 
 ### 通常モード（引数なし）
-1. GitHub GraphQL APIで未解決レビューコメントを取得
-2. 各指摘について修正すべきか判断
-3. 修正すべき指摘は実装で対応（コミット・プッシュまで）
-4. 修正不要な指摘には理由を説明して返信
-5. 対応完了後にコメントを解決済みに変更
+1. GitHub GraphQL APIで以下を**両方**取得（片方だけでは不十分）
+   - **レビュー本文** (`reviews.nodes[].body`): 総評・優先度付き指摘リスト・サマリー
+   - **行コメント** (`reviewThreads`): 未解決スレッド
+2. 本文と行コメントを突き合わせ、重複を除いた上で指摘を列挙
+3. 各指摘について修正すべきか判断
+4. 修正すべき指摘は実装で対応（コミット・プッシュまで）
+5. 修正不要な指摘には理由を説明して返信
+6. 対応完了後にコメントを解決済みに変更
 
 ### dry-runモード（`--dry-run`）
-1. GitHub GraphQL APIで未解決レビューコメントを取得
-2. 各指摘について修正すべきか判断
-3. 指摘ごとに以下を報告：
+1. GitHub GraphQL APIで**レビュー本文と行コメントの両方**を取得（通常モードと同じ）
+2. 本文と行コメントを突き合わせ、重複を除いた上で指摘を列挙
+3. 各指摘について修正すべきか判断
+4. 指摘ごとに以下を報告（出所が本文か行コメントかを明示）：
    - 修正すべきか否かの判断と理由
    - 修正案（コード変更の具体的内容）
    - コメント返信案
-4. ユーザーの承認後、修正を実行（コミット・プッシュまで）
+5. ユーザーの承認後、修正を実行（コミット・プッシュまで）
    - コメント返信は行わない（案を再提示し、ユーザーが自分で投稿）
 
 ## 判断基準
@@ -48,17 +52,27 @@ GitHubのレビューコメントを確認して適切に対応
 - **既存パターン踏襲**: プロジェクト標準に準拠
 - **nitpick レベル**: 好みの問題
 
+### レビュー本文の扱い
+レビュー本文（`reviews.nodes[].body`）は総評だけでなく、**行コメントに存在しない独立した指摘**が含まれることが多い（優先度付きリスト、「テストが不足」等のサマリー指摘）。以下の方針で扱う：
+
+- **本文の指摘も個別対応対象**: 行コメントと同じ粒度で修正・返信判断を行う
+- **重複チェック**: 本文の指摘が行コメントと同じ内容を指していないか照合し、重複は1件として扱う
+- **優先度付きリスト**: 本文に「優先度1/2/3」「Must/Should/Nice」等の構造がある場合、各項目を独立した指摘として列挙
+- **返信先**: 本文由来の指摘への返信・解決は該当する行コメントが無いため、PR全体へのコメント（`gh pr comment`）で対応完了を報告
+
 ## GraphQL API 実装
 
 ### 未解決コメント取得
+**重要**: レビュー本文（`reviews.nodes[].body`）と未解決スレッド（`reviewThreads`）を**両方**出力する。行コメントだけ取得すると本文の指摘（優先度付きリスト等）を見落とす。
+
 ```bash
-# GraphQL APIで取得後、jqでフィルタリング
+# GraphQL APIで取得後、jqでレビュー本文と未解決スレッドを両方抽出
 gh api graphql --field query='
 {
   repository(owner: "OWNER", name: "REPO") {
     pullRequest(number: PR_NUMBER) {
       reviews(first: 50) {
-        nodes { author { login } state body }
+        nodes { author { login } state body submittedAt }
       }
       reviewThreads(first: 50) {
         nodes {
@@ -70,8 +84,13 @@ gh api graphql --field query='
       }
     }
   }
-}' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
+}' --jq '{
+  reviews: [.data.repository.pullRequest.reviews.nodes[] | select(.body != null and .body != "")],
+  threads: [.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)]
+}'
 ```
+
+出力の `reviews[]` に含まれる `body` を必ず読み、本文内の指摘（総評・優先度付きリスト・サマリー）を行コメントと同じ粒度で列挙する。
 
 ### スレッドに返信
 ```bash
@@ -131,6 +150,7 @@ https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシ
 - Python: `ruff check`, `mypy`
 
 ## 注意事項
+- **レビュー本文を見落とさない**: 行コメント（`reviewThreads`）だけを対象にすると、本文に書かれた優先度付きリスト・総評・サマリー指摘を取りこぼす。必ず `reviews.nodes[].body` も読み、本文と行コメントの両方を突き合わせてから対応判断する
 - **レビュースレッド返信時**: `pullRequestReviewThreadId`のみ使用（`pullRequestReviewId`は不要）
 - **GraphQLレート制限**: 1時間あたり5000ポイント
 - **既存PRの自動更新**: プッシュでPRは自動更新される
