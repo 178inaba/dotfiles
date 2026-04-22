@@ -50,6 +50,7 @@
       "go vet": "allow",
       "go vet *": "allow",
       "grep *": "allow",
+      "head *": "allow",
       "ls *": "allow",
       "mkdir *": "allow",
       "npx @playwright/cli *": "allow",
