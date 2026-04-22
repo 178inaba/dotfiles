@@ -9,6 +9,7 @@
       "*": "ask",
       "cat *": "allow",
       "docker compose *": "allow",
+      "echo *": "allow",
       "gh api user *": "allow",
       "gh issue list *": "allow",
       "gh issue view *": "allow",

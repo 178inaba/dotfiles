@@ -6,6 +6,7 @@
     "allow": [
       "Bash(cat:*)",
       "Bash(docker compose:*)",
+      "Bash(echo:*)",
       "Bash(gh api user:*)",
       "Bash(gh issue list:*)",
       "Bash(gh issue view:*)",
