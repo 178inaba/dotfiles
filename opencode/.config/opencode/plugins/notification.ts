@@ -7,5 +7,8 @@ export const NotificationPlugin: Plugin = async ({ $ }) => {
         await $`afplay /System/Library/Sounds/Purr.aiff`
       }
     },
+    "permission.asked": async () => {
+      await $`afplay /System/Library/Sounds/Sosumi.aiff`
+    },
   }
 }
