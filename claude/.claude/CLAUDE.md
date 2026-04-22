@@ -34,6 +34,7 @@
         // エラー処理
     }
     ```
+- **マークダウン記法（GitHub）**: Issue・PR・README等では `@import`・`@use` 等をバッククォートで囲む（ユーザーリンク化を避けるため）
 
 ## テスト開発原則
 
@@ -66,26 +67,12 @@
 2. **実装時**: 各コンポーネント完成後に仕様書と照合
 3. **統合時**: システム全体で要件を満たしているか確認
 
-## 開発ワークフロー
+## 参照コンテキスト
 
-### パターン集
-- **テスト実装**: @~/.claude/context/patterns/test-implementation.md
-- **SPA状態保持**: @~/.claude/context/patterns/spa-state.md
-- **データテーブル**: @~/.claude/context/patterns/data-table.md
-- **Goパフォーマンス**: @~/.claude/context/patterns/go-perf.md
-- **Go Clean Archエラー**: @~/.claude/context/patterns/go-clean-arch-errors.md
-- **ESLint複雑度**: @~/.claude/context/patterns/eslint-complexity.md
-
-### ツール
-- **GitHub Sub-Issues**: @~/.claude/context/tools/github-sub-issues.md
-- **マークダウン記載**: @~/.claude/context/tools/markdown-syntax.md
-- **スキル**: @~/.claude/context/tools/skills.md
-
-### ワークフロー
-- **トラブルシューティング**: @~/.claude/context/workflows/troubleshooting.md
-- **CI/CDデプロイ**: @~/.claude/context/workflows/cicd-deployment.md
-- **大規模機能開発**: @~/.claude/context/workflows/feature-development.md
-- **TypeScript/ESLint**: @~/.claude/context/workflows/typescript-eslint-upgrade.md
+- **テスト実装**: @~/.claude/context/test-implementation.md
+- **トラブルシューティング**: @~/.claude/context/troubleshooting.md
+- **GitHub Sub-Issues**: @~/.claude/context/github-sub-issues.md
+- **スキル作成**: @~/.claude/context/skills.md
 
 ## Git操作
 
@@ -98,7 +85,7 @@
 - **分離基準**:
   - CLAUDE.md: 基本方針・原則、必須コンテキスト
   - context/: 詳細ドキュメント、特定用途専用のもの
-- **リンク形式**: `@~/.claude/context/カテゴリ/ファイル名.md`
+- **リンク形式**: `@~/.claude/context/ファイル名.md`
 
 ## Compact instructions
 
