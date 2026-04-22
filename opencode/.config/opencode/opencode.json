@@ -33,6 +33,7 @@
       "git pull": "allow",
       "git pull *": "allow",
       "git push": "allow",
+      "git show *": "allow",
       "git status": "allow",
       "git status *": "allow",
       "git switch *": "allow",
