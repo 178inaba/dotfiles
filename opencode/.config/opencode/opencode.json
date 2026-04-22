@@ -59,6 +59,7 @@
       "npx @playwright/cli *": "allow",
       "rg *": "allow",
       "sed *": "allow",
+      "sort": "allow",
       "tail *": "allow",
       "test *": "allow",
       "tree *": "allow",

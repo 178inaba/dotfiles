@@ -49,6 +49,7 @@
       "Bash(npx @playwright/cli:*)",
       "Bash(rg:*)",
       "Bash(sed:*)",
+      "Bash(sort:*)",
       "Bash(tail:*)",
       "Bash(test:*)",
       "Bash(tree:*)",
