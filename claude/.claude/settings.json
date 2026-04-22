@@ -60,8 +60,7 @@
     ],
     "defaultMode": "acceptEdits",
     "additionalDirectories": [
-      "/tmp/",
-      "~/.claude/"
+      "/tmp/"
     ]
   },
   "hooks": {
