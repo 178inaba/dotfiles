@@ -55,6 +55,7 @@
       "grep *": "allow",
       "head *": "allow",
       "ls *": "allow",
+      "make *": "allow",
       "mkdir *": "allow",
       "npx @playwright/cli *": "allow",
       "rg *": "allow",
