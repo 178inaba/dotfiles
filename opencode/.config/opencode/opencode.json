@@ -41,6 +41,7 @@
       "go build": "allow",
       "go build *": "allow",
       "go doc *": "allow",
+      "go env *": "allow",
       "go generate *": "allow",
       "go get *": "allow",
       "go help *": "allow",

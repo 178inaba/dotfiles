@@ -33,6 +33,7 @@
       "Bash(git symbolic-ref:*)",
       "Bash(go build:*)",
       "Bash(go doc:*)",
+      "Bash(go env:*)",
       "Bash(go generate:*)",
       "Bash(go get:*)",
       "Bash(go help:*)",
