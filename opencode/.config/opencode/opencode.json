@@ -58,6 +58,7 @@
       "make *": "allow",
       "mkdir *": "allow",
       "npx @playwright/cli *": "allow",
+      "pnpm *": "allow",
       "rg *": "allow",
       "sed *": "allow",
       "sort": "allow",
