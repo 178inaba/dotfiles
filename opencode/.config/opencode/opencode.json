@@ -13,6 +13,7 @@
       "gh api user *": "allow",
       "gh issue list *": "allow",
       "gh issue view *": "allow",
+      "gh label list *": "allow",
       "gh pr checks *": "allow",
       "gh pr diff *": "allow",
       "gh pr list *": "allow",
