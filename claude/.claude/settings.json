@@ -60,7 +60,7 @@
       "WebFetch",
       "WebSearch"
     ],
-    "defaultMode": "acceptEdits",
+    "defaultMode": "auto",
     "additionalDirectories": [
       "/tmp/"
     ]
@@ -90,5 +90,7 @@
     "gopls-lsp@claude-plugins-official": true,
     "figma@claude-plugins-official": true
   },
-  "language": "japanese"
+  "language": "japanese",
+  "preferredNotifChannel": "terminal_bell",
+  "skipAutoPermissionPrompt": true
 }
