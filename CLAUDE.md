@@ -80,6 +80,7 @@ zsh -l
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
 - `/review-response` - GitHubレビューコメントの自動対応
 - `/code-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携、未コミット差分対応）
+- `/check-plan-compliance` - 現計画とプロジェクトCLAUDE.md・リンク先文書との準拠チェック・更新候補報告
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 
