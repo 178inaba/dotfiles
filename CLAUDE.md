@@ -75,6 +75,7 @@ zsh -l
 ### スキル
 - `/git-commit` - 変更を適切な単位でコミット
 - `/git-pr` - プルリクエスト作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
+- `/git-rebase` - PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消
 - `/understand-pr` - 現在のブランチのPRを理解し、目的・変更内容・現状を構造化して報告
 - `/issue-handle` - Issueの調査から実装完了まで対応（Planモードで対話型、`--file`でファイルから仕様読み込み）
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
@@ -103,6 +104,7 @@ zsh -l
 ### Git操作の段階別コマンド
 1. **コミット**: `/git-commit`
 2. **PR作成**: `/git-pr`
+3. **rebase（コンフリクト自動解消）**: `/git-rebase`
 
 ### コンテキスト管理
 - 汎用的なパターンは`~/.claude/CLAUDE.md`または`~/.claude/context/`に自動追記
