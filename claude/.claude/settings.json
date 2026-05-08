@@ -1,5 +1,4 @@
 {
-  "awsAuthRefresh": "$CLAUDE_AWS_AUTH_REFRESH_SCRIPT",
   "respectGitignore": true,
   "includeCoAuthoredBy": false,
   "permissions": {
