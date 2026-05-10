@@ -19,6 +19,11 @@
   - ブランチ作成: `git switch -c branch-name`
   - ブランチ切り替え: `git switch branch-name`
   - ファイル復元: `git restore file`
+- **ghコマンド（書き込み系は `-R` 必須）**: `gh issue` / `gh pr` / `gh release` / `gh repo` / `gh label` の書き込み系サブコマンド（create / comment / edit / close / reopen / delete / merge / review / archive / rename 等）は、必ず `-R owner/repo` でリポジトリを明示する
+  - 理由: 別リポジトリへ調査目的で `cd` した状態で、cwd の git remote が暗黙参照され、意図しないリポジトリに Issue/PR を作成してしまう事故を防ぐため
+  - 実行先が不明な場合: `gh repo view --json nameWithOwner -q .nameWithOwner` で先に取得してから `-R` に渡す
+  - 機械的強制: `~/.claude/hooks/gh-require-repo-flag.sh`（PreToolUse フック）が `-R`/`--repo`/`GH_REPO=` のいずれも無い場合に `exit 2` でブロックする。ブロック時は同フックの stderr メッセージに従い、対象リポジトリを明示して再実行する
+  - 除外対象: `gh repo create` / `gh repo fork`（新規対象を引数で指定するため `-R` の意味がない）、および read 系（list / view / status / checks / diff / clone / download 等）
 - **エラーハンドリング**: 言語別パターン
   - **Go言語**: 戻り値を使わない場合、条件文内でエラーハンドリング
     ```go
