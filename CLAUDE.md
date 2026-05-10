@@ -94,10 +94,16 @@ zsh -l
 │   ├── patterns/       # 設計パターン集
 │   ├── tools/          # ツール使用方法
 │   └── workflows/      # 開発ワークフロー
-├── hooks/              # イベントフック（通知等）
+├── hooks/              # イベントフック（通知・事故防止等）
+│   └── tests/          # フックのリグレッションテスト
 ├── settings.json       # Claude Code設定
 └── statusline.sh       # ステータスライン表示スクリプト
 ```
+
+### Hooks
+- `gh-require-repo-flag.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ
+- **編集時は必ずテストを走らせる**: `bash claude/.claude/hooks/tests/test-gh-require-repo-flag.sh`
+  - 理由: フックの失敗モードは silent（見逃し時、実際に事故が起きるまで気付けない）。regression は手動デモでは踏みにくいため、テストでの担保が必須
 
 ## 開発ワークフロー
 
