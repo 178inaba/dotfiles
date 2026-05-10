@@ -24,7 +24,7 @@ description: 変更ファイルを適切な単位でコミット
 4. 分割してコミットする場合のステージング戦略（上から順に試す）：
    - `git add [特定ファイル]` で済むならこれを最優先
    - ファイル内分割が必要なら `git add -p` の `s` (split) を試す
-   - `s` が「Sorry, cannot split this hunk」で失敗した場合は [references/git-staging-fallback.md](references/git-staging-fallback.md) を参照
+   - `s` が「Sorry, cannot split this hunk」で失敗した場合は [git-staging-fallback.md](git-staging-fallback.md) を参照
    - フォールバックも困難、または中間状態がビルド不能なら、**1コミットにまとめる**判断を優先（Step 3 の自己完結原則に従う）
    - 各コミットが独立して意味を持つようにする
 5. `git log --oneline -10` で過去のコミットメッセージスタイルを確認
