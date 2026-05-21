@@ -1,14 +1,16 @@
 ---
+name: deep-review
 description: コード差分を詳細にレビュー
+argument-hint: "[base-branch] [--issue NUMBER] [--uncommitted] [--comment] [--no-comment]"
 ---
 
-# /code-review
+# /deep-review
 
 コード差分を経験豊富なシニアエンジニアとして、本番運用を考慮しながら詳細にレビューし、Approve可能か判断
 
 ## 使用方法
 ```
-/code-review [base-branch] [--issue ISSUE_NUMBER] [--uncommitted] [--comment] [--no-comment]
+/deep-review [base-branch] [--issue ISSUE_NUMBER] [--uncommitted] [--comment] [--no-comment]
 ```
 
 **引数**:
@@ -20,14 +22,14 @@ description: コード差分を詳細にレビュー
 
 **例**:
 ```
-/code-review                              # PRがあればPRのベースブランチ、なければデフォルトブランチとの差分をレビュー
-/code-review main                         # mainブランチとの差分をレビュー
-/code-review origin/feature-auth          # feature-authブランチとの差分をレビュー
-/code-review main --issue 123             # Issue #123の要件も確認
-/code-review --uncommitted                # 未コミットの差分をレビュー
-/code-review --issue 456 --uncommitted    # 未コミット差分をIssue #456の観点で確認
-/code-review --comment                    # 強制的にPRにコメント投稿
-/code-review --no-comment                 # 他人のPRでもローカル出力のみ
+/deep-review                              # PRがあればPRのベースブランチ、なければデフォルトブランチとの差分をレビュー
+/deep-review main                         # mainブランチとの差分をレビュー
+/deep-review origin/feature-auth          # feature-authブランチとの差分をレビュー
+/deep-review main --issue 123             # Issue #123の要件も確認
+/deep-review --uncommitted                # 未コミットの差分をレビュー
+/deep-review --issue 456 --uncommitted    # 未コミット差分をIssue #456の観点で確認
+/deep-review --comment                    # 強制的にPRにコメント投稿
+/deep-review --no-comment                 # 他人のPRでもローカル出力のみ
 ```
 
 ## 実行内容
@@ -44,19 +46,19 @@ description: コード差分を詳細にレビュー
 
 **解析例**:
 ```
-/code-review feature/auth --issue 123
+/deep-review feature/auth --issue 123
 → base-branch: "feature/auth", issue: 123, uncommitted: false
 
-/code-review --issue 456 --uncommitted
+/deep-review --issue 456 --uncommitted
 → base-branch: (自動判定: PRがあれば "origin/<PRのベースブランチ>"), issue: 456, uncommitted: true
 
-/code-review origin/main
+/deep-review origin/main
 → base-branch: "origin/main", issue: null, uncommitted: false
 
-/code-review --comment
+/deep-review --comment
 → base-branch: (自動判定), comment: true
 
-/code-review --no-comment
+/deep-review --no-comment
 → base-branch: (自動判定), comment: false
 ```
 
