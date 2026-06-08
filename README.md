@@ -14,7 +14,7 @@ $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
 $ eval "$(/opt/homebrew/bin/brew shellenv)"
 $ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow
-$ stow tmux git vim zsh claude copilot ghostty opencode
+$ stow tmux git vim zsh claude copilot ghostty
 $ zsh -l
 ```
 
@@ -24,7 +24,6 @@ $ zsh -l
 - `copilot`: GitHub Copilot CLI configuration
 - `ghostty`: Ghostty terminal configuration
 - `git`: Git configuration
-- `opencode`: OpenCode configuration
 - `tmux`: tmux configuration
 - `vim`: Vim configuration
 - `zsh`: Zsh configuration

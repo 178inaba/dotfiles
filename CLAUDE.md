@@ -14,7 +14,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ├── docs/       # ドキュメント・チートシート
 ├── ghostty/    # Ghosttyターミナル設定
 ├── git/        # Git設定（.gitconfig）
-├── opencode/   # OpenCode設定
 ├── tmux/       # tmux設定（.tmux.conf）
 ├── vim/        # Vim設定（.vimrc）
 └── zsh/        # Zsh設定（.zprofile, .zshrc）
@@ -30,14 +29,14 @@ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 cd ~/.dotfiles
 eval "$(/opt/homebrew/bin/brew shellenv)"
 brew install git vim go ccat diff-so-fancy direnv nodenv stow tmux
-stow git vim zsh claude copilot tmux ghostty opencode
+stow git vim zsh claude copilot tmux ghostty
 zsh -l
 ```
 
 ### Stow操作
 - 設定を適用: `stow <ディレクトリ名>`
 - 設定を削除: `stow -D <ディレクトリ名>`
-- 利用可能なパッケージ: git, vim, zsh, claude, copilot, tmux, ghostty, opencode
+- 利用可能なパッケージ: git, vim, zsh, claude, copilot, tmux, ghostty
 
 ## 設定の特徴
 
@@ -48,7 +47,6 @@ zsh -l
 - **Ghostty**: Solarized Dark Higher Contrastテーマ
 - **Claude**: 日本語対応設定、スキル、構造化されたコンテキスト
 - **Copilot**: GitHub Copilot CLI向けのグローバル指示
-- **OpenCode**: OpenCode設定、エージェント向け追加指示
 
 ## ローカル設定
 
@@ -133,4 +131,3 @@ zsh -l
 - **コミット規約**: 小さな変更は一括、大きな変更は論理的に分割
 - **ファイル形式**: POSIX標準準拠（ファイル末尾に改行必須）
 - **Stow管理ファイルの編集**: `~/.claude/`や`~/.copilot/`、`~/.gitconfig`等のホームディレクトリのファイルはStowによるシンボリックリンクのため、**必ずリポジトリ内のソース（`claude/.claude/`、`copilot/.copilot/`、`git/.gitconfig`等）を編集すること**。ホーム側を直接編集しない
-- **OpenCode設定の編集**: `~/.config/opencode/`配下もStow管理を前提とし、`opencode/.config/opencode/`側を編集する
