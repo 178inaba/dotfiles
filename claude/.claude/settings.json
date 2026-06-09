@@ -64,7 +64,7 @@
       "/tmp/"
     ]
   },
-  "model": "claude-opus-4-7[1m]",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "PreToolUse": [
       {
