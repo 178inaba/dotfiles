@@ -79,7 +79,7 @@ zsh -l
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
 - `/review-response` - GitHubレビューコメントの自動対応
 - `/deep-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携、未コミット差分対応）。Claude Code 2.1.146以降は組み込み `/code-review`・`/simplify` と区別するため `deep-review` 命名
-- `/check-plan-compliance` - 現計画とプロジェクトCLAUDE.md・リンク先文書との準拠チェック・更新候補報告
+- `/check-plan-compliance` - 現計画とプロジェクトCLAUDE.md・リンク先文書との準拠チェック後、計画修正と plan モード復帰まで自動実行
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 
