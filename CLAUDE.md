@@ -82,21 +82,23 @@ zsh -l
 - `/check-plan-compliance` - 現計画とプロジェクトCLAUDE.md・リンク先文書との準拠チェック後、計画修正と plan モード復帰まで自動実行
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
+- `/troubleshooting` - エラー調査・デバッグの具体的手法（エラー調査タスク時に自動ロードされる知識スキル）
+- `/github-sub-issues` - GitHub Sub-Issuesの作成・リンク手順（Sub-Issue操作タスク時に自動ロードされる知識スキル）
 
 ### 設定ファイル構造
 ```
 ~/.claude/
-├── CLAUDE.md           # グローバル基本方針
-├── skills/             # スキル定義
-├── context/            # 詳細コンテキスト
-│   ├── patterns/       # 設計パターン集
-│   ├── tools/          # ツール使用方法
-│   └── workflows/      # 開発ワークフロー
+├── CLAUDE.md           # グローバル基本方針（常時ロード）
+├── skills/             # スキル定義（タスク起点で自動ロード）
+├── rules/              # ルール（frontmatterのpaths globに該当するファイルを扱うときだけ遅延読込）
+├── context/            # 詳細コンテキスト（CLAUDE.mdから@importで常時ロード）
 ├── hooks/              # イベントフック（通知・事故防止等）
 │   └── tests/          # フックのリグレッションテスト
 ├── settings.json       # Claude Code設定
 └── statusline.sh       # ステータスライン表示スクリプト
 ```
+
+コンテキストの置き場所は「トリガーの性質」で振り分ける: 常時必要な原則 → CLAUDE.md、ファイル起点 → rules/、タスク起点 → skills/（詳細はグローバルCLAUDE.mdの「コンテキスト管理」参照）
 
 ### Hooks
 - `gh-require-repo-flag.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ
