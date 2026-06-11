@@ -79,7 +79,7 @@
     ],
     "Notification": [
       {
-        "matcher": "",
+        "matcher": "permission_prompt|idle_prompt",
         "hooks": [
           {
             "type": "command",
@@ -102,7 +102,7 @@
     "figma@claude-plugins-official": true
   },
   "language": "japanese",
-  "preferredNotifChannel": "terminal_bell",
+  "preferredNotifChannel": "auto",
   "skipAutoPermissionPrompt": true,
   "tui": "fullscreen"
 }
