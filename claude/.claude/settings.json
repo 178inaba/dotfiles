@@ -67,7 +67,6 @@
       "/tmp/"
     ]
   },
-  "model": "claude-fable-5[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -105,7 +104,7 @@
     "figma@claude-plugins-official": true
   },
   "language": "japanese",
+  "tui": "fullscreen",
   "preferredNotifChannel": "auto",
-  "skipAutoPermissionPrompt": true,
-  "tui": "fullscreen"
+  "skipAutoPermissionPrompt": true
 }
