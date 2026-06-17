@@ -67,16 +67,16 @@ argument-hint: "[base-branch] [--issue NUMBER] [--local-only] [--review-only]"
 - PRが存在しない場合はスキップ
 
 #### 既存レビュースレッド・コメント取得
-GraphQL APIで通常コメントとレビュースレッドを1クエリで取得:
+GraphQL APIで通常コメント・レビュー本文・レビュースレッドを1クエリで取得:
 ```bash
 gh api graphql -f query='{
   repository(owner: "OWNER", name: "REPO") {
     pullRequest(number: PR_NUMBER) {
       comments(first: 50) {
-        nodes { author { login } body createdAt }
+        nodes { author { login } body createdAt url }
       }
       reviews(first: 50) {
-        nodes { author { login } state body }
+        nodes { author { login } state body url }
       }
       reviewThreads(first: 100) {
         nodes {
@@ -86,7 +86,7 @@ gh api graphql -f query='{
           line
           resolvedBy { login }
           comments(first: 20) {
-            nodes { author { login } body createdAt }
+            nodes { author { login } body createdAt url }
           }
         }
       }
@@ -95,11 +95,15 @@ gh api graphql -f query='{
 }'
 ```
 
+`comments`（PR本体への通常コメント）と `reviews`/`reviewThreads`（レビュー由来のコメント）は GitHub 上で別物として管理されているため、3つすべてを取得しないと議論経緯を取りこぼす。特に「質問 → 回答 → 合意」「AIレビュー → 対応報告」の流れは PR本体の通常コメントで完結することが多く、これを見落とすと解決済み議題の再提起が発生する。
+
 取得した情報はレビュー実行時に以下のように活用する:
 - **解決済みスレッド（`isResolved: true`）**: 既に議論・解決済みのため、同じ内容を指摘しない
 - **未解決スレッド（`isResolved: false`）**: 他レビュアーが既に指摘済みのため、同じ内容を重複して指摘しない。ただし、補足や異なる観点がある場合は言及してよい
 - **古くなったスレッド（`isOutdated: true`）**: コードが変更されているため、必要に応じて再確認
-- **通常コメント・レビュー本文**: PRの議論経緯を把握し、レビューの文脈に活用
+- **PR本体への通常コメント（`comments[]`）**: PR説明文に書ききれなかった補足、Q&A、対応報告、AIレビュー結果などが入る。レビュー時は議論経緯を把握し、既に解決済みの議題を再提起しないために使う。特に「Xを質問 → Yで回答 → 質問者が合意した」流れは通常コメントで確定するため、見逃すと重複指摘になる。AIレビュー（`[AIによるレビュー]` プレフィックス等）と、それへの対応コメントも同様に考慮する
+- **レビュー本文（`reviews[].body`）**: 各レビュアーが Approve/Request Changes/Comment 時に付ける総括コメント。総合的な評価軸を把握するために参照する
+- **コメント引用時**: 取得した `url` を併記すると、どのコメントに基づく判断かを明示できる
 
 ### 3. コメントモード・個人ルールモード・自動対応モード判定
 
@@ -153,8 +157,9 @@ PRにレビューコメントを投稿するかを判定:
 以下の観点から詳細にレビュー:
 
 #### 既存レビュー考慮
-- [ ] 他レビュアーが既に指摘・議論・解決済みの内容を重複して指摘していないか
+- [ ] 他レビュアー・自己レビュー・AIレビューが、レビュースレッド・PR本体への通常コメント・レビュー本文のいずれかで既に指摘・議論・解決済みの内容を重複して指摘していないか
 - [ ] 未解決の既存指摘と矛盾する指摘をしていないか
+- [ ] AIレビュー（`[AIによるレビュー]` プレフィックス等）への対応コメントがある場合、対応後のコード状態を無批判に良いと評価していないか（対応経緯を踏まえて言及する）
 
 #### プロジェクトルール観点
 - [ ] リポジトリのCLAUDE.mdに記載されたルール・方針に準拠しているか
