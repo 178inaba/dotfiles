@@ -105,6 +105,10 @@ zsh -l
 - **編集時は必ずテストを走らせる**: `bash claude/.claude/hooks/tests/test-gh-require-repo-flag.sh`
   - 理由: フックの失敗モードは silent（見逃し時、実際に事故が起きるまで気付けない）。regression は手動デモでは踏みにくいため、テストでの担保が必須
 
+### 通知チャンネル
+- `preferredNotifChannel` は `"iterm2"` を指定。`"auto"`・`"ghostty"` は Ghostty + tmux 環境で通知が届かない既知バグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策
+- upstream 修正後は `"ghostty"` または `"auto"` に戻す
+
 ## 開発ワークフロー
 
 ### Git操作の段階別コマンド
