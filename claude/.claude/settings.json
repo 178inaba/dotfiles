@@ -106,6 +106,6 @@
   },
   "language": "japanese",
   "tui": "fullscreen",
-  "preferredNotifChannel": "auto",
+  "preferredNotifChannel": "iterm2",
   "skipAutoPermissionPrompt": true
 }
