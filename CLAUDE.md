@@ -75,7 +75,7 @@ zsh -l
 - `/git-pr` - プルリクエスト作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
 - `/git-rebase` - PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消
 - `/understand-pr` - 現在のブランチのPRを理解し、目的・変更内容・現状を構造化して報告
-- `/issue-handle` - Issueの調査から実装完了まで対応（Planモードで対話型、`--file`でファイルから仕様読み込み）
+- `/issue-handle` - Issueの調査から実装完了まで対応（Planモードで対話型、`--file`でファイルから仕様読み込み、完了時に独立セッションで `/deep-review` を実行）
 - `/extract-context` - 会話からコンテキストを抽出してCLAUDE.mdに追記
 - `/review-response` - GitHubレビューコメントの自動対応
 - `/deep-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携）。Claude Code 2.1.146以降は組み込み `/code-review`・`/simplify` と区別するため `deep-review` 命名
