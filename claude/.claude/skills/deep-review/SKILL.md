@@ -1,7 +1,7 @@
 ---
 name: deep-review
 description: コード差分を詳細にレビュー
-argument-hint: "[base-branch] [--issue NUMBER] [--uncommitted] [--comment] [--no-comment]"
+argument-hint: "[base-branch] [--issue NUMBER] [--local-only]"
 ---
 
 # /deep-review
@@ -10,15 +10,13 @@ argument-hint: "[base-branch] [--issue NUMBER] [--uncommitted] [--comment] [--no
 
 ## 使用方法
 ```
-/deep-review [base-branch] [--issue ISSUE_NUMBER] [--uncommitted] [--comment] [--no-comment]
+/deep-review [base-branch] [--issue ISSUE_NUMBER] [--local-only]
 ```
 
 **引数**:
 - `base-branch`: 比較対象のブランチ（省略時: PRがあればPRのベースブランチ、なければデフォルトブランチを自動判定）
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
-- `--uncommitted`: 未コミットの差分をレビュー（`git diff`を使用）
-- `--comment`: 強制的にPRにレビューコメントを投稿
-- `--no-comment`: 強制的にローカル出力のみ（PRコメント投稿しない）
+- `--local-only`: 強制的にローカル出力のみ（PRコメント投稿しない）
 
 **例**:
 ```
@@ -26,10 +24,7 @@ argument-hint: "[base-branch] [--issue NUMBER] [--uncommitted] [--comment] [--no
 /deep-review main                         # mainブランチとの差分をレビュー
 /deep-review origin/feature-auth          # feature-authブランチとの差分をレビュー
 /deep-review main --issue 123             # Issue #123の要件も確認
-/deep-review --uncommitted                # 未コミットの差分をレビュー
-/deep-review --issue 456 --uncommitted    # 未コミット差分をIssue #456の観点で確認
-/deep-review --comment                    # 強制的にPRにコメント投稿
-/deep-review --no-comment                 # 他人のPRでもローカル出力のみ
+/deep-review --local-only                 # 他人のPRでもローカル出力のみ
 ```
 
 ## 実行内容
@@ -40,26 +35,21 @@ argument-hint: "[base-branch] [--issue NUMBER] [--uncommitted] [--comment] [--no
   1. `gh pr view --json baseRefName --jq '.baseRefName'` でPRのベースブランチを取得し、`origin/` を付加
   2. PRがなければ `git symbolic-ref refs/remotes/origin/HEAD` でデフォルトブランチを取得
 - `--issue ISSUE_NUMBER`: Issue番号を抽出
-- `--uncommitted`: 未コミット差分フラグを設定
-- `--comment`: コメント投稿フラグを設定
-- `--no-comment`: コメント非投稿フラグを設定
+- `--local-only`: ローカル出力のみフラグを設定
 
 **解析例**:
 ```
 /deep-review feature/auth --issue 123
-→ base-branch: "feature/auth", issue: 123, uncommitted: false
+→ base-branch: "feature/auth", issue: 123
 
-/deep-review --issue 456 --uncommitted
-→ base-branch: (自動判定: PRがあれば "origin/<PRのベースブランチ>"), issue: 456, uncommitted: true
+/deep-review --issue 456
+→ base-branch: (自動判定: PRがあれば "origin/<PRのベースブランチ>"), issue: 456
 
 /deep-review origin/main
-→ base-branch: "origin/main", issue: null, uncommitted: false
+→ base-branch: "origin/main", issue: null
 
-/deep-review --comment
-→ base-branch: (自動判定), comment: true
-
-/deep-review --no-comment
-→ base-branch: (自動判定), comment: false
+/deep-review --local-only
+→ base-branch: (自動判定), local-only: true
 ```
 
 ### 2. PRコンテキスト確認（自動）
@@ -109,11 +99,9 @@ gh api graphql -f query='{
 
 #### コメントモード
 PRにレビューコメントを投稿するかを判定:
-1. `--comment` 指定時 → コメントモードON
-2. `--no-comment` 指定時 → コメントモードOFF
-3. 両方未指定時 → 自動判定:
+1. `--local-only` 指定時 → コメントモードOFF
+2. 未指定時 → 自動判定:
    - PRが存在しない場合 → コメントモードOFF
-   - `--uncommitted` 指定時 → コメントモードOFF
    - PR作成者と現在のユーザーを比較:
      - `gh api user --jq '.login'` で現在のユーザー取得
      - `gh pr view --json author --jq '.author.login'` でPR作成者取得
@@ -122,22 +110,15 @@ PRにレビューコメントを投稿するかを判定:
 
 #### 個人ルールモード
 個人グローバル `~/.claude/CLAUDE.md` とそのリンク先ドキュメントも準拠チェック対象に含めるかを判定:
-- `--uncommitted` 指定時 → 個人ルールモードON（自分のコード）
 - PR作成者が自分 → 個人ルールモードON
 - PR作成者が他人 → 個人ルールモードOFF
 - PRが存在しない場合 → 個人ルールモードON（自分のコード）
 
 ### 4. 差分取得と確認
-- `--uncommitted`が指定されている場合:
-  - `git diff` で既存ファイルの未コミット差分を取得
-  - `git ls-files --others --exclude-standard` でトラックされていない新規ファイルを確認
-  - トラックされていないファイルがあれば、その内容も読み込んでレビュー対象に含める
-  - トラックされていないファイルがある場合は、レビュー結果で明示的に言及する
-- 指定されていない場合:
-  - **必ず解析済みのベースブランチを使用** (`git diff <base-branch>...HEAD`)
-  - 差分が大きい場合は `git diff <base-branch>...HEAD --name-only` で変更ファイル一覧を先に確認
-  - 各ファイルを `git diff <base-branch>...HEAD -- <ファイル名>` で個別に確認
-  - 全体を把握してからレビュー評価を実施
+- **必ず解析済みのベースブランチを使用** (`git diff <base-branch>...HEAD`)
+- 差分が大きい場合は `git diff <base-branch>...HEAD --name-only` で変更ファイル一覧を先に確認
+- 各ファイルを `git diff <base-branch>...HEAD -- <ファイル名>` で個別に確認
+- 全体を把握してからレビュー評価を実施
 
 **重要原則**:
 - 全差分確認: 必ず全ての変更内容を確認してから評価する
@@ -291,6 +272,4 @@ EOF
 - ベースブランチが存在しない場合はエラーを通知
 - Issue番号が不正な場合はエラーを通知
 - ベースブランチの自動判定優先順位: PRのベースブランチ → デフォルトブランチ → `origin/main`（フォールバック）
-- `--comment` 指定時にPRが存在しない場合はエラーを通知
-- `--uncommitted` と `--comment` の併用時: PRが存在すればコメント投稿可能だが、未コミット差分はPR上の差分と異なる可能性があるため警告を表示
 - `comments` 配列が空の場合（行に紐づく指摘がない場合）でも `body` のみでレビュー投稿は可能
