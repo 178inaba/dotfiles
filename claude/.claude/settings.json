@@ -67,6 +67,7 @@
       "/tmp/"
     ]
   },
+  "model": "claude-opus-4-7[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -106,6 +107,5 @@
   "language": "japanese",
   "tui": "fullscreen",
   "preferredNotifChannel": "auto",
-  "skipAutoPermissionPrompt": true,
-  "model": "claude-opus-4-7[1m]"
+  "skipAutoPermissionPrompt": true
 }
