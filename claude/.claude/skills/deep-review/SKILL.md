@@ -1,7 +1,7 @@
 ---
 name: deep-review
 description: コード差分を詳細にレビュー
-argument-hint: "[base-branch] [--issue NUMBER] [--local-only]"
+argument-hint: "[base-branch] [--issue NUMBER] [--local-only] [--review-only]"
 ---
 
 # /deep-review
@@ -10,13 +10,14 @@ argument-hint: "[base-branch] [--issue NUMBER] [--local-only]"
 
 ## 使用方法
 ```
-/deep-review [base-branch] [--issue ISSUE_NUMBER] [--local-only]
+/deep-review [base-branch] [--issue ISSUE_NUMBER] [--local-only] [--review-only]
 ```
 
 **引数**:
 - `base-branch`: 比較対象のブランチ（省略時: PRがあればPRのベースブランチ、なければデフォルトブランチを自動判定）
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
 - `--local-only`: 強制的にローカル出力のみ（PRコメント投稿しない）
+- `--review-only`: 強制的に自動対応モードOFF（修正・コミット・プッシュしない、レビュー結果出力のみ）
 
 **例**:
 ```
@@ -25,6 +26,7 @@ argument-hint: "[base-branch] [--issue NUMBER] [--local-only]"
 /deep-review origin/feature-auth          # feature-authブランチとの差分をレビュー
 /deep-review main --issue 123             # Issue #123の要件も確認
 /deep-review --local-only                 # 他人のPRでもローカル出力のみ
+/deep-review main --issue 123 --review-only  # 自動修正を行わずレビュー結果のみ出力（サブエージェント経由レビュー想定）
 ```
 
 ## 実行内容
@@ -36,6 +38,7 @@ argument-hint: "[base-branch] [--issue NUMBER] [--local-only]"
   2. PRがなければ `git symbolic-ref refs/remotes/origin/HEAD` でデフォルトブランチを取得
 - `--issue ISSUE_NUMBER`: Issue番号を抽出
 - `--local-only`: ローカル出力のみフラグを設定
+- `--review-only`: 自動対応モード強制OFFフラグを設定
 
 **解析例**:
 ```
@@ -50,6 +53,9 @@ argument-hint: "[base-branch] [--issue NUMBER] [--local-only]"
 
 /deep-review --local-only
 → base-branch: (自動判定), local-only: true
+
+/deep-review main --issue 123 --review-only
+→ base-branch: "main", issue: 123, review-only: true
 ```
 
 ### 2. PRコンテキスト確認（自動）
@@ -118,9 +124,11 @@ PRにレビューコメントを投稿するかを判定:
 
 #### 自動対応モード
 レビュー指摘事項のうち対応すべきと判断したものを Claude Code が自動で working tree に適用し、コミット・PR更新まで進めるかを判定:
-- PR作成者が自分 → 自動対応モードON
-- PRが存在しない場合 → 自動対応モードON（自分のコード）
-- PR作成者が他人 → 自動対応モードOFF（行コメント投稿のみ）
+1. `--review-only` 指定時 → 自動対応モードOFF（最優先）
+2. 未指定時 → 自動判定:
+   - PR作成者が自分 → 自動対応モードON
+   - PRが存在しない場合 → 自動対応モードON（自分のコード）
+   - PR作成者が他人 → 自動対応モードOFF（行コメント投稿のみ）
 
 判定手段はコメントモードと同じ（`gh api user` と `gh pr view --json author` の比較）。
 
@@ -344,3 +352,4 @@ EOF
 - `comments` 配列が空の場合（行に紐づく指摘がない場合）でも `body` のみでレビュー投稿は可能
 - 自動対応モードはレビュー結果出力後に走るため、ユーザーが出力を確認して Esc で中断できる
 - 自動対応モードと既存のコメントモードは排他（自分のPR/未PR時は自動対応、他人のPR時はコメント投稿）
+- `--review-only` の用途: サブエージェント経由など、独立セッションでレビューのみ実行したい場合に指定する（修正判断を呼び出し元セッションで行うため）
