@@ -102,7 +102,10 @@ zsh -l
 
 ### Hooks
 - `gh-require-repo-flag.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ
-- **編集時は必ずテストを走らせる**: `bash claude/.claude/hooks/tests/test-gh-require-repo-flag.sh`
+- `start-caffeinate.sh` (UserPromptSubmit, PreToolUse) / `stop-caffeinate.sh` (Stop, Notification, SessionEnd) — Claude が作業中の間だけ macOS のスリープを抑止する。`/tmp/claude-caffeinate-${session_id}.pid` で PID 管理し、`nohup caffeinate -di` をデタッチ起動。承認後・ExitPlanMode 承認後の再開は次の `PreToolUse` で再起動される
+- **編集時は必ずテストを走らせる**:
+  - `bash claude/.claude/hooks/tests/test-gh-require-repo-flag.sh`
+  - `bash claude/.claude/hooks/tests/test-caffeinate.sh`（`CAFFEINATE_BIN` でスタブに差し替え、実機 caffeinate を起動しない）
   - 理由: フックの失敗モードは silent（見逃し時、実際に事故が起きるまで気付けない）。regression は手動デモでは踏みにくいため、テストでの担保が必須
 
 ### 通知チャンネル

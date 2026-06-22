@@ -78,6 +78,44 @@
             "command": "~/.claude/hooks/gh-require-repo-flag.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/start-caffeinate.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/start-caffeinate.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-caffeinate.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-caffeinate.sh"
+          }
+        ]
       }
     ],
     "Notification": [
@@ -91,6 +129,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/slack-notify.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-caffeinate.sh"
           }
         ]
       }
