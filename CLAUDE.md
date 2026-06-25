@@ -80,6 +80,7 @@ zsh -l
 - `/review-response` - GitHubレビューコメントの自動対応（`<pr-number>`でPR指定、`--worktree`で対象PRのworktreeに切替/作成、`--dry-run`で確認のみ）
 - `/deep-review` - コード差分を詳細にレビュー（ベースブランチ指定、Issue連携）。Claude Code 2.1.146以降は組み込み `/code-review`・`/simplify` と区別するため `deep-review` 命名
 - `/check-plan-compliance` - 現計画とプロジェクトCLAUDE.md・リンク先文書との準拠チェック後、計画修正と plan モード復帰まで自動実行
+- `/cleanup-merged` - マージ済みのworktreeとlocal branchをまとめてクリーンアップ（`--dry-run`で確認のみ、`--yes`で確認スキップ、`--include-closed`でCLOSED状態のPRも対象）
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 - `/troubleshooting` - エラー調査・デバッグの具体的手法（エラー調査タスク時に自動ロードされる知識スキル）
