@@ -224,9 +224,10 @@ main() {
         rate_str=" ${rate_str}"
     fi
 
-    # --- 組み立て（コンテキスト→識別→残量→消費） ---
-    local output="${BLUE}${display_dir}${NC}${GREEN}${git_info}${NC}"
-    output="${output}${PURPLE}${model_str}${NC}${ctx_bar}${rate_str}${CYAN}${cost_str}${NC}${duration_str}"
+    # --- 組み立て（パス / ブランチ / セッション情報 の3行） ---
+    local output="${BLUE}${display_dir}${NC}"
+    [[ -n "$git_info" ]] && output="${output}\n${GREEN}${git_info# }${NC}"
+    output="${output}\n${PURPLE}${model_str# }${NC}${ctx_bar}${rate_str}${CYAN}${cost_str}${NC}${duration_str}"
     echo -e "$output"
 }
 
