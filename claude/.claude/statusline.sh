@@ -123,9 +123,7 @@ get_git_info() {
 
 main() {
     local input=$(cat 2>/dev/null || echo "")
-    local date_output=$(date +"%s %H:%M")
-    local now="${date_output%% *}"
-    local current_time="${date_output#* }"
+    local now=$(date +%s)
     local current_dir="" project_dir="" model_name="" total_cost=""
     local used_pct="" duration_ms="" five_h="" seven_d=""
     local five_h_resets="" seven_d_resets=""
@@ -227,7 +225,7 @@ main() {
     fi
 
     # --- 組み立て（コンテキスト→識別→残量→消費） ---
-    local output="${CYAN}${current_time}${NC} ${BLUE}${display_dir}${NC}${GREEN}${git_info}${NC}"
+    local output="${BLUE}${display_dir}${NC}${GREEN}${git_info}${NC}"
     output="${output}${PURPLE}${model_str}${NC}${ctx_bar}${rate_str}${CYAN}${cost_str}${NC}${duration_str}"
     echo -e "$output"
 }
