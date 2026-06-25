@@ -1,7 +1,7 @@
 ---
 name: review-response
 description: GitHubのレビューコメントを確認して適切に対応
-argument-hint: [--dry-run]
+argument-hint: [<pr-number>] [--dry-run] [--worktree]
 disable-model-invocation: true
 ---
 
@@ -11,13 +11,53 @@ GitHubのレビューコメントを確認して適切に対応
 
 ## 使用方法
 ```
-/review-response            # 全自動：修正＋コメント返信＋解決
-/review-response --dry-run  # 確認のみ：指摘点・修正案・コメント案を報告
+/review-response                          # 全自動：カレント branch の PR を対象に修正＋コメント返信＋解決
+/review-response --dry-run                # 確認のみ：指摘点・修正案・コメント案を報告
+/review-response 123                      # PR 123 を対象（カレント branch 以外を明示指定）
+/review-response 123 --worktree           # PR 123 の worktree で対応（並列開発時の主要ユースケース）
+/review-response 123 --worktree --dry-run # 上記 + 確認のみ
 ```
+
+## 引数
+- `<pr-number>`: 対象 PR 番号（省略時はカレント branch の PR を `gh pr view` で推論）
+- `--worktree`: 対象 PR の worktree に切替（既存があれば再利用、無ければ作成）。並列で別 issue を作業中にレビュー対応する際に推奨
+- `--dry-run`: 修正案・コメント返信案を確認のみ（実行しない）
 
 ## 実行内容
 
-### 通常モード（引数なし）
+### Worktree 解決（`--worktree` 指定時のみ、最初に実行）
+
+1. **PR 番号確定**
+   - `<pr-number>` が指定されていればそれを使用
+   - 無ければ `gh pr view --json number -q .number` でカレント branch の PR を推論
+
+2. **PR の head branch 名取得**
+   - `gh pr view <PR> --json headRefName -q .headRefName`
+
+3. **worktree 名の計算**
+   - branch 名から `/` を `-` に置換（`/issue-handle --worktree` と同一規約）
+   - 例: `feature/99-add-oauth` → `feature-99-add-oauth`
+
+4. **既存 worktree の検索**
+   - `git worktree list --porcelain` を解析
+   - `branch refs/heads/<pr-branch>` が登録されている worktree を探す
+   - 見つかればそのパスを記録
+
+5-A. **既存 worktree あり**:
+   - `EnterWorktree(path: <found-path>)` で session を切替
+
+5-B. **既存 worktree なし**（auto cleanup 後・別 PC 等）:
+   - `git fetch origin <pr-branch>` で remote tracking ref を更新
+   - `EnterWorktree(name: <worktree-name>)` で新規 worktree 作成
+     - 結果: branch `worktree-<worktree-name>` 上の worktree、`WorktreeCreate` hook 発火
+   - worktree 内で `git switch <pr-branch>` で PR の実 branch に切替
+     - local に `<pr-branch>` が無い場合は git の DWIM 挙動で `origin/<pr-branch>` から自動作成（modern git 2.23+）
+   - `git branch -d worktree-<worktree-name>` で temp branch を削除
+   - 補足: この 2 段階方式により hook 発火を確保しつつ、目的の PR branch に到達できる
+
+6. **作業ディレクトリ確認**: worktree 内にいることを `git rev-parse --show-toplevel` で確認した上で、以下のレビュー対応ロジックに進む
+
+### 通常モード（`--dry-run` なし）
 1. GitHub GraphQL APIで以下を**両方**取得（片方だけでは不十分）
    - **レビュー本文** (`reviews.nodes[].body`): 総評・優先度付き指摘リスト・サマリー
    - **行コメント** (`reviewThreads`): 未解決スレッド
@@ -154,3 +194,8 @@ https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシ
 - **レビュースレッド返信時**: `pullRequestReviewThreadId`のみ使用（`pullRequestReviewId`は不要）
 - **GraphQLレート制限**: 1時間あたり5000ポイント
 - **既存PRの自動更新**: プッシュでPRは自動更新される
+- **`--worktree` 指定時の挙動**:
+  - 並列で別の issue 作業中に呼び出すと、session が PR の worktree に切り替わる。元の作業に戻るには別途 `EnterWorktree(path: <元のworktree>)` を呼ぶ
+  - 別ターミナル/別 tmux ペインで `/review-response` を実行する運用なら、元 session は触らずに済む（推奨）
+  - worktree を新規作成する場合、PR の head branch を fetch して checkout するため、PR ブランチ側に未 push のローカル commit があれば事前に push しておくこと
+  - 前提: `worktree.baseRef: "head"` 設定（`~/.claude/settings.json`、dotfiles では設定済み）

@@ -26,6 +26,7 @@
       "Bash(git clone:*)",
       "Bash(git commit:*)",
       "Bash(git diff:*)",
+      "Bash(git fetch:*)",
       "Bash(git log:*)",
       "Bash(git mv:*)",
       "Bash(git pull:*)",
@@ -146,5 +147,8 @@
   "language": "japanese",
   "tui": "fullscreen",
   "preferredNotifChannel": "iterm2",
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "worktree": {
+    "baseRef": "head"
+  }
 }
