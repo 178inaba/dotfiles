@@ -30,6 +30,7 @@ GitHubのレビューコメントを確認して適切に対応
 1. **PR 番号確定**
    - `<pr-number>` が指定されていればそれを使用
    - 無ければ `gh pr view --json number -q .number` でカレント branch の PR を推論
+     - 推論失敗時（PR が無い・複数該当など）はエラーメッセージを出して停止し、ユーザーに `<pr-number>` の明示指定を促す（誤った PR に対応しないための安全策）
 
 2. **PR の head branch 名取得**
    - `gh pr view <PR> --json headRefName -q .headRefName`
@@ -52,6 +53,7 @@ GitHubのレビューコメントを確認して適切に対応
      - 結果: branch `worktree-<worktree-name>` 上の worktree、`WorktreeCreate` hook 発火
    - worktree 内で `git switch <pr-branch>` で PR の実 branch に切替
      - local に `<pr-branch>` が無い場合は git の DWIM 挙動で `origin/<pr-branch>` から自動作成（modern git 2.23+）
+     - local に同名の古い `<pr-branch>` が残っている場合（前回作業の残骸等）はそちらに切り替わり、`origin/<pr-branch>` と乖離するリスクがある。`git rev-list --left-right --count <pr-branch>...origin/<pr-branch>` 等で同期状況を確認し、ローカル側に独自 commit が無ければ `git reset --hard origin/<pr-branch>` でリモートに揃える。独自 commit がある場合は警告して停止し、ユーザー判断を仰ぐ
    - `git branch -d worktree-<worktree-name>` で temp branch を削除
    - 補足: この 2 段階方式により hook 発火を確保しつつ、目的の PR branch に到達できる
 

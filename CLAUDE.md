@@ -112,6 +112,9 @@ zsh -l
 - `preferredNotifChannel` は `"iterm2"` を指定。`"auto"`・`"ghostty"` は Ghostty + tmux 環境で通知が届かない既知バグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策
 - upstream 修正後は `"ghostty"` または `"auto"` に戻す
 
+### Worktree 設定
+- `worktree.baseRef: "head"` を指定。`/issue-handle --worktree` や `/review-response --worktree` が「起動時の現在ブランチを起点に worktree を作成する」契約を保つための前提（デフォルトの `"fresh"` だと origin のデフォルトブランチから分岐するため、計画フェーズで切り替えた base branch が無視されてしまう）
+
 ## 開発ワークフロー
 
 ### Git操作の段階別コマンド
