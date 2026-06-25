@@ -38,17 +38,23 @@ disable-model-invocation: true
    [ -z "$default_branch" ] && default_branch="main"
    ```
 
-2. **メイン worktree のパス取得**（除外対象の特定用）:
+2. **デフォルトブランチを最新化**:
+   ```bash
+   git fetch origin "$default_branch"
+   ```
+   後段の (b) 判定で参照する `origin/$default_branch` の merge base を最新化するため。`fetch` が失敗した場合は警告のみで続行し、後段の (b) 判定で「ローカル `$default_branch` が stale な可能性あり」と注記する（dotfiles の main 直行運用で別マシン経由のマージを取りこぼさないための処置）。
+
+3. **メイン worktree のパス取得**（除外対象の特定用）:
    ```bash
    main_worktree=$(git worktree list --porcelain | awk '/^worktree / {print $2; exit}')
    ```
 
-3. **カレント session のパス取得**（削除不可対象の特定用）:
+4. **カレント session のパス取得**（削除不可対象の特定用）:
    ```bash
    current_worktree=$(git rev-parse --show-toplevel)
    ```
 
-4. **保護 branch のリスト**: `main`, `master`, `develop`, `default_branch` を保護対象として常に除外
+5. **保護 branch のリスト**: `main`, `master`, `develop`, `default_branch` を保護対象として常に除外
 
 ### 2. 対象の収集
 
@@ -71,7 +77,9 @@ git branch --format='%(refname:short)'
 
 ### 3. マージ判定
 
-各対象（worktree / branch）について、以下のいずれかに該当するか確認:
+各対象（worktree / branch）について、以下のいずれかに該当するか確認。
+
+**前提**: `gh pr list` が非ゼロ終了する場合（ネットワーク断・認証失効等）は (a) と (c) をスキップし、(b) のみで判定する。ヘッダーに「オフライン判定（PR 情報なし）」と警告を出すこと。
 
 #### (a) PR が MERGED
 ```bash
@@ -83,16 +91,19 @@ gh pr list --head "<branch>" --state merged --json number,mergedAt --limit 1 -R 
 ```bash
 # PR が存在しないことを確認
 gh pr list --head "<branch>" --state all --json number --limit 1 -R <owner/repo>
-# デフォルトブランチにマージ済みか確認
-git branch --merged "$default_branch" | grep -E "^[ *]+<branch>$"
+# デフォルトブランチにマージ済みか確認（origin 側を参照して local stale を回避、worktree branch の "+" プレフィックスも捕捉）
+git branch --merged "origin/$default_branch" | awk '{print $NF}' | grep -Fx "<branch>"
 ```
 両方を満たす場合に「main 直行マージ済み」として判定。
 
+`awk '{print $NF}'` で先頭マーカー（`*` カレント / `+` 他 worktree checked out / 空白 その他）を除去してから `grep -Fx` で完全一致比較する。`git branch --merged` の出力形式は `man git-branch` を参照（worktree でチェックアウト中の branch は `+` プレフィックスとなり、`^[ *]+` の正規表現ではマッチしないため）。
+
 #### (c) PR が CLOSED（`--include-closed` 指定時のみ）
 ```bash
-gh pr list --head "<branch>" --state closed --json number,state,mergedAt --limit 1 -R <owner/repo>
+gh pr list --head "<branch>" --state closed --json number,state,mergedAt -R <owner/repo> \
+  --jq '[.[] | select(.mergedAt == null)] | first'
 ```
-`state == "CLOSED"` かつ `mergedAt == null` のものを「PR #<number> CLOSED（未マージ）」として判定。
+`gh pr list --state closed` は MERGED な PR も返すため、`mergedAt == null` で「クローズされたが未マージ」のみに絞り込む。結果が空でなければ「PR #<number> CLOSED（未マージ）」として判定。
 
 いずれにも該当しなければ削除候補から除外（in-flight として保持）。
 
