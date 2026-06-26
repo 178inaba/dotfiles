@@ -1,7 +1,7 @@
 ---
 name: deep-review
 description: コード差分を詳細にレビュー
-argument-hint: "[base-branch] [--issue NUMBER] [--local-only] [--review-only]"
+argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--review-only]"
 ---
 
 # /deep-review
@@ -10,53 +10,110 @@ argument-hint: "[base-branch] [--issue NUMBER] [--local-only] [--review-only]"
 
 ## 使用方法
 ```
-/deep-review [base-branch] [--issue ISSUE_NUMBER] [--local-only] [--review-only]
+/deep-review [<pr-number>] [--issue ISSUE_NUMBER] [--worktree] [--local-only] [--review-only]
 ```
 
 **引数**:
-- `base-branch`: 比較対象のブランチ（省略時: PRがあればPRのベースブランチ、なければデフォルトブランチを自動判定）
+- `<pr-number>`: 対象 PR 番号（省略時はカレント branch の PR を `gh pr view` で推論。`--worktree` 指定時の主用途）
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
+- `--worktree`: 対象 PR の worktree に切替（既存があれば再利用、無ければ作成）。並列で別作業中に他者の PR をレビューする際の主要ユースケース
 - `--local-only`: 強制的にローカル出力のみ（PRコメント投稿しない）
 - `--review-only`: 強制的に自動対応モードOFF（修正・コミット・プッシュしない、レビュー結果出力のみ）
 
+ベースブランチは自動判定: PRがあればPRのベースブランチ、なければリポジトリのデフォルトブランチを使用する（フォールバックは `origin/main`）。
+
 **例**:
 ```
-/deep-review                              # PRがあればPRのベースブランチ、なければデフォルトブランチとの差分をレビュー
-/deep-review main                         # mainブランチとの差分をレビュー
-/deep-review origin/feature-auth          # feature-authブランチとの差分をレビュー
-/deep-review main --issue 123             # Issue #123の要件も確認
+/deep-review                              # カレント branch の差分をレビュー
+/deep-review --issue 123                  # Issue #123の要件も確認
 /deep-review --local-only                 # 他人のPRでもローカル出力のみ
-/deep-review main --issue 123 --review-only  # 自動修正を行わずレビュー結果のみ出力（サブエージェント経由レビュー想定）
+/deep-review --issue 123 --review-only    # 自動修正を行わずレビュー結果のみ出力（サブエージェント経由レビュー想定）
+/deep-review 123 --worktree               # PR 123 を worktree に切替してレビュー（並列レビューの主用途）
+/deep-review 123 --worktree --review-only # 他人 PR を独立 worktree で読み専レビュー
 ```
 
 ## 実行内容
 
 ### 1. 引数の解析
-- 第1引数（`--`で始まらない）があればベースブランチ名として使用
-- 第1引数がない、または`--`で始まる場合はベースブランチを自動判定:
-  1. `gh pr view --json baseRefName --jq '.baseRefName'` でPRのベースブランチを取得し、`origin/` を付加
-  2. PRがなければ `git symbolic-ref refs/remotes/origin/HEAD` でデフォルトブランチを取得
+- 第1引数（`--`で始まらない数値）があれば PR 番号として使用（`<pr-number>`）
 - `--issue ISSUE_NUMBER`: Issue番号を抽出
+- `--worktree`: worktree 切替フラグを設定（後続の「Worktree 解決」セクション参照）
 - `--local-only`: ローカル出力のみフラグを設定
 - `--review-only`: 自動対応モード強制OFFフラグを設定
 
+ベースブランチは引数で受け付けず、後続の差分取得時に自動判定する:
+1. `gh pr view --json baseRefName --jq '.baseRefName'` でPRのベースブランチを取得し、`origin/` を付加
+2. PRがなければ `git symbolic-ref refs/remotes/origin/HEAD` でデフォルトブランチを取得
+3. いずれも取得できなければ `origin/main` をフォールバック
+
 **解析例**:
 ```
-/deep-review feature/auth --issue 123
-→ base-branch: "feature/auth", issue: 123
-
 /deep-review --issue 456
-→ base-branch: (自動判定: PRがあれば "origin/<PRのベースブランチ>"), issue: 456
-
-/deep-review origin/main
-→ base-branch: "origin/main", issue: null
+→ pr-number: null, issue: 456, worktree: false
 
 /deep-review --local-only
-→ base-branch: (自動判定), local-only: true
+→ pr-number: null, local-only: true
 
-/deep-review main --issue 123 --review-only
-→ base-branch: "main", issue: 123, review-only: true
+/deep-review --issue 123 --review-only
+→ pr-number: null, issue: 123, review-only: true
+
+/deep-review 123 --worktree
+→ pr-number: 123, worktree: true
+
+/deep-review 123 --worktree --review-only
+→ pr-number: 123, worktree: true, review-only: true
 ```
+
+### 1.5. Worktree 解決（`--worktree` 指定時のみ、引数解析直後に実行）
+
+`/review-response --worktree` と同一規約で worktree を解決する。
+
+1. **PR 番号確定**
+   - `<pr-number>` が指定されていればそれを使用
+   - 無ければ `gh pr view --json number -q .number` でカレント branch の PR を推論
+     - 推論失敗時はエラーで停止し、ユーザーに `<pr-number>` の明示指定を促す
+
+2. **PR の head branch 名取得**
+   - `gh pr view <PR> --json headRefName -q .headRefName`
+
+3. **worktree 名の計算**
+   - branch 名から `/` を `-` に置換（`/issue-handle --worktree`・`/review-response --worktree` と同一規約）
+   - 例: `feature/99-add-oauth` → `feature-99-add-oauth`
+
+4. **既存 worktree の検索**
+   - `git worktree list --porcelain` を解析
+   - `branch refs/heads/<pr-branch>` が登録されている worktree を探す
+   - 見つかればそのパスを記録
+
+5-A. **既存 worktree あり**:
+   - `EnterWorktree(path: <found-path>)` で session を切替
+
+5-B. **既存 worktree なし**（auto cleanup 後・別 PC 等）:
+   - **メインリポジトリの退避**（current branch == PR head branch の時のみ実行）:
+     - 理由: 後続の `git switch <pr-branch>` を worktree 内で実行する際、メインリポジトリが同 branch を checkout していると git が二重 checkout を拒否するため、先にメインリポジトリを別 branch へ退避させる
+     - dirty 検出: `git status --porcelain | grep -v '^??' | head -n1` で modified/staged 変更を確認。非空なら **abort**（ユーザーに明示的なコミット/stash を促す。untracked のみは無視）
+     - clean → デフォルト branch を取得して switch:
+       - 取得: `git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's|^origin/||'`（失敗時は `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` をフォールバック）
+       - `git switch <default-branch>` でメインリポジトリを退避
+       - ユーザーに 1 行で通知: 「メインリポジトリを <default-branch> に退避しました（worktree 作成のため）」
+   - `git fetch origin <pr-branch>` で remote tracking ref を更新
+   - `EnterWorktree(name: <worktree-name>)` で新規 worktree 作成
+   - worktree 内で `git switch <pr-branch>` で PR の実 branch に切替
+     - local に同名の古い `<pr-branch>` が残っている場合は `git rev-list --left-right --count <pr-branch>...origin/<pr-branch>` で同期状況を確認し、ローカル側に独自 commit が無ければ `git reset --hard origin/<pr-branch>` でリモートに揃える。独自 commit がある場合は警告して停止
+   - `git branch -d worktree-<worktree-name>` で temp branch を削除
+
+6. **作業ディレクトリ確認**: worktree 内にいることを `git rev-parse --show-toplevel` で確認した上で、後続セクションに進む
+
+### 1.6. PR 番号指定時の branch 確認（`<pr-number>` 指定 かつ `--worktree` 未指定時）
+
+`<pr-number>` を受け取ったが `--worktree` が指定されていない場合、現在の branch が PR の head branch と一致するかを確認する（不一致だと別 branch の差分をレビューする事故が起きるため）。
+
+1. `gh pr view <pr-number> --json headRefName -q .headRefName` で PR の head branch 名を取得
+2. `git rev-parse --abbrev-ref HEAD` でカレント branch 名を取得
+3. 一致 → そのまま続行
+4. 不一致 → エラーで停止し、ユーザーに以下を提示:
+   - `--worktree` を付けて worktree 経由でレビューする
+   - 手動で `git switch <pr-branch>` してから `/deep-review <pr-number>` を再実行する
 
 ### 2. PRコンテキスト確認（自動）
 - セクション1でPRからベースブランチを取得できた場合、同時にPR情報も取得:
@@ -358,3 +415,10 @@ EOF
 - 自動対応モードはレビュー結果出力後に走るため、ユーザーが出力を確認して Esc で中断できる
 - 自動対応モードと既存のコメントモードは排他（自分のPR/未PR時は自動対応、他人のPR時はコメント投稿）
 - `--review-only` の用途: サブエージェント経由など、独立セッションでレビューのみ実行したい場合に指定する（修正判断を呼び出し元セッションで行うため）
+- **`--worktree` 指定時の挙動**:
+  - 並列で別の作業中に呼び出すと、session が PR の worktree に切り替わる。元の作業に戻るには別途 `EnterWorktree(path: <元のworktree>)` を呼ぶ
+  - 別ターミナル/別 tmux ペインで `/deep-review <pr-number> --worktree` を実行する運用なら、元 session は触らずに済む（並列レビューの推奨運用）
+  - worktree を新規作成する場合、PR の head branch を fetch して checkout するため、PR ブランチ側に未 push のローカル commit があれば事前に push しておくこと
+  - **メインリポジトリが PR head branch を checkout 中の場合**: worktree 作成時に自動でメインリポジトリを default branch へ退避する。dirty tree の場合は abort されるため、事前にコミット/stash しておくこと
+  - 前提: `worktree.baseRef: "head"` 設定（`~/.claude/settings.json`、dotfiles では設定済み）
+- **`<pr-number>` 指定 かつ `--worktree` 未指定時**: カレント branch が PR の head branch と一致しない場合はエラーで停止する（別 branch の差分を誤レビューしないための安全策）
