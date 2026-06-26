@@ -48,6 +48,13 @@ GitHubのレビューコメントを確認して適切に対応
    - `EnterWorktree(path: <found-path>)` で session を切替
 
 5-B. **既存 worktree なし**（auto cleanup 後・別 PC 等）:
+   - **メインリポジトリの退避**（current branch == PR head branch の時のみ実行）:
+     - 理由: 後続の `git switch <pr-branch>` を worktree 内で実行する際、メインリポジトリが同 branch を checkout していると git が二重 checkout を拒否するため、先にメインリポジトリを別 branch へ退避させる
+     - dirty 検出: `git status --porcelain | grep -v '^??' | head -n1` で modified/staged 変更を確認。非空なら **abort**（ユーザーに明示的なコミット/stash を促す。untracked のみは無視）
+     - clean → デフォルト branch を取得して switch:
+       - 取得: `git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's|^origin/||'`（失敗時は `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` をフォールバック）
+       - `git switch <default-branch>` でメインリポジトリを退避
+       - ユーザーに 1 行で通知: 「メインリポジトリを <default-branch> に退避しました（worktree 作成のため）」
    - `git fetch origin <pr-branch>` で remote tracking ref を更新
    - `EnterWorktree(name: <worktree-name>)` で新規 worktree 作成
      - 結果: branch `worktree-<worktree-name>` 上の worktree、`WorktreeCreate` hook 発火
@@ -200,4 +207,5 @@ https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシ
   - 並列で別の issue 作業中に呼び出すと、session が PR の worktree に切り替わる。元の作業に戻るには別途 `EnterWorktree(path: <元のworktree>)` を呼ぶ
   - 別ターミナル/別 tmux ペインで `/review-response` を実行する運用なら、元 session は触らずに済む（推奨）
   - worktree を新規作成する場合、PR の head branch を fetch して checkout するため、PR ブランチ側に未 push のローカル commit があれば事前に push しておくこと
+  - **メインリポジトリが PR head branch を checkout 中の場合**: worktree 作成時に自動でメインリポジトリを default branch へ退避する（git の二重 checkout 禁止を回避）。dirty tree の場合は abort されるため、事前にコミット/stash しておくこと
   - 前提: `worktree.baseRef: "head"` 設定（`~/.claude/settings.json`、dotfiles では設定済み）
