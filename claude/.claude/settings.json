@@ -147,6 +147,7 @@
   "language": "japanese",
   "tui": "fullscreen",
   "preferredNotifChannel": "iterm2",
+  "feedbackSurveyRate": 0,
   "skipAutoPermissionPrompt": true,
   "worktree": {
     "baseRef": "head"
