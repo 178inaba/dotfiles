@@ -24,6 +24,7 @@
   - 実行先が不明な場合: `gh repo view --json nameWithOwner -q .nameWithOwner` で先に取得してから `-R` に渡す
   - 機械的強制: `~/.claude/hooks/gh-require-repo-flag.sh`（PreToolUse フック）が `-R`/`--repo`/`GH_REPO=` のいずれも無い場合に `exit 2` でブロックする。ブロック時は同フックの stderr メッセージに従い、対象リポジトリを明示して再実行する
   - 除外対象: `gh repo create` / `gh repo fork`（新規対象を引数で指定するため `-R` の意味がない）、および read 系（list / view / status / checks / diff / clone / download 等）
+- **PR/Issue 作成時は自分をアサイン**: `gh pr create` / `gh issue create` では `--assignee @me` を付けて作成者自身をアサインする（担当者が明示されないと後追いしにくいため）
 - **エラーハンドリング**: 言語別パターン
   - **Go言語**: 戻り値を使わない場合、条件文内でエラーハンドリング
     ```go

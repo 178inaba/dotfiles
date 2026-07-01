@@ -42,6 +42,7 @@ argument-hint: "[--base BASE_BRANCH] [--draft]"
 6. プルリクエストテンプレート（.github/pull_request_template.md）があれば参照
 7. プロジェクトの言語慣例に従ってタイトルと説明を決定（下記ガイドライン参照）
 8. `gh pr create` でPRを作成：
+   - `--assignee @me`: 作成者自身をアサイン（必須）
    - `--base` オプション: 指定されたベースブランチ（省略時はデフォルト）
    - `--draft` オプション: 指定された場合のみドラフトPRとして作成
 
