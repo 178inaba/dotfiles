@@ -65,7 +65,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-opus-4-7[1m]",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -136,6 +136,9 @@
       }
     ]
   },
+  "worktree": {
+    "baseRef": "head"
+  },
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
@@ -145,11 +148,8 @@
     "figma@claude-plugins-official": true
   },
   "language": "japanese",
+  "feedbackSurveyRate": 0,
   "tui": "fullscreen",
   "preferredNotifChannel": "iterm2",
-  "feedbackSurveyRate": 0,
-  "skipAutoPermissionPrompt": true,
-  "worktree": {
-    "baseRef": "head"
-  }
+  "skipAutoPermissionPrompt": true
 }
