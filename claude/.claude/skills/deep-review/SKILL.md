@@ -388,6 +388,12 @@ gh repo view --json owner,name --jq '.owner.login + "/" + .name'
 | 修正が必要 | `REQUEST_CHANGES` |
 | 要議論 | `COMMENT` |
 
+**判定の注意**:
+- 判定は上記の表に機械的に従う。表にない観点（レビュアーとしてのアサイン有無、作成者との関係、遠慮・忖度）で event を変えない
+- **質問・確認事項が残っていても APPROVE を COMMENT に格下げしない**。質問を添えて Approve する（LGTM with comments）は Google eng-practices でも推奨される標準的な運用
+- APPROVE で質問を添える場合、質問が対応必須でないこと（ブロッキングでないこと）をレビュー本文に明記する
+- 「要議論」は「設計判断が割れており、解消しない限り Approve も Request Changes も選べない」ケースに限定する。運用確認レベルの質問は該当しない
+
 #### 3. REST APIでレビューを投稿
 ```bash
 gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews \
