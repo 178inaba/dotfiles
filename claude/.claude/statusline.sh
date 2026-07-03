@@ -250,7 +250,7 @@ main() {
     local output="${BLUE}${display_dir}${NC}"
     [[ -n "$branch_line" ]] && output="${output}\n${branch_line}"
     output="${output}\n${PURPLE}${model_str# }${NC}${ctx_bar}${rate_str}${CYAN}${cost_str}${NC}${duration_str}"
-    echo -e "$output"
+    printf '%b\n' "$output"
 }
 
 main
