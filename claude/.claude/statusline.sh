@@ -127,7 +127,7 @@ main() {
     local current_dir="" project_dir="" model_name="" total_cost=""
     local used_pct="" duration_ms="" five_h="" seven_d=""
     local five_h_resets="" seven_d_resets="" session_id=""
-    local worktree_name="" worktree_branch="" pr_number=""
+    local worktree_name="" worktree_branch="" pr_number="" pr_url=""
 
     if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
         # $()が末尾の空行を除去するため、末尾フィールドが空の場合はreadがEOFで空文字列を返す
@@ -146,7 +146,8 @@ main() {
             (.session_id // ""),
             (.worktree.name // ""),
             (.worktree.branch // ""),
-            (.pr.number // "")
+            (.pr.number // ""),
+            (.pr.url // "")
         ] | map(tostring) | .[]' <<< "$input" 2>/dev/null)
         {
             IFS= read -r current_dir
@@ -163,6 +164,7 @@ main() {
             IFS= read -r worktree_name
             IFS= read -r worktree_branch
             IFS= read -r pr_number
+            IFS= read -r pr_url
         } <<< "$jq_output"
     fi
 
@@ -190,7 +192,12 @@ main() {
         branch_line="${branch_line:+${branch_line} }${YELLOW}wt:${worktree_name}${NC}"
     fi
     if [[ -n "$pr_number" ]]; then
-        branch_line="${branch_line:+${branch_line} }${CYAN}PR#${pr_number}${NC}"
+        local pr_text="PR#${pr_number}"
+        # OSC 8ハイパーリンク（非対応端末ではシーケンスが無視されテキストのみ表示）
+        if [[ -n "$pr_url" ]]; then
+            pr_text='\033]8;;'"${pr_url}"'\033\\'"${pr_text}"'\033]8;;\033\\'
+        fi
+        branch_line="${branch_line:+${branch_line} }${CYAN}${pr_text}${NC}"
     fi
 
     # --- モデル + コスト ---
