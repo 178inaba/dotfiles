@@ -83,41 +83,47 @@ get_git_info() {
         fi
     fi
 
-    local result=""
-    if git rev-parse --git-dir >/dev/null 2>&1; then
-        local branch=$(git branch --show-current 2>/dev/null)
+    # 5秒ごとの定期実行がホットパスのため、branch名・ahead/behind・staged/modified を
+    # porcelain v2 の1回の git 呼び出しでまとめて取得する（旧実装は最大6プロセス起動していた）
+    local result="" status_output=""
+    if status_output=$(git --no-optional-locks status --porcelain=v2 --branch 2>/dev/null); then
+        local branch="" ahead=0 behind=0 staged_count=0 modified_count=0
+        local line ab xy
+        while IFS= read -r line; do
+            case "$line" in
+                "# branch.head "*)
+                    branch="${line#"# branch.head "}"
+                    [[ "$branch" == "(detached)" ]] && branch=""
+                    ;;
+                "# branch.ab "*)
+                    # 形式: "+<ahead> -<behind>"（upstream がある場合のみ出現）
+                    ab="${line#"# branch.ab "}"
+                    ahead="${ab%% *}"; ahead="${ahead#+}"
+                    behind="${ab##* }"; behind="${behind#-}"
+                    ;;
+                [12u]*)
+                    # 1=変更 2=リネーム u=コンフリクト。XY の "." 以外がステージ/未ステージ変更
+                    xy="${line:2:2}"
+                    [[ "${xy:0:1}" != "." ]] && ((staged_count++))
+                    [[ "${xy:1:1}" != "." ]] && ((modified_count++))
+                    ;;
+            esac
+        done <<< "$status_output"
+
         local git_status=""
-
-        local porcelain_output=$(git --no-optional-locks status --porcelain 2>/dev/null)
-        if [[ -n "$porcelain_output" ]]; then
-            local staged_count=0
-            local modified_count=0
-            local line
-            while IFS= read -r line; do
-                [[ "${line:0:1}" != " " && "${line:0:1}" != "?" ]] && ((staged_count++))
-                [[ "${line:1:1}" != " " && "${line:1:1}" != "?" ]] && ((modified_count++))
-            done <<< "$porcelain_output"
-
-            if [[ $staged_count -gt 0 ]]; then
-                git_status=" +${staged_count}"
-            fi
-            if [[ $modified_count -gt 0 ]]; then
-                git_status="${git_status} ~${modified_count}"
-            fi
+        if [[ $staged_count -gt 0 ]]; then
+            git_status=" +${staged_count}"
+        fi
+        if [[ $modified_count -gt 0 ]]; then
+            git_status="${git_status} ~${modified_count}"
         fi
 
         local sync_status=""
-        local remote_branch=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)
-        if [[ -n "$remote_branch" ]]; then
-            local ahead=$(git rev-list --count "HEAD" "^${remote_branch}" 2>/dev/null || echo 0)
-            local behind=$(git rev-list --count "${remote_branch}" "^HEAD" 2>/dev/null || echo 0)
-
-            if [[ $ahead -gt 0 ]]; then
-                sync_status=" ↑${ahead}"
-            fi
-            if [[ $behind -gt 0 ]]; then
-                sync_status="${sync_status} ↓${behind}"
-            fi
+        if [[ $ahead -gt 0 ]]; then
+            sync_status=" ↑${ahead}"
+        fi
+        if [[ $behind -gt 0 ]]; then
+            sync_status="${sync_status} ↓${behind}"
         fi
 
         result=" (${branch}${git_status}${sync_status})"
