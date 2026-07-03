@@ -127,6 +127,7 @@ main() {
     local current_dir="" project_dir="" model_name="" total_cost=""
     local used_pct="" duration_ms="" five_h="" seven_d=""
     local five_h_resets="" seven_d_resets="" session_id=""
+    local worktree_name="" worktree_branch="" pr_number=""
 
     if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
         # $()が末尾の空行を除去するため、末尾フィールドが空の場合はreadがEOFで空文字列を返す
@@ -142,7 +143,10 @@ main() {
             (.rate_limits.seven_day.used_percentage // ""),
             (.rate_limits.five_hour.resets_at // ""),
             (.rate_limits.seven_day.resets_at // ""),
-            (.session_id // "")
+            (.session_id // ""),
+            (.worktree.name // ""),
+            (.worktree.branch // ""),
+            (.pr.number // "")
         ] | map(tostring) | .[]' <<< "$input" 2>/dev/null)
         {
             IFS= read -r current_dir
@@ -156,6 +160,9 @@ main() {
             IFS= read -r five_h_resets
             IFS= read -r seven_d_resets
             IFS= read -r session_id
+            IFS= read -r worktree_name
+            IFS= read -r worktree_branch
+            IFS= read -r pr_number
         } <<< "$jq_output"
     fi
 
@@ -173,8 +180,18 @@ main() {
         display_dir="${display_project} > ${display_current}"
     fi
 
-    # --- Git ---
+    # --- Git + worktree/PR ---
     local git_info=$(get_git_info "$current_dir" "$now")
+
+    local branch_line=""
+    [[ -n "$git_info" ]] && branch_line="${GREEN}${git_info# }${NC}"
+    # worktree名はブランチ名と同じことが多いため、異なる場合のみ表示
+    if [[ -n "$worktree_name" && "$worktree_name" != "$worktree_branch" ]]; then
+        branch_line="${branch_line:+${branch_line} }${YELLOW}wt:${worktree_name}${NC}"
+    fi
+    if [[ -n "$pr_number" ]]; then
+        branch_line="${branch_line:+${branch_line} }${CYAN}PR#${pr_number}${NC}"
+    fi
 
     # --- モデル + コスト ---
     local model_str=""
@@ -231,7 +248,7 @@ main() {
 
     # --- 組み立て（パス / ブランチ / セッション情報 の3行） ---
     local output="${BLUE}${display_dir}${NC}"
-    [[ -n "$git_info" ]] && output="${output}\n${GREEN}${git_info# }${NC}"
+    [[ -n "$branch_line" ]] && output="${output}\n${branch_line}"
     output="${output}\n${PURPLE}${model_str# }${NC}${ctx_bar}${rate_str}${CYAN}${cost_str}${NC}${duration_str}"
     echo -e "$output"
 }
