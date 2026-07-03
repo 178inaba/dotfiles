@@ -12,6 +12,7 @@ PURPLE='\033[0;35m'
 NC='\033[0m'
 
 GIT_CACHE_BASE="/tmp/claude-statusline-git-cache"
+# settings.json の statusLine.refreshInterval と揃える（1更新サイクルあたり git 実行を最大1回に保つ）
 GIT_CACHE_MAX_AGE=5
 
 # コストが表示閾値（1セント）以上か判定
