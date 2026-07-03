@@ -1,12 +1,12 @@
 ---
 name: extract-context
-description: 最近の会話から汎用的・プロジェクト固有のコンテキストを抽出してCLAUDE.mdに追記
+description: 最近の会話から汎用的・プロジェクト固有のコンテキストを抽出し、分離基準に従って適切な置き場所に追記
 disable-model-invocation: true
 ---
 
 # /extract-context
 
-最近の会話から汎用的・プロジェクト固有のコンテキストを抽出し、適切なCLAUDE.mdファイルに追記
+最近の会話から汎用的・プロジェクト固有のコンテキストを抽出し、分離基準に従って適切な置き場所に追記
 
 ## 使用方法
 ```
