@@ -1,14 +1,14 @@
 #!/bin/bash
 
-# gh-require-repo-flag.sh のリグレッションテスト
+# gh-write-guard.sh のリグレッションテスト
 #
-# 実行: bash claude/.claude/hooks/tests/test-gh-require-repo-flag.sh
+# 実行: bash claude/.claude/hooks/tests/test-gh-write-guard.sh
 # 失敗したケースがあれば exit 1 で終了する。
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-HOOK="$SCRIPT_DIR/../gh-require-repo-flag.sh"
+HOOK="$SCRIPT_DIR/../gh-write-guard.sh"
 
 if [ ! -x "$HOOK" ]; then
   printf 'ERROR: hook script not executable: %s\n' "$HOOK" >&2

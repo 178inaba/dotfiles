@@ -22,11 +22,11 @@
 - **ghコマンド（書き込み系は `-R` 必須）**: `gh issue` / `gh pr` / `gh release` / `gh repo` / `gh label` の書き込み系サブコマンド（create / comment / edit / close / reopen / delete / merge / review / archive / rename 等）は、必ず `-R owner/repo` でリポジトリを明示する
   - 理由: 別リポジトリへ調査目的で `cd` した状態で、cwd の git remote が暗黙参照され、意図しないリポジトリに Issue/PR を作成してしまう事故を防ぐため
   - 実行先が不明な場合: `gh repo view --json nameWithOwner -q .nameWithOwner` で先に取得してから `-R` に渡す
-  - 機械的強制: `~/.claude/hooks/gh-require-repo-flag.sh`（PreToolUse フック）が `-R`/`--repo`/`GH_REPO=` のいずれも無い場合に `exit 2` でブロックする。ブロック時は同フックの stderr メッセージに従い、対象リポジトリを明示して再実行する
+  - 機械的強制: `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `-R`/`--repo`/`GH_REPO=` のいずれも無い場合に `exit 2` でブロックする。ブロック時は同フックの stderr メッセージに従い、対象リポジトリを明示して再実行する
   - 除外対象: `gh repo create` / `gh repo fork`（新規対象を引数で指定するため `-R` の意味がない）、および read 系（list / view / status / checks / diff / clone / download 等）
 - **gh の書き込み系で複数行の本文は `--body-file` で渡す**: 本文を一時ファイル（scratchpad 等）に Write してから `--body-file <path>` を指定する（`gh pr create` / `gh pr edit` / `gh issue create` / `gh issue comment` 等すべて対象。単行の短い本文は `--body` のままで可）
   - 理由: `--body "$(cat <<'EOF' ... EOF)"` パターンは引用符レイヤ（`"..."` → `$(...)` → `<<'EOF'`）が重なり、本来不要な `` \` `` エスケープを書き込むと本文にリテラルの `\` が残る事故が起きる。`--body-file` は本文がシェル解釈を通らないため安全
-  - 機械的強制: `~/.claude/hooks/gh-require-repo-flag.sh`（PreToolUse フック）が書き込み系サブコマンドの複数行 `--body`/`-b` を `exit 2` でブロックする。ブロック時は本文をファイルに書き出して `--body-file` で再実行する
+  - 機械的強制: `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が書き込み系サブコマンドの複数行 `--body`/`-b` を `exit 2` でブロックする。ブロック時は本文をファイルに書き出して `--body-file` で再実行する
 - **PR/Issue 作成時は自分をアサイン**: `gh pr create` / `gh issue create` では `--assignee @me` を付けて作成者自身をアサインする（担当者が明示されないと後追いしにくいため）
 - **エラーハンドリング**: 言語別パターン
   - **Go言語**: 戻り値を使わない場合、条件文内でエラーハンドリング

@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/gh-require-repo-flag.sh"
+            "command": "~/.claude/hooks/gh-write-guard.sh"
           }
         ]
       },
