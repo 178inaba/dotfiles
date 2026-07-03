@@ -78,5 +78,65 @@ else
   printf 'FAIL  cache file keyed by directory (file=%s)\n' "${cache_file:-none}"
 fi
 
+# --- git 状態別のブランチ行検証 ---
+
+# 指定ディレクトリで実行し、ANSI除去済みの2行目（ブランチ行）が期待値と完全一致するか検証
+run_git_test() {
+  local name=$1 dir=$2 want=$3
+  local output line2
+  rm -f "$GIT_CACHE_BASE"-*
+  output=$(cd "$dir" && printf '{"workspace":{"current_dir":"%s","project_dir":"%s"}}' "$dir" "$dir" | bash "$STATUSLINE" 2>/dev/null)
+  line2=$(printf '%s' "$output" | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g')
+  if [ "$line2" = "$want" ]; then
+    pass=$((pass + 1))
+    printf 'PASS  %s\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  %s (got %s, want %s)\n' "$name" "$line2" "$want"
+  fi
+}
+
+GIT="git -c user.email=test@example.com -c user.name=test -c commit.gpgsign=false"
+
+ORIGIN="$TEST_TMPDIR/origin.git"
+git init -q --bare "$ORIGIN"
+
+# repo_a: staged +1 / modified ~1 / ahead ↑1
+REPO_A="$TEST_TMPDIR/repo-a"
+git init -q -b main "$REPO_A"
+(
+  cd "$REPO_A"
+  echo a > tracked.txt
+  git add tracked.txt
+  $GIT commit -qm c1
+  git remote add origin "$ORIGIN"
+  git push -qu origin main
+  $GIT commit -q --allow-empty -m c2
+  echo b >> tracked.txt
+  echo s > staged.txt
+  git add staged.txt
+)
+run_git_test 'git: staged/modified/ahead' "$REPO_A" '(main +1 ~1 ↑1)'
+
+# repo_b: behind ↓1（push 後に1コミット戻す）
+REPO_B="$TEST_TMPDIR/repo-b"
+git clone -q "$ORIGIN" "$REPO_B"
+(
+  cd "$REPO_B"
+  $GIT commit -q --allow-empty -m c3
+  git push -q origin main
+  git reset -q --hard HEAD~1
+)
+run_git_test 'git: behind' "$REPO_B" '(main ↓1)'
+
+# detached HEAD: ブランチ名なしの () 表示
+(cd "$REPO_B" && git switch -q --detach HEAD)
+run_git_test 'git: detached HEAD' "$REPO_B" '()'
+
+# 非gitディレクトリ: ブランチ行が出ない（2行目はセッション情報行 = 空表示）
+PLAIN="$TEST_TMPDIR/plain"
+mkdir -p "$PLAIN"
+run_git_test 'non-git dir' "$PLAIN" ''
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
