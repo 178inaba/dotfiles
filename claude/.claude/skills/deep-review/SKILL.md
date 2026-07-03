@@ -66,7 +66,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 
 ### 1.5. Worktree 解決（`--worktree` 指定時のみ、引数解析直後に実行）
 
-@~/.claude/skills/worktree-resolution/SKILL.md の「PR worktree 解決手順」に従い、対象 PR の worktree に session を切り替える。完了後、後続セクションに進む。
+@~/.claude/skills/worktree-resolution/SKILL.md の「PR worktree 解決手順」に従い、対象 PR の worktree に session を切り替える。
 
 ### 1.6. PR 番号指定時の branch 確認（`<pr-number>` 指定 かつ `--worktree` 未指定時）
 
@@ -261,7 +261,7 @@ Diff だけで判断せず、変更が周辺コードと相互作用する箇所
 - [ ] バグや潜在的な問題の有無
 - [ ] セキュリティリスク（OWASP Top 10等）
 - [ ] パフォーマンスへの影響
-- [ ] テストコードの妥当性（@~/.claude/context/test-implementation.md の3原則: 無駄なテスト・抜け漏れ・可読性）
+- [ ] テストコードの妥当性（`~/.claude/context/test-implementation.md` の3原則: 無駄なテスト・抜け漏れ・可読性）
 - [ ] エラーハンドリングの適切性
 - [ ] 命名規則やコーディングスタイルの一貫性
 
@@ -446,5 +446,5 @@ EOF
 - 自動対応モードはレビュー結果出力後に走るため、ユーザーが出力を確認して Esc で中断できる
 - 自動対応モードと既存のコメントモードは排他（自分のPR/未PR時は自動対応、他人のPR時はコメント投稿）
 - `--review-only` の用途: サブエージェント経由など、独立セッションでレビューのみ実行したい場合に指定する（修正判断を呼び出し元セッションで行うため）
-- **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の「注意事項」を参照
+- **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
 - **`<pr-number>` 指定 かつ `--worktree` 未指定時**: カレント branch が PR の head branch と一致しない場合はエラーで停止する（別 branch の差分を誤レビューしないための安全策）

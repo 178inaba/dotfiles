@@ -1,6 +1,6 @@
 ---
 name: worktree-resolution
-description: PR・ブランチに対応する git worktree の解決手順（既存検索・切替・新規作成）と命名規約。/issue-handle・/review-response・/deep-review の --worktree から参照される共通規約
+description: PR・ブランチに対応する git worktree の解決手順（既存検索・切替・新規作成）と命名規約
 user-invocable: false
 ---
 
@@ -30,12 +30,9 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 2. **PR の head branch 名取得**
    - `gh pr view <PR> --json headRefName -q .headRefName`
 
-3. **worktree 名の計算**
-   - 共通規約に従い branch 名から `/` を `-` に置換
+3. **worktree 名の計算**: 共通規約に従い branch 名から worktree 名を計算
 
-4. **既存 worktree の検索**
-   - 共通規約に従い `git worktree list --porcelain` を解析
-   - `branch refs/heads/<pr-branch>` が登録されている worktree を探し、見つかればそのパスを記録
+4. **既存 worktree の検索**: 共通規約に従い `<pr-branch>` の worktree を検索し、見つかればそのパスを記録
 
 5-A. **既存 worktree あり**:
    - `EnterWorktree(path: <found-path>)` で session を切替
@@ -59,9 +56,9 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 
 6. **作業ディレクトリ確認**: worktree 内にいることを `git rev-parse --show-toplevel` で確認する
 
-## 注意事項（`--worktree` 指定時の共通挙動）
+## 注意事項（PR worktree 解決時の挙動）
 
 - 並列で別の作業中に呼び出すと、session が PR の worktree に切り替わる。元の作業に戻るには別途 `EnterWorktree(path: <元のworktree>)` を呼ぶ
 - 別ターミナル/別 tmux ペインで実行する運用なら、元 session は触らずに済む（並列作業の推奨運用）
 - worktree を新規作成する場合、PR の head branch を fetch して checkout するため、PR ブランチ側に未 push のローカル commit があれば事前に push しておくこと
-- **メインリポジトリが PR head branch を checkout 中の場合**: worktree 作成時に自動でメインリポジトリを default branch へ退避する（git の二重 checkout 禁止を回避）。dirty tree の場合は abort されるため、事前にコミット/stash しておくこと
+- **メインリポジトリが PR head branch を checkout 中の場合**: 手順 5-B により自動で default branch へ退避される。dirty tree の場合は abort されるため、事前にコミット/stash しておくこと

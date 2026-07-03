@@ -83,7 +83,7 @@ zsh -l
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 - `/troubleshooting` - エラー調査・デバッグの具体的手法（エラー調査タスク時に自動ロードされる知識スキル）
 - `/github-sub-issues` - GitHub Sub-Issuesの作成・リンク手順（Sub-Issue操作タスク時に自動ロードされる知識スキル）
-- `worktree-resolution` - PR・ブランチに対応するworktreeの解決手順と命名規約（`--worktree` を持つスキルから参照される共有知識スキル。`user-invocable: false` のためユーザー直接起動は不可）
+- `worktree-resolution` - PR・ブランチに対応するworktreeの解決手順と命名規約（`--worktree` を持つスキルから参照される共有知識スキル。ユーザー直接起動は不可）
 
 ### 設定ファイル構造
 ```
@@ -113,7 +113,7 @@ zsh -l
 - upstream 修正後は `"ghostty"` または `"auto"` に戻す
 
 ### Worktree 設定
-- `worktree.baseRef: "head"` を指定。`/issue-handle --worktree` や `/review-response --worktree` が「起動時の現在ブランチを起点に worktree を作成する」契約を保つための前提（デフォルトの `"fresh"` だと origin のデフォルトブランチから分岐するため、計画フェーズで切り替えた base branch が無視されてしまう）
+- `worktree.baseRef: "head"` を指定。`--worktree` を持つスキル群（規約定義: `claude/.claude/skills/worktree-resolution/SKILL.md`）が「起動時の現在ブランチを起点に worktree を作成する」契約を保つための前提（デフォルトの `"fresh"` だと origin のデフォルトブランチから分岐するため、計画フェーズで切り替えた base branch が無視されてしまう）
 
 ## 開発ワークフロー
 

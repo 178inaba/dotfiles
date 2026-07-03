@@ -27,7 +27,7 @@ GitHubのレビューコメントを確認して適切に対応
 
 ### Worktree 解決（`--worktree` 指定時のみ、最初に実行）
 
-@~/.claude/skills/worktree-resolution/SKILL.md の「PR worktree 解決手順」に従い、対象 PR の worktree に session を切り替える。完了後、以下のレビュー対応ロジックに進む。
+@~/.claude/skills/worktree-resolution/SKILL.md の「PR worktree 解決手順」に従い、対象 PR の worktree に session を切り替える。
 
 ### 通常モード（`--dry-run` なし）
 1. GitHub GraphQL APIで以下を**両方**取得（片方だけでは不十分）
@@ -176,4 +176,4 @@ https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシ
 - **レビュースレッド返信時**: `pullRequestReviewThreadId`のみ使用（`pullRequestReviewId`は不要）
 - **GraphQLレート制限**: 1時間あたり5000ポイント
 - **既存PRの自動更新**: プッシュでPRは自動更新される
-- **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の「注意事項」を参照
+- **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
