@@ -11,7 +11,7 @@ CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 NC='\033[0m'
 
-GIT_CACHE_FILE="/tmp/claude-statusline-git-cache"
+GIT_CACHE_BASE="/tmp/claude-statusline-git-cache"
 GIT_CACHE_MAX_AGE=5
 
 # コストが表示閾値（1セント）以上か判定
@@ -126,7 +126,7 @@ main() {
     local now=$(date +%s)
     local current_dir="" project_dir="" model_name="" total_cost=""
     local used_pct="" duration_ms="" five_h="" seven_d=""
-    local five_h_resets="" seven_d_resets=""
+    local five_h_resets="" seven_d_resets="" session_id=""
 
     if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
         # $()が末尾の空行を除去するため、末尾フィールドが空の場合はreadがEOFで空文字列を返す
@@ -141,7 +141,8 @@ main() {
             (.rate_limits.five_hour.used_percentage // ""),
             (.rate_limits.seven_day.used_percentage // ""),
             (.rate_limits.five_hour.resets_at // ""),
-            (.rate_limits.seven_day.resets_at // "")
+            (.rate_limits.seven_day.resets_at // ""),
+            (.session_id // "")
         ] | map(tostring) | .[]' <<< "$input" 2>/dev/null)
         {
             IFS= read -r current_dir
@@ -154,11 +155,15 @@ main() {
             IFS= read -r seven_d
             IFS= read -r five_h_resets
             IFS= read -r seven_d_resets
+            IFS= read -r session_id
         } <<< "$jq_output"
     fi
 
     current_dir="${current_dir:-$PWD}"
     project_dir="${project_dir:-$current_dir}"
+
+    # 並列セッションがキャッシュを上書きし合わないようセッション単位に分離
+    GIT_CACHE_FILE="${GIT_CACHE_BASE}${session_id:+-${session_id}}"
 
     # --- ディレクトリ ---
     local display_project="${project_dir/#$HOME/~}"
