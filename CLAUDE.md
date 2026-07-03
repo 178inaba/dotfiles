@@ -101,7 +101,7 @@ zsh -l
 コンテキストの置き場所は「トリガーの性質」で振り分ける: 常時必要な原則 → CLAUDE.md、ファイル起点 → rules/、タスク起点 → skills/（詳細はグローバルCLAUDE.mdの「コンテキスト管理」参照）
 
 ### Hooks
-- `gh-require-repo-flag.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ
+- `gh-require-repo-flag.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ。また複数行の本文を `--body`/`-b` で渡すことをブロックして `--body-file` へ誘導し、引用符レイヤの重なりによる誤エスケープで本文にリテラルの `\` が残る事故を防ぐ
 - `start-caffeinate.sh` (UserPromptSubmit, PreToolUse) / `stop-caffeinate.sh` (Stop, Notification, SessionEnd) — Claude が作業中の間だけ macOS のスリープを抑止する。`/tmp/claude-caffeinate-${session_id}.pid` で PID 管理し、`nohup caffeinate -di` をデタッチ起動。承認後・ExitPlanMode 承認後の再開は次の `PreToolUse` で再起動される
 - **編集時は必ずテストを走らせる**:
   - `bash claude/.claude/hooks/tests/test-gh-require-repo-flag.sh`

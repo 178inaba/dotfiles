@@ -1,15 +1,20 @@
 #!/bin/bash
 
-# PreToolUse フック: gh の書き込み系サブコマンド実行時に -R/--repo の指定を必須化する
+# PreToolUse フック: gh の書き込み系サブコマンドの事故防止ガード
 #
-# 目的: 別リポジトリへ調査目的で cd した状態で、cwd の git remote が
-#       暗黙参照されることによる「意図しないリポジトリへの Issue/PR 作成」
-#       事故を防ぐ。
+# ルール1: -R/--repo の指定を必須化する
+#   別リポジトリへ調査目的で cd した状態で、cwd の git remote が
+#   暗黙参照されることによる「意図しないリポジトリへの Issue/PR 作成」
+#   事故を防ぐ。
+#
+# ルール2: 複数行の本文を --body/-b で渡すことを禁止する（--body-file へ誘導）
+#   --body "$(cat <<'EOF' ... EOF)" のような引用符レイヤの重なりが
+#   誤エスケープを誘発し、本文にリテラルの \ が残る事故を防ぐ。
 #
 # 仕様:
 #   - 入力: stdin に PreToolUse の JSON
 #   - 対象: tool_name == "Bash" かつ command が gh の write サブコマンド
-#   - -R / --repo / --repo= が無ければ exit 2 (Claude にエラー返却)
+#   - いずれかのルールに違反していれば exit 2 (Claude にエラー返却)
 #   - 対象外コマンドは exit 0 で素通り
 
 set -euo pipefail
@@ -29,6 +34,32 @@ write_pattern='(^|[^A-Za-z0-9_])gh[[:space:]]+(issue[[:space:]]+(create|comment|
 
 if ! printf '%s' "$command" | grep -qE "$write_pattern"; then
   exit 0
+fi
+
+# 複数行の本文を --body/-b で渡すことを禁止する。--body-file は
+# 「--body」の直後が「-」のためパターンに一致せず、対象外となる。
+body_flag_pattern='(^|[[:space:]])(--body|-b)([[:space:]=])'
+if [[ $command =~ $body_flag_pattern ]]; then
+  body_rest=${command#*"${BASH_REMATCH[0]}"}
+  if [[ $body_rest == *$'\n'* ]]; then
+    cat >&2 <<EOF
+gh の書き込み系サブコマンドで複数行の本文を --body/-b で渡すことは禁止しています。
+
+実行しようとしたコマンド:
+  $command
+
+理由:
+  --body "\$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
+  誤ったエスケープ（バッククォート前の不要なバックスラッシュ等）が
+  そのまま本文に残る事故が起きます。
+
+対処:
+  1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
+  2. --body の代わりに --body-file <path> を指定して再実行する
+       例: gh pr edit -R owner/repo 123 --body-file /path/to/body.md
+EOF
+    exit 2
+  fi
 fi
 
 # -R <value> / --repo <value> / --repo=<value> のいずれかがあれば許可。

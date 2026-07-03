@@ -46,6 +46,8 @@ run_test 'GH_REPO env prefix'            '{"tool_name":"Bash","tool_input":{"com
 run_test 'tool_name=Edit (not Bash)'     '{"tool_name":"Edit","tool_input":{"command":"gh issue create --title T"}}' 0
 run_test 'empty command'                 '{"tool_name":"Bash","tool_input":{"command":""}}' 0
 run_test 'chained: cd && gh read'        '{"tool_name":"Bash","tool_input":{"command":"cd /tmp/foo && gh issue list"}}' 0
+run_test 'gh write with -R, --body-file path'     '{"tool_name":"Bash","tool_input":{"command":"gh pr edit -R foo/bar 1 --body-file /tmp/body.md"}}' 0
+run_test 'gh write with -R, --body-file stdin'    '{"tool_name":"Bash","tool_input":{"command":"gh pr edit -R foo/bar 1 --body-file - <<EOF\nline1\nline2\nEOF"}}' 0
 
 # ブロックされるべきケース (exit 2)
 run_test 'gh issue create (no -R)'                  '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title T --body B"}}' 2
@@ -56,6 +58,10 @@ run_test 'gh repo edit (no -R)'                     '{"tool_name":"Bash","tool_i
 run_test 'gh label create (no -R)'                  '{"tool_name":"Bash","tool_input":{"command":"gh label create bug --color FF0000"}}' 2
 run_test 'gh pr merge (no -R)'                      '{"tool_name":"Bash","tool_input":{"command":"gh pr merge 5 --squash"}}' 2
 run_test 'chained: cd && gh issue create (no -R)'   '{"tool_name":"Bash","tool_input":{"command":"cd /tmp/foo && gh issue create --title T"}}' 2
+run_test 'multiline --body (with -R)'               '{"tool_name":"Bash","tool_input":{"command":"gh pr edit -R foo/bar 1 --body \"line1\nline2\""}}' 2
+run_test 'multiline --body heredoc (with -R)'       '{"tool_name":"Bash","tool_input":{"command":"gh issue comment -R foo/bar 1 --body \"$(cat <<EOF\nline1\nEOF\n)\""}}' 2
+run_test 'multiline -b (with -R)'                   '{"tool_name":"Bash","tool_input":{"command":"gh pr create -R foo/bar --title T -b \"line1\nline2\""}}' 2
+run_test 'multiline --body= (with -R)'              '{"tool_name":"Bash","tool_input":{"command":"gh pr edit -R foo/bar 1 --body=\"line1\nline2\""}}' 2
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 
