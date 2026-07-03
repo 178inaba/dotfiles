@@ -55,6 +55,7 @@ disable-model-invocation: true  # 副作用がある場合はtrue
 | `description` | ✅ | 簡潔な説明（自動トリガーの判断に使用） |
 | `argument-hint` | - | 引数のヒント（ヘルプ表示用） |
 | `disable-model-invocation` | - | `true`: 手動のみ、`false`: 自動トリガー可能 |
+| `user-invocable` | - | `false`: ユーザーメニュー非表示（モデル参照・自動ロードのみ）。他スキルから参照される共有知識スキル向け（例: `worktree-resolution`） |
 
 ### `disable-model-invocation` の判断基準
 - **`true`（手動のみ）**: Git操作、ファイル編集、外部API呼び出しなど副作用があるスキル

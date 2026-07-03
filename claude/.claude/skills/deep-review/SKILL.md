@@ -66,43 +66,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 
 ### 1.5. Worktree 解決（`--worktree` 指定時のみ、引数解析直後に実行）
 
-`/review-response --worktree` と同一規約で worktree を解決する。
-
-1. **PR 番号確定**
-   - `<pr-number>` が指定されていればそれを使用
-   - 無ければ `gh pr view --json number -q .number` でカレント branch の PR を推論
-     - 推論失敗時はエラーで停止し、ユーザーに `<pr-number>` の明示指定を促す
-
-2. **PR の head branch 名取得**
-   - `gh pr view <PR> --json headRefName -q .headRefName`
-
-3. **worktree 名の計算**
-   - branch 名から `/` を `-` に置換（`/issue-handle --worktree`・`/review-response --worktree` と同一規約）
-   - 例: `feature/99-add-oauth` → `feature-99-add-oauth`
-
-4. **既存 worktree の検索**
-   - `git worktree list --porcelain` を解析
-   - `branch refs/heads/<pr-branch>` が登録されている worktree を探す
-   - 見つかればそのパスを記録
-
-5-A. **既存 worktree あり**:
-   - `EnterWorktree(path: <found-path>)` で session を切替
-
-5-B. **既存 worktree なし**（auto cleanup 後・別 PC 等）:
-   - **メインリポジトリの退避**（current branch == PR head branch の時のみ実行）:
-     - 理由: 後続の `git switch <pr-branch>` を worktree 内で実行する際、メインリポジトリが同 branch を checkout していると git が二重 checkout を拒否するため、先にメインリポジトリを別 branch へ退避させる
-     - dirty 検出: `git status --porcelain | grep -v '^??' | head -n1` で modified/staged 変更を確認。非空なら **abort**（ユーザーに明示的なコミット/stash を促す。untracked のみは無視）
-     - clean → デフォルト branch を取得して switch:
-       - 取得: `git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's|^origin/||'`（失敗時は `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` をフォールバック）
-       - `git switch <default-branch>` でメインリポジトリを退避
-       - ユーザーに 1 行で通知: 「メインリポジトリを <default-branch> に退避しました（worktree 作成のため）」
-   - `git fetch origin <pr-branch>` で remote tracking ref を更新
-   - `EnterWorktree(name: <worktree-name>)` で新規 worktree 作成
-   - worktree 内で `git switch <pr-branch>` で PR の実 branch に切替
-     - local に同名の古い `<pr-branch>` が残っている場合は `git rev-list --left-right --count <pr-branch>...origin/<pr-branch>` で同期状況を確認し、ローカル側に独自 commit が無ければ `git reset --hard origin/<pr-branch>` でリモートに揃える。独自 commit がある場合は警告して停止
-   - `git branch -d worktree-<worktree-name>` で temp branch を削除
-
-6. **作業ディレクトリ確認**: worktree 内にいることを `git rev-parse --show-toplevel` で確認した上で、後続セクションに進む
+@~/.claude/skills/worktree-resolution/SKILL.md の「PR worktree 解決手順」に従い、対象 PR の worktree に session を切り替える。完了後、後続セクションに進む。
 
 ### 1.6. PR 番号指定時の branch 確認（`<pr-number>` 指定 かつ `--worktree` 未指定時）
 
@@ -485,10 +449,5 @@ EOF
 - 自動対応モードはレビュー結果出力後に走るため、ユーザーが出力を確認して Esc で中断できる
 - 自動対応モードと既存のコメントモードは排他（自分のPR/未PR時は自動対応、他人のPR時はコメント投稿）
 - `--review-only` の用途: サブエージェント経由など、独立セッションでレビューのみ実行したい場合に指定する（修正判断を呼び出し元セッションで行うため）
-- **`--worktree` 指定時の挙動**:
-  - 並列で別の作業中に呼び出すと、session が PR の worktree に切り替わる。元の作業に戻るには別途 `EnterWorktree(path: <元のworktree>)` を呼ぶ
-  - 別ターミナル/別 tmux ペインで `/deep-review <pr-number> --worktree` を実行する運用なら、元 session は触らずに済む（並列レビューの推奨運用）
-  - worktree を新規作成する場合、PR の head branch を fetch して checkout するため、PR ブランチ側に未 push のローカル commit があれば事前に push しておくこと
-  - **メインリポジトリが PR head branch を checkout 中の場合**: worktree 作成時に自動でメインリポジトリを default branch へ退避する。dirty tree の場合は abort されるため、事前にコミット/stash しておくこと
-  - 前提: `worktree.baseRef: "head"` 設定（`~/.claude/settings.json`、dotfiles では設定済み）
+- **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の「注意事項」を参照
 - **`<pr-number>` 指定 かつ `--worktree` 未指定時**: カレント branch が PR の head branch と一致しない場合はエラーで停止する（別 branch の差分を誤レビューしないための安全策）

@@ -83,6 +83,7 @@ zsh -l
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 - `/troubleshooting` - エラー調査・デバッグの具体的手法（エラー調査タスク時に自動ロードされる知識スキル）
 - `/github-sub-issues` - GitHub Sub-Issuesの作成・リンク手順（Sub-Issue操作タスク時に自動ロードされる知識スキル）
+- `worktree-resolution` - PR・ブランチに対応するworktreeの解決手順と命名規約（`--worktree` を持つスキルから参照される共有知識スキル。`user-invocable: false` のためユーザー直接起動は不可）
 
 ### 設定ファイル構造
 ```
