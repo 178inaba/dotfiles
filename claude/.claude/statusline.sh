@@ -11,7 +11,8 @@ CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 NC='\033[0m'
 
-GIT_CACHE_BASE="/tmp/claude-statusline-git-cache"
+# テストから差し替え可能
+GIT_CACHE_BASE="${GIT_CACHE_BASE:-/tmp/claude-statusline-git-cache}"
 # settings.json の statusLine.refreshInterval と揃える（1更新サイクルあたり git 実行を最大1回に保つ）
 GIT_CACHE_MAX_AGE=5
 
@@ -62,19 +63,23 @@ format_countdown() {
 # Git情報取得（キャッシュ付き）
 get_git_info() {
     local cache_key="$1" now="$2"
+    # 作業ディレクトリ単位のファイルに分離（並列セッションの上書き競合防止、同一ディレクトリ間では共有）。
+    # 長いパスでのファイル名長超過に備えて切り詰め、衝突はファイル内のキー照合で吸収する
+    local cache_file="${GIT_CACHE_BASE}-${cache_key//\//_}"
+    cache_file="${cache_file:0:200}"
 
-    if [[ -f "$GIT_CACHE_FILE" ]]; then
-        local cache_age cached_key cached_result
-        cache_age=$(( now - $(stat -f %m "$GIT_CACHE_FILE" 2>/dev/null || stat -c %Y "$GIT_CACHE_FILE" 2>/dev/null || echo 0) ))
-        if [[ $cache_age -le $GIT_CACHE_MAX_AGE ]]; then
-            {
-                IFS= read -r cached_key
-                IFS= read -r cached_result
-            } < "$GIT_CACHE_FILE"
-            if [[ "$cached_key" == "$cache_key" ]]; then
-                echo "$cached_result"
-                return
-            fi
+    if [[ -f "$cache_file" ]]; then
+        # 1行目に書き込み時刻を持たせ、鮮度判定のための stat 呼び出しを不要にする
+        local cached_at cached_key cached_result
+        {
+            IFS= read -r cached_at
+            IFS= read -r cached_key
+            IFS= read -r cached_result
+        } < "$cache_file"
+        if [[ "$cached_at" =~ ^[0-9]+$ ]] && (( now - cached_at <= GIT_CACHE_MAX_AGE )) \
+            && [[ "$cached_key" == "$cache_key" ]]; then
+            echo "$cached_result"
+            return
         fi
     fi
 
@@ -118,7 +123,7 @@ get_git_info() {
         result=" (${branch}${git_status}${sync_status})"
     fi
 
-    printf '%s\n%s' "$cache_key" "$result" > "$GIT_CACHE_FILE"
+    printf '%s\n%s\n%s' "$now" "$cache_key" "$result" > "$cache_file"
     echo "$result"
 }
 
@@ -127,7 +132,7 @@ main() {
     local now=$(date +%s)
     local current_dir="" project_dir="" model_name="" total_cost=""
     local used_pct="" duration_ms="" five_h="" seven_d=""
-    local five_h_resets="" seven_d_resets="" session_id=""
+    local five_h_resets="" seven_d_resets=""
 
     if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
         # $()が末尾の空行を除去するため、末尾フィールドが空の場合はreadがEOFで空文字列を返す
@@ -142,8 +147,7 @@ main() {
             (.rate_limits.five_hour.used_percentage // ""),
             (.rate_limits.seven_day.used_percentage // ""),
             (.rate_limits.five_hour.resets_at // ""),
-            (.rate_limits.seven_day.resets_at // ""),
-            (.session_id // "")
+            (.rate_limits.seven_day.resets_at // "")
         ] | map(tostring) | .[]' <<< "$input" 2>/dev/null)
         {
             IFS= read -r current_dir
@@ -156,15 +160,11 @@ main() {
             IFS= read -r seven_d
             IFS= read -r five_h_resets
             IFS= read -r seven_d_resets
-            IFS= read -r session_id
         } <<< "$jq_output"
     fi
 
     current_dir="${current_dir:-$PWD}"
     project_dir="${project_dir:-$current_dir}"
-
-    # 並列セッションがキャッシュを上書きし合わないようセッション単位に分離
-    GIT_CACHE_FILE="${GIT_CACHE_BASE}${session_id:+-${session_id}}"
 
     # --- ディレクトリ ---
     local display_project="${project_dir/#$HOME/~}"

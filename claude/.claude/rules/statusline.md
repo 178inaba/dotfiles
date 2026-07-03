@@ -33,5 +33,4 @@ EOF
 
 ## 設定の整合性
 
-- `GIT_CACHE_MAX_AGE`（statusline.sh）と `statusLine.refreshInterval`（settings.json）は揃える。片方だけ変えると git 実行頻度の見積もりが崩れる
-- Git キャッシュは `session_id` 単位に分離されている（並列 worktree セッションでの上書き競合防止）。キャッシュ関連の変更時はこの前提を壊さないこと
+キャッシュ関連の制約（TTL と `statusLine.refreshInterval` の同期、作業ディレクトリ単位のキー設計）は statusline.sh 内の該当コメントを正とする。この文書には重複記載しない（乖離防止のため）。
