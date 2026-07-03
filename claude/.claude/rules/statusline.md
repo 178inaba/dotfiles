@@ -21,15 +21,13 @@ stdin JSON にフィールドが存在することは表示する価値がある
 
 ## 検証方法
 
-サンプル JSON を stdin に流して確認する:
+編集時は必ずリグレッションテストを走らせる:
 
 ```bash
-bash claude/.claude/statusline.sh <<'EOF'
-{"session_id":"test","workspace":{"current_dir":"/path","project_dir":"/path"},"model":{"display_name":"Opus"},"cost":{"total_cost_usd":1.23,"total_duration_ms":5400000},"context_window":{"used_percentage":42.5},"rate_limits":{"five_hour":{"used_percentage":35,"resets_at":1751600000},"seven_day":{"used_percentage":73,"resets_at":1751900000}}}
-EOF
+bash claude/.claude/tests/test-statusline.sh
 ```
 
-最低限のケース: 全フィールドあり / 対象フィールドなし / 空 stdin（フォールバック動作）。`bash -n` で構文チェックも行う。
+テストは表示ロジックの回帰のみ担保する。表示項目の追加・変更時の重複判断（上記セクション）はテストでは検出できないため、実画面での確認が必須。
 
 ## 設定の整合性
 

@@ -94,6 +94,7 @@ zsh -l
 ├── context/            # 詳細コンテキスト（CLAUDE.mdから@importで常時ロード）
 ├── hooks/              # イベントフック（通知・事故防止等）
 │   └── tests/          # フックのリグレッションテスト
+├── tests/              # フック以外のスクリプトのリグレッションテスト（statusline等）
 ├── settings.json       # Claude Code設定
 └── statusline.sh       # ステータスライン表示スクリプト
 ```
