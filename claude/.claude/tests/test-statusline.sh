@@ -99,9 +99,10 @@ run_git_test() {
 GIT="git -c user.email=test@example.com -c user.name=test -c commit.gpgsign=false"
 
 ORIGIN="$TEST_TMPDIR/origin.git"
-git init -q --bare "$ORIGIN"
+# -b main: init.defaultBranch 未設定の環境（stow 前・CI）でも clone を成立させる
+git init -q --bare -b main "$ORIGIN"
 
-# repo_a: staged +1 / modified ~1 / ahead ↑1
+# repo_a: staged +1 / modified ~1 / ahead ↑1（未追跡はカウント対象外）
 REPO_A="$TEST_TMPDIR/repo-a"
 git init -q -b main "$REPO_A"
 (
@@ -115,8 +116,9 @@ git init -q -b main "$REPO_A"
   echo b >> tracked.txt
   echo s > staged.txt
   git add staged.txt
+  echo u > untracked.txt
 )
-run_git_test 'git: staged/modified/ahead' "$REPO_A" '(main +1 ~1 ↑1)'
+run_git_test 'git: staged/modified/ahead (untracked excluded)' "$REPO_A" '(main +1 ~1 ↑1)'
 
 # repo_b: behind ↓1（push 後に1コミット戻す）
 REPO_B="$TEST_TMPDIR/repo-b"
@@ -132,6 +134,24 @@ run_git_test 'git: behind' "$REPO_B" '(main ↓1)'
 # detached HEAD: ブランチ名なしの () 表示
 (cd "$REPO_B" && git switch -q --detach HEAD)
 run_git_test 'git: detached HEAD' "$REPO_B" '()'
+
+# repo_c: コンフリクト（unmerged）は staged/modified の両方に数える（v1 の UU 両カウントと等価）
+REPO_C="$TEST_TMPDIR/repo-c"
+git init -q -b main "$REPO_C"
+(
+  cd "$REPO_C"
+  echo base > conflict.txt
+  git add conflict.txt
+  $GIT commit -qm c1
+  git switch -qc side
+  echo side > conflict.txt
+  $GIT commit -qam side
+  git switch -q main
+  echo main > conflict.txt
+  $GIT commit -qam main
+  git merge -q side >/dev/null 2>&1 || true
+)
+run_git_test 'git: unmerged conflict' "$REPO_C" '(main +1 ~1)'
 
 # 非gitディレクトリ: ブランチ行が出ない（2行目はセッション情報行 = 空表示）
 PLAIN="$TEST_TMPDIR/plain"
