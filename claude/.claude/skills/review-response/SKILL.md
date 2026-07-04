@@ -30,20 +30,21 @@ GitHubのレビューコメントを確認して適切に対応
 @~/.claude/skills/worktree-resolution/SKILL.md の「PR worktree 解決手順」に従い、対象 PR の worktree に session を切り替える。
 
 ### 通常モード（`--dry-run` なし）
-1. GitHub GraphQL APIで以下を**両方**取得（片方だけでは不十分）
+1. GitHub GraphQL APIで以下を**すべて**取得（一部だけでは不十分）
    - **レビュー本文** (`reviews.nodes[].body`): 総評・優先度付き指摘リスト・サマリー
    - **行コメント** (`reviewThreads`): 未解決スレッド
-2. 本文と行コメントを突き合わせ、重複を除いた上で指摘を列挙
+   - **通常コメント** (`comments`): PR本体へのタイムラインコメント（議論経緯・追加の修正依頼）
+2. 3種類を突き合わせ、重複と通常コメント上で合意済みの議題を除いた上で指摘を列挙
 3. 各指摘について修正すべきか判断
 4. 修正すべき指摘は実装で対応（コミット・プッシュまで）
 5. 修正不要な指摘には理由を説明して返信
 6. 対応完了後にコメントを解決済みに変更
 
 ### dry-runモード（`--dry-run`）
-1. GitHub GraphQL APIで**レビュー本文と行コメントの両方**を取得（通常モードと同じ）
-2. 本文と行コメントを突き合わせ、重複を除いた上で指摘を列挙
+1. GitHub GraphQL APIで**レビュー本文・行コメント・通常コメントのすべて**を取得（通常モードと同じ）
+2. 3種類を突き合わせ、重複と通常コメント上で合意済みの議題を除いた上で指摘を列挙
 3. 各指摘について修正すべきか判断
-4. 指摘ごとに以下を報告（出所が本文か行コメントかを明示）：
+4. 指摘ごとに以下を報告（出所が本文・行コメント・通常コメントのいずれかを明示）：
    - 修正すべきか否かの判断と理由
    - 修正案（コード変更の具体的内容）
    - コメント返信案
@@ -82,17 +83,28 @@ GitHubのレビューコメントを確認して適切に対応
 - **優先度付きリスト**: 本文に「優先度1/2/3」「Must/Should/Nice」等の構造がある場合、各項目を独立した指摘として列挙
 - **返信先**: 本文由来の指摘への返信・解決は該当する行コメントが無いため、PR全体へのコメント（`gh pr comment`）で対応完了を報告
 
+### 通常コメントの扱い
+通常コメント（`comments[]`、PR本体へのタイムラインコメント）はレビュー・行コメントとは GitHub 上で別管理のため、取得しないと議論経緯を取りこぼす。以下の方針で扱う：
+
+- **主用途は議論経緯の参照**: 「スレッドの指摘 → 通常コメントで回答 → レビュアーが合意」のような流れを把握し、既に解決済みの議題を重複して修正・返信しない
+- **明示的な修正依頼は指摘として扱う**: レビュアーが通常コメントに書いた修正依頼は、行コメントと同じ粒度で修正・返信判断の対象に含める。対応報告・CI通知・雑談は対象外
+- **スキル自身の投稿は非表示マーカーで除外**: このスキルが `gh pr comment` で投稿するコメント（対応完了報告・修正不要理由の返信）は、本文の1行目を HTML コメント `<!-- review-response -->` にする（GitHub のレンダリングでは非表示だが、API の `body` には残る）。再実行時、`body` がこのマーカーで**始まる**コメントは修正判断の対象外とする（議論経緯の参照には使う）。先頭一致で判定するのは、引用返信で raw Markdown ごとマーカーがコピーされても `> ` が付くため誤検知しないようにするため。login での除外はしない — PR作成者＝スキル実行者本人のことが多く、本人が手で書いた追加依頼まで落としてしまうため
+- **返信先**: スレッドが無いため resolve できない。本文由来の指摘と同様、`gh pr comment` で対応完了を報告
+
 ## GraphQL API 実装
 
-### 未解決コメント取得
-**重要**: レビュー本文（`reviews.nodes[].body`）と未解決スレッド（`reviewThreads`）を**両方**出力する。行コメントだけ取得すると本文の指摘（優先度付きリスト等）を見落とす。
+### 指摘・議論経緯の取得
+**重要**: レビュー本文（`reviews.nodes[].body`）・未解決スレッド（`reviewThreads`）・通常コメント（`comments`）を**すべて**出力する。3つは GitHub 上で別管理のため、一部だけ取得すると本文の指摘（優先度付きリスト等）や通常コメント上の議論経緯・追加依頼を見落とす。
 
 ```bash
-# GraphQL APIで取得後、jqでレビュー本文と未解決スレッドを両方抽出
+# GraphQL APIで取得後、jqでレビュー本文・未解決スレッド・通常コメントをすべて抽出
 gh api graphql --field query='
 {
   repository(owner: "OWNER", name: "REPO") {
     pullRequest(number: PR_NUMBER) {
+      comments(last: 50) {
+        nodes { body author { login } createdAt url }
+      }
       reviews(first: 50) {
         nodes { author { login } state body submittedAt }
       }
@@ -107,12 +119,13 @@ gh api graphql --field query='
     }
   }
 }' --jq '{
+  comments: .data.repository.pullRequest.comments.nodes,
   reviews: [.data.repository.pullRequest.reviews.nodes[] | select(.body != null and .body != "")],
   threads: [.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)]
 }'
 ```
 
-出力の `reviews[]` に含まれる `body` を必ず読み、本文内の指摘（総評・優先度付きリスト・サマリー）を行コメントと同じ粒度で列挙する。
+出力の `reviews[]` に含まれる `body` を必ず読み、本文内の指摘（総評・優先度付きリスト・サマリー）を行コメントと同じ粒度で列挙する。`comments[]` は議論経緯の把握に用い、レビュアーによる明示的な修正依頼のみ指摘として列挙する（「通常コメントの扱い」参照）。`comments` に `last: 50` を使うのは、タイムラインコメントが作成日時昇順で返るため — `first` だと CI 通知等で50件を超えた際に、未対応の修正依頼が偏在する最新側を取りこぼす。
 
 ### スレッドに返信
 ```bash
@@ -165,6 +178,14 @@ mutation {
 https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシュ>
 ```
 
+PR本体へのコメント（`gh pr comment`）として投稿する場合は、本文の1行目に `<!-- review-response -->` を付ける（再実行時に自分の投稿を指摘として拾わないための識別マーカー。「通常コメントの扱い」参照）：
+```
+<!-- review-response -->
+<修正内容>を対応しました。
+https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシュ>
+```
+スレッドへの返信にはマーカー不要。
+
 ### 品質確認
 修正後は必ずプロジェクト標準の品質チェックを実行：
 - Node.js: `npm run lint`, `npm run typecheck`
@@ -172,7 +193,7 @@ https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシ
 - Python: `ruff check`, `mypy`
 
 ## 注意事項
-- **レビュー本文を見落とさない**: 行コメント（`reviewThreads`）だけを対象にすると、本文に書かれた優先度付きリスト・総評・サマリー指摘を取りこぼす。必ず `reviews.nodes[].body` も読み、本文と行コメントの両方を突き合わせてから対応判断する
+- **レビュー本文・通常コメントを見落とさない**: 行コメント（`reviewThreads`）だけを対象にすると、本文に書かれた優先度付きリスト・総評や、通常コメント上の議論経緯・追加依頼を取りこぼす。必ず `reviews.nodes[].body` と `comments` も読み、3種類を突き合わせてから対応判断する
 - **レビュースレッド返信時**: `pullRequestReviewThreadId`のみ使用（`pullRequestReviewId`は不要）
 - **GraphQLレート制限**: 1時間あたり5000ポイント
 - **既存PRの自動更新**: プッシュでPRは自動更新される
