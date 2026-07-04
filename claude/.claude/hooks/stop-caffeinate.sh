@@ -8,24 +8,25 @@
 #       通常状態に戻す。
 #
 # 仕様:
-#   - 入力: stdin に hook JSON（session_id / hook_event_name を使用）
-#   - Remote Control 接続中（CLAUDE_CODE_BRIDGE_SESSION_ID あり）は SessionEnd
-#     以外で停止しない。ホストがスリープすると約10分でリモートセッションが
-#     タイムアウトするため、スマホからの返信待ちの間も抑止を維持する必要がある
+#   - 入力: stdin に hook JSON（session_id を使用）
+#   - Remote Control 接続中（CLAUDE_CODE_BRIDGE_SESSION_ID あり）は停止しない。
+#     ホストがスリープすると約10分でリモートセッションがタイムアウトするため、
+#     スマホからの返信待ちの間も抑止を維持する必要がある
+#   - --force はこの例外を無視して無条件に停止する（settings.json の SessionEnd
+#     登録で指定。セッション終了時の残留 caffeinate を防ぐ）
 #   - PID file 無し / プロセス死亡時も safe（常に exit 0、フックでブロックしない）
 #   - kill 失敗時の残骸を防ぐため PID file は kill 前に削除する
 
 set -euo pipefail
 
 input=$(cat)
-session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' | tr -cd 'A-Za-z0-9-')
-: "${session_id:=unknown}"
 
-hook_event=$(printf '%s' "$input" | jq -r '.hook_event_name // empty')
-
-if [ "$hook_event" != "SessionEnd" ] && [ -n "${CLAUDE_CODE_BRIDGE_SESSION_ID:-}" ]; then
+if [ "${1:-}" != "--force" ] && [ -n "${CLAUDE_CODE_BRIDGE_SESSION_ID:-}" ]; then
   exit 0
 fi
+
+session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' | tr -cd 'A-Za-z0-9-')
+: "${session_id:=unknown}"
 
 pid_file="/tmp/claude-caffeinate-${session_id}.pid"
 

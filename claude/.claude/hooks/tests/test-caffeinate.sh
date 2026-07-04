@@ -62,16 +62,23 @@ call_start() {
 
 call_stop() {
   local sid=$1
-  printf '{"session_id":"%s"}' "$sid" | "$STOP_HOOK"
-}
-
-call_stop_event() {
-  local sid=$1 event=$2
-  printf '{"session_id":"%s","hook_event_name":"%s"}' "$sid" "$event" | "$STOP_HOOK"
+  shift
+  printf '{"session_id":"%s"}' "$sid" | "$STOP_HOOK" "$@"
 }
 
 pid_file_for() {
   printf '/tmp/claude-caffeinate-%s.pid' "$1"
+}
+
+# 固定 sleep での消滅待ちはテスト実行時間を無駄に延ばすため、ポーリングで待つ
+# （SIGTERM の消滅は通常数 ms。上限 200ms 待っても生きていれば失敗を返す）
+wait_dead() {
+  local pid=$1 i
+  for i in $(seq 1 20); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.01
+  done
+  return 1
 }
 
 # Case 1: start with no PID file → spawns process & writes file
@@ -111,8 +118,7 @@ call_start "$SID"
 PID=$(cat "$PF")
 call_stop "$SID"
 assert 'case4: PID file removed'        "[ ! -f '$PF' ]"
-sleep 0.2
-assert 'case4: process killed'          "! kill -0 $PID 2>/dev/null"
+assert 'case4: process killed'          "wait_dead $PID"
 
 # Case 5: stop with no PID file → exit 0
 SID="test-case5-$$"
@@ -144,38 +150,25 @@ assert 'case7: unknown PID file created' "[ -f '$PF' ]"
 printf '{}' | "$STOP_HOOK"
 assert 'case7: unknown PID file removed' "[ ! -f '$PF' ]"
 
-# Case 8: Stop event while Remote Control connected → skip (process stays alive)
+# Case 8: stop while Remote Control connected → skip (process stays alive)
 SID="test-case8-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
 call_start "$SID"
 PID=$(cat "$PF")
-CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop_event "$SID" "Stop"
+CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop "$SID"
 assert 'case8: PID file kept'           "[ -f '$PF' ]"
 assert 'case8: process still alive'     "kill -0 $PID 2>/dev/null"
-call_stop "$SID"
 
-# Case 9: SessionEnd while Remote Control connected → stops unconditionally
+# Case 9: stop --force (SessionEnd) while Remote Control connected → stops unconditionally
 SID="test-case9-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
 call_start "$SID"
 PID=$(cat "$PF")
-CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop_event "$SID" "SessionEnd"
+CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop "$SID" --force
 assert 'case9: PID file removed'        "[ ! -f '$PF' ]"
-sleep 0.2
-assert 'case9: process killed'          "! kill -0 $PID 2>/dev/null"
-
-# Case 10: Stop event without Remote Control connection → stops as before
-SID="test-case10-$$"
-PF=$(pid_file_for "$SID")
-rm -f "$PF"
-call_start "$SID"
-PID=$(cat "$PF")
-call_stop_event "$SID" "Stop"
-assert 'case10: PID file removed'       "[ ! -f '$PF' ]"
-sleep 0.2
-assert 'case10: process killed'         "! kill -0 $PID 2>/dev/null"
+assert 'case9: process killed'          "wait_dead $PID"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -gt 0 ] && exit 1

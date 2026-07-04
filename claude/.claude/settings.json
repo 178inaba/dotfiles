@@ -111,7 +111,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/stop-caffeinate.sh"
+            "command": "~/.claude/hooks/stop-caffeinate.sh --force"
           }
         ]
       }
