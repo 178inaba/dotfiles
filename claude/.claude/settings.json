@@ -152,5 +152,6 @@
   "feedbackSurveyRate": 0,
   "tui": "fullscreen",
   "preferredNotifChannel": "iterm2",
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "agentPushNotifEnabled": true
 }
