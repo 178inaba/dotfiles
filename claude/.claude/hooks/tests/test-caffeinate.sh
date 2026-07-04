@@ -30,6 +30,10 @@ EOF
 chmod +x "$STUB"
 export CAFFEINATE_BIN="$STUB"
 
+# Remote Control 接続中の環境でテストを実行しても既存ケースが影響を受けないよう、
+# 継承された可能性のある値を落とす（スキップ判定のケースでは明示的に付与する）
+unset CLAUDE_CODE_BRIDGE_SESSION_ID
+
 cleanup() {
   pkill -f "$STUB" 2>/dev/null || true
   rm -f "$STUB"
@@ -59,6 +63,11 @@ call_start() {
 call_stop() {
   local sid=$1
   printf '{"session_id":"%s"}' "$sid" | "$STOP_HOOK"
+}
+
+call_stop_event() {
+  local sid=$1 event=$2
+  printf '{"session_id":"%s","hook_event_name":"%s"}' "$sid" "$event" | "$STOP_HOOK"
 }
 
 pid_file_for() {
@@ -134,6 +143,39 @@ printf '{}' | "$START_HOOK"
 assert 'case7: unknown PID file created' "[ -f '$PF' ]"
 printf '{}' | "$STOP_HOOK"
 assert 'case7: unknown PID file removed' "[ ! -f '$PF' ]"
+
+# Case 8: Stop event while Remote Control connected → skip (process stays alive)
+SID="test-case8-$$"
+PF=$(pid_file_for "$SID")
+rm -f "$PF"
+call_start "$SID"
+PID=$(cat "$PF")
+CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop_event "$SID" "Stop"
+assert 'case8: PID file kept'           "[ -f '$PF' ]"
+assert 'case8: process still alive'     "kill -0 $PID 2>/dev/null"
+call_stop "$SID"
+
+# Case 9: SessionEnd while Remote Control connected → stops unconditionally
+SID="test-case9-$$"
+PF=$(pid_file_for "$SID")
+rm -f "$PF"
+call_start "$SID"
+PID=$(cat "$PF")
+CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop_event "$SID" "SessionEnd"
+assert 'case9: PID file removed'        "[ ! -f '$PF' ]"
+sleep 0.2
+assert 'case9: process killed'          "! kill -0 $PID 2>/dev/null"
+
+# Case 10: Stop event without Remote Control connection → stops as before
+SID="test-case10-$$"
+PF=$(pid_file_for "$SID")
+rm -f "$PF"
+call_start "$SID"
+PID=$(cat "$PF")
+call_stop_event "$SID" "Stop"
+assert 'case10: PID file removed'       "[ ! -f '$PF' ]"
+sleep 0.2
+assert 'case10: process killed'         "! kill -0 $PID 2>/dev/null"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -gt 0 ] && exit 1
