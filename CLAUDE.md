@@ -103,7 +103,7 @@ zsh -l
 
 ### Hooks
 - `gh-write-guard.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ。また複数行の本文を `--body`/`-b` で渡すことをブロックして `--body-file` へ誘導し、引用符レイヤの重なりによる誤エスケープで本文にリテラルの `\` が残る事故を防ぐ
-- `start-caffeinate.sh` (UserPromptSubmit, PreToolUse) / `stop-caffeinate.sh` (Stop, Notification, SessionEnd) — Claude が作業中の間だけ macOS のスリープを抑止する。`/tmp/claude-caffeinate-${session_id}.pid` で PID 管理し、`nohup caffeinate -di` をデタッチ起動。承認後・ExitPlanMode 承認後の再開は次の `PreToolUse` で再起動される。例外として Remote Control 接続中（`CLAUDE_CODE_BRIDGE_SESSION_ID` あり、Claude Code v2.1.199+）は、ホストのスリープで約10分後にリモートセッションがタイムアウトするため、SessionEnd 以外では停止せず返信待ちの間も抑止を維持する
+- `start-caffeinate.sh` (UserPromptSubmit, PreToolUse) / `stop-caffeinate.sh` (Stop, Notification, SessionEnd) — Claude が作業中の間だけ macOS のスリープを抑止する。`/tmp/claude-caffeinate-${session_id}.pid` で PID 管理し、`nohup caffeinate -di` をデタッチ起動。承認後・ExitPlanMode 承認後の再開は次の `PreToolUse` で再起動される。例外として Remote Control 接続中（`CLAUDE_CODE_BRIDGE_SESSION_ID` あり、Claude Code v2.1.199+）は、ホストのスリープで約10分後にリモートセッションがタイムアウトするため、SessionEnd 以外では停止せず返信待ちの間も抑止を維持する。caffeinate は Claude 本体プロセスを `-w` で watch して起動するため、クラッシュ・SIGKILL 等フックを経由しない終了でも残留しない
 - **編集時は必ずテストを走らせる**:
   - `bash claude/.claude/hooks/tests/test-gh-write-guard.sh`
   - `bash claude/.claude/hooks/tests/test-caffeinate.sh`（`CAFFEINATE_BIN` でスタブに差し替え、実機 caffeinate を起動しない）

@@ -25,19 +25,23 @@ done
 STUB=$(mktemp -t caffeinate-stub.XXXXXX)
 cat >"$STUB" <<'EOF'
 #!/bin/bash
+if [ -n "${STUB_ARGS_FILE:-}" ]; then
+  printf '%s\n' "$*" > "$STUB_ARGS_FILE"
+fi
 exec sleep 9999
 EOF
 chmod +x "$STUB"
 export CAFFEINATE_BIN="$STUB"
 
-# Remote Control 接続中の環境でテストを実行しても既存ケースが影響を受けないよう、
-# 継承された可能性のある値を落とす（スキップ判定のケースでは明示的に付与する）
-unset CLAUDE_CODE_BRIDGE_SESSION_ID
+# 実行環境から継承された値が既存ケースの分岐を変えないよう落とす
+# （該当ケースでは明示的に付与する）
+unset CLAUDE_CODE_BRIDGE_SESSION_ID CAFFEINATE_WATCH_PID
 
 cleanup() {
   pkill -f "$STUB" 2>/dev/null || true
   rm -f "$STUB"
   rm -f /tmp/claude-caffeinate-test-*.pid /tmp/claude-caffeinate-unknown.pid
+  rm -f /tmp/claude-caffeinate-test-args-*
 }
 trap cleanup EXIT
 
@@ -76,6 +80,16 @@ wait_dead() {
   local pid=$1 i
   for i in $(seq 1 20); do
     kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.01
+  done
+  return 1
+}
+
+# スタブは nohup でデタッチ起動されるため、引数記録の書き込み完了をポーリングで待つ
+wait_file() {
+  local f=$1 i
+  for i in $(seq 1 20); do
+    [ -s "$f" ] && return 0
     sleep 0.01
   done
   return 1
@@ -169,6 +183,24 @@ PID=$(cat "$PF")
 CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop "$SID" --force
 assert 'case9: PID file removed'        "[ ! -f '$PF' ]"
 assert 'case9: process killed'          "wait_dead $PID"
+
+# Case 10: watch pid resolved → caffeinate lifetime tied via -w
+SID="test-case10-$$"
+PF=$(pid_file_for "$SID")
+rm -f "$PF"
+ARGS_FILE="/tmp/claude-caffeinate-test-args-watch-$$"
+STUB_ARGS_FILE="$ARGS_FILE" CAFFEINATE_WATCH_PID=$$ call_start "$SID"
+assert 'case10: args recorded'          "wait_file '$ARGS_FILE'"
+assert 'case10: -w with watch pid'      "grep -qx -- '-di -w $$' '$ARGS_FILE'"
+
+# Case 11: parent is not the claude process (bash in tests) → plain -di without -w
+SID="test-case11-$$"
+PF=$(pid_file_for "$SID")
+rm -f "$PF"
+ARGS_FILE="/tmp/claude-caffeinate-test-args-plain-$$"
+STUB_ARGS_FILE="$ARGS_FILE" call_start "$SID"
+assert 'case11: args recorded'          "wait_file '$ARGS_FILE'"
+assert 'case11: no -w (plain -di)'      "grep -qx -- '-di' '$ARGS_FILE'"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -gt 0 ] && exit 1

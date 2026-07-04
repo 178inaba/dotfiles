@@ -10,7 +10,11 @@
 #   - 入力: stdin に hook JSON（session_id を使用）
 #   - PID file: /tmp/claude-caffeinate-${session_id}.pid
 #   - 既存プロセスが生存していれば no-op、stale なら respawn
-#   - CAFFEINATE_BIN 環境変数で実行バイナリを差し替え可（テスト用）
+#   - 親プロセスが Claude 本体のとき caffeinate -w で寿命を連動させ、クラッシュ・
+#     SIGKILL 等フックを経由しない終了でも caffeinate が残留しないようにする。
+#     親を Claude 本体と確認できない場合に -w を使うと、短命な親の終了と同時に
+#     caffeinate が消えて抑止自体が壊れるため、その場合は -w なしで起動する
+#   - CAFFEINATE_BIN / CAFFEINATE_WATCH_PID 環境変数で差し替え可（テスト用）
 #   - 常に exit 0（フックでブロックしない）
 
 set -euo pipefail
@@ -29,7 +33,18 @@ if [ -f "$pid_file" ]; then
   fi
 fi
 
-nohup "$caffeinate_bin" -di </dev/null >/dev/null 2>&1 &
+watch_pid="${CAFFEINATE_WATCH_PID:-}"
+if [ -z "$watch_pid" ]; then
+  case "$(ps -o comm= -p "$PPID" 2>/dev/null | tr -d ' ' || true)" in
+    claude|node) watch_pid=$PPID ;;
+  esac
+fi
+
+if [ -n "$watch_pid" ]; then
+  nohup "$caffeinate_bin" -di -w "$watch_pid" </dev/null >/dev/null 2>&1 &
+else
+  nohup "$caffeinate_bin" -di </dev/null >/dev/null 2>&1 &
+fi
 echo $! > "$pid_file"
 
 exit 0
