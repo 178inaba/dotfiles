@@ -70,7 +70,7 @@
 実装計画を立てる際（plan モード含む）、計画起案の**前**に以下を実施し、制約を思考の前提として組み込む:
 - プロジェクトルートの `CLAUDE.md` を読む（`@import` 形式リンクは自動展開されるが、`[text](path)` 形式リンクは自動読込されない場合がある）
 - `CLAUDE.md` からリンクされている `.md` 文書を読む（標準Markdownリンク・`@import` 両形式）
-- 計画完成後の準拠検証・修正が必要な場合は @~/.claude/skills/check-plan-compliance/SKILL.md を使用
+- 計画完成後の準拠検証・修正が必要な場合は /check-plan-compliance スキルを使用
 
 事後チェックではなく事前読込を原則とする。事後の準拠検証に依存しすぎると計画起案自体の質が下がるため。
 
@@ -88,8 +88,8 @@
 
 ## Git操作
 
-- コミット: @~/.claude/skills/git-commit/SKILL.md に従う
-- PR作成: @~/.claude/skills/git-pr/SKILL.md に従う
+- コミット: /git-commit スキルに従う
+- PR作成: /git-pr スキルに従う
 
 ## コンテキスト管理
 
