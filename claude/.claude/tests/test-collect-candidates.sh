@@ -106,6 +106,13 @@ git push -q -u origin closedmerged 2>/dev/null
 git switch -q main
 printf '[{"number":8,"state":"CLOSED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/closedmerged.json"
 
+# reopened: CLOSED 未マージ PR と OPEN PR が併存 → --include-closed でも in-flight として保持
+git switch -qc reopened
+commit_file r.txt r
+git push -q -u origin reopened 2>/dev/null
+git switch -q main
+printf '[{"number":30,"state":"OPEN","mergedAt":null},{"number":29,"state":"CLOSED","mergedAt":null}]\n' > "$TMP/prdata/reopened.json"
+
 # wt-merged: worktree でチェックアウト中（--merged 出力で + プレフィックス）かつ main にマージ済み
 git worktree add -q "$TMP/wt-merged" -b wt-merged main
 (cd "$TMP/wt-merged" && commit_file g.txt g)
@@ -116,6 +123,11 @@ git push -q origin main 2>/dev/null
 git worktree add -q "$TMP/wt-dirty" -b wt-dirty main
 printf 'dirty\n' > "$TMP/wt-dirty/dirty.txt"
 printf '[{"number":125,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/wt-dirty.json"
+
+# wt-noupstream: PR は MERGED だが upstream 未設定 & 自前 commit あり → skip（branch 側と同じ保険）
+git worktree add -q "$TMP/wt-noupstream" -b wt-noupstream main
+(cd "$TMP/wt-noupstream" && commit_file h.txt h)
+printf '[{"number":126,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/wt-noupstream.json"
 
 # wt-detached: detached HEAD の worktree → detached として別枠報告
 git worktree add -q --detach "$TMP/wt-detached" main
@@ -168,6 +180,8 @@ assert 'worktree candidate via + prefix branch' "$out_normal" \
   'any(.candidates.worktrees[]; .branch == "wt-merged" and .verdict == "merged_no_pr")'
 assert 'dirty worktree skipped with display detail' "$out_normal" \
   'any(.skipped[]; .type == "worktree" and .branch == "wt-dirty" and .reason == "uncommitted_changes" and .detail == "未コミット変更あり")'
+assert 'no-upstream worktree with own commits skipped' "$out_normal" \
+  'any(.skipped[]; .type == "worktree" and .branch == "wt-noupstream" and .reason == "no_upstream_with_commits")'
 assert 'detached worktree reported separately' "$out_normal" \
   'any(.detached[]; endswith("wt-detached"))'
 assert 'closed PR excluded without flag' "$out_normal" \
@@ -178,6 +192,8 @@ assert 'closed-unmerged PR included with flag' "$out_closed" \
   'any(.candidates.branches[]; .branch == "closedpr" and .verdict == "pr_closed" and (.detail | contains("7")))'
 assert 'closed-but-merged (mergedAt != null) still excluded' "$out_closed" \
   '[.candidates.branches[].branch] | index("closedmerged") | not'
+assert 'open PR coexisting with closed PR kept in-flight' "$out_closed" \
+  '([.candidates.branches[].branch] | index("reopened") | not) and ([.skipped[].target] | index("reopened") | not)'
 
 # degraded（gh 不通）
 assert 'degraded flag set on gh failure' "$out_degraded" \

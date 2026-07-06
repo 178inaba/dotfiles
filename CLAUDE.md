@@ -153,3 +153,4 @@ zsh -l
 - **コミット規約**: 小さな変更は一括、大きな変更は論理的に分割
 - **ファイル形式**: POSIX標準準拠（ファイル末尾に改行必須）
 - **Stow管理ファイルの編集**: `~/.claude/`や`~/.gitconfig`等のホームディレクトリのファイルはStowによるシンボリックリンクのため、**必ずリポジトリ内のソース（`claude/.claude/`、`git/.gitconfig`等）を編集すること**。ホーム側を直接編集しない
+- **Stow の tree folding 注意**: `~/.claude` は実ディレクトリで直下要素が個別 symlink のため、`claude/.claude/` 直下に新しいトップレベルディレクトリ（`scripts/` 等）を追加しても `stow -R claude`（restow）を実行するまでホーム側に現れない。参照時に "No such file or directory" で silent に失敗するため、追加時は必ず restow する

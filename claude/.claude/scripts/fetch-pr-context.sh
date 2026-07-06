@@ -29,19 +29,19 @@ pr_number=${1:-}
 if [ -n "$pr_number" ]; then
   case "$pr_number" in
     *[!0-9]*)
-      printf 'invalid pr number: %s\n' "$pr_number" >&2
+      printf 'PR 番号が不正です: %s\n' "$pr_number" >&2
       exit 1
       ;;
   esac
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq is required\n' >&2
+  printf 'jq が必要です\n' >&2
   exit 1
 fi
 
 if ! repo=$("$GH_BIN" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || [ -z "$repo" ]; then
-  printf 'failed to resolve repository (gh repo view)\n' >&2
+  printf 'リポジトリを特定できませんでした（gh repo view 失敗）\n' >&2
   exit 1
 fi
 owner=${repo%%/*}
@@ -57,13 +57,13 @@ if [ -z "$pr_number" ]; then
   pr_number=$(printf '%s' "$pr_meta" | jq -r '.number')
 else
   if ! pr_meta=$("$GH_BIN" pr view "$pr_number" --json "$pr_fields" -R "$repo"); then
-    printf 'failed to fetch PR #%s\n' "$pr_number" >&2
+    printf 'PR #%s の取得に失敗しました\n' "$pr_number" >&2
     exit 1
   fi
 fi
 
-# comments は作成日時昇順で返るため last:50 で最新側を取る
-# （first だと CI 通知等で 50 件を超えた際に未対応の修正依頼を取りこぼす）
+# comments / reviews は作成（提出）日時昇順で返るため last:50 で最新側を取る
+# （first だと CI 通知・ボットレビュー等で 50 件を超えた際に未対応の修正依頼を取りこぼす）
 if ! gql=$("$GH_BIN" api graphql -f query='
 query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
@@ -72,7 +72,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       comments(last: 50) {
         nodes { author { login } body createdAt url }
       }
-      reviews(first: 50) {
+      reviews(last: 50) {
         nodes { author { login } state body url submittedAt }
       }
       reviewThreads(first: 100) {
@@ -91,7 +91,7 @@ query($owner: String!, $name: String!, $number: Int!) {
     }
   }
 }' -F owner="$owner" -F name="$name" -F number="$pr_number"); then
-  printf 'failed to fetch PR comments/reviews/threads (GraphQL)\n' >&2
+  printf 'PR のコメント・レビュー・スレッド取得（GraphQL）に失敗しました\n' >&2
   exit 1
 fi
 

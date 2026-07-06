@@ -84,10 +84,10 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 セクション1でPRからベースブランチを取得できた場合、PRコンテキストを一括取得する:
 
 ```bash
-bash ~/.claude/scripts/fetch-pr-context.sh <pr-number>
+bash ~/.claude/scripts/fetch-pr-context.sh [<pr-number>]
 ```
 
-PRメタ情報・通常コメント・レビュー本文・レビュースレッド・関連Issue検出・モード判定材料を1回で取得し、正規化した JSON を stdout に返す（挙動の担保: `claude/.claude/tests/test-fetch-pr-context.sh`）。PRが存在しない場合（スクリプト非ゼロ終了）は本セクションをスキップ。レビュー後、PR説明と実際の変更の整合性を評価する。
+PRメタ情報・通常コメント・レビュー本文・レビュースレッド・関連Issue検出・モード判定材料を1回で取得し、正規化した JSON を stdout に返す（挙動の担保: `claude/.claude/tests/test-fetch-pr-context.sh`）。PRが存在しない場合（セクション1で判明）は本セクション全体をスキップ。**PRが存在するのにスクリプトが非ゼロ終了した場合は実行環境の問題**（`~/.claude/scripts` 未リンク・GraphQL 失敗等）のため、stderr を提示して停止する — 「PRなし」と混同してスキップすると、既存レビュー文脈なしの重複指摘や、セクション3のモード判定が `is_own_pr` 不在のまま自動対応ONへ倒れる事故につながる。レビュー後、PR説明と実際の変更の整合性を評価する。
 
 #### 出力 JSON の契約（本スキルで使用するフィールド）
 

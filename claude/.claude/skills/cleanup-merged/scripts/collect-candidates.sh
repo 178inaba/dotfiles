@@ -18,18 +18,18 @@ for arg in "$@"; do
   case "$arg" in
     --include-closed) include_closed=true ;;
     *)
-      printf 'unknown argument: %s\n' "$arg" >&2
+      printf '不明な引数です: %s\n' "$arg" >&2
       exit 1
       ;;
   esac
 done
 
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  printf 'not a git repository\n' >&2
+  printf 'git リポジトリ内で実行してください\n' >&2
   exit 1
 fi
 if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq is required\n' >&2
+  printf 'jq が必要です\n' >&2
   exit 1
 fi
 
@@ -86,10 +86,14 @@ judge_branch() {
   detail=""
   if [ "$degraded" = false ]; then
     if prs=$("$GH_BIN" pr list --head "$branch" --state all --json number,state,mergedAt --limit 20 -R "$repo" 2>/dev/null); then
-      # 1パスで分類: "merged <番号>" / "no_pr" / "has_pr <未マージCLOSED番号|空>"
-      # （gh の CLOSED には MERGED も含まれるため mergedAt == null で未マージのみに絞る）
+      # 1パスで分類: "open" / "merged <番号>" / "no_pr" / "has_pr <未マージCLOSED番号|空>"
+      # - OPEN の PR がある branch は他の判定より優先して in-flight 扱い
+      #   （MERGED/CLOSED な旧 PR が併存していても、進行中の作業を削除候補にしない）
+      # - gh の CLOSED には MERGED も含まれるため mergedAt == null で未マージのみに絞る
       cls=$(printf '%s' "$prs" | jq -r '
-        if any(.[]; .state == "MERGED") then
+        if any(.[]; .state == "OPEN") then
+          "open"
+        elif any(.[]; .state == "MERGED") then
           "merged \([.[] | select(.state == "MERGED")][0].number)"
         elif length == 0 then
           "no_pr"
@@ -135,6 +139,10 @@ worktree_skip_reason() {
     printf 'uncommitted_changes'
   elif [ -n "$(git -C "$path" log @{u}..HEAD --oneline 2>/dev/null)" ]; then
     printf 'unpushed_commits'
+  # upstream 未設定 & 自前 commit あり: branch 側と同じ保険（@{u} が無いと上の判定が silent に素通りするため）
+  elif ! git -C "$path" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 &&
+    [ -n "$(git -C "$path" log "$default_branch..HEAD" --oneline 2>/dev/null)" ]; then
+    printf 'no_upstream_with_commits'
   fi
 }
 
