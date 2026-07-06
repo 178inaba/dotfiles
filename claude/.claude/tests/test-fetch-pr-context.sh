@@ -26,17 +26,20 @@ cat > "$TMP/stub/gh" <<'EOF'
 case "$1" in
   repo) printf 'owner/repo\n' ;;
   pr)
-    # $3 が --json ならカレント branch の PR 推論、番号なら meta 取得
-    if [ "$3" = "--json" ]; then
-      if [ "${GH_STUB_NO_PR:-0}" = "1" ]; then exit 1; fi
-      printf '5\n'
-    else
-      cat "$GH_STUB_DATA/pr-meta.json"
-    fi
+    # 引数に PR 番号（純数値）があれば番号指定の meta 取得、無ければカレント branch 推論。
+    # 位置ではなく内容で判別する（スクリプト側の引数順変更でテストが壊れないように）
+    has_number=0
+    for a in "$@"; do
+      case "$a" in
+        '' | *[!0-9]*) ;;
+        *) has_number=1 ;;
+      esac
+    done
+    if [ "$has_number" = "0" ] && [ "${GH_STUB_NO_PR:-0}" = "1" ]; then exit 1; fi
+    cat "$GH_STUB_DATA/pr-meta.json"
     ;;
   api)
     case "$2" in
-      user) printf 'testuser\n' ;;
       graphql) cat "$GH_STUB_DATA/graphql.json" ;;
       *) exit 1 ;;
     esac
@@ -69,6 +72,7 @@ EOF
 cat > "$TMP/data/graphql.json" <<'EOF'
 {
   "data": {
+    "viewer": {"login": "testuser"},
     "repository": {
       "pullRequest": {
         "comments": {

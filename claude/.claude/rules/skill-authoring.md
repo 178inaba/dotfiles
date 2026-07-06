@@ -96,12 +96,13 @@ disable-model-invocation: true  # 副作用がある場合はtrue
 - 警告・縮退はエラーにせず JSON のフィールドで返し（例: `degraded`, `warnings`）、フォールバック判断は AI に委ねる
 - 前提不成立（リポジトリ外・依存欠如・対象不在）は非ゼロ exit + stderr メッセージ
 - SKILL.md には詳細ロジックではなく「実行コマンド + 出力 JSON の契約（フィールドの意味）」を書く
+- **スキル横断の共有スクリプト**は、契約の正をスクリプトのヘッダーコメントに置き、各 SKILL.md には自スキルが使うフィールドの解釈のみ書く（複数 SKILL.md への契約複製はドリフトの元）
 
 ### テスト必須
 - 配置: `claude/.claude/tests/test-<name>.sh`（hooks 同様、失敗モードが silent のためリグレッションテスト必須）
 - 外部コマンドは env 差し替えでスタブ化（例: `GH_BIN`。hooks の `CAFFEINATE_BIN` パターン踏襲）
 - git 操作は `mktemp -d` の使い捨てリポジトリで完結させ、実 gh・実リポジトリに触れない
-- 既存例: `collect-candidates.sh` / `fetch-pr-context.sh` とその各テスト
+- 既存例の一覧はプロジェクト CLAUDE.md の「スキルスクリプト」を参照（列挙の正はそちらに一本化）
 
 ## 良い例・悪い例
 

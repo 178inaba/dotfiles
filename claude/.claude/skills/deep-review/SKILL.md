@@ -94,7 +94,7 @@ PRメタ情報・通常コメント・レビュー本文・レビュースレッ
 - `pr`: `number` / `title` / `body` / `url` / `state` / `author` / `head_ref` / `base_ref` / `head_oid`
 - `repo`: `owner/name` 形式（レビュー投稿 API で使用）
 - `current_user` / `is_own_pr`: セクション3のモード判定に使用
-- `linked_issues[]`: PR本文の GitHub closing keyword（`Close`/`Closes`/`Closed`/`Fix`/`Fixes`/`Fixed`/`Resolve`/`Resolves`/`Resolved`。同リポ `#N` / クロスリポ `OWNER/REPO#N`、大文字小文字・コロン付き許容）から検出した関連 Issue。要素は `{repo, number}` で `repo: null` は同リポ。URL 形式（`https://github.com/owner/repo/issues/N`）とキーワードなしの素の `#N` は対象外（GitHub の自動 close 対象外で、本文での参照は手動リンク扱いのため、本機能でも揃える）
+- `linked_issues[]`: PR本文の GitHub closing keyword（`Closes #N` / `Fixes OWNER/REPO#N` 等）から検出した関連 Issue。要素は `{repo, number}` で `repo: null` は同リポ。URL 形式・キーワードなしの素の `#N` は対象外（検出仕様の正はスクリプトのヘッダーコメントとテストを参照）
 - `comments[]`: PR本体への通常コメント。`is_skill_comment: true` は /review-response スキルの自動投稿
 - `reviews[]`: レビュー本文
 - `review_threads[]`: 行コメントスレッド（`is_resolved` / `is_outdated` / `path` / `line` / `resolved_by` と `comments[]` 付き）

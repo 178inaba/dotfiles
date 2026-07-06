@@ -60,7 +60,6 @@ fi
 # awk '{print $NF}' で先頭マーカー（* カレント / + 他 worktree checked out）を除去
 merged_branches=$(git branch --merged "$merged_base" 2>/dev/null | awk '{print $NF}')
 
-repo=""
 if ! repo=$("$GH_BIN" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || [ -z "$repo" ]; then
   degraded=true
   add_warning "gh が利用できないためオフライン判定（PR 情報なし）"
@@ -73,46 +72,55 @@ is_protected() {
   [ "$1" = "$default_branch" ]
 }
 
-is_merged_local() {
-  printf '%s\n' "$merged_branches" | grep -Fxq "$1"
+# 改行区切りリスト $1 に行 $2 が含まれるか（branch 名に glob 特殊文字は使えないため安全）
+contains_line() {
+  [[ $'\n'"$1"$'\n' == *$'\n'"$2"$'\n'* ]]
 }
 
 # マージ判定。verdict / detail を設定する（両方空 = in-flight として候補から除外）
 verdict=""
 detail=""
 judge_branch() {
-  local branch=$1 prs num
+  local branch=$1 prs cls num
   verdict=""
   detail=""
   if [ "$degraded" = false ]; then
     if prs=$("$GH_BIN" pr list --head "$branch" --state all --json number,state,mergedAt --limit 20 -R "$repo" 2>/dev/null); then
-      num=$(printf '%s' "$prs" | jq -r '[.[] | select(.state == "MERGED")] | first | .number // empty' 2>/dev/null)
-      if [ -n "$num" ]; then
-        verdict="pr_merged"
-        detail="PR #$num MERGED"
-        return
-      fi
-      if [ "$(printf '%s' "$prs" | jq 'length' 2>/dev/null || printf 0)" -eq 0 ]; then
-        if is_merged_local "$branch"; then
-          verdict="merged_no_pr"
-          detail="$default_branch にマージ済み（PRなし）"
-        fi
-        return
-      fi
-      if [ "$include_closed" = true ]; then
-        # gh の CLOSED には MERGED も含まれるため mergedAt == null で未マージのみに絞る
-        num=$(printf '%s' "$prs" | jq -r '[.[] | select(.state == "CLOSED" and .mergedAt == null)] | first | .number // empty' 2>/dev/null)
-        if [ -n "$num" ]; then
-          verdict="pr_closed"
-          detail="PR #$num CLOSED（未マージ）"
-        fi
-      fi
+      # 1パスで分類: "merged <番号>" / "no_pr" / "has_pr <未マージCLOSED番号|空>"
+      # （gh の CLOSED には MERGED も含まれるため mergedAt == null で未マージのみに絞る）
+      cls=$(printf '%s' "$prs" | jq -r '
+        if any(.[]; .state == "MERGED") then
+          "merged \([.[] | select(.state == "MERGED")][0].number)"
+        elif length == 0 then
+          "no_pr"
+        else
+          "has_pr \([.[] | select(.state == "CLOSED" and .mergedAt == null)][0].number // "")"
+        end' 2>/dev/null)
+      case "$cls" in
+        merged\ *)
+          verdict="pr_merged"
+          detail="PR #${cls#merged } MERGED"
+          ;;
+        no_pr)
+          if contains_line "$merged_branches" "$branch"; then
+            verdict="merged_no_pr"
+            detail="$default_branch にマージ済み（PRなし）"
+          fi
+          ;;
+        has_pr\ *)
+          num=${cls#has_pr }
+          if [ "$include_closed" = true ] && [ -n "$num" ]; then
+            verdict="pr_closed"
+            detail="PR #$num CLOSED（未マージ）"
+          fi
+          ;;
+      esac
       return
     fi
     degraded=true
     add_warning "gh pr list が失敗したためオフライン判定に切替（branch: $branch 以降）"
   fi
-  if is_merged_local "$branch"; then
+  if contains_line "$merged_branches" "$branch"; then
     verdict="merged_no_pr"
     detail="$default_branch にマージ済み（PRなし・オフライン判定）"
   fi
@@ -143,6 +151,16 @@ branch_skip_reason() {
   fi
 }
 
+# skip 理由コード → 一覧表示用の文字列
+skip_detail() {
+  case "$1" in
+    uncommitted_changes) printf '未コミット変更あり' ;;
+    unpushed_commits) printf '未 push commit あり' ;;
+    current_session) printf 'カレント session の worktree' ;;
+    no_upstream_with_commits) printf 'upstream 未設定 & 自前 commit あり' ;;
+  esac
+}
+
 wt_candidates=""
 br_candidates=""
 skipped=""
@@ -163,15 +181,15 @@ while IFS=$'\t' read -r path branch; do
   [ -n "$branch" ] && wt_branches+="$branch"$'\n'
   [ "$path" = "$main_worktree" ] && continue
   if [ -z "$branch" ]; then
-    detached+=$(jq -nc --arg p "$path" '$p')$'\n'
+    detached+="$path"$'\n'
     continue
   fi
   judge_branch "$branch"
   [ -z "$verdict" ] && continue
   reason=$(worktree_skip_reason "$path")
   if [ -n "$reason" ]; then
-    skipped+=$(jq -nc --arg target "$path" --arg b "$branch" --arg r "$reason" \
-      '{type: "worktree", target: $target, branch: $b, reason: $r}')$'\n'
+    skipped+=$(jq -nc --arg target "$path" --arg b "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
+      '{type: "worktree", target: $target, branch: $b, reason: $r, detail: $d}')$'\n'
   else
     wt_candidates+=$(jq -nc --arg p "$path" --arg b "$branch" --arg v "$verdict" --arg d "$detail" \
       '{path: $p, branch: $b, verdict: $v, detail: $d}')$'\n'
@@ -181,14 +199,14 @@ done <<<"$wt_list"
 while IFS= read -r branch; do
   [ -z "$branch" ] && continue
   is_protected "$branch" && continue
-  printf '%s\n' "$wt_branches" | grep -Fxq "$branch" && continue
+  contains_line "$wt_branches" "$branch" && continue
   [ "$branch" = "$current_branch" ] && continue
   judge_branch "$branch"
   [ -z "$verdict" ] && continue
   reason=$(branch_skip_reason "$branch")
   if [ -n "$reason" ]; then
-    skipped+=$(jq -nc --arg target "$branch" --arg r "$reason" \
-      '{type: "branch", target: $target, reason: $r}')$'\n'
+    skipped+=$(jq -nc --arg target "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
+      '{type: "branch", target: $target, reason: $r, detail: $d}')$'\n'
   else
     br_candidates+=$(jq -nc --arg b "$branch" --arg v "$verdict" --arg d "$detail" \
       '{branch: $b, verdict: $v, detail: $d}')$'\n'
@@ -196,11 +214,12 @@ while IFS= read -r branch; do
 done < <(git branch --format='%(refname:short)')
 
 to_json_array() {
-  if [ -z "$1" ]; then
-    printf '[]'
-  else
-    printf '%s' "$1" | jq -s '.'
-  fi
+  printf '%s' "$1" | jq -s '.'
+}
+
+# 改行区切りの文字列リスト → JSON 文字列配列
+to_string_array() {
+  printf '%s' "$1" | jq -Rs 'split("\n") | map(select(length > 0))'
 }
 
 jq -n \
@@ -210,8 +229,8 @@ jq -n \
   --argjson worktrees "$(to_json_array "$wt_candidates")" \
   --argjson branches "$(to_json_array "$br_candidates")" \
   --argjson skipped "$(to_json_array "$skipped")" \
-  --argjson detached "$(to_json_array "$detached")" \
-  --argjson warnings "$(printf '%s' "$warnings" | jq -Rs 'split("\n") | map(select(length > 0))')" \
+  --argjson detached "$(to_string_array "$detached")" \
+  --argjson warnings "$(to_string_array "$warnings")" \
   '{
     degraded: $degraded,
     default_branch: $default_branch,

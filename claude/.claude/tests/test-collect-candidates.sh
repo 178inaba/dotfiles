@@ -140,8 +140,18 @@ assert() {
   fi
 }
 
-[ "$normal_exit" -eq 0 ] && { pass=$((pass + 1)); printf 'PASS  exit code 0\n'; } \
-  || { fail=$((fail + 1)); printf 'FAIL  exit code 0 (got %d)\n' "$normal_exit"; }
+assert_exit() {
+  local name=$1 got=$2 want=$3
+  if [ "$got" -eq "$want" ]; then
+    pass=$((pass + 1))
+    printf 'PASS  %s\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  %s (got exit %d, want %d)\n' "$name" "$got" "$want"
+  fi
+}
+
+assert_exit 'exit code 0' "$normal_exit" 0
 
 # 通常モード
 assert 'merged_no_pr candidate detected' "$out_normal" \
@@ -156,8 +166,8 @@ assert 'protected branch (develop) excluded' "$out_normal" \
   '[.candidates.branches[].branch] | index("develop") | not'
 assert 'worktree candidate via + prefix branch' "$out_normal" \
   'any(.candidates.worktrees[]; .branch == "wt-merged" and .verdict == "merged_no_pr")'
-assert 'dirty worktree skipped' "$out_normal" \
-  'any(.skipped[]; .type == "worktree" and .branch == "wt-dirty" and .reason == "uncommitted_changes")'
+assert 'dirty worktree skipped with display detail' "$out_normal" \
+  'any(.skipped[]; .type == "worktree" and .branch == "wt-dirty" and .reason == "uncommitted_changes" and .detail == "未コミット変更あり")'
 assert 'detached worktree reported separately' "$out_normal" \
   'any(.detached[]; endswith("wt-detached"))'
 assert 'closed PR excluded without flag' "$out_normal" \

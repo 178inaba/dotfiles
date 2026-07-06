@@ -48,7 +48,7 @@ bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh [--include-cl
     "worktrees": [{"path": "...", "branch": "...", "verdict": "...", "detail": "PR #123 MERGED"}],
     "branches": [{"branch": "...", "verdict": "...", "detail": "..."}]
   },
-  "skipped": [{"type": "worktree|branch", "target": "...", "branch": "...", "reason": "..."}],
+  "skipped": [{"type": "worktree|branch", "target": "...", "branch": "...", "reason": "...", "detail": "..."}],
   "detached": ["/path/to/detached-worktree"],
   "warnings": ["..."]
 }
@@ -59,11 +59,7 @@ bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh [--include-cl
   - `merged_no_pr`: PR なし & デフォルトブランチにマージ済み（main 直行運用のカバー）
   - `pr_closed`: PR が CLOSED 未マージ（`--include-closed` 指定時のみ）
   - `detail` はそのまま一覧表示の「判定」欄に使える文字列
-- **`skipped`**: セーフティチェックで弾かれた対象。`reason` の表示名:
-  - `uncommitted_changes` → 未コミット変更あり
-  - `unpushed_commits` → 未 push commit あり
-  - `current_session` → カレント session の worktree
-  - `no_upstream_with_commits` → upstream 未設定 & 自前 commit あり
+- **`skipped`**: セーフティチェックで弾かれた対象。`reason` は機械用コード、`detail` はそのまま一覧表示に使える文字列
 - **`detached`**: detached HEAD の worktree（branch が無く削除判定できないため別枠報告）
 - **`degraded: true`**: `gh` 不通でオフライン判定のみ（PR 情報なし）。一覧のヘッダーに「オフライン判定（PR 情報なし）」と警告を出すこと
 - **`warnings`**: fetch 失敗等の注記。空でなければ一覧に併記する
@@ -86,8 +82,7 @@ JSON の内容を以下のフォーマットで報告:
 1. <branch> — <detail>
 
 ### スキップ (K 件)
-1. <path> — 未コミット変更あり
-2. <branch> — 未 push commit あり
+1. <target> — <detail>
 ```
 
 削除候補が 0 件の場合はその旨を報告して終了。

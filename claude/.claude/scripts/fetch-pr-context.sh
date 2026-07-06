@@ -8,8 +8,18 @@
 #
 # 使用方法: fetch-pr-context.sh [<pr-number>]
 #   <pr-number> 省略時はカレント branch の PR を推論（失敗時は非ゼロ exit + stderr）
-# 出力契約: 各スキルの SKILL.md を参照
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
+#
+# 出力 JSON の契約（正はここ。各 SKILL.md には自スキルが使うフィールドの解釈のみ書く）:
+#   repo              owner/name 形式
+#   current_user      実行ユーザーの login
+#   is_own_pr         PR 作成者 == current_user
+#   pr                number / title / body / url / state / author / head_ref / base_ref / head_oid
+#   linked_issues[]   PR 本文の closing keyword から検出した {repo, number}（repo: null は同リポ）。
+#                     URL 形式・キーワードなしの素の #N は対象外（GitHub の自動 close 対象に揃える）
+#   comments[]        通常コメント {author, body, created_at, url, is_skill_comment}
+#   reviews[]         レビュー本文 {author, state, body, url, submitted_at}
+#   review_threads[]  {id, is_resolved, is_outdated, path, line, resolved_by, comments[]}
 
 set -u
 
@@ -37,28 +47,26 @@ fi
 owner=${repo%%/*}
 name=${repo#*/}
 
+pr_fields="number,title,body,url,state,author,headRefName,baseRefName,headRefOid"
 if [ -z "$pr_number" ]; then
-  if ! pr_number=$("$GH_BIN" pr view --json number -q .number 2>/dev/null) || [ -z "$pr_number" ]; then
+  # カレント branch からの推論と meta 取得を 1 回の呼び出しで済ませる
+  if ! pr_meta=$("$GH_BIN" pr view --json "$pr_fields" 2>/dev/null) || [ -z "$pr_meta" ]; then
     printf 'カレント branch の PR を特定できませんでした。<pr-number> を明示指定してください\n' >&2
     exit 1
   fi
-fi
-
-if ! pr_meta=$("$GH_BIN" pr view "$pr_number" \
-  --json number,title,body,url,state,author,headRefName,baseRefName,headRefOid -R "$repo"); then
-  printf 'failed to fetch PR #%s\n' "$pr_number" >&2
-  exit 1
-fi
-
-if ! current_user=$("$GH_BIN" api user --jq .login) || [ -z "$current_user" ]; then
-  printf 'failed to fetch current user\n' >&2
-  exit 1
+  pr_number=$(printf '%s' "$pr_meta" | jq -r '.number')
+else
+  if ! pr_meta=$("$GH_BIN" pr view "$pr_number" --json "$pr_fields" -R "$repo"); then
+    printf 'failed to fetch PR #%s\n' "$pr_number" >&2
+    exit 1
+  fi
 fi
 
 # comments は作成日時昇順で返るため last:50 で最新側を取る
 # （first だと CI 通知等で 50 件を超えた際に未対応の修正依頼を取りこぼす）
 if ! gql=$("$GH_BIN" api graphql -f query='
 query($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       comments(last: 50) {
@@ -93,7 +101,6 @@ fi
 # is_skill_comment: /review-response の投稿マーカー。引用返信（`> ` 付き）を誤検知しないよう先頭一致
 jq -n \
   --arg repo "$repo" \
-  --arg current_user "$current_user" \
   --argjson pr "$pr_meta" \
   --argjson gql "$gql" \
   '
@@ -105,6 +112,7 @@ jq -n \
         }]
     | unique;
   ($gql.data.repository.pullRequest) as $p
+  | ($gql.data.viewer.login) as $current_user
   | {
       repo: $repo,
       current_user: $current_user,
