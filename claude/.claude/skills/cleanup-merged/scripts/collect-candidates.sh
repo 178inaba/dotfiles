@@ -18,18 +18,18 @@ for arg in "$@"; do
   case "$arg" in
     --include-closed) include_closed=true ;;
     *)
-      printf '不明な引数です: %s\n' "$arg" >&2
+      printf 'unknown argument: %s\n' "$arg" >&2
       exit 1
       ;;
   esac
 done
 
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  printf 'git リポジトリ内で実行してください\n' >&2
+  printf 'not a git repository\n' >&2
   exit 1
 fi
 if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq が必要です\n' >&2
+  printf 'jq is required\n' >&2
   exit 1
 fi
 

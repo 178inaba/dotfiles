@@ -29,19 +29,19 @@ pr_number=${1:-}
 if [ -n "$pr_number" ]; then
   case "$pr_number" in
     *[!0-9]*)
-      printf 'PR 番号が不正です: %s\n' "$pr_number" >&2
+      printf 'invalid pr number: %s\n' "$pr_number" >&2
       exit 1
       ;;
   esac
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq が必要です\n' >&2
+  printf 'jq is required\n' >&2
   exit 1
 fi
 
 if ! repo=$("$GH_BIN" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || [ -z "$repo" ]; then
-  printf 'リポジトリを特定できませんでした（gh repo view 失敗）\n' >&2
+  printf 'failed to resolve repository (gh repo view)\n' >&2
   exit 1
 fi
 owner=${repo%%/*}
@@ -51,13 +51,13 @@ pr_fields="number,title,body,url,state,author,headRefName,baseRefName,headRefOid
 if [ -z "$pr_number" ]; then
   # カレント branch からの推論と meta 取得を 1 回の呼び出しで済ませる
   if ! pr_meta=$("$GH_BIN" pr view --json "$pr_fields" 2>/dev/null) || [ -z "$pr_meta" ]; then
-    printf 'カレント branch の PR を特定できませんでした。<pr-number> を明示指定してください\n' >&2
+    printf 'could not infer PR from current branch; specify <pr-number> explicitly\n' >&2
     exit 1
   fi
   pr_number=$(printf '%s' "$pr_meta" | jq -r '.number')
 else
   if ! pr_meta=$("$GH_BIN" pr view "$pr_number" --json "$pr_fields" -R "$repo"); then
-    printf 'PR #%s の取得に失敗しました\n' "$pr_number" >&2
+    printf 'failed to fetch PR #%s\n' "$pr_number" >&2
     exit 1
   fi
 fi
@@ -91,7 +91,7 @@ query($owner: String!, $name: String!, $number: Int!) {
     }
   }
 }' -F owner="$owner" -F name="$name" -F number="$pr_number"); then
-  printf 'PR のコメント・レビュー・スレッド取得（GraphQL）に失敗しました\n' >&2
+  printf 'failed to fetch PR comments/reviews/threads (GraphQL)\n' >&2
   exit 1
 fi
 
