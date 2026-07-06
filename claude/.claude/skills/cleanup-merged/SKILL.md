@@ -112,8 +112,8 @@ gh pr list --head "<branch>" --state closed --json number,state,mergedAt -R <own
 削除候補に対して以下を確認し、引っかかったものは「スキップ」として別枠に分類:
 
 #### Worktree
-- **未コミット変更**: `( cd <path> && git status --porcelain )` で出力があれば skip
-- **未 push commit**: `( cd <path> && git log @{u}..HEAD --oneline 2>/dev/null )` で出力があれば skip
+- **未コミット変更**: `git -C <path> status --porcelain` で出力があれば skip
+- **未 push commit**: `git -C <path> log @{u}..HEAD --oneline 2>/dev/null` で出力があれば skip
 - **カレント session の worktree**: パスが `current_worktree` と一致すれば skip
 
 #### Branch
