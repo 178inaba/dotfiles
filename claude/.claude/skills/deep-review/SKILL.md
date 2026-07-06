@@ -80,75 +80,39 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
    - 手動で `git switch <pr-branch>` してから `/deep-review <pr-number>` を再実行する
 
 ### 2. PRコンテキスト確認（自動）
-- セクション1でPRからベースブランチを取得できた場合、同時にPR情報も取得:
-  1. PRの説明・目的を確認
-  2. 関連Issueの自動検出（下記）
-  3. 既存のレビューコメント・スレッドを取得（下記GraphQLクエリ）
-  4. レビュー後、説明と実際の変更の整合性を評価
-- PRが存在しない場合はスキップ
 
-#### 関連Issueの自動検出
+セクション1でPRからベースブランチを取得できた場合、PRコンテキストを一括取得する:
 
-PR本文の GitHub Issue Linking キーワード (`Close`/`Closes`/`Closed`/`Fix`/`Fixes`/`Fixed`/`Resolve`/`Resolves`/`Resolved`) に紐づく Issue 参照を検出し、対応する Issue を自動取得する。GitHub 公式の closing keyword 仕様（同リポ `#N` / クロスリポ `OWNER/REPO#N`、大文字小文字・コロン付き許容）に準拠する。
-
-1. `gh pr view --json body --jq '.body'` でPR本文取得
-2. 正規表現でリンクキーワード + Issue 参照をマッチ:
-   ```
-   (?i)\b(close[sd]?|fix(es|ed)?|resolve[sd]?):?\s+(?:([\w.-]+/[\w.-]+)#)?(\d+)
-   ```
-   - 同リポ形式 (`#N`): キャプチャ3 が空、キャプチャ4 に番号
-   - クロスリポ形式 (`OWNER/REPO#N`): キャプチャ3 に `owner/repo`、キャプチャ4 に番号
-   - 表記揺れ対応: 大文字 (`CLOSES #10`)、コロン付き (`Closes: #10`)、語頭 word boundary
-   - URL 形式 (`https://github.com/owner/repo/issues/N`) は対象外（GitHub の自動 close 対象外で、本文での参照は手動リンク扱いのため、本機能でも揃える）
-   - キーワードなしの素の `#N` は対象外（誤検出回避）
-3. マッチした Issue 番号それぞれを取得:
-   - 同リポ → `gh issue view <N>`
-   - クロスリポ → `gh issue view -R <owner>/<repo> <N>`
-4. 取得した Issue 情報はセクション6「Issue情報取得時の追加観点」と同じ基準でレビューに利用する
-
-**`--issue` 明示指定との関係**:
-- `--issue` が指定されている場合は自動検出をスキップ（ユーザーが特定 Issue を意図的に指定している前提）
-- `--issue` 未指定 かつ 自動検出ヒットあり → 検出した Issue 全件を読み込む
-- `--issue` 未指定 かつ 自動検出ヒットなし → Issue 観点でのレビューはスキップ
-
-#### 既存レビュースレッド・コメント取得
-GraphQL APIで通常コメント・レビュー本文・レビュースレッドを1クエリで取得:
 ```bash
-gh api graphql -f query='{
-  repository(owner: "OWNER", name: "REPO") {
-    pullRequest(number: PR_NUMBER) {
-      comments(first: 50) {
-        nodes { author { login } body createdAt url }
-      }
-      reviews(first: 50) {
-        nodes { author { login } state body url }
-      }
-      reviewThreads(first: 100) {
-        nodes {
-          isResolved
-          isOutdated
-          path
-          line
-          resolvedBy { login }
-          comments(first: 20) {
-            nodes { author { login } body createdAt url }
-          }
-        }
-      }
-    }
-  }
-}'
+bash ~/.claude/scripts/fetch-pr-context.sh <pr-number>
 ```
 
-`comments`（PR本体への通常コメント）と `reviews`/`reviewThreads`（レビュー由来のコメント）は GitHub 上で別物として管理されているため、3つすべてを取得しないと議論経緯を取りこぼす。特に「質問 → 回答 → 合意」「AIレビュー → 対応報告」の流れは PR本体の通常コメントで完結することが多く、これを見落とすと解決済み議題の再提起が発生する。
+PRメタ情報・通常コメント・レビュー本文・レビュースレッド・関連Issue検出・モード判定材料を1回で取得し、正規化した JSON を stdout に返す（挙動の担保: `claude/.claude/tests/test-fetch-pr-context.sh`）。PRが存在しない場合（スクリプト非ゼロ終了）は本セクションをスキップ。レビュー後、PR説明と実際の変更の整合性を評価する。
+
+#### 出力 JSON の契約（本スキルで使用するフィールド）
+
+- `pr`: `number` / `title` / `body` / `url` / `state` / `author` / `head_ref` / `base_ref` / `head_oid`
+- `repo`: `owner/name` 形式（レビュー投稿 API で使用）
+- `current_user` / `is_own_pr`: セクション3のモード判定に使用
+- `linked_issues[]`: PR本文の GitHub closing keyword（`Close`/`Closes`/`Closed`/`Fix`/`Fixes`/`Fixed`/`Resolve`/`Resolves`/`Resolved`。同リポ `#N` / クロスリポ `OWNER/REPO#N`、大文字小文字・コロン付き許容）から検出した関連 Issue。要素は `{repo, number}` で `repo: null` は同リポ。URL 形式（`https://github.com/owner/repo/issues/N`）とキーワードなしの素の `#N` は対象外（GitHub の自動 close 対象外で、本文での参照は手動リンク扱いのため、本機能でも揃える）
+- `comments[]`: PR本体への通常コメント。`is_skill_comment: true` は /review-response スキルの自動投稿
+- `reviews[]`: レビュー本文
+- `review_threads[]`: 行コメントスレッド（`is_resolved` / `is_outdated` / `path` / `line` / `resolved_by` と `comments[]` 付き）
+
+通常コメント・レビュー本文・レビュースレッドは GitHub 上で別物として管理されており、3つすべてを見ないと議論経緯を取りこぼす（一括取得はスクリプトが保証する）。特に「質問 → 回答 → 合意」「AIレビュー → 対応報告」の流れは PR本体の通常コメントで完結することが多く、これを見落とすと解決済み議題の再提起が発生する。
 
 取得した情報はレビュー実行時に以下のように活用する:
-- **解決済みスレッド（`isResolved: true`）**: 既に議論・解決済みのため、同じ内容を指摘しない
-- **未解決スレッド（`isResolved: false`）**: 他レビュアーが既に指摘済みのため、同じ内容を重複して指摘しない。ただし、補足や異なる観点がある場合は言及してよい
-- **古くなったスレッド（`isOutdated: true`）**: コードが変更されているため、必要に応じて再確認
+- **解決済みスレッド（`is_resolved: true`）**: 既に議論・解決済みのため、同じ内容を指摘しない
+- **未解決スレッド（`is_resolved: false`）**: 他レビュアーが既に指摘済みのため、同じ内容を重複して指摘しない。ただし、補足や異なる観点がある場合は言及してよい
+- **古くなったスレッド（`is_outdated: true`）**: コードが変更されているため、必要に応じて再確認
 - **PR本体への通常コメント（`comments[]`）**: PR説明文に書ききれなかった補足、Q&A、対応報告、AIレビュー結果などが入る。レビュー時は議論経緯を把握し、既に解決済みの議題を再提起しないために使う。特に「Xを質問 → Yで回答 → 質問者が合意した」流れは通常コメントで確定するため、見逃すと重複指摘になる。AIレビュー（`[AIによるレビュー]` プレフィックス等）と、それへの対応コメントも同様に考慮する
 - **レビュー本文（`reviews[].body`）**: 各レビュアーが Approve/Request Changes/Comment 時に付ける総括コメント。総合的な評価軸を把握するために参照する
 - **コメント引用時**: 取得した `url` を併記すると、どのコメントに基づく判断かを明示できる
+
+**`--issue` 明示指定との関係**:
+- `--issue` が指定されている場合は `linked_issues` を使わない（ユーザーが特定 Issue を意図的に指定している前提）
+- `--issue` 未指定 かつ `linked_issues` あり → 検出した Issue 全件を読み込む
+- `--issue` 未指定 かつ `linked_issues` 空 → Issue 観点でのレビューはスキップ
 
 ### 3. コメントモード・個人ルールモード・自動対応モード判定
 
@@ -157,11 +121,9 @@ PRにレビューコメントを投稿するかを判定:
 1. `--local-only` 指定時 → コメントモードOFF
 2. 未指定時 → 自動判定:
    - PRが存在しない場合 → コメントモードOFF
-   - PR作成者と現在のユーザーを比較:
-     - `gh api user --jq '.login'` で現在のユーザー取得
-     - `gh pr view --json author --jq '.author.login'` でPR作成者取得
-     - 異なる（他人のPR）→ コメントモードON
-     - 同じ（自分のPR）→ コメントモードOFF
+   - セクション2で取得した `is_own_pr` で判定:
+     - `false`（他人のPR）→ コメントモードON
+     - `true`（自分のPR）→ コメントモードOFF
 
 自動対応モードONの場合、コメントモードは自動的にOFFになる（自分のPRに自分でレビュー投稿しないため）。
 
@@ -179,7 +141,7 @@ PRにレビューコメントを投稿するかを判定:
    - PRが存在しない場合 → 自動対応モードON（自分のコード）
    - PR作成者が他人 → 自動対応モードOFF（行コメント投稿のみ）
 
-判定手段はコメントモードと同じ（`gh api user` と `gh pr view --json author` の比較）。
+判定手段はコメントモードと同じ（セクション2で取得した `is_own_pr`）。
 
 ### 4. 差分取得と確認
 - **必ず解析済みのベースブランチを使用** (`git diff <base-branch>...HEAD`)
@@ -212,9 +174,9 @@ Diff だけで判断せず、変更が周辺コードと相互作用する箇所
 ### 5. Issue情報取得
 以下のいずれかに該当する場合に Issue 内容を取得し、要件・仕様を確認する:
 - `--issue` 明示指定時 → 指定された Issue 番号を取得
-- セクション2「関連Issueの自動検出」で検出された Issue がある時 → 検出された全件を取得
+- セクション2の `linked_issues` に検出された Issue がある時 → 検出された全件を取得
 
-取得は `gh issue view <ISSUE_NUMBER>` で行う。複数 Issue がある場合は順に取得する。
+取得は同リポ（`repo: null`）は `gh issue view <N>`、クロスリポは `gh issue view -R <owner>/<repo> <N>` で行う。複数 Issue がある場合は順に取得する。
 
 ### 6. レビュー実行
 以下の観点から詳細にレビュー:
@@ -335,11 +297,8 @@ Diff だけで判断せず、変更が周辺コードと相互作用する箇所
 
 ローカル出力に加えて、PRにレビューコメントを投稿する。
 
-#### 1. PR情報を取得
-```bash
-gh pr view --json number,headRefOid,url
-gh repo view --json owner,name --jq '.owner.login + "/" + .name'
-```
+#### 1. PR情報の確認
+セクション2で取得済みの `pr.number` / `pr.head_oid` / `pr.url` / `repo` を使用する（再取得不要）。
 
 #### 2. レビューイベントを決定
 
@@ -376,7 +335,7 @@ EOF
 ```
 
 **パラメータ説明**:
-- `commit_id`: PRのHEADコミットSHA（`headRefOid`）
+- `commit_id`: PRのHEADコミットSHA（`pr.head_oid`）
 - `event`: レビューイベント（上記の表に従う）
 - `body`: レビュー全体のサマリー（総合評価、良い点、行に紐づかない指摘）
 - `comments[]`: 行単位の指摘コメント
