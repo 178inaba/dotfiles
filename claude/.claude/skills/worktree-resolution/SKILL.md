@@ -14,6 +14,7 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 
 - **worktree 名の計算**: branch 名から `/` を `-` に置換する
   - 例: `feature/99-add-oauth` → `feature-99-add-oauth`
+  - **必ず sanitize してから `EnterWorktree(name:)` に渡す**。`/` を含む値を渡すと Claude Code 実装により `+` に置換され、以降の既存 worktree 検索パターンから外れて再開検出に失敗する（2026-07-06 実測、公式未文書挙動）
 - **既存 worktree の検索**: `git worktree list --porcelain` を解析し、`branch refs/heads/<branch>` が登録されている worktree を探す
 - **EnterWorktree の使い分け**: 既存 worktree への切替は `EnterWorktree(path: <found-path>)`、新規作成は `EnterWorktree(name: <worktree-name>)`
 - **前提**: `worktree.baseRef: "head"` 設定（`~/.claude/settings.json`、dotfiles では設定済み）
