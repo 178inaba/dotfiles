@@ -92,9 +92,10 @@ zsh -l
 ├── skills/             # スキル定義（タスク起点で自動ロード）
 ├── rules/              # ルール（frontmatterのpaths globに該当するファイルを扱うときだけ遅延読込）
 ├── context/            # 詳細コンテキスト（CLAUDE.mdから@importで常時ロード）
+├── scripts/            # スキル横断で共有するスクリプト（fetch-pr-context.sh等）
 ├── hooks/              # イベントフック（通知・事故防止等）
 │   └── tests/          # フックのリグレッションテスト
-├── tests/              # フック以外のスクリプトのリグレッションテスト（statusline等）
+├── tests/              # フック以外のスクリプトのリグレッションテスト（statusline・スキルスクリプト等）
 ├── settings.json       # Claude Code設定
 └── statusline.sh       # ステータスライン表示スクリプト
 ```
@@ -108,6 +109,14 @@ zsh -l
   - `bash claude/.claude/hooks/tests/test-gh-write-guard.sh`
   - `bash claude/.claude/hooks/tests/test-caffeinate.sh`（`CAFFEINATE_BIN` でスタブに差し替え、実機 caffeinate を起動しない）
   - 理由: フックの失敗モードは silent（見逃し時、実際に事故が起きるまで気付けない）。regression は手動デモでは踏みにくいため、テストでの担保が必須
+
+### スキルスクリプト
+- スキル内の決定的処理（収集・判定・正規化）はスクリプトに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/rules/skill-authoring.md` の「スクリプト同梱パターン」）
+  - `skills/cleanup-merged/scripts/collect-candidates.sh` — 削除候補の収集・マージ判定・セーフティチェック
+  - `scripts/fetch-pr-context.sh` — PR コンテキスト一括取得（`/deep-review`・`/review-response` 共有）
+- **編集時は必ずテストを走らせる**（理由は Hooks と同じ: 失敗モードが silent）:
+  - `bash claude/.claude/tests/test-collect-candidates.sh`
+  - `bash claude/.claude/tests/test-fetch-pr-context.sh`（gh は `GH_BIN` でスタブに差し替え、実 gh・実リポジトリに触れない）
 
 ### 通知チャンネル
 - `preferredNotifChannel` は `"iterm2"` を指定。`"auto"`・`"ghostty"` は Ghostty + tmux 環境で通知が届かない既知バグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策
