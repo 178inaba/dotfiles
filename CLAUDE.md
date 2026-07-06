@@ -114,7 +114,7 @@ zsh -l
 - upstream 修正後は `"ghostty"` または `"auto"` に戻す
 
 ### Worktree 設定
-- `worktree.baseRef: "head"` を指定。`--worktree` を持つスキル群（規約定義: `claude/.claude/skills/worktree-resolution/SKILL.md`）が「ローカル HEAD を起点に worktree を作成する」契約を保つための前提（デフォルトの `"fresh"` だと origin のデフォルトブランチから分岐するため、計画フェーズで指定された base branch を起点にできず、issue-handle 側の事前準備で HEAD を base に前進させた効果が無視されてしまう）
+- `worktree.baseRef: "head"` を指定。`--worktree` を持つスキル群（規約定義: `claude/.claude/skills/worktree-resolution/SKILL.md`）が「ローカル HEAD を起点に worktree を作成する」契約を保つための前提（デフォルトの `"fresh"` だと origin のデフォルトブランチから分岐するため、計画フェーズで指定された base branch を起点にできない）
 
 ## 開発ワークフロー
 
