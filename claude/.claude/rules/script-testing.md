@@ -20,6 +20,8 @@ paths:
 | `hooks/start-caffeinate.sh`・`hooks/stop-caffeinate.sh` | `bash claude/.claude/hooks/tests/test-caffeinate.sh` |
 | `scripts/fetch-pr-context.sh` | `bash claude/.claude/tests/test-fetch-pr-context.sh` |
 | `skills/cleanup-merged/scripts/collect-candidates.sh` | `bash claude/.claude/tests/test-collect-candidates.sh` |
+| `skills/review-assigned-prs/scripts/list-pending-reviews.sh` | `bash claude/.claude/tests/test-list-pending-reviews.sh` |
+| `skills/review-assigned-prs/scripts/ensure-clone.sh` | `bash claude/.claude/tests/test-ensure-clone.sh` |
 | `hooks/slack-notify.sh` | テスト未整備 — 編集時にテストを新設し、この行を更新する |
 | テストファイル自体 | 編集したテストを実行 |
 

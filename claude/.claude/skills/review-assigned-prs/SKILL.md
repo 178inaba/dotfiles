@@ -1,0 +1,104 @@
+---
+name: review-assigned-prs
+description: 自分にレビュー依頼が来ているPRのうち、Bot以外のレビューがまだ付いていないものを /deep-review で並列レビュー
+disable-model-invocation: true
+---
+
+# /review-assigned-prs
+
+自分に user-review-requested が付いている open PR のうち「Bot 以外のレビューがまだ 1 件も付いていない」ものを検出し、各 PR に対してサブエージェント経由で `/deep-review <PR番号> --worktree --review-only` を並列実行する。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
+
+Draft PR は業界標準に従い対象外（作者が Ready for review にした時点で候補に入る）。
+
+Copilot・github-actions・CodeRabbit 等の Bot レビューは全て「人間未レビュー」扱いになり、候補として残る。自分の既存レビューは `user.type: "User"` として弾かれるため、`/loop` で繰り返し実行しても投稿済み PR は次回イテレーションから自動的に対象外になる（重複防止ロジックは不要）。他レビュアー（人間）が先にレビュー済みの PR も同様に対象外になり、「まだ誰も人間がレビューしていない、自分が最初のレビュアーになりうる PR」に絞られる。
+
+## 使用方法
+```
+/loop 5m /review-assigned-prs    # 5 分間隔で常駐（推奨）
+/review-assigned-prs             # 単発実行
+```
+
+## 前提条件
+- `gh` CLI がインストール・認証済み
+- `jq`, `git` がインストール済み
+- レビュー対象のリポジトリに対する clone アクセス権
+
+## 実行内容
+
+### 1. 候補 PR 一覧の取得
+
+```bash
+bash ~/.claude/skills/review-assigned-prs/scripts/list-pending-reviews.sh
+```
+
+候補判定（誰か人間がレビュー済みかどうか）はスクリプトで完結する。判定ロジックの詳細はスクリプト本体を、挙動の担保は `claude/.claude/tests/test-list-pending-reviews.sh` を参照。
+
+#### 出力 JSON の契約
+
+```json
+{
+  "prs": [
+    {"owner": "acme", "repo": "foo", "number": 123, "url": "https://github.com/acme/foo/pull/123"}
+  ],
+  "degraded": false,
+  "warnings": []
+}
+```
+
+- **`prs`**: レビュー候補の一覧
+- **`degraded: true`**: 一部の PR の `gh api reviews` が失敗した（`warnings` 参照）。失敗した PR は候補から除外されるので、残りの PR は通常通り処理してよい
+- **`warnings`**: 個別失敗の内容。空でなければ完了報告に併記する
+
+スクリプトが非ゼロ終了した場合（`jq` 未導入・`gh search prs` 失敗など）は stderr のメッセージを提示して停止する。
+
+### 2. 対象 0 件なら終了
+
+`.prs` 配列が空なら「レビュー対象なし」と 1 行報告して終了。
+
+### 3. 各 PR ごとにサブエージェントを並列起動
+
+`.prs` の各要素について、Agent ツール (`subagent_type: "claude"`) を**1 メッセージ内で並列起動**する（対象 PR 数ぶんの Agent 呼び出しを 1 つの tool_use ブロックにまとめる）。
+
+`fork` は使わない。`--worktree` による cwd 切替がメインセッションに漏れないよう、独立コンテキストが必須。
+
+サブエージェントへのプロンプトに以下を含める:
+
+- このセッションが独立レビュー専用であり、親セッションのコンテキストを持たない旨
+- レビュー用 clone dir の取得:
+  ```bash
+  bash ~/.claude/skills/review-assigned-prs/scripts/ensure-clone.sh <owner>/<repo>
+  ```
+  → JSON `{"path": "..."}` を返す。clone 先パスの規約はスクリプトヘッダーコメントを参照
+- `cd <path>` してから実行: `/deep-review <PR番号> --worktree --review-only`
+  - 各フラグの意味は `@~/.claude/skills/deep-review/SKILL.md` を参照
+- レビュー結果をそのまま返すよう指示（追加の解釈・要約は不要）
+- 補助コンテキスト: PR URL・PR 番号・repo 名
+
+#### `ensure-clone.sh` の出力 JSON 契約
+
+```json
+{"path": "/absolute/path/to/clone/dir"}
+```
+
+- **`path`**: レビュー用 clone dir の絶対パス（clone 先の規約はスクリプトヘッダー参照）
+- 引数不正・clone/fetch 失敗時は非ゼロ exit + 英語 stderr
+
+### 4. 完了報告
+
+各サブエージェントの結果を集約し、1〜2 行のサマリを表示:
+
+```
+レビュー完了 (N 件):
+- acme/foo#123: レビュー投稿済み
+- acme/bar#456: サブエージェント失敗（<エラー概要>）
+```
+
+`degraded: true` があれば `warnings` を末尾に併記。
+
+## 注意事項
+
+1. **サブエージェント失敗時は自動リトライしない**: Agent が null/error を返した場合はユーザーに提示（`@~/.claude/skills/issue-handle/SKILL.md` の「7-2. 親セッションで自動修正」に準拠）。次回イテレーションで再挑戦される
+2. **fork PR は現状スコープ外**: `gh search prs` は fork 由来 PR も返すが、`/deep-review --worktree` の worktree 解決は「fork 由来 PR は対象外」として停止する。当該 PR は毎イテレーションでサブエージェント失敗として報告される（次イテレーションで自動復旧はしない）
+3. **同一リポジトリの並列レビュー**: 同じ owner/repo に属する複数 PR が同時に候補になった場合、初回イテレーションでは `ensure-clone.sh` の並列実行で片方が「destination path already exists」または fetch ロック競合で失敗する可能性がある。次回イテレーションで clone が完了していれば fetch 経路に入り両方成功する
+4. **clone dir のクリーンアップは手動**: 累積して困る場合はスクリプトヘッダーに記載された clone 先ディレクトリを手動で削除。自動掃除ロジックは持たない（YAGNI）
+5. **プライベートリポジトリ**: `gh` 認証済みで clone アクセス権があれば `gh repo clone` が SSH/HTTPS を自動選択して clone する

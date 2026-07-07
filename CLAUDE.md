@@ -80,6 +80,7 @@ zsh -l
 - `/deep-review` - コード差分を詳細にレビュー（ベースブランチは自動判定、`--issue`でIssue連携、`<pr-number> --worktree`で対象PRのworktreeに切替/作成して並列レビュー）。Claude Code 2.1.146以降は組み込み `/code-review`・`/simplify` と区別するため `deep-review` 命名
 - `/check-plan-compliance` - 現計画とプロジェクトCLAUDE.md・リンク先文書との準拠チェック後、計画修正と plan モード復帰まで自動実行
 - `/cleanup-merged` - マージ済みのworktreeとlocal branchをまとめてクリーンアップ（`--dry-run`で確認のみ、`--yes`で確認スキップ、`--include-closed`でCLOSED状態のPRも対象）
+- `/review-assigned-prs` - 自分にレビュー依頼が来ているPRのうち Bot 以外のレビューが未着のものを `/deep-review <PR番号> --worktree --review-only` で並列レビュー（`/loop 5m /review-assigned-prs` で常駐運用推奨）
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 - `/troubleshooting` - エラー調査・デバッグの具体的手法（エラー調査タスク時に自動ロードされる知識スキル）
@@ -111,6 +112,8 @@ zsh -l
 ### スキルスクリプト
 - スキル内の決定的処理（収集・判定・正規化）はスクリプトに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/rules/skill-authoring.md` の「スクリプト同梱パターン」）
   - `skills/cleanup-merged/scripts/collect-candidates.sh` — 削除候補の収集・マージ判定・セーフティチェック
+  - `skills/review-assigned-prs/scripts/list-pending-reviews.sh` — Bot 以外のレビュー未着 PR の候補収集・判定
+  - `skills/review-assigned-prs/scripts/ensure-clone.sh` — レビュー用 clone dir の ensure（未 clone は clone、既存は fetch）
   - `scripts/fetch-pr-context.sh` — PR コンテキスト一括取得（`/deep-review`・`/review-response` 共有）
 - **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 
