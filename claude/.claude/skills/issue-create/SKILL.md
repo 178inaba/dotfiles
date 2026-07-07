@@ -50,7 +50,6 @@ disable-model-invocation: true
 ### 7. 作成
 - 本文を scratchpad に Write → `gh issue create -R <repo> --title "..." --body-file <path> --assignee @me [--label ...]`
 - 分割時: 親 Issue を作成後、@~/.claude/skills/github-sub-issues/SKILL.md の手順で Sub-Issues を作成・リンク
-  - ただし Sub-Issue 本文も上記同様 scratchpad 経由の `--body-file` で渡す（参照先のワンライナー例は `--body` に `\n` を含む文字列を直渡ししており、リテラルの `\n` が本文に焼き込まれるため読み替える）
 
 ### 8. 完了報告
 - Issue URL を提示し、次アクションとして `/issue-handle <番号>` を案内する
