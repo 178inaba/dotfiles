@@ -1,12 +1,12 @@
 ---
 name: worktree-resolution
-description: PR・ブランチに対応する git worktree の解決手順（既存検索・切替・新規作成）と命名規約
+description: PR・ブランチに対応する git worktree の解決手順（既存検索・切替・新規作成）と命名規約、およびレビュー系スキル共有の PR head 鮮度確認サブ手順
 user-invocable: false
 ---
 
 # worktree-resolution
 
-PR・ブランチに対応する worktree を解決（既存検索・切替・新規作成）するための共通規約と手順。`/issue-handle`・`/review-response`・`/deep-review` の `--worktree` から参照される。
+PR・ブランチに対応する worktree を解決（既存検索・切替・新規作成）するための共通規約と手順。`/issue-handle`・`/review-response`・`/deep-review` の `--worktree` から参照される。PR を対象にレビュー・修正を行うスキルが共有する鮮度確認サブ手順もここに置く（こちらは worktree の有無に関わらず参照される）。
 
 ## 共通規約
 
@@ -26,8 +26,22 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 1. `git fetch origin <branch>` で remote tracking ref を更新
 2. `git rev-list --left-right --count <branch>...origin/<branch>` で乖離を確認:
    - 乖離なし → そのまま続行
-   - behind のみ（ローカル側に独自 commit なし）→ dirty 検出: `git status --porcelain | grep -v '^??' | head -n1` で modified/staged 変更を確認（untracked のみは無視）。非空なら停止してユーザー判断を仰ぎ（未コミット変更を破棄しないため）、clean なら `git reset --hard origin/<branch>` でリモートに揃える
+   - behind のみ（ローカル側に独自 commit なし）→ dirty 検出: `git status --porcelain | grep -v '^??' | head -n1` で modified/staged 変更を確認（untracked のみは無視）。非空なら停止してユーザー判断を仰ぎ（未コミット変更を破棄しないため）、clean なら `git merge --ff-only origin/<branch>` でリモートに揃える（behind のみなので原則成功する。untracked ファイルが同期先の新規 tracked ファイルと衝突した場合はエラー停止し、その場合も作業は破棄されない。「PR head との鮮度確認」と同じ同期方式）
    - ローカル側に独自 commit あり → 警告して停止し、ユーザー判断を仰ぐ（未 push の作業を破棄しないため）
+
+## 共通サブ手順: PR head との鮮度確認
+
+ローカル HEAD が PR の最新 head と整合しているかを確認し、安全なら自動同期する手順。PR を対象にレビュー・修正を行うスキル（/deep-review・/review-response）が差分取得・修正適用の前に実行する。入力は fetch-pr-context.sh の `pr.head_oid`・`is_own_pr`・`pr.head_ref`。
+
+前提: `git fetch origin <head-branch>` 実施済み（`pr.head_oid` のオブジェクトがローカルに存在すること）。fork からの PR（head branch が origin に存在しない）は対象外で、この fetch が失敗した場合は前提外としてエラーで停止しユーザーに知らせる
+
+上から順に評価する:
+
+1. `git rev-parse --abbrev-ref HEAD` が `pr.head_ref` と一致することを確認。不一致（detached HEAD 含む）→ **エラーで停止**し、`git switch <pr.head_ref>` または `--worktree` での再実行を提示（PR head branch 以外のカレント branch — main 等 — を後続の手順で誤って fast-forward しないための前提ガード）
+2. `git rev-parse HEAD` が `pr.head_oid` と一致 → 続行
+3. 自分の PR（`is_own_pr: true`）かつ `git merge-base --is-ancestor <pr.head_oid> HEAD` が真（ローカルに未 push の commit があるだけ）→ 続行（push 前のローカル作業を対象にする正当なケース）
+4. behind のみ（`git merge-base --is-ancestor HEAD <pr.head_oid>` が真）→ dirty 検出: `git status --porcelain | grep -v '^??' | head -n1` で modified/staged 変更を確認（untracked のみは無視）。空なら `git merge --ff-only <pr.head_oid>` で自動同期して続行（fast-forward のみのため作業を破棄するリスクがない）、非空なら停止してコミット/stash を促す（未コミット変更の破棄を避けるため）
+5. 上記以外（diverged、他人の PR にローカル独自 commit がある等）→ **エラーで停止**し、手動での同期・整理（独自 commit の rebase・退避等）を促す（stale なコードを対象にすると誤スコープの指摘・修正になり、コメント投稿時は行番号ずれによる 422 も起きる。一方、自動解決はローカル commit の破棄リスクがあるため行わない。branch 自体が乖離した状態のため `--worktree` でも解決しない）
 
 ## PR worktree 解決手順
 
