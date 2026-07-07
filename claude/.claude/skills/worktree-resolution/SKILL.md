@@ -18,6 +18,7 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 - **既存 worktree の検索**: `git worktree list --porcelain` を解析し、`branch refs/heads/<branch>` が登録されている worktree を探す
 - **EnterWorktree の使い分け**: 既存 worktree への切替は `EnterWorktree(path: <found-path>)`、新規作成は `EnterWorktree(name: <worktree-name>)`
   - **サブエージェント内では新規作成（`name:`）は一律拒否される**（"EnterWorktree cannot create a worktree from a subagent with a cwd override" エラー。明示的な `isolation`・`cwd` 指定がないサブエージェントでも発生する — 2026-07-07 実測。公式仕様上サブエージェントは `path` 形式のみ・対象は `.claude/worktrees/` 配下限定）。PR worktree 解決時の代替手順は手順 5-B 内の分岐を参照
+  - **`path:` 切替もエージェント起動時に固定されたプロセス cwd で「現在のリポジトリ」を判定する**（Bash の `cd` では変わらない）。対象リポジトリ外の cwd で起動されたサブエージェント（/review-assigned-prs の clone dir 構成等）では `path:` 切替も "the current directory is not in a git repository" で失敗する（2026-07-07 実測）。該当する場合は EnterWorktree を試行せず、各 Bash 呼び出しに `cd <対象パス> && ...` を前置して作業する（worktree 作成前のリポジトリ操作は対象リポジトリへ、作成後の作業は worktree へ。git 操作は `git -C <対象パス>` でも可、ファイル操作は絶対パスを使用）
 - **前提**: `worktree.baseRef: "head"` 設定（`~/.claude/settings.json`、dotfiles では設定済み）
 
 ## 共通サブ手順: origin への同期
@@ -61,7 +62,7 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 4. **既存 worktree の検索**: 共通規約に従い `<pr-branch>` の worktree を検索し、見つかればそのパスを記録
 
 5-A. **既存 worktree あり**:
-   - `EnterWorktree(path: <found-path>)` で session を切替
+   - `EnterWorktree(path: <found-path>)` で session を切替（対象リポジトリ外 cwd のサブエージェントでは共通規約に従い試行せず最初から Bash `cd` で代替）
    - 「共通サブ手順: origin への同期」を `<pr-branch>` に対して実行する（worktree 作成後に PR 側へ push されていると、同期なしでは古いコードを対象にしてしまうため）
 
 5-B. **既存 worktree なし**（auto cleanup 後・別 PC 等）:
@@ -75,14 +76,14 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
    - `git fetch origin <pr-branch>` で remote tracking ref を更新
    - `EnterWorktree(name: <worktree-name>)` で新規 worktree 作成
      - 結果: branch `worktree-<worktree-name>` 上の worktree、`WorktreeCreate` hook 発火
-     - **サブエージェント内では拒否されるため代替経路を使う**（共通規約参照。サブエージェント内と分かっている場合は試行せず最初から代替してよい）: `git worktree add --detach "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/worktrees/<worktree-name>"` で detached worktree を作成し（`--git-common-dir` 起点なのは worktree 内から実行してもメイン worktree ルート配下に作るため。この経路では `WorktreeCreate` hook・`.worktreeinclude` コピー・終了時の自動クリーンアップ判定は働かず、回収は `/cleanup-merged` に委ねる）、`EnterWorktree(path: <作成した絶対パス>)` で切替。以降は次の `git switch <pr-branch>` から通常経路に合流する
+     - **サブエージェント内では拒否されるため代替経路を使う**（共通規約参照。サブエージェント内と分かっている場合は試行せず最初から代替してよい）: `git worktree add --detach "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/worktrees/<worktree-name>"` で detached worktree を作成し（`--git-common-dir` 起点なのは worktree 内から実行してもメイン worktree ルート配下に作るため。この経路では `WorktreeCreate` hook・`.worktreeinclude` コピー・終了時の自動クリーンアップ判定は働かず、回収は `/cleanup-merged` に委ねる）、`EnterWorktree(path: <作成した絶対パス>)` で切替（対象リポジトリ外 cwd のサブエージェントでは共通規約に従い試行せず Bash `cd` で代替）。以降は次の `git switch <pr-branch>` から通常経路に合流する
    - worktree 内で `git switch <pr-branch>` で PR の実 branch に切替
      - local に `<pr-branch>` が無い場合は git の DWIM 挙動で `origin/<pr-branch>` から自動作成（modern git 2.23+）
      - local に同名の古い `<pr-branch>` が残っている場合（前回作業の残骸等）はそちらに切り替わり、`origin/<pr-branch>` と乖離するリスクがある。「共通サブ手順: origin への同期」を `<pr-branch>` に対して実行してリモートに揃える（fetch は 5-B 内で実施済みのため省略可。作成直後の worktree のため dirty 検出は通常空振りする）
    - `git branch -d worktree-<worktree-name>` で temp branch を削除（代替経路では temp branch が無いためスキップ）
    - 補足: この 2 段階方式（通常経路）により hook 発火を確保しつつ、目的の PR branch に到達できる
 
-6. **作業ディレクトリ確認**: worktree 内にいることを `git rev-parse --show-toplevel` で確認する
+6. **作業ディレクトリ確認**: worktree 内にいることを `git rev-parse --show-toplevel` で確認する（Bash `cd` 代替経路では `cd <worktree-path> && git rev-parse --show-toplevel` が worktree パスを返すことの確認に読み替える）
 
 ## 注意事項（PR worktree 解決時の挙動）
 
