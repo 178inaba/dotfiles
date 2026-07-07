@@ -167,5 +167,6 @@ description: 本番環境へのデプロイを実行
 
 ## 命名規則
 - ディレクトリ名: 小文字とハイフンのみ使用: `git-commit`
-- 動詞で始める: `create-`, `update-`, `delete-`
+- 対象領域を持つスキルは 対象-動詞 形式でグルーピング: `git-commit`, `git-pr`, `issue-handle`, `issue-create`
+- 対象領域を持たない操作系は動詞で始める: `extract-context`, `cleanup-merged`, `check-plan-compliance`
 - 明確で簡潔な名前
