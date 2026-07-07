@@ -144,6 +144,21 @@ PRにレビューコメントを投稿するかを判定:
 判定手段はコメントモードと同じ（セクション2で取得した `is_own_pr`）。
 
 ### 4. 差分取得と確認
+
+#### 鮮度確認（差分取得の前に必ず実行）
+
+ローカル ref が stale なまま進めると、diff スコープのずれ（base に取り込み済みの変更を差分として誤検出）や、レビュー投稿時の 422 エラー（行番号が最新 diff に存在しない）につながるため、最初にローカル状態の鮮度を保証する:
+
+1. `git fetch origin <base-branch>` でベースブランチの remote tracking ref を更新する（PR がある場合は head branch も併せて fetch: `git fetch origin <base-branch> <head-branch>`）
+2. PR が存在する場合、ローカル HEAD と PR の最新 head（セクション2の `pr.head_oid`）の整合を確認する（上から順に評価）:
+   - `git rev-parse HEAD` が `pr.head_oid` と一致 → 続行
+   - 自分の PR かつ `git merge-base --is-ancestor <pr.head_oid> HEAD` が真（ローカルに未 push の commit があるだけ）→ 続行（push 前のローカル作業をレビューする正当なケース）
+   - behind のみ（`git merge-base --is-ancestor HEAD <pr.head_oid>` が真）→ dirty 検出: `git status --porcelain | grep -v '^??' | head -n1` で modified/staged 変更を確認（untracked のみは無視）。空なら `git merge --ff-only <pr.head_oid>` で自動同期して続行（fast-forward のみのため作業を破棄するリスクがない。fetch は手順1で実施済み）、非空なら停止してコミット/stash を促す（未コミット変更の破棄を避けるため）
+   - 上記以外（diverged、他人の PR にローカル独自 commit がある等）→ **エラーで停止**し、ユーザーに以下を提示する（stale なコードを対象にすると誤スコープの指摘になり、コメント投稿時は行番号ずれによる 422 も起きる。一方、自動解決はローカル commit の破棄リスクがあるため行わない）:
+     - `--worktree` を付けて再実行する（worktree-resolution の同期手順に委ねる）
+     - 手動で同期・整理してから再実行する
+
+#### 差分取得
 - **必ず解析済みのベースブランチを使用** (`git diff <base-branch>...HEAD`)
 - 差分が大きい場合は `git diff <base-branch>...HEAD --name-only` で変更ファイル一覧を先に確認
 - 各ファイルを `git diff <base-branch>...HEAD -- <ファイル名>` で個別に確認
@@ -407,3 +422,4 @@ EOF
 - `--review-only` の用途: サブエージェント経由など、独立セッションでレビューのみ実行したい場合に指定する（修正判断を呼び出し元セッションで行うため）
 - **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
 - **`<pr-number>` 指定 かつ `--worktree` 未指定時**: カレント branch が PR の head branch と一致しない場合はエラーで停止する（別 branch の差分を誤レビューしないための安全策）
+- **鮮度ガード**: ローカル HEAD が PR の最新 head（`pr.head_oid`）と不一致の場合、安全に同期できるとき（behind のみ・clean）は fast-forward で自動同期し、できないとき（diverged・dirty）はエラーで停止する（`--local-only` でも適用。stale なコードのレビューによる誤スコープ指摘・コメント投稿時の 422 エラーを防ぎつつ、ローカルの作業は破棄しない）
