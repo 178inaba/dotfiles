@@ -40,6 +40,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 - `--worktree`: worktree 切替フラグを設定（後続の「Worktree 解決」セクション参照）
 - `--local-only`: ローカル出力のみフラグを設定
 - `--no-autofix`: 自動対応モード強制OFFフラグを設定
+- 上記以外の `--` で始まる引数（未定義フラグ）はエラーで停止し、定義済みフラグ一覧を提示する（旧名・typo が黙って無視され、意図しないモードで実行される事故を防ぐため）
 
 ベースブランチは引数で受け付けず、後続の差分取得時に自動判定する:
 1. `gh pr view --json baseRefName --jq '.baseRefName'` でPRのベースブランチを取得し、`origin/` を付加
