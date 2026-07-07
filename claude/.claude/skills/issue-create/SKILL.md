@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # /issue-create
 
-壁打ちで固めた内容を「迷わず実装できる」GitHub Issue として構造化・作成する。作成した Issue は `/issue-handle <番号>` で実装に引き渡せる。
+壁打ちで固めた内容を「迷わず実装できる」GitHub Issue として構造化・作成する。
 
 ## 使用方法
 ```
@@ -39,6 +39,7 @@ disable-model-invocation: true
 - 超える → 縦切り（機能として完結する単位。層別のフロント/バック分割は避ける）の分割案を提示し、承認後に親 Issue + Sub-Issues 構成へ
 
 ### 5. 言語・ラベル判定
+以下の2コマンドは独立のため並列実行する:
 - `gh issue list --limit 5` で既存 Issue の言語慣例（日本語/英語）を確認し、それに従う
 - `gh label list` で既存ラベルを取得し、内容に合うものを選定（合うものが無ければ付けない。新規ラベルは作らない）
 
@@ -49,6 +50,7 @@ disable-model-invocation: true
 ### 7. 作成
 - 本文を scratchpad に Write → `gh issue create -R <repo> --title "..." --body-file <path> --assignee @me [--label ...]`
 - 分割時: 親 Issue を作成後、@~/.claude/skills/github-sub-issues/SKILL.md の手順で Sub-Issues を作成・リンク
+  - ただし Sub-Issue 本文も上記同様 scratchpad 経由の `--body-file` で渡す（参照先のワンライナー例は `--body` に `\n` を含む文字列を直渡ししており、リテラルの `\n` が本文に焼き込まれるため読み替える）
 
 ### 8. 完了報告
 - Issue URL を提示し、次アクションとして `/issue-handle <番号>` を案内する
@@ -83,8 +85,3 @@ disable-model-invocation: true
 - [ ] 自己完結: 壁打ちの会話を読まなくても Issue 単体で実装可能
 - [ ] concise but complete: 冗長化させない（本文が長いほど AI エージェントの実装成功率が下がる）
 - [ ] 受け入れ条件の完全性: 全項目が満たされたら、かつその時のみ完了と言える
-
-## 注意事項
-1. 書き込み系 gh コマンドは `-R` 必須・複数行本文は `--body-file`（gh-write-guard フックで機械的に強制される。ブロック時は stderr の指示に従う）
-2. **Sub-Issues 連鎖時も本文は `--body-file` で渡す**: github-sub-issues のワンライナー例は `--body` だが、複数行本文はフックにブロックされるため、`gh issue create` 部分を `--body-file` に読み替えて実行する（親子リンクの API 手順はそのまま利用）
-3. 作成前のユーザー承認は省略しない
