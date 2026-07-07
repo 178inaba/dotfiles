@@ -22,6 +22,7 @@ paths:
 | `skills/cleanup-merged/scripts/collect-candidates.sh` | `bash claude/.claude/tests/test-collect-candidates.sh` |
 | `skills/review-assigned-prs/scripts/list-pending-reviews.sh` | `bash claude/.claude/tests/test-list-pending-reviews.sh` |
 | `skills/review-assigned-prs/scripts/ensure-clone.sh` | `bash claude/.claude/tests/test-ensure-clone.sh` |
+| `skills/review-assigned-prs/scripts/verify-posted-reviews.sh` | `bash claude/.claude/tests/test-verify-posted-reviews.sh` |
 | `hooks/slack-notify.sh` | テスト未整備 — 編集時にテストを新設し、この行を更新する |
 | テストファイル自体 | 編集したテストを実行 |
 

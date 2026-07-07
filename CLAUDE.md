@@ -114,6 +114,7 @@ zsh -l
   - `skills/cleanup-merged/scripts/collect-candidates.sh` — 削除候補の収集・マージ判定・セーフティチェック
   - `skills/review-assigned-prs/scripts/list-pending-reviews.sh` — Bot 以外のレビュー未着 PR の候補収集・判定
   - `skills/review-assigned-prs/scripts/ensure-clone.sh` — レビュー用 clone dir の ensure（未 clone は clone、既存は fetch）
+  - `skills/review-assigned-prs/scripts/verify-posted-reviews.sh` — サブエージェント完了報告後のレビュー投稿検証
   - `scripts/fetch-pr-context.sh` — PR コンテキスト一括取得（`/deep-review`・`/review-response` 共有）
 - **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 

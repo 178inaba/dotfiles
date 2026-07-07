@@ -71,7 +71,8 @@ bash ~/.claude/skills/review-assigned-prs/scripts/list-pending-reviews.sh
   → JSON `{"path": "..."}` を返す。clone 先パスの規約はスクリプトヘッダーコメントを参照
 - `cd <path>` してから実行: `/deep-review <PR番号> --worktree --review-only`
   - 各フラグの意味は `@~/.claude/skills/deep-review/SKILL.md` を参照
-- レビュー結果をそのまま返すよう指示（追加の解釈・要約は不要）
+  - 対象は他人の PR のためコメントモードが ON になり、**レビューを PR に投稿するところまでが必須成果物である**旨を明示する（投稿スキップは失敗扱い）
+- レビュー結果と投稿したレビューの URL をそのまま返すよう指示（追加の解釈・要約は不要）
 - 補助コンテキスト: PR URL・PR 番号・repo 名
 
 #### `ensure-clone.sh` の出力 JSON 契約
@@ -83,14 +84,37 @@ bash ~/.claude/skills/review-assigned-prs/scripts/list-pending-reviews.sh
 - **`path`**: レビュー用 clone dir の絶対パス（clone 先の規約はスクリプトヘッダー参照）
 - 引数不正・clone/fetch 失敗時は非ゼロ exit + 英語 stderr
 
-### 4. 完了報告
+### 4. 投稿検証と完了報告
 
-各サブエージェントの結果を集約し、1〜2 行のサマリを表示:
+サブエージェントの自己申告だけで「投稿済み」とせず、成功報告のあった各 PR についてレビューが実際に投稿されたかを検証する（未投稿を見逃すと次イテレーションでも候補に残り続け、同じ PR が繰り返しレビューされるため）。成功報告のあった PR を1回の呼び出しにまとめて検証する（成功報告が0件なら検証をスキップして完了報告に進む）:
+
+```bash
+bash ~/.claude/skills/review-assigned-prs/scripts/verify-posted-reviews.sh <owner>/<repo>#<number> [...]
+```
+
+#### `verify-posted-reviews.sh` の出力 JSON 契約
+
+```json
+{
+  "results": [
+    {"owner": "acme", "repo": "foo", "number": 123, "posted": true}
+  ],
+  "degraded": false,
+  "warnings": []
+}
+```
+
+- **`posted`**: `true` なら投稿済み、`false` なら未投稿（サブエージェントが投稿をスキップした事故）
+- **`degraded: true`**: 一部 PR の検証に失敗した（`warnings` 参照）。失敗した PR は `results` に含まれないため「検証失敗」として報告する
+- スクリプトが非ゼロ終了した場合（引数不正・login 取得失敗など）は stderr のメッセージを提示して停止する
+
+検証結果を集約し、1〜2 行のサマリを表示:
 
 ```
 レビュー完了 (N 件):
 - acme/foo#123: レビュー投稿済み
 - acme/bar#456: サブエージェント失敗（<エラー概要>）
+- acme/baz#789: レビュー未投稿（サブエージェントは完了報告 — レビュー結果は返却済みのため要確認）
 ```
 
 `degraded: true` があれば `warnings` を末尾に併記。
