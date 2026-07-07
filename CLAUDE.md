@@ -106,18 +106,13 @@ zsh -l
 ### Hooks
 - `gh-write-guard.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ。また複数行の本文を `--body`/`-b` で渡すことをブロックして `--body-file` へ誘導し、引用符レイヤの重なりによる誤エスケープで本文にリテラルの `\` が残る事故を防ぐ
 - `start-caffeinate.sh` (UserPromptSubmit, PreToolUse) / `stop-caffeinate.sh` (Stop, Notification, SessionEnd) — Claude が作業中の間だけ macOS のスリープを抑止する。`/tmp/claude-caffeinate-${session_id}.pid` で PID 管理し、`nohup caffeinate -di` をデタッチ起動。承認後・ExitPlanMode 承認後の再開は次の `PreToolUse` で再起動される。例外として Remote Control 接続中（`CLAUDE_CODE_BRIDGE_SESSION_ID` あり、Claude Code v2.1.199+）は、ホストのスリープで約10分後にリモートセッションがタイムアウトするため、SessionEnd 以外では停止せず返信待ちの間も抑止を維持する。caffeinate は Claude 本体プロセスを `-w` で watch して起動するため、クラッシュ・SIGKILL 等フックを経由しない終了でも残留しない
-- **編集時は必ずテストを走らせる**:
-  - `bash claude/.claude/hooks/tests/test-gh-write-guard.sh`
-  - `bash claude/.claude/hooks/tests/test-caffeinate.sh`（`CAFFEINATE_BIN` でスタブに差し替え、実機 caffeinate を起動しない）
-  - 理由: フックの失敗モードは silent（見逃し時、実際に事故が起きるまで気付けない）。regression は手動デモでは踏みにくいため、テストでの担保が必須
+- **編集時は必ずテストを走らせる**: 対応表・理由・テストの設計制約は `claude/.claude/rules/script-testing.md` を参照
 
 ### スキルスクリプト
 - スキル内の決定的処理（収集・判定・正規化）はスクリプトに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/rules/skill-authoring.md` の「スクリプト同梱パターン」）
   - `skills/cleanup-merged/scripts/collect-candidates.sh` — 削除候補の収集・マージ判定・セーフティチェック
   - `scripts/fetch-pr-context.sh` — PR コンテキスト一括取得（`/deep-review`・`/review-response` 共有）
-- **編集時は必ずテストを走らせる**（理由は Hooks と同じ: 失敗モードが silent）:
-  - `bash claude/.claude/tests/test-collect-candidates.sh`
-  - `bash claude/.claude/tests/test-fetch-pr-context.sh`（gh は `GH_BIN` でスタブに差し替え、実 gh・実リポジトリに触れない）
+- **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 
 ### 通知チャンネル
 - `preferredNotifChannel` は `"iterm2"` を指定。`"auto"`・`"ghostty"` は Ghostty + tmux 環境で通知が届かない既知バグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策

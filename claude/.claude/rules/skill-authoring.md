@@ -100,9 +100,8 @@ disable-model-invocation: true  # 副作用がある場合はtrue
 - **スキル横断の共有スクリプト**は、契約の正をスクリプトのヘッダーコメントに置き、各 SKILL.md には自スキルが使うフィールドの解釈のみ書く（複数 SKILL.md への契約複製はドリフトの元）
 
 ### テスト必須
-- 配置: `claude/.claude/tests/test-<name>.sh`（hooks 同様、失敗モードが silent のためリグレッションテスト必須）
-- 外部コマンドは env 差し替えでスタブ化（例: `GH_BIN`。hooks の `CAFFEINATE_BIN` パターン踏襲）
-- git 操作は `mktemp -d` の使い捨てリポジトリで完結させ、実 gh・実リポジトリに触れない
+- 配置: `claude/.claude/tests/test-<name>.sh`
+- 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない。新規スクリプト追加時は同ルールの対応表にも行を追加する
 - 既存例の一覧はプロジェクト CLAUDE.md の「スキルスクリプト」を参照（列挙の正はそちらに一本化）
 
 ## 良い例・悪い例
