@@ -1,16 +1,27 @@
 ---
 name: review-assigned-prs
-description: 自分にレビュー依頼が来ているPRのうち、Bot以外のレビューがまだ付いていないものを /deep-review で並列レビュー
+description: 自分にレビュー依頼が来ているPRのうち、他人だけがレビュー済みで自分が未レビューのものを除いて /deep-review で並列レビュー
 disable-model-invocation: true
 ---
 
 # /review-assigned-prs
 
-自分に user-review-requested が付いている open PR のうち「Bot 以外のレビューがまだ 1 件も付いていない」ものを検出し、各 PR に対してサブエージェント経由で `/deep-review <PR番号> --worktree --no-autofix` を並列実行する。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
+担当者が自分に明示的にレビューを求めている open PR — 初回依頼、あるいは自分の過去レビュー後の再レビュー依頼 — を検出し、各 PR に対してサブエージェント経由で `/deep-review <PR番号> --worktree --no-autofix` を並列実行する。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
 
-Draft PR は業界標準に従い対象外（作者が Ready for review にした時点で候補に入る）。
+「他人が先にレビュー済みで自分だけ未レビュー」の PR は除外する（他人のレビューに機械的に上乗せしないため）。Draft PR も対象外（作者が Ready for review にした時点で候補に入る）。
 
-Copilot・github-actions・CodeRabbit 等の Bot レビューは全て「人間未レビュー」扱いになり、候補として残る。自分の既存レビューは `user.type: "User"` として弾かれるため、`/loop` で繰り返し実行しても投稿済み PR は次回イテレーションから自動的に対象外になる（重複防止ロジックは不要）。他レビュアー（人間）が先にレビュー済みの PR も同様に対象外になり、「まだ誰も人間がレビューしていない、自分が最初のレビュアーになりうる PR」に絞られる。
+## 対象判定（実装ノート）
+
+`user-review-requested:@me` に該当する open PR を以下で振り分ける（判定はスクリプトで完結）。GitHub は「requested_reviewers に現在いる」PR だけを返し、レビュー投稿で自動的に外れ、再指名で戻る挙動を利用している:
+
+| 自分の過去レビュー | 他人（Bot以外）のレビュー | 判定 |
+|---|---|---|
+| なし | なし | ✓ 対象（初回依頼） |
+| なし | あり | ✗ 除外（他人が先に対応） |
+| あり | なし | ✓ 対象（再レビュー依頼） |
+| あり | あり | ✓ 対象（再レビュー依頼） |
+
+Bot レビュー（Copilot・github-actions・CodeRabbit 等）は「人間未レビュー」扱いで対象判定に影響しない。PR 作成者自身のレビューコメントも「他人」に含めない（Reply スレッドが GitHub 内部で COMMENTED state の review として記録されるため、作者を除外しないと「Copilot 指摘に作者が返信しただけ」の PR が誤除外される）。自分の過去レビューは状態を問わずカウントする（DISMISSED / PENDING も再レビュー相当）。`/loop` で繰り返し実行しても、再レビュー依頼が来ない限り同じ PR は次回イテレーションで自動的に対象外になる（重複防止ロジック不要）。
 
 ## 使用方法
 ```
