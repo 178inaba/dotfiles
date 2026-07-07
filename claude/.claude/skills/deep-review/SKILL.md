@@ -18,7 +18,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
 - `--worktree`: 対象 PR の worktree に切替（既存があれば再利用、無ければ作成）。並列で別作業中に他者の PR をレビューする際の主要ユースケース
 - `--local-only`: 強制的にローカル出力のみ（PRコメント投稿しない）
-- `--no-autofix`: 強制的に自動対応モードOFF（修正・コミット・プッシュしない）。コメント投稿の有無には影響しない（他人のPRなら通常どおりPRにレビュー投稿する）。投稿も抑制したい場合は `--local-only` を併用。旧名 `--review-only` も同義として受け付ける（非推奨）
+- `--no-autofix`: 強制的に自動対応モードOFF（修正・コミット・プッシュしない）。コメント投稿の有無には影響しない（他人のPRなら通常どおりPRにレビュー投稿する）。投稿も抑制したい場合は `--local-only` を併用
 
 ベースブランチは自動判定: PRがあればPRのベースブランチ、なければリポジトリのデフォルトブランチを使用する（フォールバックは `origin/main`）。
 
@@ -39,7 +39,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 - `--issue ISSUE_NUMBER`: Issue番号を抽出
 - `--worktree`: worktree 切替フラグを設定（後続の「Worktree 解決」セクション参照）
 - `--local-only`: ローカル出力のみフラグを設定
-- `--no-autofix`（旧名 `--review-only` も同義）: 自動対応モード強制OFFフラグを設定
+- `--no-autofix`: 自動対応モード強制OFFフラグを設定
 
 ベースブランチは引数で受け付けず、後続の差分取得時に自動判定する:
 1. `gh pr view --json baseRefName --jq '.baseRefName'` でPRのベースブランチを取得し、`origin/` を付加
