@@ -52,13 +52,14 @@ export GH_STUB_DATA="$TMP/data"
 export GH_STUB_LOG="$TMP/gh-log"
 
 # --- フィクスチャ ---
-# 4 PR: no reviews / Bot のみ / 人間あり / Bot+人間 混在
+# 5 PR: no reviews / Bot のみ / 人間あり / Bot+人間 混在 / Bot のみ複数ページ
 cat > "$TMP/data/search.json" <<'EOF'
 [
   {"number": 100, "url": "https://github.com/acme/foo/pull/100", "repository": {"nameWithOwner": "acme/foo"}},
   {"number": 101, "url": "https://github.com/acme/bar/pull/101", "repository": {"nameWithOwner": "acme/bar"}},
   {"number": 102, "url": "https://github.com/acme/baz/pull/102", "repository": {"nameWithOwner": "acme/baz"}},
-  {"number": 103, "url": "https://github.com/acme/qux/pull/103", "repository": {"nameWithOwner": "acme/qux"}}
+  {"number": 103, "url": "https://github.com/acme/qux/pull/103", "repository": {"nameWithOwner": "acme/qux"}},
+  {"number": 104, "url": "https://github.com/acme/page/pull/104", "repository": {"nameWithOwner": "acme/page"}}
 ]
 EOF
 
@@ -78,6 +79,12 @@ EOF
 cat > "$TMP/data/reviews-acme-qux-103.json" <<'EOF'
 [{"user": {"type": "Bot", "login": "copilot"}, "state": "COMMENTED"},
  {"user": {"type": "User", "login": "someone"}, "state": "COMMENTED"}]
+EOF
+
+# acme/page#104: Bot のみが複数ページ（--paginate のページ連結出力）→ 候補
+cat > "$TMP/data/reviews-acme-page-104.json" <<'EOF'
+[{"user": {"type": "Bot", "login": "copilot"}, "state": "COMMENTED"}]
+[{"user": {"type": "Bot", "login": "coderabbit"}, "state": "COMMENTED"}]
 EOF
 
 pass=0
@@ -125,8 +132,10 @@ assert 'human-reviewed PR excluded' "$out" \
   '[.prs[].number] | index(102) | not'
 assert 'mixed (bot+human) PR excluded' "$out" \
   '[.prs[].number] | index(103) | not'
-assert 'candidate count is 2' "$out" \
-  '.prs | length == 2'
+assert 'bot-only multi-page PR kept as candidate' "$out" \
+  'any(.prs[]; .owner == "acme" and .repo == "page" and .number == 104)'
+assert 'candidate count is 3' "$out" \
+  '.prs | length == 3'
 assert 'normal run: degraded false, no warnings' "$out" \
   '.degraded == false and (.warnings | length == 0)'
 

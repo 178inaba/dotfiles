@@ -37,9 +37,11 @@ fi
 filtered_items=""
 while IFS=$'\t' read -r owner repo number url; do
   [ -z "$owner" ] && continue
-  # --paginate で全ページ集約（30件超のレビューが Bot だけの状況で人間レビューを取りこぼさないため）
+  # --paginate で全ページ集約（30件超のレビューが Bot だけの状況で人間レビューを取りこぼさないため）。
+  # --paginate はページごとの JSON 配列を連結して返すので、jq -s + add で1配列に潰してから数える
+  # （ページごとに数えると human_count が複数行になり、Bot のみの複数ページ PR を誤除外する）
   if reviews_json=$("$GH_BIN" api --paginate "repos/$owner/$repo/pulls/$number/reviews" 2>/dev/null); then
-    human_count=$(jq '[.[] | select(.user.type != "Bot")] | length' <<< "$reviews_json")
+    human_count=$(jq -s 'add // [] | map(select(.user.type != "Bot")) | length' <<< "$reviews_json")
     if [ "$human_count" = "0" ]; then
       filtered_items+=$(jq -nc \
         --arg owner "$owner" --arg repo "$repo" \
