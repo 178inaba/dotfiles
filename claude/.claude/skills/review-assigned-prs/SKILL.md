@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /review-assigned-prs
 
-自分に user-review-requested が付いている open PR のうち「Bot 以外のレビューがまだ 1 件も付いていない」ものを検出し、各 PR に対してサブエージェント経由で `/deep-review <PR番号> --worktree --review-only` を並列実行する。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
+自分に user-review-requested が付いている open PR のうち「Bot 以外のレビューがまだ 1 件も付いていない」ものを検出し、各 PR に対してサブエージェント経由で `/deep-review <PR番号> --worktree --no-autofix` を並列実行する。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
 
 Draft PR は業界標準に従い対象外（作者が Ready for review にした時点で候補に入る）。
 
@@ -69,7 +69,7 @@ bash ~/.claude/skills/review-assigned-prs/scripts/list-pending-reviews.sh
   bash ~/.claude/skills/review-assigned-prs/scripts/ensure-clone.sh <owner>/<repo>
   ```
   → JSON `{"path": "..."}` を返す。clone 先パスの規約はスクリプトヘッダーコメントを参照
-- `cd <path>` してから実行: `/deep-review <PR番号> --worktree --review-only`
+- `cd <path>` してから実行: `/deep-review <PR番号> --worktree --no-autofix`
   - 各フラグの意味は `@~/.claude/skills/deep-review/SKILL.md` を参照
   - 対象は他人の PR のためコメントモードが ON になり、**レビューを PR に投稿するところまでが必須成果物である**旨を明示する（投稿スキップは失敗扱い）
 - レビュー結果と投稿したレビューの URL をそのまま返すよう指示（追加の解釈・要約は不要）

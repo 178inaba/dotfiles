@@ -1,7 +1,7 @@
 ---
 name: deep-review
 description: コード差分を詳細にレビュー
-argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--review-only]"
+argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no-autofix]"
 ---
 
 # /deep-review
@@ -10,7 +10,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 
 ## 使用方法
 ```
-/deep-review [<pr-number>] [--issue ISSUE_NUMBER] [--worktree] [--local-only] [--review-only]
+/deep-review [<pr-number>] [--issue ISSUE_NUMBER] [--worktree] [--local-only] [--no-autofix]
 ```
 
 **引数**:
@@ -18,7 +18,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 - `--issue ISSUE_NUMBER`: 指定したIssue要件を満たしているか確認
 - `--worktree`: 対象 PR の worktree に切替（既存があれば再利用、無ければ作成）。並列で別作業中に他者の PR をレビューする際の主要ユースケース
 - `--local-only`: 強制的にローカル出力のみ（PRコメント投稿しない）
-- `--review-only`: 強制的に自動対応モードOFF（修正・コミット・プッシュしない）。コメント投稿の有無には影響しない（他人のPRなら通常どおりPRにレビュー投稿する）。投稿も抑制したい場合は `--local-only` を併用
+- `--no-autofix`: 強制的に自動対応モードOFF（修正・コミット・プッシュしない）。コメント投稿の有無には影響しない（他人のPRなら通常どおりPRにレビュー投稿する）。投稿も抑制したい場合は `--local-only` を併用。旧名 `--review-only` も同義として受け付ける（非推奨）
 
 ベースブランチは自動判定: PRがあればPRのベースブランチ、なければリポジトリのデフォルトブランチを使用する（フォールバックは `origin/main`）。
 
@@ -27,9 +27,9 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 /deep-review                              # カレント branch の差分をレビュー
 /deep-review --issue 123                  # Issue #123の要件も確認
 /deep-review --local-only                 # 他人のPRでもローカル出力のみ
-/deep-review --issue 123 --review-only    # Issue #123 の要件確認つきで自動修正なしレビュー（サブエージェント経由レビュー想定）
+/deep-review --issue 123 --no-autofix     # Issue #123 の要件確認つきで自動修正なしレビュー（サブエージェント経由レビュー想定）
 /deep-review 123 --worktree               # PR 123 を worktree に切替してレビュー（並列レビューの主用途）
-/deep-review 123 --worktree --review-only # 他人 PR を独立 worktree で自動修正なしレビュー
+/deep-review 123 --worktree --no-autofix  # 他人 PR を独立 worktree で自動修正なしレビュー
 ```
 
 ## 実行内容
@@ -39,7 +39,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 - `--issue ISSUE_NUMBER`: Issue番号を抽出
 - `--worktree`: worktree 切替フラグを設定（後続の「Worktree 解決」セクション参照）
 - `--local-only`: ローカル出力のみフラグを設定
-- `--review-only`: 自動対応モード強制OFFフラグを設定
+- `--no-autofix`（旧名 `--review-only` も同義）: 自動対応モード強制OFFフラグを設定
 
 ベースブランチは引数で受け付けず、後続の差分取得時に自動判定する:
 1. `gh pr view --json baseRefName --jq '.baseRefName'` でPRのベースブランチを取得し、`origin/` を付加
@@ -54,14 +54,14 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--re
 /deep-review --local-only
 → pr-number: null, local-only: true
 
-/deep-review --issue 123 --review-only
-→ pr-number: null, issue: 123, review-only: true
+/deep-review --issue 123 --no-autofix
+→ pr-number: null, issue: 123, no-autofix: true
 
 /deep-review 123 --worktree
 → pr-number: 123, worktree: true
 
-/deep-review 123 --worktree --review-only
-→ pr-number: 123, worktree: true, review-only: true
+/deep-review 123 --worktree --no-autofix
+→ pr-number: 123, worktree: true, no-autofix: true
 ```
 
 ### 1.5. Worktree 解決（`--worktree` 指定時のみ、引数解析直後に実行）
@@ -116,7 +116,7 @@ PRメタ情報・通常コメント・レビュー本文・レビュースレッ
 
 ### 3. コメントモード・個人ルールモード・自動対応モード判定
 
-`--local-only` と `--review-only` は独立したフラグで、それぞれコメントモード・自動対応モードのみを制御する（例: `--review-only` 指定でも他人のPRならコメントモードONとなり、レビュー投稿まで行う）。
+`--local-only` と `--no-autofix` は独立したフラグで、それぞれコメントモード・自動対応モードのみを制御する（例: `--no-autofix` 指定でも他人のPRならコメントモードONとなり、レビュー投稿まで行う）。
 
 #### コメントモード
 PRにレビューコメントを投稿するかを判定:
@@ -137,7 +137,7 @@ PRにレビューコメントを投稿するかを判定:
 
 #### 自動対応モード
 レビュー指摘事項のうち対応すべきと判断したものを Claude Code が自動で working tree に適用し、コミット・PR更新まで進めるかを判定:
-1. `--review-only` 指定時 → 自動対応モードOFF（最優先）
+1. `--no-autofix` 指定時 → 自動対応モードOFF（最優先）
 2. 未指定時 → 自動判定:
    - PR作成者が自分 → 自動対応モードON
    - PRが存在しない場合 → 自動対応モードON（自分のコード）
@@ -415,7 +415,7 @@ EOF
 - `comments` 配列が空の場合（行に紐づく指摘がない場合）でも `body` のみでレビュー投稿は可能
 - 自動対応モードはレビュー結果出力後に走るため、ユーザーが出力を確認して Esc で中断できる
 - 自動対応モードと既存のコメントモードは排他（自分のPR/未PR時は自動対応、他人のPR時はコメント投稿）
-- `--review-only` の用途: サブエージェント経由など、独立セッションで自動対応なしのレビューを実行したい場合に指定する（修正判断を呼び出し元セッションで行うため。コメント投稿への影響はセクション3参照）
+- `--no-autofix` の用途: サブエージェント経由など、独立セッションで自動対応なしのレビューを実行したい場合に指定する（修正判断を呼び出し元セッションで行うため。コメント投稿への影響はセクション3参照）
 - **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
 - **`<pr-number>` 指定 かつ `--worktree` 未指定時**: カレント branch が PR の head branch と一致しない場合はエラーで停止する（別 branch の差分を誤レビューしないための安全策）
 - **鮮度ガード**: 差分取得前に「共通サブ手順: PR head との鮮度確認」を実行する（セクション4。`--local-only` でも適用。同期・停止条件の正はサブ手順側を参照）
