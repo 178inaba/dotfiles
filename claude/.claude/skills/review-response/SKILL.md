@@ -1,13 +1,12 @@
 ---
 name: review-response
-description: GitHubのレビューコメントを確認して適切に対応
+description: GitHubのレビューコメントに対応し、修正コミット・返信投稿・スレッド解決まで実行
 argument-hint: [<pr-number>] [--dry-run] [--worktree]
-disable-model-invocation: true
 ---
 
 # /review-response
 
-GitHubのレビューコメントを確認して適切に対応
+GitHubのレビューコメントに対応し、修正コミット・返信投稿・スレッド解決まで実行
 
 ## 使用方法
 ```

@@ -1,7 +1,6 @@
 ---
 name: review-assigned-prs
-description: 自分にレビュー依頼が来ているPRのうち、他人だけがレビュー済みで自分が未レビューのものを除いて /deep-review で並列レビュー
-disable-model-invocation: true
+description: 自分にレビュー依頼が来ているPR（他人が先にレビュー済みで自分が未レビューのものは除く）を /deep-review でサブエージェント並列レビューし、GitHubにレビューを投稿する（/loop 常駐運用向け）
 ---
 
 # /review-assigned-prs
@@ -9,6 +8,8 @@ disable-model-invocation: true
 担当者が自分に明示的にレビューを求めている open PR — 初回依頼、あるいは自分の過去レビュー後の再レビュー依頼 — を検出し、各 PR に対してサブエージェント経由で `/deep-review <PR番号> --worktree --no-autofix` を並列実行する。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
 
 「他人が先にレビュー済みで自分だけ未レビュー」の PR は除外する（他人のレビューに機械的に上乗せしないため）。Draft PR も対象外（作者が Ready for review にした時点で候補に入る）。
+
+レビュー実行の明示的な依頼（`/review-assigned-prs` の指定・`/loop` 常駐運用の依頼）でのみ実行する。レビュー依頼の有無を確認したいだけの質問では起動しない（GitHub へのレビュー投稿という取り消せない副作用を伴うため）。
 
 ## 対象判定（実装ノート）
 

@@ -60,9 +60,9 @@ disable-model-invocation: true  # 副作用がある場合はtrue
 ### `disable-model-invocation` の判断基準
 - **`true`（手動のみ）**: Git操作、ファイル編集、外部API呼び出しなど副作用があるスキル
 - **`false`（自動トリガー可能）**: 読み取り専用、分析・レビュー系のスキル
-- **例外**: 副作用ありでも他スキル（特に `issue-handle` 等のワークフロー系）から呼び出される場合は未設定（`false` 相当）にする
-  - 理由: モデル経由で起動できないと連鎖呼び出しが成立しないため
-  - 例: `git-commit`, `git-pr` は `issue-handle` から呼ばれるため未設定
+- **例外**: 副作用ありでも他スキル（特に `issue-handle` 等のワークフロー系）から呼び出される場合、または `/loop` 常駐運用を想定する場合は未設定（`false` 相当）にする
+  - 理由: 連鎖呼び出しも `/loop`（即時実行・cron 発火とも）もモデル経由の起動であり、`true` だと全経路がブロックされるため
+  - 例: `git-commit`, `git-pr` は `issue-handle` から呼ばれるため未設定。`review-assigned-prs`, `review-response` は `/loop` 常駐運用のため未設定
 
 ## 設計原則
 
