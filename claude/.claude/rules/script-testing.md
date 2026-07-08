@@ -17,6 +17,7 @@ paths:
 | 編集対象 | テストコマンド |
 |---|---|
 | `hooks/gh-write-guard.sh` | `bash claude/.claude/hooks/tests/test-gh-write-guard.sh` |
+| `hooks/worktree-edit-guard.sh` | `bash claude/.claude/hooks/tests/test-worktree-edit-guard.sh` |
 | `hooks/start-caffeinate.sh`・`hooks/stop-caffeinate.sh` | `bash claude/.claude/hooks/tests/test-caffeinate.sh` |
 | `scripts/fetch-pr-context.sh` | `bash claude/.claude/tests/test-fetch-pr-context.sh` |
 | `skills/cleanup-merged/scripts/collect-candidates.sh` | `bash claude/.claude/tests/test-collect-candidates.sh` |

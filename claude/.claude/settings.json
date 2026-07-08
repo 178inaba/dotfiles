@@ -67,6 +67,15 @@
         ]
       },
       {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/worktree-edit-guard.sh"
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",

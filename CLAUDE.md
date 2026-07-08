@@ -106,6 +106,7 @@ zsh -l
 
 ### Hooks
 - `gh-write-guard.sh` (PreToolUse) — `gh` の書き込み系サブコマンドで `-R/--repo` を必須化し、別リポジトリへ `cd` した状態で意図しないリポジトリに Issue/PR を作成する事故を防ぐ。また複数行の本文を `--body`/`-b` で渡すことをブロックして `--body-file` へ誘導し、引用符レイヤの重なりによる誤エスケープで本文にリテラルの `\` が残る事故を防ぐ
+- `worktree-edit-guard.sh` (PreToolUse) — session cwd が linked worktree 内なのに Edit/Write/NotebookEdit の対象パスが同一リポジトリの worktree 外（メインツリー本体・別 worktree）を指す場合にブロックし、worktree 側の対応パスへ誘導する。EnterWorktree は session cwd を切り替えるがツールに渡す絶対パスは自動変換されないため、切替前の調査で Read したメインツリー絶対パスを Edit に流用してメインツリーを誤修正する事故を防ぐ（Read はどちらのツリーでも同じ内容が返るため直前まで気付けない）。リポジトリ外のパス（`~/.claude/`・scratchpad 等）は対象外
 - `start-caffeinate.sh` (UserPromptSubmit, PreToolUse, SubagentStart) / `stop-caffeinate.sh` (Stop, Notification, SessionEnd, SubagentStop) — Claude が作業中の間だけ macOS のスリープを抑止する。caffeinate は30分リース（`-t 1800`）付きで起動し、ツール呼び出しのたびに kill→再起動でリースを更新する。Esc 中断・API エラー等 Stop フックを経ない終了では更新が止まって自己失効するため、caffeinate が残留して眠らなくなる事故を防ぐ。サブエージェント（バックグラウンド実行され、親ターン終了の Stop 後も動き続ける）には SubagentStart で per-agent caffeinate（`/tmp/claude-caffeinate-${session_id}-agent-${agent_id}.pid`）を起動し、SubagentStop で `.done` にリネームして親の次の Stop で回収する（完了直後に親が結果を読んでいる間の抑止空白を防ぐ。稼働中の `.pid` は Stop でも殺さない）。例外として Remote Control 接続中（`CLAUDE_CODE_BRIDGE_SESSION_ID` あり、Claude Code v2.1.199+）は、ホストのスリープで約10分後にリモートセッションがタイムアウトするため、セッションの caffeinate を `-t` なしで起動し SessionEnd 以外では停止せず返信待ちの間も抑止を維持する。caffeinate は Claude 本体プロセスを `-w` で watch して起動するため、クラッシュ・SIGKILL 等フックを経由しない終了でも残留しない
 - **編集時は必ずテストを走らせる**: 対応表・理由・テストの設計制約は `claude/.claude/rules/script-testing.md` を参照
 
