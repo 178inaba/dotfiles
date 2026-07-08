@@ -12,44 +12,48 @@
 #   - 入力: stdin に PreToolUse の JSON
 #   - 対象: tool_name が Edit / Write / NotebookEdit
 #   - session cwd が linked worktree 内なのに、対象パスが同一リポジトリの
-#     worktree 外（メインツリー本体・別 worktree）を指す場合 exit 2
-#   - リポジトリ外のパス（~/.claude/・scratchpad 等）や、cwd がメイン
-#     worktree / リポジトリ外の場合は exit 0 で素通り（fail open）
+#     別ツリー（メインツリー・別 worktree）に属する場合 exit 2
+#   - 対象パスの所属ツリーは `git worktree list --porcelain` で分類する
+#     （ディレクトリ配置の推測に依存しないため、bare リポジトリ + worktree
+#     構成やリポジトリディレクトリ外に作られた worktree でも誤判定しない）
+#   - どのツリーにも属さないパス（~/.claude/・scratchpad 等）や、cwd が
+#     メイン worktree / リポジトリ外の場合は exit 0 で素通り（fail open）
 
 set -euo pipefail
 
 input=$(cat)
 
-tool_name=$(printf '%s' "$input" | jq -r '.tool_name // empty')
+tool_name="" target="" cwd=""
+eval "$(printf '%s' "$input" | jq -r '@sh "tool_name=\(.tool_name // "") target=\(.tool_input.file_path // .tool_input.notebook_path // "") cwd=\(.cwd // "")"')"
+
 case "$tool_name" in
   Edit | Write | NotebookEdit) ;;
   *) exit 0 ;;
 esac
-
-target=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
 [ -n "$target" ] || exit 0
-
-cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || exit 0
 
-worktree_root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || exit 0
-git_dir=$(git -C "$cwd" rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
-common_dir=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+# Edit/Write/NotebookEdit は絶対パス契約。相対パスは判定不能として素通り
+case "$target" in
+  /*) ;;
+  *) exit 0 ;;
+esac
+
+info=$(git -C "$cwd" rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir 2>/dev/null) || exit 0
+{
+  read -r worktree_root
+  read -r git_dir
+  read -r common_dir
+} <<<"$info"
 
 # git-dir と git-common-dir が一致 = メイン worktree（ガード対象外）
 [ "$git_dir" != "$common_dir" ] || exit 0
 
-main_root=$(dirname "$common_dir")
-
 # 物理パス化（macOS の /tmp -> /private/tmp 等の symlink 差異を吸収して
-# prefix 比較を成立させる）。ディレクトリ以外・未存在パスは、存在する
+# prefix 比較を成立させる）。未存在パス（Write の新規ファイル）は、存在する
 # 最近接の祖先ディレクトリを物理化して残りを連結する。
 physical_path() {
   local path=$1 suffix=""
-  case "$path" in
-    /*) ;;
-    *) path="$cwd/$path" ;;
-  esac
   while [ ! -d "$path" ]; do
     suffix="/$(basename "$path")$suffix"
     path=$(dirname "$path")
@@ -58,26 +62,49 @@ physical_path() {
 }
 
 worktree_phys=$(physical_path "$worktree_root")
-main_root_phys=$(physical_path "$main_root")
 target_phys=$(physical_path "$target")
 
 case "$target_phys" in
   "$worktree_phys" | "$worktree_phys"/*) exit 0 ;;
 esac
 
-case "$target_phys" in
-  "$main_root_phys"/*) ;;
-  *) exit 0 ;;
-esac
+# コールドパス: 対象が現 worktree の外。所属ツリーを worktree 一覧から分類する
+wt_list=$(git -C "$cwd" worktree list --porcelain 2>/dev/null) || exit 0
 
-rel=${target_phys#"$main_root_phys"/}
-target_location="the main tree"
-case "$rel" in
-  .claude/worktrees/*/*)
-    rel=${rel#.claude/worktrees/*/}
-    target_location="another worktree"
-    ;;
-esac
+paths=() bares=()
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*)
+      paths+=("${line#worktree }")
+      bares+=(0)
+      ;;
+    bare)
+      bares[${#bares[@]} - 1]=1
+      ;;
+  esac
+done <<<"$wt_list"
+
+# 一覧の先頭はメイン worktree（bare の場合はメインツリーなし）。
+# worktree はメインツリー配下に置かれることがあるため、最長 prefix の
+# ツリーを所属先として採用する
+owner_root="" owner_label=""
+for i in "${!paths[@]}"; do
+  [ "${bares[i]}" -eq 0 ] || continue
+  p_phys=$(physical_path "${paths[i]}")
+  [ "$p_phys" != "$worktree_phys" ] || continue
+  case "$target_phys" in
+    "$p_phys" | "$p_phys"/*)
+      if [ "${#p_phys}" -gt "${#owner_root}" ]; then
+        owner_root=$p_phys
+        if [ "$i" -eq 0 ]; then owner_label="the main tree"; else owner_label="another worktree"; fi
+      fi
+      ;;
+  esac
+done
+
+[ -n "$owner_root" ] || exit 0
+
+rel=${target_phys#"$owner_root"/}
 suggested="$worktree_phys/$rel"
 
 cat >&2 <<EOF
@@ -85,18 +112,18 @@ Blocked: this $tool_name targets a path outside the current worktree.
 
   session cwd (worktree): $worktree_phys
   target path:            $target
-  main repository root:   $main_root_phys
+  owning tree:            $owner_root ($owner_label)
 
-This session works in a linked git worktree, but the target path points at
-$target_location of the same repository. This usually happens when an
+This session works in a linked git worktree, but the target path belongs to
+$owner_label of the same repository. This usually happens when an
 absolute path obtained before the worktree switch (e.g. Read during
 investigation) is reused for $tool_name, silently modifying the wrong tree.
 
 Fix: re-run $tool_name with the corresponding path inside the worktree:
   $suggested
 
-If you really intend to modify the main tree, do it explicitly via Bash
-(e.g. git -C "$main_root_phys" ...) or confirm with the user first.
+If you really intend to modify that tree, do it explicitly via Bash
+(e.g. git -C "$owner_root" ...) or confirm with the user first.
 EOF
 
 exit 2
