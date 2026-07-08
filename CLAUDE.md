@@ -73,7 +73,7 @@ zsh -l
 - `/git-pr` - プルリクエスト作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
 - `/git-rebase` - PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消
 - `/understand-pr` - 現在のブランチのPRを理解し、目的・変更内容・現状を構造化して報告
-- `/issue-create` - 壁打ちで固めた内容を「迷わず実装できる」Issueとして構造化・作成（粒度超過時はSub-Issues分割を提案、作成前にドラフト承認）
+- `/issue-create` - 壁打ちで固めた内容を「迷わず実装できる」Issueとして構造化・作成（情報不足は追加調査とユーザー確認で補完、粒度超過時はSub-Issues分割を提案、作成前にドラフト承認）
 - `/issue-handle` - Issueの調査から実装完了まで対応（Planモードで対話型、`--file`でファイルから仕様読み込み、`--worktree`で専用worktreeに隔離して並列開発可能、完了時に独立セッションで `/deep-review` を実行）
 - `/extract-context` - 会話からコンテキストを抽出し、分離基準に従って適切な置き場所に追記
 - `/review-response` - GitHubレビューコメントの自動対応（`<pr-number>`でPR指定、`--worktree`で対象PRのworktreeに切替/作成、`--dry-run`で確認のみ）
