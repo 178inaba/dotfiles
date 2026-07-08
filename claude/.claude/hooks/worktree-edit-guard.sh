@@ -16,8 +16,13 @@
 #   - 対象パスの所属ツリーは `git worktree list --porcelain` で分類する
 #     （ディレクトリ配置の推測に依存しないため、bare リポジトリ + worktree
 #     構成やリポジトリディレクトリ外に作られた worktree でも誤判定しない）
-#   - どのツリーにも属さないパス（~/.claude/・scratchpad 等）や、cwd が
-#     メイン worktree / リポジトリ外の場合は exit 0 で素通り（fail open）
+#   - どのツリーにも属さないパス（scratchpad 等）や、cwd がメイン worktree /
+#     リポジトリ外の場合は exit 0 で素通り（fail open）
+#   - symlink の扱い: ディレクトリ部分の symlink は物理化して判定するため、
+#     dir symlink 経由でツリー内を指すパス（stow の ~/.claude/hooks/... 等）
+#     はブロック対象になる。最終コンポーネントがファイル symlink の場合は
+#     解決せず素通りする（既知の限界。解決すると symlink 先がたまたま
+#     リポジトリ内にあるだけの正当な編集まで誤爆するトレードオフがあるため）
 
 set -euo pipefail
 

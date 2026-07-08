@@ -90,6 +90,11 @@ edit_json() {
 }
 
 # 通過すべきケース (exit 0)
+# 異常系入力の fail-open は eval "$(jq ...)" が jq 失敗時に exit 0 へ倒れる
+# 実装詳細に依存しているため、テストで固定する（直接代入方式へのリファクタで
+# set -e により exit 2 = 全 Edit/Write ブロックに化ける regression を防ぐ）
+run_test 'malformed json input'                    'not-json' 0
+run_test 'empty stdin'                             '' 0
 run_test 'tool_name=Bash (not a target tool)'      '{"tool_name":"Bash","tool_input":{"command":"ls"},"cwd":"'"$WT"'"}' 0
 run_test 'Edit without file_path'                  '{"tool_name":"Edit","tool_input":{},"cwd":"'"$WT"'"}' 0
 run_test 'Edit without cwd'                        "$(printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$MAIN/file.txt")" 0
