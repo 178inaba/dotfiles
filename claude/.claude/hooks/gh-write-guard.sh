@@ -11,6 +11,14 @@
 #   --body "$(cat <<'EOF' ... EOF)" のような引用符レイヤの重なりが
 #   誤エスケープを誘発し、本文にリテラルの \ が残る事故を防ぐ。
 #
+# ルール3: 本文中の項番目的とみられる素の #N を検出してブロックする
+#   素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
+#   番号付け（指摘 #1, #2, ...）に使うと無関係な Issue/PR へ参照通知が
+#   飛ぶ事故が起きる。#1〜#9 が3種類以上あれば項番とみなす。
+#   コードスパン・fenced code block 内はリンク化されないため除外し、
+#   OWNER/REPO#N 形式（直前が英数字）は意図的な参照とみなして除外する。
+#   本文が取得できない場合（--body-file が stdin・読取不可等）は fail-open。
+#
 # 仕様:
 #   - 入力: stdin に PreToolUse の JSON
 #   - 対象: tool_name == "Bash" かつ command が gh の write サブコマンド
@@ -57,6 +65,61 @@ gh の書き込み系サブコマンドで複数行の本文を --body/-b で渡
   1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
   2. --body の代わりに --body-file <path> を指定して再実行する
        例: gh pr edit -R owner/repo 123 --body-file /path/to/body.md
+EOF
+    exit 2
+  fi
+fi
+
+# ルール3: 本文中の項番目的とみられる素の #N を検出する。
+# GitHub がリンク化しない箇所（fenced code block・インラインコード）を
+# 除去した上で、単語頭の #1〜#9 の異なり数を数える。
+count_bare_hash_refs() {
+  awk '/^[[:space:]]*(```|~~~)/ { fence = !fence; next } !fence' \
+    | sed -E 's/`[^`]*`//g' \
+    | tr -s '[:space:]' '\n' \
+    | { grep -E '^[^[:alnum:]#]*#[1-9]($|[^0-9])' || true; } \
+    | { grep -oE '#[1-9]' || true; } \
+    | sort -u \
+    | wc -l \
+    | tr -d ' '
+}
+
+body_text=''
+body_source=''
+body_file_pattern='(^|[[:space:]])(--body-file|-F)([[:space:]]+|=)("[^"]*"|'\''[^'\'']*'\''|[^[:space:]]+)'
+if [[ $command =~ $body_file_pattern ]]; then
+  body_path=${BASH_REMATCH[4]}
+  if [[ ($body_path == \"*\" || $body_path == \'*\') && ${#body_path} -ge 2 ]]; then
+    body_path=${body_path:1:${#body_path}-2}
+  fi
+  if [ "$body_path" != "-" ] && [ -r "$body_path" ] && [ -f "$body_path" ]; then
+    body_text=$(cat "$body_path")
+    body_source="--body-file $body_path"
+  fi
+elif [[ $command =~ $body_flag_pattern ]]; then
+  body_text=${command#*"${BASH_REMATCH[0]}"}
+  body_source='--body/-b の本文'
+fi
+
+if [ -n "$body_text" ]; then
+  distinct_refs=$(printf '%s\n' "$body_text" | count_bare_hash_refs)
+  if [ "$distinct_refs" -ge 3 ]; then
+    cat >&2 <<EOF
+gh の書き込み系サブコマンドの本文に、項番とみられる素の #N を検出しました
+（#1〜#9 のうち ${distinct_refs} 種類）。
+
+検出元: $body_source
+
+理由:
+  素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
+  番号付け（指摘 #1, #2, ...）に使うと、無関係な Issue/PR に参照通知
+  （mentioned 表示）が飛ぶ事故が起きます。通知は後から取り消せません。
+
+対処:
+  1. 項番が目的の場合: 順序リスト（1. 2. ...）等、# を使わない形式に書き換える
+  2. 実際に Issue/PR を参照する意図の場合: OWNER/REPO#N 形式で明示する
+       例: 178inaba/dotfiles#3
+     （リンクは維持され、このガードにも掛かりません）
 EOF
     exit 2
   fi
