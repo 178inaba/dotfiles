@@ -84,6 +84,7 @@ zsh -l
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
 - `/web-search` - Web検索（WebSearch利用不可時にPlaywright CLIで代替）
 - `/troubleshooting` - エラー調査・デバッグの具体的手法（エラー調査タスク時に自動ロードされる知識スキル）
+- `/test-implementation` - テストコードの品質評価3原則（テスト作成・レビュータスク時に自動ロードされる知識スキル。旧 `context/test-implementation.md` から移行）
 - `/github-sub-issues` - GitHub Sub-Issuesの作成・リンク手順（Sub-Issue操作タスク時に自動ロードされる知識スキル）
 - `worktree-resolution` - PR・ブランチに対応するworktreeの解決手順と命名規約（`--worktree` を持つスキルから参照される共有知識スキル。ユーザー直接起動は不可）
 
