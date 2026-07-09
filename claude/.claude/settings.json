@@ -164,7 +164,10 @@
   },
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true,
-    "figma@claude-plugins-official": true
+    "figma@claude-plugins-official": false
+  },
+  "skillOverrides": {
+    "extract-context": "off"
   },
   "language": "japanese",
   "feedbackSurveyRate": 0,
