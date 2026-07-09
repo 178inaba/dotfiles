@@ -26,6 +26,7 @@ printf -- '- `#1` foo\n- `#2` bar\n- `#3` baz\n' > "$tmpdir/backtick-refs.md"
 printf -- 'before\n```\n#1 #2 #3\n```\nafter\n' > "$tmpdir/fenced-refs.md"
 printf -- '- foo/bar#1 x\n- foo/bar#2 y\n- foo/bar#3 z\n' > "$tmpdir/cross-repo-refs.md"
 printf -- 'refs #123 #456 #789\n' > "$tmpdir/multi-digit-refs.md"
+printf -- 'colors #1a2b3c and #2f4f4f, place #3rd\n' > "$tmpdir/alnum-suffix-refs.md"
 
 pass=0
 fail=0
@@ -66,6 +67,7 @@ run_test 'body-file: #N in backticks'             "{\"tool_name\":\"Bash\",\"too
 run_test 'body-file: #N in fenced code block'     "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/fenced-refs.md\"}}" 0
 run_test 'body-file: OWNER/REPO#N form'           "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/cross-repo-refs.md\"}}" 0
 run_test 'body-file: multi-digit #N only'         "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/multi-digit-refs.md\"}}" 0
+run_test 'body-file: hex color / ordinal #N'      "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/alnum-suffix-refs.md\"}}" 0
 run_test 'body-file: nonexistent path (fail-open)' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/missing.md\"}}" 0
 
 # ブロックされるべきケース (exit 2)

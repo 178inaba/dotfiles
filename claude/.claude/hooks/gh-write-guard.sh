@@ -15,9 +15,14 @@
 #   素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
 #   番号付け（指摘 #1, #2, ...）に使うと無関係な Issue/PR へ参照通知が
 #   飛ぶ事故が起きる。#1〜#9 が3種類以上あれば項番とみなす。
-#   コードスパン・fenced code block 内はリンク化されないため除外し、
-#   OWNER/REPO#N 形式（直前が英数字）は意図的な参照とみなして除外する。
+#   GitHub がリンク化しない形は除外する: コードスパン・fenced code block 内、
+#   数字の直後に英数字が続く形（#12 等の複数桁は実参照の可能性が高く、
+#   #1a2b3c 等の hex カラー・#1st 等の序数はそもそも参照でない）。
+#   OWNER/REPO#N 形式（直前が英数字）も意図的な参照とみなして除外する。
 #   本文が取得できない場合（--body-file が stdin・読取不可等）は fail-open。
+#   既知の限界: インライン --body は閉じ引用符を解析せず後続の引数も
+#   走査対象になる（ブロック過剰側）。未クローズの fence 以降は検出されない
+#   （fail-open 側）。
 #
 # 仕様:
 #   - 入力: stdin に PreToolUse の JSON
@@ -84,7 +89,7 @@ count_bare_hash_refs() {
       gsub(/`[^`]*`/, "")
       for (i = 1; i <= NF; i++) {
         t = $i
-        if (t !~ /^[^[:alnum:]#]*#[1-9]([^0-9]|$)/) continue
+        if (t !~ /^[^[:alnum:]#]*#[1-9]([^[:alnum:]]|$)/) continue
         sub(/^[^#]*#/, "", t)
         d = substr(t, 1, 1)
         if (!(d in seen)) { seen[d] = 1; n++ }
