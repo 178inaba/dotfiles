@@ -166,5 +166,5 @@ description: 本番環境へのデプロイを実行
 
 ## 命名規則
 - ディレクトリ名: 小文字とハイフンのみ使用: `git-commit`
-- 関連スキルとファミリーを成す場合は 対象-操作 形式でグルーピング: `git-commit`, `git-pr`, `issue-handle`, `issue-create`（一覧で並び、`/issue` まで打てば補完で揃うため）
+- 関連スキルとファミリーを成す場合は 対象-操作 形式でグルーピング: `git-commit`, `git-pr`, `issue-handle`, `issue-draft`（一覧で並び、`/issue` まで打てば補完で揃うため）
 - それ以外は内容が伝わる簡潔な名前: `deep-review`, `cleanup-merged`, `troubleshooting`
