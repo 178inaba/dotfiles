@@ -170,6 +170,7 @@
   "feedbackSurveyRate": 0,
   "tui": "fullscreen",
   "preferredNotifChannel": "iterm2",
+  "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "agentPushNotifEnabled": true
+  "advisorModel": "fable"
 }
