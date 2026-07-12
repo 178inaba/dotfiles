@@ -171,6 +171,5 @@
   "tui": "fullscreen",
   "preferredNotifChannel": "iterm2",
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true,
-  "advisorModel": "fable"
+  "skipAutoPermissionPrompt": true
 }
