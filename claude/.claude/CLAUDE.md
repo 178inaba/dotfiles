@@ -86,6 +86,7 @@
 - プロジェクトルートの `CLAUDE.md` を読む（`@import` 形式リンクは自動展開されるが、`[text](path)` 形式リンクは自動読込されない場合がある）
 - `CLAUDE.md` からリンクされている `.md` 文書を読む（標準Markdownリンク・`@import` 両形式）
 - 計画完成後の準拠検証・修正が必要な場合は /check-plan-compliance スキルを使用
+- 計画完成後の設計妥当性・自己完結性の検証は /deep-plan-review スキルを使用（/check-plan-compliance と併用時は compliance 先）
 
 事後チェックではなく事前読込を原則とする。事後の準拠検証に依存しすぎると計画起案自体の質が下がるため。
 
