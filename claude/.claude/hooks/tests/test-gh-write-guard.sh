@@ -28,6 +28,15 @@ printf -- '- foo/bar#1 x\n- foo/bar#2 y\n- foo/bar#3 z\n' > "$tmpdir/cross-repo-
 printf -- 'refs #123 #456 #789\n' > "$tmpdir/multi-digit-refs.md"
 printf -- 'colors #1a2b3c and #2f4f4f, place #3rd\n' > "$tmpdir/alnum-suffix-refs.md"
 
+# ルール4（PR 本文のバッククォート付き closing keyword 検出）用の本文ファイル
+printf -- 'Related\n\n`Closes #656`\n' > "$tmpdir/quoted-closes.md"
+printf -- 'before\n```\ncloses #656\n```\nafter\n' > "$tmpdir/fenced-closes.md"
+printf -- 'see `Resolves foo/bar#12` here\n' > "$tmpdir/quoted-cross-repo-closes.md"
+printf -- 'Closes #656\n' > "$tmpdir/raw-closes.md"
+printf -- 'docs update: `Closes #N` placeholder\n' > "$tmpdir/quoted-placeholder-closes.md"
+printf -- 'call `closes the stream` explicitly\n' > "$tmpdir/quoted-closes-no-ref.md"
+printf -- 'word `discloses #656` here\n' > "$tmpdir/quoted-discloses.md"
+
 pass=0
 fail=0
 
@@ -69,6 +78,12 @@ run_test 'body-file: OWNER/REPO#N form'           "{\"tool_name\":\"Bash\",\"too
 run_test 'body-file: multi-digit #N only'         "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/multi-digit-refs.md\"}}" 0
 run_test 'body-file: hex color / ordinal #N'      "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/alnum-suffix-refs.md\"}}" 0
 run_test 'body-file: nonexistent path (fail-open)' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/missing.md\"}}" 0
+run_test 'pr body: raw Closes #N'                  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr create -R foo/bar --title T --body-file $tmpdir/raw-closes.md\"}}" 0
+run_test 'pr body: quoted placeholder Closes #N'   "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr create -R foo/bar --title T --body-file $tmpdir/quoted-placeholder-closes.md\"}}" 0
+run_test 'pr body: quoted closes without #ref'     "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr edit -R foo/bar 1 --body-file $tmpdir/quoted-closes-no-ref.md\"}}" 0
+run_test 'pr body: quoted discloses (word bound)'  "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr edit -R foo/bar 1 --body-file $tmpdir/quoted-discloses.md\"}}" 0
+run_test 'issue body: quoted Closes #N (scope out)' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh issue create -R foo/bar --title T --body-file $tmpdir/quoted-closes.md\"}}" 0
+run_test 'pr comment: quoted Closes #N (scope out)' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/quoted-closes.md\"}}" 0
 
 # ブロックされるべきケース (exit 2)
 run_test 'gh issue create (no -R)'                  '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title T --body B"}}' 2
@@ -87,6 +102,10 @@ run_test 'body-file: bare #N numbering'             "{\"tool_name\":\"Bash\",\"t
 run_test 'body-file: quoted path, bare #N'          "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh issue comment -R foo/bar 1 --body-file \\\"$tmpdir/hash-numbering.md\\\"\"}}" 2
 run_test 'body-file: -F short flag, bare #N'        "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh issue create -R foo/bar --title T -F $tmpdir/hash-numbering.md\"}}" 2
 run_test 'inline --body: bare #N (single line)'     '{"tool_name":"Bash","tool_input":{"command":"gh issue comment -R foo/bar 1 --body \"fix #1, #2, #3\""}}' 2
+run_test 'pr create: quoted Closes #N'              "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr create -R foo/bar --title T --body-file $tmpdir/quoted-closes.md\"}}" 2
+run_test 'pr edit: fenced closes #N'                "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr edit -R foo/bar 1 --body-file $tmpdir/fenced-closes.md\"}}" 2
+run_test 'pr create: quoted cross-repo Resolves'    "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr create -R foo/bar --title T --body-file $tmpdir/quoted-cross-repo-closes.md\"}}" 2
+run_test 'pr edit inline --body: quoted Fixes #N'   '{"tool_name":"Bash","tool_input":{"command":"gh pr edit -R foo/bar 1 --body \"see `Fixes #12` here\""}}' 2
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 
