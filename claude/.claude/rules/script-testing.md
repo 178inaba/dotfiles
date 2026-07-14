@@ -25,6 +25,8 @@ paths:
 | `skills/review-assigned-prs/scripts/ensure-clone.sh` | `bash claude/.claude/tests/test-ensure-clone.sh` |
 | `skills/review-assigned-prs/scripts/verify-posted-reviews.sh` | `bash claude/.claude/tests/test-verify-posted-reviews.sh` |
 | `hooks/slack-notify.sh` | `bash claude/.claude/hooks/tests/test-slack-notify.sh` |
+| `hooks/subagent-tracker.sh` | `bash claude/.claude/hooks/tests/test-subagent-tracker.sh` |
+| `hooks/idle-notify.sh` | `bash claude/.claude/hooks/tests/test-idle-notify.sh` |
 | テストファイル自体 | 編集したテストを実行 |
 
 `statusline.sh` は `claude/.claude/rules/statusline.md` を参照（テスト + 実画面確認が必要なため別ルール）。

@@ -100,6 +100,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/start-caffeinate.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/subagent-tracker.sh --start"
           }
         ]
       }
@@ -110,6 +114,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/stop-caffeinate.sh --agent-done"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/subagent-tracker.sh --stop"
           }
         ]
       }
@@ -130,13 +138,17 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/stop-caffeinate.sh --force"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/subagent-tracker.sh --session-end"
           }
         ]
       }
     ],
     "Notification": [
       {
-        "matcher": "permission_prompt|idle_prompt",
+        "matcher": "permission_prompt",
         "hooks": [
           {
             "type": "command",
@@ -145,6 +157,19 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/slack-notify.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-caffeinate.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/idle-notify.sh"
           },
           {
             "type": "command",
