@@ -169,7 +169,6 @@
   "language": "japanese",
   "feedbackSurveyRate": 0,
   "tui": "fullscreen",
-  "preferredNotifChannel": "iterm2",
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true
 }

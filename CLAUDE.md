@@ -120,8 +120,8 @@ zsh -l
 - **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 
 ### 通知チャンネル
-- `preferredNotifChannel` は `"iterm2"` を指定。`"auto"`・`"ghostty"` は Ghostty + tmux 環境で通知が届かない既知バグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策
-- upstream 修正後は `"ghostty"` または `"auto"` に戻す
+- `preferredNotifChannel` は未指定（デフォルトの `auto` が外側ターミナルを検出して通知方式を選ぶ）。過去の `"iterm2"` 固定は Ghostty + tmux で通知が届かないバグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策で、v2.1.78 の修正（Ghostty popup の tmux パススルー対応）により撤去した
+- ネイティブ通知・progress bar が tmux 越しに届くには `.tmux.conf` の `allow-passthrough all` が前提（`on` だと非表示 window のペインからの通知が破棄される）
 
 ### Worktree 設定
 - `worktree.baseRef: "head"` を指定。`--worktree` を持つスキル群（規約定義: `claude/.claude/skills/worktree-resolution/SKILL.md`）が「ローカル HEAD を起点に worktree を作成する」契約を保つための前提（デフォルトの `"fresh"` だと origin のデフォルトブランチから分岐するため、計画フェーズで指定された base branch を起点にできない）
