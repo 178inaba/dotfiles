@@ -14,24 +14,20 @@ CWD="$(jq -r '.cwd // empty' <<<"${INPUT}")"
 # 通知か分からないため、本体リポジトリ名を git-common-dir から求めて
 # "リポジトリ名:worktree名" 形式にする（本体ツリー内はリポジトリ名のみ）
 project_label() {
-  local cwd="$1" toplevel common main_root label wt
+  local cwd="$1" git_paths toplevel common main_root label wt
   if [[ -z "${cwd}" ]]; then
     return
   fi
-  toplevel="$(git -C "${cwd}" rev-parse --show-toplevel 2>/dev/null)"
-  if [[ -z "${toplevel}" ]]; then
+  if ! git_paths="$(git -C "${cwd}" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null)"; then
     basename "${cwd}"
     return
   fi
-  common="$(git -C "${cwd}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  toplevel="${git_paths%%$'\n'*}"
+  common="${git_paths##*$'\n'}"
   main_root="$(dirname "${common}")"
-  label="$(basename "${common}")"
-  if [[ "${label}" == ".git" ]]; then
-    label="$(basename "${main_root}")"
-  else
-    # bare リポジトリは common dir 自体が "<名前>.git"
-    label="${label%.git}"
-  fi
+  # ".git" 付きの common dir を剥がしてから basename すると
+  # 通常リポジトリ（"repo/.git"）と bare（"repo.git"）が同じ式で扱える
+  label="$(basename "${common%.git}")"
   if [[ "${toplevel}" == "${main_root}" ]]; then
     printf '%s\n' "${label}"
     return
