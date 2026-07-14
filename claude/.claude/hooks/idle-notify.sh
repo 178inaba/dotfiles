@@ -32,13 +32,16 @@ marker_dir="/tmp/claude-subagents-${session_id}"
 
 for marker in "$marker_dir"/*; do
   [ -f "$marker" ] || continue
-  pid=$(cat "$marker" 2>/dev/null || true)
+  pid=""
+  # $(<file) は AND-OR list の最終位置にあり set -e が効くため、削除レースで
+  # open エラー時にループが abort し通知を取りこぼす事故を防ぐ
+  [ -s "$marker" ] && pid=$(<"$marker") || true
   if [ -z "$pid" ] || kill -0 "$pid" 2>/dev/null; then
     exit 0
   fi
 done
 
 afplay /System/Library/Sounds/Ping.aiff 2>/dev/null || true
-printf '%s' "$input" | "$(cd "$(dirname "$0")" && pwd)/slack-notify.sh"
+printf '%s' "$input" | "${BASH_SOURCE[0]%/*}/slack-notify.sh"
 
 exit 0
