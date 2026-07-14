@@ -78,7 +78,7 @@ zsh -l
 - `/review-response` - GitHubレビューコメントの自動対応（`<pr-number>`でPR指定、`--worktree`で対象PRのworktreeに切替/作成、`--dry-run`で確認のみ）
 - `/deep-review` - コード差分を詳細にレビュー（ベースブランチは自動判定、`--issue`でIssue連携、`<pr-number> --worktree`で対象PRのworktreeに切替/作成して並列レビュー）。Claude Code 2.1.146以降は組み込み `/code-review`・`/simplify` と区別するため `deep-review` 命名
 - `/check-plan-compliance` - 現計画とプロジェクトCLAUDE.md・リンク先文書との準拠チェック後、計画修正と plan モード復帰まで自動実行
-- `/deep-plan-review` - 計画の参照実在性・前提と実コードの一致・設計妥当性・自己完結性を、会話コンテキストを持たないサブエージェント（Fable）で検証し、blocker なしへの収束まで計画修正と plan モード復帰を自動実行（`/check-plan-compliance` 併用時は compliance 先）
+- `/deep-plan-review` - 計画の参照実在性・前提と実コードの一致・設計妥当性・自己完結性を、会話コンテキストを持たないサブエージェント（Opus）で検証し、blocker なしへの収束まで計画修正と plan モード復帰を自動実行（`/check-plan-compliance` 併用時は compliance 先）
 - `/cleanup-merged` - マージ済みのworktreeとlocal branchをまとめてクリーンアップ（`--dry-run`で確認のみ、`--yes`で確認スキップ、`--include-closed`でCLOSED状態のPRも対象）
 - `/review-assigned-prs` - 自分にレビュー依頼が来ているPRのうち Bot 以外のレビューが未着のものを `/deep-review <PR番号> --worktree --no-autofix` で並列レビュー（`/loop 5m /review-assigned-prs` で常駐運用推奨）
 - `/bestpractice` - プロジェクト慣習を無視した一般的なベストプラクティスを確認
