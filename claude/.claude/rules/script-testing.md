@@ -24,7 +24,7 @@ paths:
 | `skills/review-assigned-prs/scripts/list-pending-reviews.sh` | `bash claude/.claude/tests/test-list-pending-reviews.sh` |
 | `skills/review-assigned-prs/scripts/ensure-clone.sh` | `bash claude/.claude/tests/test-ensure-clone.sh` |
 | `skills/review-assigned-prs/scripts/verify-posted-reviews.sh` | `bash claude/.claude/tests/test-verify-posted-reviews.sh` |
-| `hooks/slack-notify.sh` | テスト未整備 — 編集時にテストを新設し、この行を更新する |
+| `hooks/slack-notify.sh` | `bash claude/.claude/hooks/tests/test-slack-notify.sh` |
 | テストファイル自体 | 編集したテストを実行 |
 
 `statusline.sh` は `claude/.claude/rules/statusline.md` を参照（テスト + 実画面確認が必要なため別ルール）。
