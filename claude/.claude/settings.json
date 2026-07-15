@@ -152,6 +152,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/.claude/hooks/terminal-bell.sh"
+          },
+          {
+            "type": "command",
             "command": "afplay /System/Library/Sounds/Ping.aiff"
           },
           {
@@ -194,7 +198,7 @@
   "language": "japanese",
   "feedbackSurveyRate": 0,
   "tui": "fullscreen",
-  "preferredNotifChannel": "terminal_bell",
+  "preferredNotifChannel": "notifications_disabled",
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true
 }

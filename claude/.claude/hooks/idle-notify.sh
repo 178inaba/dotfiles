@@ -6,7 +6,7 @@
 # 目的: 親セッションがサブエージェントの完了待ちでターンを終えた「一時的な
 #       アイドル」は親が完了通知で自動再開するため人間のやることが無い。
 #       この間は通知せず、本当に次の入力待ちになった時だけ Ping 音 + Slack
-#       通知を出す（「人間の入力が必要な時だけ通知」の実現）。
+#       通知 + 端末ベルを出す（「人間の入力が必要な時だけ通知」の実現）。
 #
 # 仕様:
 #   - 入力: stdin に hook JSON（session_id を判定に、全体を slack-notify.sh へ）
@@ -17,6 +17,9 @@
 #     PID 空のマーカーは稼働扱い
 #   - 判定不能（JSON 破損等）は通知する側に倒す。「本当に入力が必要な時に
 #     鳴らない」事故だけは作らない
+#   - 通知時は端末ベルも鳴らす（terminal-bell.sh の terminalSequence JSON を
+#     stdout に出力）。stdout が有効な JSON でないと Claude Code がパースでき
+#     ないため、slack-notify.sh（curl のレスポンスボディ）の stdout は捨てる
 #   - 常に exit 0（フックでブロックしない）
 
 set -euo pipefail
@@ -42,6 +45,7 @@ for marker in "$marker_dir"/*; do
 done
 
 afplay /System/Library/Sounds/Ping.aiff 2>/dev/null || true
-printf '%s' "$input" | "${BASH_SOURCE[0]%/*}/slack-notify.sh"
+printf '%s' "$input" | "${BASH_SOURCE[0]%/*}/slack-notify.sh" >/dev/null
+"${BASH_SOURCE[0]%/*}/terminal-bell.sh"
 
 exit 0

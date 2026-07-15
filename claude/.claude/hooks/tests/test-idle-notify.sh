@@ -6,8 +6,10 @@
 # 失敗したケースがあれば exit 1 で終了する。
 #
 # afplay / curl は PATH 先頭のスタブに差し替えて呼び出しをファイルに記録する
-# （実音・実 webhook・ネットワークには触れない）。slack-notify.sh は実物を通す
-# 統合形。マーカーはテスト固有の session_id 配下に直接作成し trap で掃除する。
+# （実音・実 webhook・ネットワークには触れない）。slack-notify.sh /
+# terminal-bell.sh は実物を通す統合形（stdout をファイルに捕捉し、通知時は
+# terminalSequence JSON のみが出ることを検証する）。マーカーはテスト固有の
+# session_id 配下に直接作成し trap で掃除する。
 
 set -u
 
@@ -26,6 +28,8 @@ trap 'rm -rf "$TMP_BASE" "$DIR"' EXIT
 
 AFPLAY_LOG="$TMP_BASE/afplay.log"
 CURL_LOG="$TMP_BASE/curl.log"
+STDOUT_LOG="$TMP_BASE/stdout.log"
+BELL=$(printf '\a')
 mkdir -p "$TMP_BASE/bin" "$TMP_BASE/proj"
 cat > "$TMP_BASE/bin/afplay" <<EOF
 #!/bin/bash
@@ -46,30 +50,36 @@ fail=0
 run_hook() {
   : > "$AFPLAY_LOG"
   : > "$CURL_LOG"
-  printf '%s' "$1" | CLAUDE_SLACK_WEBHOOK="https://example.invalid/webhook" "$HOOK" >/dev/null 2>&1
+  printf '%s' "$1" | CLAUDE_SLACK_WEBHOOK="https://example.invalid/webhook" "$HOOK" >"$STDOUT_LOG" 2>/dev/null
 }
 
-# 期待: 通知する（afplay + slack が発火）
+# stdout 全体が terminalSequence JSON（値は BEL 1文字）であること
+bell_emitted() {
+  jq -e . "$STDOUT_LOG" >/dev/null 2>&1 &&
+    [ "$(jq -r '.terminalSequence' "$STDOUT_LOG" 2>/dev/null)" = "$BELL" ]
+}
+
+# 期待: 通知する（afplay + slack + 端末ベルが発火）
 check_notified() {
   local name=$1 rc=$2
-  if [ "$rc" -eq 0 ] && [ -s "$AFPLAY_LOG" ] && grep -qF '(idle_prompt) hello' "$CURL_LOG"; then
+  if [ "$rc" -eq 0 ] && [ -s "$AFPLAY_LOG" ] && grep -qF '(idle_prompt) hello' "$CURL_LOG" && bell_emitted; then
     pass=$((pass + 1))
     printf 'PASS  %s\n' "$name"
   else
     fail=$((fail + 1))
-    printf 'FAIL  %s (exit %d, afplay: %s, curl: %s)\n' "$name" "$rc" "$(cat "$AFPLAY_LOG")" "$(cat "$CURL_LOG")"
+    printf 'FAIL  %s (exit %d, afplay: %s, curl: %s, stdout: %s)\n' "$name" "$rc" "$(cat "$AFPLAY_LOG")" "$(cat "$CURL_LOG")" "$(cat "$STDOUT_LOG")"
   fi
 }
 
-# 期待: 沈黙（afplay も slack も発火しない）
+# 期待: 沈黙（afplay も slack も端末ベルも発火しない）
 check_silent() {
   local name=$1 rc=$2
-  if [ "$rc" -eq 0 ] && [ ! -s "$AFPLAY_LOG" ] && [ ! -s "$CURL_LOG" ]; then
+  if [ "$rc" -eq 0 ] && [ ! -s "$AFPLAY_LOG" ] && [ ! -s "$CURL_LOG" ] && [ ! -s "$STDOUT_LOG" ]; then
     pass=$((pass + 1))
     printf 'PASS  %s\n' "$name"
   else
     fail=$((fail + 1))
-    printf 'FAIL  %s (exit %d, afplay: %s, curl: %s)\n' "$name" "$rc" "$(cat "$AFPLAY_LOG")" "$(cat "$CURL_LOG")"
+    printf 'FAIL  %s (exit %d, afplay: %s, curl: %s, stdout: %s)\n' "$name" "$rc" "$(cat "$AFPLAY_LOG")" "$(cat "$CURL_LOG")" "$(cat "$STDOUT_LOG")"
   fi
 }
 
@@ -118,13 +128,13 @@ run_hook "$INPUT"
 check_silent 'mixed markers with one live: silent' "$?"
 rm -rf "$DIR"
 
-# 壊れた JSON → exit 0 で通知側に倒れる（音は鳴る。Slack は message 空のため飛ばない）
+# 壊れた JSON → exit 0 で通知側に倒れる（音とベルは鳴る。Slack は message 空のため飛ばない）
 run_hook 'not-json'
 rc=$?
-if [ "$rc" -eq 0 ] && [ -s "$AFPLAY_LOG" ] && [ ! -s "$CURL_LOG" ]; then
+if [ "$rc" -eq 0 ] && [ -s "$AFPLAY_LOG" ] && [ ! -s "$CURL_LOG" ] && bell_emitted; then
   pass=$((pass + 1)); printf 'PASS  %s\n' 'malformed json: fail-open to notify'
 else
-  fail=$((fail + 1)); printf 'FAIL  %s (exit %d, afplay: %s, curl: %s)\n' 'malformed json: fail-open to notify' "$rc" "$(cat "$AFPLAY_LOG")" "$(cat "$CURL_LOG")"
+  fail=$((fail + 1)); printf 'FAIL  %s (exit %d, afplay: %s, curl: %s, stdout: %s)\n' 'malformed json: fail-open to notify' "$rc" "$(cat "$AFPLAY_LOG")" "$(cat "$CURL_LOG")" "$(cat "$STDOUT_LOG")"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

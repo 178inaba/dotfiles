@@ -27,6 +27,7 @@ paths:
 | `hooks/slack-notify.sh` | `bash claude/.claude/hooks/tests/test-slack-notify.sh` |
 | `hooks/subagent-tracker.sh` | `bash claude/.claude/hooks/tests/test-subagent-tracker.sh` |
 | `hooks/idle-notify.sh` | `bash claude/.claude/hooks/tests/test-idle-notify.sh` |
+| `hooks/terminal-bell.sh` | `bash claude/.claude/hooks/tests/test-terminal-bell.sh` |
 | テストファイル自体 | 編集したテストを実行 |
 
 `statusline.sh` は `claude/.claude/rules/statusline.md` を参照（テスト + 実画面確認が必要なため別ルール）。
