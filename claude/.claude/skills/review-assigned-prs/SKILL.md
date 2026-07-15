@@ -69,7 +69,9 @@ bash ~/.claude/skills/review-assigned-prs/scripts/list-pending-reviews.sh
 
 ### 3. 各 PR ごとにサブエージェントを並列起動
 
-`.prs` の各要素について、Agent ツール (`subagent_type: "claude"`) を**1 メッセージ内で並列起動**する（対象 PR 数ぶんの Agent 呼び出しを 1 つの tool_use ブロックにまとめる）。
+`.prs` の各要素について、Agent ツール (`subagent_type: "claude"`・`model: "opus"`) を**1 メッセージ内で並列起動**する（対象 PR 数ぶんの Agent 呼び出しを 1 つの tool_use ブロックにまとめる）。
+
+model を明示固定する理由: レビューは見落としが観測不能な最後の検証機構のため、親モデルの変更（実験・コスト調整等）で外向きに投稿されるレビューの品質が黙って下がるのを防ぐ。`fable` でなく `opus` なのは、常駐ループで PR 数ぶん並列起動するため単価差が数量で増幅されることと、親 Opus 継承で運用してきた品質実績があるため。
 
 `fork` は使わない。`--worktree` による cwd 切替がメインセッションに漏れないよう、独立コンテキストが必須。
 
