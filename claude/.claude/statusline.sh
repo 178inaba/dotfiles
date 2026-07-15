@@ -16,6 +16,19 @@ GIT_CACHE_BASE="${GIT_CACHE_BASE:-/tmp/claude-statusline-git-cache}"
 # settings.json の statusLine.refreshInterval と揃える（1更新サイクルあたり git 実行を最大1回に保つ）
 GIT_CACHE_MAX_AGE=5
 
+# テストから差し替え可能
+USD_JPY_CACHE_FILE="${USD_JPY_CACHE_FILE:-/tmp/claude-statusline-usd-jpy}"
+USD_JPY_API_URL="${USD_JPY_API_URL:-https://api.frankfurter.dev/v1/latest?base=USD&symbols=JPY}"
+CURL_BIN="${CURL_BIN:-curl}"
+# レートは全セッション共有のグローバルキャッシュ（セッション単位だと並列セッションで
+# 重複フェッチし、長寿命セッションで古いレートに固定されるため）。
+# Frankfurter（ECB公表値）の更新は平日1日1回なので半日TTLで十分
+USD_JPY_CACHE_MAX_AGE=43200
+# 取得失敗時の再試行間隔（オフライン時に5秒ごとの描画のたびに curl を投げない）
+USD_JPY_RETRY_INTERVAL=60
+
+NUM_RE='^[0-9]+(\.[0-9]+)?$'
+
 # コストが表示閾値（1セント）以上か判定
 cost_above_threshold() {
     local cost="$1"
@@ -58,6 +71,42 @@ format_countdown() {
     resets_at="${resets_at%%.*}"
     local remaining=$((resets_at - now))
     format_hm "$remaining"
+}
+
+# USD/JPY レート取得（stale-while-revalidate）。5秒ごとの描画がホットパスのため
+# 同期のネットワークアクセスは行わず、キャッシュが無い/古い場合はバックグラウンド更新を
+# 投げて手元の値をそのまま返す。値が無ければ空を返し、呼び出し側で USD 表示にフォールバック
+get_usd_jpy_rate() {
+    local now="$1"
+    local cached_at="" rate=""
+    if [[ -f "$USD_JPY_CACHE_FILE" ]]; then
+        {
+            IFS= read -r cached_at
+            IFS= read -r rate
+        } < "$USD_JPY_CACHE_FILE"
+        [[ "$rate" =~ $NUM_RE ]] || rate=""
+    fi
+
+    if [[ -z "$rate" ]] || ! [[ "$cached_at" =~ ^[0-9]+$ ]] || (( now - cached_at > USD_JPY_CACHE_MAX_AGE )); then
+        local attempt_file="${USD_JPY_CACHE_FILE}.attempt" attempted_at=""
+        [[ -f "$attempt_file" ]] && IFS= read -r attempted_at < "$attempt_file"
+        if ! [[ "$attempted_at" =~ ^[0-9]+$ ]] || (( now - attempted_at > USD_JPY_RETRY_INTERVAL )); then
+            echo "$now" > "$attempt_file"
+            # サブシェル + 全FDの切り離しで完全にデタッチする（stdout を継承すると
+            # 呼び出し元のコマンド置換が curl 完了まで EOF 待ちでブロックする）
+            ( refresh_usd_jpy_cache "$now" </dev/null >/dev/null 2>&1 & )
+        fi
+    fi
+    echo "$rate"
+}
+
+# キャッシュ更新（バックグラウンド実行前提）。取得失敗・不正値なら何も書かない
+refresh_usd_jpy_cache() {
+    local now="$1" rate
+    rate=$("$CURL_BIN" -s --max-time 5 "$USD_JPY_API_URL" 2>/dev/null | jq -r '.rates.JPY // empty' 2>/dev/null)
+    [[ "$rate" =~ $NUM_RE ]] || return
+    printf '%s\n%s\n' "$now" "$rate" > "${USD_JPY_CACHE_FILE}.$$" \
+        && mv "${USD_JPY_CACHE_FILE}.$$" "$USD_JPY_CACHE_FILE"
 }
 
 # Git情報取得（キャッシュ付き）
@@ -189,7 +238,12 @@ main() {
     if [[ -n "$model_name" ]]; then
         model_str=" [${model_name}]"
         if [[ -n "$total_cost" ]] && cost_above_threshold "$total_cost"; then
-            cost_str=" \$$(printf "%.2f" "$total_cost")"
+            local usd_jpy=$(get_usd_jpy_rate "$now")
+            if [[ -n "$usd_jpy" ]]; then
+                cost_str=" ¥$(awk -v c="$total_cost" -v r="$usd_jpy" 'BEGIN {printf "%.0f", c * r}')"
+            else
+                cost_str=" \$$(printf "%.2f" "$total_cost")"
+            fi
         fi
     fi
 

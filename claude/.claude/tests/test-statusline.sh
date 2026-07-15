@@ -19,6 +19,19 @@ fi
 TEST_TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TEST_TMPDIR"' EXIT
 export GIT_CACHE_BASE="$TEST_TMPDIR/git-cache"
+export USD_JPY_CACHE_FILE="$TEST_TMPDIR/usd-jpy-cache"
+
+# curl スタブ: 応答ファイルがあればその内容を返し、無ければ失敗。呼び出しはログに記録
+export CURL_STUB_LOG="$TEST_TMPDIR/curl-calls.log"
+export CURL_STUB_RESPONSE="$TEST_TMPDIR/curl-response"
+cat > "$TEST_TMPDIR/curl-stub" <<'EOF'
+#!/bin/bash
+echo "called" >> "$CURL_STUB_LOG"
+[ -f "$CURL_STUB_RESPONSE" ] || exit 1
+cat "$CURL_STUB_RESPONSE"
+EOF
+chmod +x "$TEST_TMPDIR/curl-stub"
+export CURL_BIN="$TEST_TMPDIR/curl-stub"
 
 pass=0
 fail=0
@@ -157,6 +170,77 @@ run_git_test 'git: unmerged conflict' "$REPO_C" '(main +1 ~1)'
 PLAIN="$TEST_TMPDIR/plain"
 mkdir -p "$PLAIN"
 run_git_test 'non-git dir' "$PLAIN" ''
+
+# --- USD/JPY 円表示 ---
+
+YEN_INPUT='{"workspace":{"current_dir":"'$PWD'","project_dir":"'$PWD'"},"model":{"display_name":"Opus"},"cost":{"total_cost_usd":1.23}}'
+FRANKFURTER_RESPONSE='{"amount":1.0,"base":"USD","date":"2026-07-14","rates":{"JPY":162.22}}'
+
+yen_reset() {
+  rm -f "$USD_JPY_CACHE_FILE" "$USD_JPY_CACHE_FILE".* "$CURL_STUB_RESPONSE" "$CURL_STUB_LOG"
+}
+
+# バックグラウンド更新の完了待ち（条件成立まで最大2秒ポーリング）
+wait_for() {
+  local i
+  for i in $(seq 1 40); do
+    eval "$1" && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
+check() {
+  local name=$1 cond=$2
+  if eval "$cond"; then
+    pass=$((pass + 1))
+    printf 'PASS  %s\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  %s\n' "$name"
+  fi
+}
+
+# フレッシュなキャッシュ: 円換算で表示（1.23 * 160.00 = 196.8 → ¥197）
+yen_reset
+printf '%s\n%s\n' "$(date +%s)" "160.00" > "$USD_JPY_CACHE_FILE"
+run_test 'yen: fresh cache converts to JPY' "$YEN_INPUT" '¥197'
+
+# キャッシュなし: USD フォールバックしつつバックグラウンドでキャッシュ生成
+yen_reset
+printf '%s' "$FRANKFURTER_RESPONSE" > "$CURL_STUB_RESPONSE"
+run_test 'yen: no cache falls back to USD' "$YEN_INPUT" '$1.23'
+check 'yen: background fetch fills cache' \
+  'wait_for "[ -f \"\$USD_JPY_CACHE_FILE\" ] && [ \"\$(sed -n 2p \"\$USD_JPY_CACHE_FILE\")\" = 162.22 ]"'
+
+# 直後の描画は生成されたキャッシュから円表示（1.23 * 162.22 = 199.53 → ¥200）
+run_test 'yen: next render uses fetched cache' "$YEN_INPUT" '¥200'
+
+# 期限切れキャッシュ: 手元の値で表示継続（stale-while-revalidate）+ バックグラウンド更新
+yen_reset
+printf '%s' "$FRANKFURTER_RESPONSE" > "$CURL_STUB_RESPONSE"
+printf '1\n100.00\n' > "$USD_JPY_CACHE_FILE"
+run_test 'yen: stale cache shown while revalidating' "$YEN_INPUT" '¥123'
+check 'yen: stale cache refreshed in background' \
+  'wait_for "[ \"\$(sed -n 2p \"\$USD_JPY_CACHE_FILE\")\" = 162.22 ]"'
+
+# 不正なレート値: USD フォールバック
+yen_reset
+printf '%s\ngarbage\n' "$(date +%s)" > "$USD_JPY_CACHE_FILE"
+run_test 'yen: invalid cached rate falls back to USD' "$YEN_INPUT" '$1.23'
+
+# 再試行スロットリング: 直近に試行済みなら curl を呼ばない
+yen_reset
+date +%s > "$USD_JPY_CACHE_FILE.attempt"
+run_test 'yen: recent attempt suppresses refetch' "$YEN_INPUT" '$1.23'
+sleep 0.3
+check 'yen: no curl call while throttled' '[ ! -f "$CURL_STUB_LOG" ]'
+
+# 取得失敗（curl 異常終了）: キャッシュを書かず USD フォールバック維持
+yen_reset
+run_test 'yen: fetch failure keeps USD fallback' "$YEN_INPUT" '$1.23'
+sleep 0.3
+check 'yen: failed fetch writes no cache' '[ ! -f "$USD_JPY_CACHE_FILE" ]'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
