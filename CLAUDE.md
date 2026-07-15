@@ -73,7 +73,7 @@ zsh -l
 - `/git-pr` - プルリクエスト作成（未プッシュなら自動プッシュ、既存PRがあれば更新）
 - `/git-rebase` - PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消
 - `/understand-pr` - 現在のブランチのPRを理解し、目的・変更内容・現状を構造化して報告
-- `/issue-draft` - 壁打ちで固めた内容を「迷わず実装できる」Issueとして構造化・作成、`--refine <番号>` で既存Issueを同じ品質基準へブラッシュアップして本文更新（情報不足は追加調査とユーザー確認で補完、粒度超過時はSub-Issues分割を提案、提示前に合意網羅チェックと会話コンテキストを持たないサブエージェント（Fable）による新規読者チェックで自己完結を検証、作成・更新前にドラフト承認）
+- `/issue-draft` - 壁打ちで固めた内容を「迷わず実装できる」Issueとして構造化・作成、`--refine <番号>` で既存Issueを同じ品質基準へブラッシュアップして本文更新（情報不足は追加調査とユーザー確認で補完、粒度超過時はSub-Issues分割を提案、提示前に合意網羅チェックと会話コンテキストを持たないサブエージェント（Opus）による新規読者チェックで自己完結を検証、作成・更新前にドラフト承認）
 - `/issue-handle` - Issueの調査から実装完了まで対応（Planモードで対話型、`--file`でファイルから仕様読み込み、`--worktree`で専用worktreeに隔離して並列開発可能、`--delegate-impl`で実装ループを Sonnet サブエージェントに委譲（判断と外向き操作は親に残る）、計画承認前に `/deep-plan-review` で計画検証（`--no-plan-review` で軽微な Issue 向けにスキップ可、完了時レビューは残る）、完了時に独立セッション（Fable）で `/deep-review` を実行）
 - `/review-response` - GitHubレビューコメントの自動対応（`<pr-number>`でPR指定、`--worktree`で対象PRのworktreeに切替/作成、`--dry-run`で確認のみ）
 - `/deep-review` - コード差分を詳細にレビュー（ベースブランチは自動判定、`--issue`でIssue連携、`<pr-number> --worktree`で対象PRのworktreeに切替/作成して並列レビュー）。Claude Code 2.1.146以降は組み込み `/code-review`・`/simplify` と区別するため `deep-review` 命名
