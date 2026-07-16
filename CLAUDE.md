@@ -91,6 +91,7 @@ zsh -l
 ```
 ~/.claude/
 ├── CLAUDE.md           # グローバル基本方針（常時ロード）
+├── agents/             # カスタムサブエージェント定義（frontmatter で model を固定し、呼び出し側の指定漏れによる親モデル継承を構造的に防ぐ。例: independent-reviewer = issue-handle 完了時レビュー用 Fable 固定）
 ├── skills/             # スキル定義（タスク起点で自動ロード）
 ├── rules/              # ルール（frontmatterのpaths globに該当するファイルを扱うときだけ遅延読込）
 ├── context/            # 詳細コンテキスト（CLAUDE.mdから@importで常時ロード）
