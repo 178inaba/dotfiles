@@ -40,7 +40,21 @@ case "$1" in
     ;;
   api)
     case "$2" in
-      graphql) cat "$GH_STUB_DATA/graphql.json" ;;
+      graphql)
+        # ページネーションのテスト用に、呼び出し回数 n に応じて graphql-<n>.json を返す。
+        # graphql-<n>.fail があれば失敗を模擬し、どちらも無ければ graphql.json へフォールバック
+        n=$(cat "$GH_STUB_DATA/.graphql-call-count" 2>/dev/null || printf '0')
+        n=$((n + 1))
+        printf '%s' "$n" > "$GH_STUB_DATA/.graphql-call-count"
+        if [ -f "$GH_STUB_DATA/graphql-$n.fail" ]; then
+          exit 1
+        fi
+        if [ -f "$GH_STUB_DATA/graphql-$n.json" ]; then
+          cat "$GH_STUB_DATA/graphql-$n.json"
+        else
+          cat "$GH_STUB_DATA/graphql.json"
+        fi
+        ;;
       *) exit 1 ;;
     esac
     ;;
@@ -76,13 +90,17 @@ cat > "$TMP/data/graphql.json" <<'EOF'
     "repository": {
       "pullRequest": {
         "comments": {
+          "totalCount": 4,
+          "pageInfo": {"hasNextPage": false, "endCursor": "cur-1"},
           "nodes": [
-            {"author": {"login": "reviewer1"}, "body": "普通のコメント", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/c1"},
-            {"author": {"login": "testuser"}, "body": "<!-- review-response -->\n対応しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/c2"},
-            {"author": {"login": "reviewer1"}, "body": "> <!-- review-response -->\n引用返信", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/c3"}
+            {"author": {"login": "reviewer1", "__typename": "User"}, "body": "普通のコメント", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/c1"},
+            {"author": {"login": "testuser", "__typename": "User"}, "body": "<!-- review-response -->\n対応しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/c2"},
+            {"author": {"login": "reviewer1", "__typename": "User"}, "body": "> <!-- review-response -->\n引用返信", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/c3"},
+            {"author": {"login": "github-actions", "__typename": "Bot"}, "body": "CI 通知", "createdAt": "2026-01-04T00:00:00Z", "url": "https://example.com/c4"}
           ]
         },
         "reviews": {
+          "totalCount": 1,
           "nodes": [
             {"author": {"login": "reviewer1"}, "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submittedAt": "2026-01-01T00:00:00Z"}
           ]
@@ -149,6 +167,13 @@ assert 'skill comment flagged by prefix match' "$out" \
   '(.comments | map(select(.is_skill_comment)) | length) == 1 and (.comments[] | select(.is_skill_comment) | .url) == "https://example.com/c2"'
 assert 'quoted marker not flagged' "$out" \
   '.comments[] | select(.url == "https://example.com/c3") | .is_skill_comment == false'
+assert 'author_type mapped from __typename' "$out" \
+  '(.comments[] | select(.url == "https://example.com/c1") | .author_type == "User")
+   and (.comments[] | select(.url == "https://example.com/c4") | .author_type == "Bot")'
+assert 'comments_total_count exposed, not truncated' "$out" \
+  '.comments_total_count == 4 and (.comments | length) == 4 and .comments_truncated == false'
+assert 'reviews_total_count exposed, not truncated' "$out" \
+  '.reviews_total_count == 1 and .reviews_truncated == false'
 assert 'reviews mapped' "$out" \
   '.reviews == [{"author": "reviewer1", "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submitted_at": "2026-01-01T00:00:00Z"}]'
 assert 'threads mapped with resolution state' "$out" \
@@ -178,6 +203,74 @@ fi
 
 bash "$SCRIPT" abc >/dev/null 2>/dev/null
 assert_exit 'non-numeric pr number rejected' $? 1
+
+# ページネーション: 2 ページ分を順序どおり結合して全量取得
+# （reviews.totalCount を窓より大きくし、reviews_truncated の true 経路も同時に検証する）
+rm -f "$TMP/data/.graphql-call-count"
+jq '.data.repository.pullRequest.comments = {
+      totalCount: 3,
+      pageInfo: {hasNextPage: true, endCursor: "p1"},
+      nodes: [
+        {author: {login: "reviewer1", __typename: "User"}, body: "page1-a", createdAt: "2026-01-01T00:00:00Z", url: "https://example.com/p1a"},
+        {author: {login: "ci-bot", __typename: "Bot"}, body: "page1-b", createdAt: "2026-01-01T00:01:00Z", url: "https://example.com/p1b"}
+      ]
+    }
+    | .data.repository.pullRequest.reviews.totalCount = 60' "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+jq -n '{data: {repository: {pullRequest: {comments: {
+      pageInfo: {hasNextPage: false, endCursor: "p2"},
+      nodes: [{author: {login: "reviewer1", __typename: "User"}, body: "page2-a", createdAt: "2026-01-02T00:00:00Z", url: "https://example.com/p2a"}]
+    }}}}}' > "$TMP/data/graphql-2.json"
+out_page=$(bash "$SCRIPT" 5)
+assert_exit 'pagination: exit 0' $? 0
+assert 'pagination: pages merged in order' "$out_page" \
+  '[.comments[].body] == ["page1-a", "page1-b", "page2-a"] and .comments_total_count == 3 and .comments_truncated == false'
+assert 'reviews window eviction flagged' "$out_page" \
+  '.reviews_total_count == 60 and .reviews_truncated == true'
+rm -f "$TMP/data/graphql-1.json" "$TMP/data/graphql-2.json" "$TMP/data/.graphql-call-count"
+
+# ページネーション: MAX_COMMENTS(既定500) で打ち切り、comments_truncated で消費側が検知できる。
+# スタブは呼び出し回数でページを返しカーソル値を検証しないため、後続ページは同一内容で良い
+nodes100=$(jq -n '[range(100)] | map({author: {login: "ci-bot", __typename: "Bot"}, body: "noise", createdAt: "2026-01-01T00:00:00Z", url: "https://example.com/n"})')
+jq --argjson nodes "$nodes100" '.data.repository.pullRequest.comments = {
+      totalCount: 600,
+      pageInfo: {hasNextPage: true, endCursor: "cN"},
+      nodes: $nodes
+    }' "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+jq -n --argjson nodes "$nodes100" '{data: {repository: {pullRequest: {comments: {
+      pageInfo: {hasNextPage: true, endCursor: "cN"},
+      nodes: $nodes
+    }}}}}' > "$TMP/data/graphql-2.json"
+for i in 3 4 5; do cp "$TMP/data/graphql-2.json" "$TMP/data/graphql-$i.json"; done
+out_cap=$(bash "$SCRIPT" 5)
+assert_exit 'comment cap: exit 0' $? 0
+assert 'comment cap: stops at MAX_COMMENTS with truncation flag' "$out_cap" \
+  '(.comments | length) == 500 and .comments_total_count == 600 and .comments_truncated == true'
+
+# MAX_COMMENTS の環境変数上書き（cap フィクスチャを再利用。100件/ページ × 上限250 → 300件で停止）
+rm -f "$TMP/data/.graphql-call-count"
+out_override=$(MAX_COMMENTS=250 bash "$SCRIPT" 5)
+assert_exit 'cap override: exit 0' $? 0
+assert 'cap override: MAX_COMMENTS env changes the cap' "$out_override" \
+  '(.comments | length) == 300 and .comments_truncated == true'
+rm -f "$TMP/data"/graphql-[1-5].json "$TMP/data/.graphql-call-count"
+
+# ページ取得途中の GraphQL 失敗: 部分取得のまま正常出力せず exit 1 で停止する
+rm -f "$TMP/data/.graphql-call-count"
+jq '.data.repository.pullRequest.comments.pageInfo = {hasNextPage: true, endCursor: "p1"}' \
+  "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+: > "$TMP/data/graphql-2.fail"
+bash "$SCRIPT" 5 >"$TMP/page-out.txt" 2>"$TMP/page-err.txt"
+assert_exit 'page fetch failure: non-zero exit' $? 1
+if grep -q 'failed to fetch PR comments page' "$TMP/page-err.txt" && [ ! -s "$TMP/page-out.txt" ]; then
+  pass=$((pass + 1)); printf 'PASS  page fetch failure: stderr message, no partial stdout\n'
+else
+  fail=$((fail + 1)); printf 'FAIL  page fetch failure: stderr message, no partial stdout\n'
+fi
+rm -f "$TMP/data/graphql-1.json" "$TMP/data/graphql-2.fail" "$TMP/data/.graphql-call-count"
+
+# MAX_COMMENTS の非数値は exit 1（書式ミスのまま「上限を上げて再実行」が空回りする事故を防ぐ）
+MAX_COMMENTS=abc bash "$SCRIPT" 5 >/dev/null 2>/dev/null
+assert_exit 'non-numeric MAX_COMMENTS rejected' $? 1
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
