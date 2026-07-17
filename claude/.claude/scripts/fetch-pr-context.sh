@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# PR コンテキスト一括取得スクリプト（/review-response・/deep-review 共有）
+# PR コンテキスト一括取得スクリプト（/review-response・/deep-review 共有。
+# worktree-resolution の鮮度確認サブ手順も出力の pr.head_oid・is_own_pr・pr.head_ref を消費する）
 #
 # PR メタ情報・通常コメント・レビュー本文・レビュースレッドを 1 回で取得し、
 # 正規化した JSON を stdout に出力する。3 種のコメントは GitHub 上で別管理のため、
