@@ -275,11 +275,8 @@ assert_exit 'non-numeric MAX_COMMENTS rejected' $? 1
 # マーカー文字列の双方向契約: review-response SKILL.md（書く側）とスクリプトの startswith（検出側）の一致
 # 片側だけ変更されると is_skill_comment が silent に false 化し、自分の過去投稿を新規指摘として再対応する退行が起きる
 MARKER_SKILL="$SCRIPT_DIR/../skills/review-response/SKILL.md"
-if grep -q 'startswith("<!-- review-response -->")' "$SCRIPT" && grep -q '<!-- review-response -->' "$MARKER_SKILL"; then
-  pass=$((pass + 1)); printf 'PASS  skill comment marker in sync between writer skill and detector script\n'
-else
-  fail=$((fail + 1)); printf 'FAIL  skill comment marker in sync between writer skill and detector script\n'
-fi
+grep -q 'startswith("<!-- review-response -->")' "$SCRIPT" && grep -q '<!-- review-response -->' "$MARKER_SKILL"
+assert_exit 'skill comment marker in sync between writer skill and detector script' $? 0
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
