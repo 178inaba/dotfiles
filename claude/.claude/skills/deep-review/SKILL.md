@@ -426,7 +426,7 @@ EOF
    - プロジェクトのテスト・Lintコマンドを実行（プロジェクトCLAUDE.md依拠）
    - プロジェクトCLAUDE.md等にテスト・Lintコマンドの明示がなければスキップ（推測実行は避ける）
    - 数分以上かかる見込みの場合は `run_in_background: true` で実行
-   - **失敗時**: 修正 → コミット → 再テスト を繰り返す（@~/.claude/skills/issue-handle/SKILL.md の実装フェーズ手順4と同じ方針）
+   - **失敗時**: 修正 → コミット → 再テスト を繰り返す
 
 4. **プッシュ・PR更新**
    - @~/.claude/skills/git-pr/SKILL.md に従ってプッシュ・PR作成/更新
