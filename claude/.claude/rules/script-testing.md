@@ -3,6 +3,7 @@ paths:
   - "**/.claude/hooks/**"
   - "**/.claude/scripts/**"
   - "**/.claude/skills/**/scripts/**"
+  - "**/.claude/skills/review-response/SKILL.md"
   - "**/.claude/tests/**"
 ---
 
