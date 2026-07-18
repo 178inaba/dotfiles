@@ -1,6 +1,6 @@
 ---
 name: github-sub-issues
-description: GitHub Sub-Issues（Issueの親子関係）を作成・リンクする手順。gh CLIに専用コマンドがないためAPIを直接使用する
+description: GitHub Sub-Issues（Issueの親子関係）を作成・リンクする手順。gh CLIに専用コマンドがないためAPIを直接使用する。リンク後は親Issue本文の子Issue言及（リスト等）も同期する
 ---
 
 # /github-sub-issues
@@ -38,6 +38,15 @@ create_sub_issue() {
   echo "Created: $sub_url"
 }
 ```
+
+## リンク後の親Issue本文同期
+
+Sub-Issueのリンク完了後、親Issue本文の子Issueへの言及を新しいSub-Issueを含む状態に同期する。
+
+1. 親Issue本文を取得: `gh issue view PARENT_NUMBER -R "$REPO" --json body -q .body`
+2. 子Issueを列挙している箇所（タスクリスト・箇条書き・表等）があるか確認
+3. **あれば**: 同じ形式・同じ粒度で新しいSub-Issueを追記し、本文全体をファイルに書き出して `gh issue edit PARENT_NUMBER -R "$REPO" --body-file <path>` で更新
+4. **無ければ**: 本文は変更しない（GitHubがSub-Issuesパネルを標準表示するため本文リストの新設は不要。既存の書き方を尊重する）
 
 ## 注意事項
 - 整数型の`id`を使用（`node_id`ではない）
