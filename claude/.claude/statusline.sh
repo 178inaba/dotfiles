@@ -321,11 +321,14 @@ main() {
             local pr_number="" pr_state="" pr_url=""
             read -r pr_number pr_state pr_url <<< "$pr_info"
             if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
+                # 本家フッターバッジの色ドットと同じマッピング
+                # （緑=approved / 黄=pending review / 赤=changes requested / グレー=draft）
                 local pr_color=""
                 case "$pr_state" in
                     APPROVED) pr_color="$GREEN" ;;
                     CHANGES_REQUESTED) pr_color="$RED" ;;
                     DRAFT) pr_color="$GRAY" ;;
+                    *) pr_color="$YELLOW" ;;
                 esac
                 local pr_text="PR #${pr_number}"
                 # 下線付きの番号部分のみ OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）にし、
