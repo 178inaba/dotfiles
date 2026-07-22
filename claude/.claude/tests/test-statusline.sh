@@ -70,10 +70,10 @@ else
   printf 'FAIL  syntax check (bash -n)\n'
 fi
 
-FULL_INPUT='{"session_id":"test","workspace":{"current_dir":"'$PWD'","project_dir":"'$PWD'"},"model":{"display_name":"Opus"},"cost":{"total_cost_usd":1.23,"total_duration_ms":5400000},"context_window":{"used_percentage":42.5},"rate_limits":{"five_hour":{"used_percentage":35,"resets_at":9999999999},"seven_day":{"used_percentage":73,"resets_at":9999999999}}}'
+FULL_INPUT='{"session_id":"b257201c-ca28-4ad3-83a0-fa3f531eb808","workspace":{"current_dir":"'$PWD'","project_dir":"'$PWD'"},"model":{"display_name":"Opus"},"cost":{"total_cost_usd":1.23,"total_duration_ms":5400000},"context_window":{"used_percentage":42.5},"rate_limits":{"five_hour":{"used_percentage":35,"resets_at":9999999999},"seven_day":{"used_percentage":73,"resets_at":9999999999}}}'
 
-# 全フィールドあり: モデル・コンテキストバー・レートリミット・コスト・経過時間が出る
-run_test 'full fields' "$FULL_INPUT" '[Opus]|42%|5h:35%|7d:73%|$1.23|1h30m'
+# 全フィールドあり: モデル・コンテキストバー・レートリミット・コスト・経過時間・セッションIDが出る
+run_test 'full fields' "$FULL_INPUT" '[Opus]|42%|5h:35%|7d:73%|$1.23|1h30m|b257201c-ca28-4ad3-83a0-fa3f531eb808'
 
 # 対象フィールドなし: ディレクトリ表示のみでもエラーにならない
 run_test 'workspace only' '{"workspace":{"current_dir":"'$PWD'","project_dir":"'$PWD'"}}' "$PWD"
@@ -170,6 +170,29 @@ run_git_test 'git: unmerged conflict' "$REPO_C" '(main +1 ~1)'
 PLAIN="$TEST_TMPDIR/plain"
 mkdir -p "$PLAIN"
 run_git_test 'non-git dir' "$PLAIN" ''
+
+# --- セッションID表示（2行目） ---
+
+SESSION_ID='b257201c-ca28-4ad3-83a0-fa3f531eb808'
+
+# 指定ディレクトリ + session_id 付き入力で実行し、ANSI除去済みの2行目が期待値と完全一致するか検証
+run_session_test() {
+  local name=$1 dir=$2 want=$3
+  local output line2
+  rm -f "$GIT_CACHE_BASE"-*
+  output=$(cd "$dir" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$dir" "$dir" | bash "$STATUSLINE" 2>/dev/null)
+  line2=$(printf '%s' "$output" | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g')
+  if [ "$line2" = "$want" ]; then
+    pass=$((pass + 1))
+    printf 'PASS  %s\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  %s (got %s, want %s)\n' "$name" "$line2" "$want"
+  fi
+}
+
+run_session_test 'session id: appended to branch line' "$REPO_C" "(main +1 ~1) $SESSION_ID"
+run_session_test 'session id: shown alone in non-git dir' "$PLAIN" "$SESSION_ID"
 
 # --- USD/JPY 円表示 ---
 

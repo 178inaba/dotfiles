@@ -9,6 +9,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
+GRAY='\033[0;90m'
 NC='\033[0m'
 
 # テストから差し替え可能
@@ -187,7 +188,7 @@ main() {
     local now=$(date +%s)
     local current_dir="" project_dir="" model_name="" total_cost=""
     local used_pct="" duration_ms="" five_h="" seven_d=""
-    local five_h_resets="" seven_d_resets=""
+    local five_h_resets="" seven_d_resets="" session_id=""
 
     if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
         # $()が末尾の空行を除去するため、末尾フィールドが空の場合はreadがEOFで空文字列を返す
@@ -202,7 +203,8 @@ main() {
             (.rate_limits.five_hour.used_percentage // ""),
             (.rate_limits.seven_day.used_percentage // ""),
             (.rate_limits.five_hour.resets_at // ""),
-            (.rate_limits.seven_day.resets_at // "")
+            (.rate_limits.seven_day.resets_at // ""),
+            (.session_id // "")
         ] | map(tostring) | .[]' <<< "$input" 2>/dev/null)
         {
             IFS= read -r current_dir
@@ -215,6 +217,7 @@ main() {
             IFS= read -r seven_d
             IFS= read -r five_h_resets
             IFS= read -r seven_d_resets
+            IFS= read -r session_id
         } <<< "$jq_output"
     fi
 
@@ -290,9 +293,18 @@ main() {
         rate_str=" ${rate_str}"
     fi
 
-    # --- 組み立て（パス / ブランチ / セッション情報 の3行） ---
+    # --- 組み立て（パス / ブランチ+セッションID / セッション情報 の3行） ---
     local output="${BLUE}${display_dir}${NC}"
-    [[ -n "$git_info" ]] && output="${output}\n${GREEN}${git_info# }${NC}"
+    # セッションIDはトランスクリプト調査・resume 用にセッション中でも参照できるよう常時表示。
+    # 1行目は2パス表示（project > current）で長くなりうるため、通常最短のブランチ行側に置き、
+    # 非 git ディレクトリでもIDが消えないよう単独でも2行目を出す
+    local line2=""
+    [[ -n "$git_info" ]] && line2="${GREEN}${git_info# }${NC}"
+    if [[ -n "$session_id" ]]; then
+        [[ -n "$line2" ]] && line2="${line2} "
+        line2="${line2}${GRAY}${session_id}${NC}"
+    fi
+    [[ -n "$line2" ]] && output="${output}\n${line2}"
     output="${output}\n${PURPLE}${model_str# }${NC}${ctx_bar}${rate_str}${CYAN}${cost_str}${NC}${duration_str}"
     printf '%b\n' "$output"
 }
