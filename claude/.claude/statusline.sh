@@ -127,7 +127,7 @@ refresh_usd_jpy_cache() {
 # キャッシュキーは作業ディレクトリ+ブランチ（ブランチ切替で即無効化、同一ディレクトリ間では共有）。
 # 返り値は "<PR番号> <状態> <URL>"（状態: DRAFT / APPROVED / CHANGES_REQUESTED / NONE）または空
 get_pr_info() {
-    local cache_key="$1" now="$2"
+    local cache_key="$1" branch="$2" now="$3"
     local cache_file="${PR_CACHE_BASE}-${cache_key//\//_}"
     cache_file="${cache_file:0:200}"
 
@@ -147,23 +147,38 @@ get_pr_info() {
         if ! [[ "$attempted_at" =~ ^[0-9]+$ ]] || (( now - attempted_at > PR_RETRY_INTERVAL )); then
             echo "$now" > "$attempt_file"
             # サブシェル + 全FDの切り離しで完全にデタッチする（get_usd_jpy_rate と同じ理由）
-            ( refresh_pr_cache "$cache_key" "$cache_file" "$now" </dev/null >/dev/null 2>&1 & )
+            ( refresh_pr_cache "$cache_key" "$branch" "$cache_file" "$now" </dev/null >/dev/null 2>&1 & )
         fi
     fi
     echo "$cached_result"
 }
 
-# PR キャッシュ更新（バックグラウンド実行前提）。gh 失敗（PR 無し・オフライン・未認証等。
-# gh の exit code では区別できない）も「無し」としてキャッシュし、TTL で再試行を抑える
+# デフォルトブランチ判定（バックグラウンド実行前提）。clone 時に設定される origin/HEAD を
+# 正とし、未設定なら gh にフォールバック。どちらも不明なら非デフォルト扱い（表示する側に倒す）
+is_default_branch() {
+    local branch="$1" default_branch
+    default_branch=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
+    default_branch="${default_branch#origin/}"
+    [[ -z "$default_branch" ]] \
+        && default_branch=$("$GH_BIN" repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null)
+    [[ -n "$default_branch" && "$branch" == "$default_branch" ]]
+}
+
+# PR キャッシュ更新（バックグラウンド実行前提）。デフォルトブランチは release PR 等の head に
+# なっていてもブランチ固有の作業文脈ではないため「無し」扱いし、フェッチ自体をスキップする。
+# gh 失敗（PR 無し・オフライン・未認証等。gh の exit code では区別できない）も「無し」として
+# キャッシュし、TTL で再試行を抑える
 refresh_pr_cache() {
-    local cache_key="$1" cache_file="$2" now="$3"
+    local cache_key="$1" branch="$2" cache_file="$3" now="$4"
     local pr_json result=""
-    pr_json=$("$GH_BIN" pr view --json number,reviewDecision,state,isDraft,url 2>/dev/null)
-    if [[ -n "$pr_json" ]]; then
-        result=$(jq -r 'select(.state == "OPEN")
-            | "\(.number) \(if .isDraft then "DRAFT"
-                elif (.reviewDecision // "") == "" then "NONE"
-                else .reviewDecision end) \(.url // "")"' <<< "$pr_json" 2>/dev/null)
+    if ! is_default_branch "$branch"; then
+        pr_json=$("$GH_BIN" pr view --json number,reviewDecision,state,isDraft,url 2>/dev/null)
+        if [[ -n "$pr_json" ]]; then
+            result=$(jq -r 'select(.state == "OPEN")
+                | "\(.number) \(if .isDraft then "DRAFT"
+                    elif (.reviewDecision // "") == "" then "NONE"
+                    else .reviewDecision end) \(.url // "")"' <<< "$pr_json" 2>/dev/null)
+        fi
     fi
     printf '%s\n%s\n%s' "$now" "$cache_key" "$result" > "${cache_file}.$$" \
         && mv "${cache_file}.$$" "$cache_file"
@@ -302,7 +317,7 @@ main() {
         branch="${branch%%)*}"
         branch="${branch%% *}"
         if [[ -n "$branch" ]]; then
-            local pr_info=$(get_pr_info "${current_dir}:${branch}" "$now")
+            local pr_info=$(get_pr_info "${current_dir}:${branch}" "$branch" "$now")
             local pr_number="" pr_state="" pr_url=""
             read -r pr_number pr_state pr_url <<< "$pr_info"
             if [[ "$pr_number" =~ ^[0-9]+$ ]]; then

@@ -34,14 +34,20 @@ EOF
 chmod +x "$TEST_TMPDIR/curl-stub"
 export CURL_BIN="$TEST_TMPDIR/curl-stub"
 
-# gh スタブ: 応答ファイルがあればその内容を返し、無ければ失敗。呼び出しはログに記録。
-# GH_STUB_DELAY で応答遅延を再現できる（フェッチ中の再スポーン抑止テスト用）
+# gh スタブ: サブコマンドに応じた応答ファイルがあればその内容を返し、無ければ失敗。
+# 呼び出しはログに記録。GH_STUB_DELAY で応答遅延を再現できる（再スポーン抑止テスト用）
 export GH_STUB_LOG="$TEST_TMPDIR/gh-calls.log"
 export GH_STUB_RESPONSE="$TEST_TMPDIR/gh-response"
+export GH_STUB_REPO_RESPONSE="$TEST_TMPDIR/gh-repo-response"
 cat > "$TEST_TMPDIR/gh-stub" <<'EOF'
 #!/bin/bash
-echo "called" >> "$GH_STUB_LOG"
+echo "called $1" >> "$GH_STUB_LOG"
 [ -n "${GH_STUB_DELAY:-}" ] && sleep "$GH_STUB_DELAY"
+if [ "$1" = "repo" ]; then
+  [ -f "$GH_STUB_REPO_RESPONSE" ] || exit 1
+  cat "$GH_STUB_REPO_RESPONSE"
+  exit 0
+fi
 [ -f "$GH_STUB_RESPONSE" ] || exit 1
 cat "$GH_STUB_RESPONSE"
 EOF
@@ -283,9 +289,11 @@ check 'yen: failed fetch writes no cache' '[ ! -f "$USD_JPY_CACHE_FILE" ]'
 
 # --- PR 表示（2行目） ---
 
-# upstream 同期済みのクリーンな repo: ブランチ行は "(main)" のみ
+# upstream 同期済みのクリーンな repo。clone で origin/HEAD（デフォルトブランチ = main）が
+# 設定される。デフォルトブランチでは PR を表示しないため、PR テストは feature ブランチで行う
 REPO_PR="$TEST_TMPDIR/repo-pr"
 git clone -q "$ORIGIN" "$REPO_PR"
+(cd "$REPO_PR" && git switch -qc feat)
 
 ESC_GREEN=$(printf '\033[0;32m')
 ESC_RED=$(printf '\033[0;31m')
@@ -296,7 +304,7 @@ OSC8=$(printf '\033]8;;')
 BEL=$(printf '\a')
 
 pr_reset() {
-  rm -f "$PR_CACHE_BASE"-* "$GH_STUB_RESPONSE" "$GH_STUB_LOG"
+  rm -f "$PR_CACHE_BASE"-* "$GH_STUB_RESPONSE" "$GH_STUB_REPO_RESPONSE" "$GH_STUB_LOG"
 }
 
 # 指定ディレクトリで描画し、2行目（ブランチ行）を返す。_raw はエスケープシーケンス付き
@@ -307,7 +315,8 @@ render_line2_raw() {
 render_line2() {
   render_line2_raw "$1" | sed $'s/\x1b\\[[0-9;]*m//g; s/\x1b]8;;[^\x07]*\x07//g'
 }
-pr_line2_is() { [ "$(render_line2 "$REPO_PR")" = "$1" ]; }
+line2_is() { [ "$(render_line2 "$1")" = "$2" ]; }
+pr_line2_is() { line2_is "$REPO_PR" "$1"; }
 
 # バックグラウンド更新で書かれた本キャッシュ（attempt を除く）の存在確認
 pr_cache_written() { ls "$PR_CACHE_BASE"-* 2>/dev/null | grep -v attempt | grep -q .; }
@@ -315,8 +324,8 @@ pr_cache_written() { ls "$PR_CACHE_BASE"-* 2>/dev/null | grep -v attempt | grep 
 # OPEN PR: 初回描画は表示なし（非同期フェッチ）、更新完了後の描画で PR 番号が出る
 pr_reset
 printf '{"number":123,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/123"}' > "$GH_STUB_RESPONSE"
-check 'pr: first render shows nothing before fetch' 'pr_line2_is "(main)"'
-check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(main) PR #123\""'
+check 'pr: first render shows nothing before fetch' 'pr_line2_is "(feat)"'
+check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(feat) PR #123\""'
 
 # フッターバッジと同じ見た目: 下線付きの番号部分のみ OSC 8 ハイパーリンク（"PR " は非リンク）
 check 'pr: only underlined number wrapped in OSC 8 hyperlink' \
@@ -324,25 +333,25 @@ check 'pr: only underlined number wrapped in OSC 8 hyperlink' \
 
 # 表示順: ブランチ情報 → PR → セッションID
 pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$REPO_PR" "$REPO_PR" | bash "$STATUSLINE" 2>/dev/null | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g; s/\x1b]8;;[^\x07]*\x07//g')
-check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(main) PR #123 $SESSION_ID" ]'
+check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(feat) PR #123 $SESSION_ID" ]'
 
 # reviewDecision の色分け: APPROVED=緑 / CHANGES_REQUESTED=赤 / draft=グレー
 # （色エスケープの直後にリンク開始が続き、リンクテキストに色が乗る）
 pr_reset
 printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/124"}' > "$GH_STUB_RESPONSE"
-check 'pr: approved shown' 'wait_for "pr_line2_is \"(main) PR #124\""'
+check 'pr: approved shown' 'wait_for "pr_line2_is \"(feat) PR #124\""'
 check 'pr: approved colored green' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GREEN}PR ${OSC8}https://example.test/pull/124${BEL}${ESC_UL}#124"'
 
 pr_reset
 printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/125"}' > "$GH_STUB_RESPONSE"
-check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(main) PR #125\""'
+check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(feat) PR #125\""'
 check 'pr: changes_requested colored red' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_RED}PR ${OSC8}https://example.test/pull/125${BEL}${ESC_UL}#125"'
 
 pr_reset
 printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://example.test/pull/126"}' > "$GH_STUB_RESPONSE"
-check 'pr: draft shown' 'wait_for "pr_line2_is \"(main) PR #126\""'
+check 'pr: draft shown' 'wait_for "pr_line2_is \"(feat) PR #126\""'
 check 'pr: draft colored gray' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GRAY}PR ${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
 
@@ -350,12 +359,12 @@ check 'pr: draft colored gray' \
 pr_reset
 printf '{"number":127,"reviewDecision":"APPROVED","state":"MERGED","isDraft":false}' > "$GH_STUB_RESPONSE"
 render_line2 "$REPO_PR" >/dev/null
-check 'pr: merged PR hidden' 'wait_for "pr_cache_written" && pr_line2_is "(main)"'
+check 'pr: merged PR hidden' 'wait_for "pr_cache_written" && pr_line2_is "(feat)"'
 
 # gh 失敗（PR 無し・オフライン等）: 「無し」としてキャッシュし、新鮮な間は再フェッチしない
 pr_reset
 render_line2 "$REPO_PR" >/dev/null
-check 'pr: gh failure cached as none' 'wait_for "pr_cache_written" && pr_line2_is "(main)"'
+check 'pr: gh failure cached as none' 'wait_for "pr_cache_written" && pr_line2_is "(feat)"'
 rm -f "$GH_STUB_LOG"
 render_line2 "$REPO_PR" >/dev/null
 sleep 0.3
@@ -369,15 +378,17 @@ render_line2 "$REPO_PR" >/dev/null
 render_line2 "$REPO_PR" >/dev/null
 unset GH_STUB_DELAY
 check 'pr: in-flight fetch not re-spawned' \
-  'wait_for "pr_line2_is \"(main) PR #128\"" && [ "$(grep -c called "$GH_STUB_LOG")" -eq 1 ]'
+  'wait_for "pr_line2_is \"(feat) PR #128\"" && [ "$(grep -c called "$GH_STUB_LOG")" -eq 1 ]'
 
 # ブランチ切替でキャッシュが即無効化される（キーが dir+branch のため）
 pr_reset
 printf '{"number":129,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/129"}' > "$GH_STUB_RESPONSE"
-check 'pr: cached on main' 'wait_for "pr_line2_is \"(main) PR #129\""'
+check 'pr: cached on feat' 'wait_for "pr_line2_is \"(feat) PR #129\""'
 (cd "$REPO_PR" && git switch -qc feature)
 rm -f "$GIT_CACHE_BASE"-*
 check 'pr: branch switch invalidates cache' 'pr_line2_is "(feature)"'
+# 新ブランチのキーで再フェッチされる（完了待ちを兼ね、次テストのログ削除とのレースを防ぐ）
+check 'pr: new branch fetches its own PR' 'wait_for "pr_line2_is \"(feature) PR #129\""'
 
 # detached HEAD・非 git ディレクトリでは gh を起動しない
 pr_reset
@@ -387,6 +398,34 @@ render_line2 "$REPO_B" >/dev/null
 render_line2 "$PLAIN" >/dev/null
 sleep 0.3
 check 'pr: detached HEAD / non-git dir do not invoke gh' '[ ! -f "$GH_STUB_LOG" ]'
+
+# --- デフォルトブランチでは PR を表示しない ---
+
+repo_a_line2_is() { line2_is "$REPO_A" "$1"; }
+
+# origin/HEAD（clone 時に設定済み）から判定し、PR があっても表示せず gh 起動もしない
+pr_reset
+printf '{"number":131,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/131"}' > "$GH_STUB_RESPONSE"
+(cd "$REPO_PR" && git switch -q main)
+rm -f "$GIT_CACHE_BASE"-*
+render_line2 "$REPO_PR" >/dev/null
+check 'pr: default branch hides PR' 'wait_for "pr_cache_written" && pr_line2_is "(main)"'
+check 'pr: default branch does not invoke gh' '[ ! -f "$GH_STUB_LOG" ]'
+
+# origin/HEAD 未設定の repo（REPO_A: remote add のみで clone ではない）は gh repo view で補完
+pr_reset
+printf '{"number":132,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/132"}' > "$GH_STUB_RESPONSE"
+printf 'main\n' > "$GH_STUB_REPO_RESPONSE"
+render_line2 "$REPO_A" >/dev/null
+check 'pr: default branch via gh repo view fallback hides PR' \
+  'wait_for "pr_cache_written" && repo_a_line2_is "(main +1 ~1 ↑1)"'
+
+# デフォルトブランチが判定不能（origin/HEAD 未設定 + gh repo view 失敗）なら表示する側に倒す
+pr_reset
+printf '{"number":133,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/133"}' > "$GH_STUB_RESPONSE"
+render_line2 "$REPO_A" >/dev/null
+check 'pr: unknown default branch still shows PR' \
+  'wait_for "repo_a_line2_is \"(main +1 ~1 ↑1) PR #133\""'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
