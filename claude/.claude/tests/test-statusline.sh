@@ -318,9 +318,9 @@ printf '{"number":123,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"
 check 'pr: first render shows nothing before fetch' 'pr_line2_is "(main)"'
 check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(main) PR #123\""'
 
-# フッターバッジと同じ見た目: PR 全体が OSC 8 ハイパーリンク、番号部分のみ下線
-check 'pr: number underlined and wrapped in OSC 8 hyperlink' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${OSC8}https://example.test/pull/123${BEL}PR ${ESC_UL}#123${ESC_UL_OFF}${OSC8}${BEL}"'
+# フッターバッジと同じ見た目: 下線付きの番号部分のみ OSC 8 ハイパーリンク（"PR " は非リンク）
+check 'pr: only underlined number wrapped in OSC 8 hyperlink' \
+  'render_line2_raw "$REPO_PR" | grep -qF "PR ${OSC8}https://example.test/pull/123${BEL}${ESC_UL}#123${ESC_UL_OFF}${OSC8}${BEL}"'
 
 # 表示順: ブランチ情報 → PR → セッションID
 pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$REPO_PR" "$REPO_PR" | bash "$STATUSLINE" 2>/dev/null | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g; s/\x1b]8;;[^\x07]*\x07//g')
@@ -332,19 +332,19 @@ pr_reset
 printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/124"}' > "$GH_STUB_RESPONSE"
 check 'pr: approved shown' 'wait_for "pr_line2_is \"(main) PR #124\""'
 check 'pr: approved colored green' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GREEN}${OSC8}https://example.test/pull/124${BEL}PR ${ESC_UL}#124"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GREEN}PR ${OSC8}https://example.test/pull/124${BEL}${ESC_UL}#124"'
 
 pr_reset
 printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/125"}' > "$GH_STUB_RESPONSE"
 check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(main) PR #125\""'
 check 'pr: changes_requested colored red' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_RED}${OSC8}https://example.test/pull/125${BEL}PR ${ESC_UL}#125"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_RED}PR ${OSC8}https://example.test/pull/125${BEL}${ESC_UL}#125"'
 
 pr_reset
 printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://example.test/pull/126"}' > "$GH_STUB_RESPONSE"
 check 'pr: draft shown' 'wait_for "pr_line2_is \"(main) PR #126\""'
 check 'pr: draft colored gray' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GRAY}${OSC8}https://example.test/pull/126${BEL}PR ${ESC_UL}#126"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GRAY}PR ${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
 
 # OPEN 以外（マージ済み等）は表示しない
 pr_reset

@@ -313,10 +313,10 @@ main() {
                     DRAFT) pr_color="$GRAY" ;;
                 esac
                 local pr_text="PR #${pr_number}"
-                # OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）。番号のみ下線を付けて
-                # フッターバッジと見た目を揃える。非対応ターミナルでは Claude Code 側で
-                # プレーンテキスト表示にフォールバックされる
-                [[ -n "$pr_url" ]] && pr_text="\033]8;;${pr_url}\aPR ${UNDERLINE}#${pr_number}${UNDERLINE_OFF}\033]8;;\a"
+                # 下線付きの番号部分のみ OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）にし、
+                # 下線 = クリック可能範囲としてフッターバッジと見た目を揃える。非対応ターミナル
+                # では Claude Code 側でプレーンテキスト表示にフォールバックされる
+                [[ -n "$pr_url" ]] && pr_text="PR \033]8;;${pr_url}\a${UNDERLINE}#${pr_number}${UNDERLINE_OFF}\033]8;;\a"
                 pr_str=" ${pr_color}${pr_text}${NC}"
             fi
         fi
