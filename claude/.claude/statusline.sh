@@ -322,12 +322,15 @@ main() {
             read -r pr_number pr_state pr_url <<< "$pr_info"
             if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
                 # 本家フッターバッジの色ドットと同じマッピング
-                # （緑=approved / 黄=pending review / 赤=changes requested / グレー=draft）
+                # （緑=approved / 黄=pending review / 赤=changes requested / グレー=draft）。
+                # draft のグレーは ANSI 90 だと Solarized 系テーマで青緑系に再割り当てされる
+                # ため、レートリミット残り時間等と同じ無色（テーマのデフォルト前景色 =
+                # このテーマではグレーに見える）で表現する
                 local pr_color=""
                 case "$pr_state" in
                     APPROVED) pr_color="$GREEN" ;;
                     CHANGES_REQUESTED) pr_color="$RED" ;;
-                    DRAFT) pr_color="$GRAY" ;;
+                    DRAFT) ;;
                     *) pr_color="$YELLOW" ;;
                 esac
                 local pr_text="PR #${pr_number}"

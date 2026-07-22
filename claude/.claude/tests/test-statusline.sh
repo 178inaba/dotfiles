@@ -297,8 +297,8 @@ git clone -q "$ORIGIN" "$REPO_PR"
 
 ESC_GREEN=$(printf '\033[0;32m')
 ESC_RED=$(printf '\033[0;31m')
-ESC_GRAY=$(printf '\033[0;90m')
 ESC_YELLOW=$(printf '\033[1;33m')
+ESC_NC=$(printf '\033[0m')
 ESC_UL=$(printf '\033[4m')
 ESC_UL_OFF=$(printf '\033[24m')
 OSC8=$(printf '\033]8;;')
@@ -337,8 +337,9 @@ pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"cur
 check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(feat) PR #123 $SESSION_ID" ]'
 
 # reviewDecision の色分け（本家フッターバッジと同じマッピング）:
-# APPROVED=緑 / CHANGES_REQUESTED=赤 / draft=グレー / レビュー待ち=黄
-# （色エスケープの直後に "PR " とリンク開始が続き、テキスト全体に色が乗る）
+# APPROVED=緑 / CHANGES_REQUESTED=赤 / レビュー待ち=黄 / draft=無色
+# （色エスケープの直後に "PR " とリンク開始が続き、テキスト全体に色が乗る。
+# draft の「グレー」はテーマのデフォルト前景色に委ねるため無色 = 直前が branch 部の NC）
 pr_reset
 printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/124"}' > "$GH_STUB_RESPONSE"
 check 'pr: approved shown' 'wait_for "pr_line2_is \"(feat) PR #124\""'
@@ -354,8 +355,8 @@ check 'pr: changes_requested colored red' \
 pr_reset
 printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://example.test/pull/126"}' > "$GH_STUB_RESPONSE"
 check 'pr: draft shown' 'wait_for "pr_line2_is \"(feat) PR #126\""'
-check 'pr: draft colored gray' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GRAY}PR ${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
+check 'pr: draft uncolored (default fg)' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
 
 # レビュー待ちは reviewDecision が REVIEW_REQUIRED（必須レビュー設定あり）と
 # 空文字（設定なし）の2形態がある。どちらも黄
