@@ -290,18 +290,20 @@ git clone -q "$ORIGIN" "$REPO_PR"
 ESC_GREEN=$(printf '\033[0;32m')
 ESC_RED=$(printf '\033[0;31m')
 ESC_GRAY=$(printf '\033[0;90m')
+OSC8=$(printf '\033]8;;')
+BEL=$(printf '\a')
 
 pr_reset() {
   rm -f "$PR_CACHE_BASE"-* "$GH_STUB_RESPONSE" "$GH_STUB_LOG"
 }
 
-# 指定ディレクトリで描画し、2行目（ブランチ行）を返す。_raw は ANSI 付き
+# 指定ディレクトリで描画し、2行目（ブランチ行）を返す。_raw はエスケープシーケンス付き
 render_line2_raw() {
   local dir=$1
   (cd "$dir" && printf '{"workspace":{"current_dir":"%s","project_dir":"%s"}}' "$dir" "$dir" | bash "$STATUSLINE" 2>/dev/null) | sed -n 2p
 }
 render_line2() {
-  render_line2_raw "$1" | sed $'s/\x1b\\[[0-9;]*m//g'
+  render_line2_raw "$1" | sed $'s/\x1b\\[[0-9;]*m//g; s/\x1b]8;;[^\x07]*\x07//g'
 }
 pr_line2_is() { [ "$(render_line2 "$REPO_PR")" = "$1" ]; }
 
@@ -310,29 +312,37 @@ pr_cache_written() { ls "$PR_CACHE_BASE"-* 2>/dev/null | grep -v attempt | grep 
 
 # OPEN PR: 初回描画は表示なし（非同期フェッチ）、更新完了後の描画で PR 番号が出る
 pr_reset
-printf '{"number":123,"reviewDecision":"","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+printf '{"number":123,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/123"}' > "$GH_STUB_RESPONSE"
 check 'pr: first render shows nothing before fetch' 'pr_line2_is "(main)"'
 check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(main) PR #123\""'
 
+# PR 番号は OSC 8 ハイパーリンク（\e]8;;URL\a text \e]8;;\a）で PR URL に飛べる
+check 'pr: number wrapped in OSC 8 hyperlink' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${OSC8}https://example.test/pull/123${BEL}PR #123${OSC8}${BEL}"'
+
 # 表示順: ブランチ情報 → PR → セッションID
-pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$REPO_PR" "$REPO_PR" | bash "$STATUSLINE" 2>/dev/null | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g')
+pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$REPO_PR" "$REPO_PR" | bash "$STATUSLINE" 2>/dev/null | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g; s/\x1b]8;;[^\x07]*\x07//g')
 check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(main) PR #123 $SESSION_ID" ]'
 
 # reviewDecision の色分け: APPROVED=緑 / CHANGES_REQUESTED=赤 / draft=グレー
+# （色エスケープの直後にリンク開始が続き、リンクテキストに色が乗る）
 pr_reset
-printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/124"}' > "$GH_STUB_RESPONSE"
 check 'pr: approved shown' 'wait_for "pr_line2_is \"(main) PR #124\""'
-check 'pr: approved colored green' 'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GREEN}PR #124"'
+check 'pr: approved colored green' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GREEN}${OSC8}https://example.test/pull/124${BEL}PR #124"'
 
 pr_reset
-printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/125"}' > "$GH_STUB_RESPONSE"
 check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(main) PR #125\""'
-check 'pr: changes_requested colored red' 'render_line2_raw "$REPO_PR" | grep -qF "${ESC_RED}PR #125"'
+check 'pr: changes_requested colored red' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_RED}${OSC8}https://example.test/pull/125${BEL}PR #125"'
 
 pr_reset
-printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true}' > "$GH_STUB_RESPONSE"
+printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://example.test/pull/126"}' > "$GH_STUB_RESPONSE"
 check 'pr: draft shown' 'wait_for "pr_line2_is \"(main) PR #126\""'
-check 'pr: draft colored gray' 'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GRAY}PR #126"'
+check 'pr: draft colored gray' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GRAY}${OSC8}https://example.test/pull/126${BEL}PR #126"'
 
 # OPEN 以外（マージ済み等）は表示しない
 pr_reset
@@ -351,7 +361,7 @@ check 'pr: fresh none-cache suppresses refetch' '[ ! -f "$GH_STUB_LOG" ]'
 
 # フェッチ完了前の再描画では gh を多重起動しない（attempt ファイルによる抑止）
 pr_reset
-printf '{"number":128,"reviewDecision":"","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+printf '{"number":128,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/128"}' > "$GH_STUB_RESPONSE"
 export GH_STUB_DELAY=0.5
 render_line2 "$REPO_PR" >/dev/null
 render_line2 "$REPO_PR" >/dev/null
@@ -361,7 +371,7 @@ check 'pr: in-flight fetch not re-spawned' \
 
 # ブランチ切替でキャッシュが即無効化される（キーが dir+branch のため）
 pr_reset
-printf '{"number":129,"reviewDecision":"","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+printf '{"number":129,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/129"}' > "$GH_STUB_RESPONSE"
 check 'pr: cached on main' 'wait_for "pr_line2_is \"(main) PR #129\""'
 (cd "$REPO_PR" && git switch -qc feature)
 rm -f "$GIT_CACHE_BASE"-*

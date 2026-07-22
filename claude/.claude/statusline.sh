@@ -123,7 +123,7 @@ refresh_usd_jpy_cache() {
 # される既知バグがあり（anthropics/claude-code#80209。stdin JSON の pr.* は同バッジのミラー
 # のため一緒に消える）、意図的な冗長化として自前で gh フェッチする。修正リリース確認後に要再判断。
 # キャッシュキーは作業ディレクトリ+ブランチ（ブランチ切替で即無効化、同一ディレクトリ間では共有）。
-# 返り値は "<PR番号> <状態>"（状態: DRAFT / APPROVED / CHANGES_REQUESTED / NONE）または空
+# 返り値は "<PR番号> <状態> <URL>"（状態: DRAFT / APPROVED / CHANGES_REQUESTED / NONE）または空
 get_pr_info() {
     local cache_key="$1" now="$2"
     local cache_file="${PR_CACHE_BASE}-${cache_key//\//_}"
@@ -156,12 +156,12 @@ get_pr_info() {
 refresh_pr_cache() {
     local cache_key="$1" cache_file="$2" now="$3"
     local pr_json result=""
-    pr_json=$("$GH_BIN" pr view --json number,reviewDecision,state,isDraft 2>/dev/null)
+    pr_json=$("$GH_BIN" pr view --json number,reviewDecision,state,isDraft,url 2>/dev/null)
     if [[ -n "$pr_json" ]]; then
         result=$(jq -r 'select(.state == "OPEN")
             | "\(.number) \(if .isDraft then "DRAFT"
                 elif (.reviewDecision // "") == "" then "NONE"
-                else .reviewDecision end)"' <<< "$pr_json" 2>/dev/null)
+                else .reviewDecision end) \(.url // "")"' <<< "$pr_json" 2>/dev/null)
     fi
     printf '%s\n%s\n%s' "$now" "$cache_key" "$result" > "${cache_file}.$$" \
         && mv "${cache_file}.$$" "$cache_file"
@@ -301,8 +301,8 @@ main() {
         branch="${branch%% *}"
         if [[ -n "$branch" ]]; then
             local pr_info=$(get_pr_info "${current_dir}:${branch}" "$now")
-            local pr_number="" pr_state=""
-            read -r pr_number pr_state <<< "$pr_info"
+            local pr_number="" pr_state="" pr_url=""
+            read -r pr_number pr_state pr_url <<< "$pr_info"
             if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
                 local pr_color=""
                 case "$pr_state" in
@@ -310,7 +310,11 @@ main() {
                     CHANGES_REQUESTED) pr_color="$RED" ;;
                     DRAFT) pr_color="$GRAY" ;;
                 esac
-                pr_str=" ${pr_color}PR #${pr_number}${NC}"
+                local pr_text="PR #${pr_number}"
+                # OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）。非対応ターミナルでは
+                # Claude Code 側でプレーンテキスト表示にフォールバックされる
+                [[ -n "$pr_url" ]] && pr_text="\033]8;;${pr_url}\a${pr_text}\033]8;;\a"
+                pr_str=" ${pr_color}${pr_text}${NC}"
             fi
         fi
     fi
