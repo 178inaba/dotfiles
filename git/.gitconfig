@@ -48,7 +48,9 @@
 	prune = true
 # remote.origin.* をここに直接書くと remote 未設定のリポジトリにも幽霊 origin が
 # 現れる（git remote に列挙され fetch が silent no-op 化する）ため、
-# remote が実在するリポジトリだけに適用する
+# remote が実在するリポジトリだけに適用する。hasconfig はリモート名では絞れない
+# （remote.*.url の * は固定構文）ので、origin 以外のリモートしか無いリポジトリに
+# 幽霊 origin が出る残存ケースは許容
 [includeIf "hasconfig:remote.*.url:**"]
 	path = ~/.gitconfig.remote
 [include]
