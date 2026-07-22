@@ -28,6 +28,14 @@ USD_JPY_CACHE_MAX_AGE=43200
 # 取得失敗時の再試行間隔（オフライン時に5秒ごとの描画のたびに curl を投げない）
 USD_JPY_RETRY_INTERVAL=60
 
+# テストから差し替え可能
+PR_CACHE_BASE="${PR_CACHE_BASE:-/tmp/claude-statusline-pr-cache}"
+GH_BIN="${GH_BIN:-gh}"
+# フッターの PR バッジ相当の更新間隔
+PR_CACHE_MAX_AGE=60
+# フェッチ中・失敗直後の再スポーン抑止（gh の多重起動防止）
+PR_RETRY_INTERVAL=60
+
 NUM_RE='^[0-9]+(\.[0-9]+)?$'
 
 # コストが表示閾値（1セント）以上か判定
@@ -108,6 +116,55 @@ refresh_usd_jpy_cache() {
     [[ "$rate" =~ $NUM_RE ]] || return
     printf '%s\n%s\n' "$now" "$rate" > "${USD_JPY_CACHE_FILE}.$$" \
         && mv "${USD_JPY_CACHE_FILE}.$$" "$USD_JPY_CACHE_FILE"
+}
+
+# PR 情報取得（stale-while-revalidate。方式は get_usd_jpy_rate と同じ）。
+# Claude Code フッターの PR バッジはポーラーが1回の遅延フェッチ（>4s）で無音・恒久 disable
+# される既知バグがあり（anthropics/claude-code#80209。stdin JSON の pr.* は同バッジのミラー
+# のため一緒に消える）、意図的な冗長化として自前で gh フェッチする。修正リリース確認後に要再判断。
+# キャッシュキーは作業ディレクトリ+ブランチ（ブランチ切替で即無効化、同一ディレクトリ間では共有）。
+# 返り値は "<PR番号> <状態>"（状態: DRAFT / APPROVED / CHANGES_REQUESTED / NONE）または空
+get_pr_info() {
+    local cache_key="$1" now="$2"
+    local cache_file="${PR_CACHE_BASE}-${cache_key//\//_}"
+    cache_file="${cache_file:0:200}"
+
+    local cached_at="" cached_key="" cached_result=""
+    if [[ -f "$cache_file" ]]; then
+        {
+            IFS= read -r cached_at
+            IFS= read -r cached_key
+            IFS= read -r cached_result
+        } < "$cache_file"
+        [[ "$cached_key" == "$cache_key" ]] || { cached_at=""; cached_result=""; }
+    fi
+
+    if ! [[ "$cached_at" =~ ^[0-9]+$ ]] || (( now - cached_at > PR_CACHE_MAX_AGE )); then
+        local attempt_file="${cache_file}.attempt" attempted_at=""
+        [[ -f "$attempt_file" ]] && IFS= read -r attempted_at < "$attempt_file"
+        if ! [[ "$attempted_at" =~ ^[0-9]+$ ]] || (( now - attempted_at > PR_RETRY_INTERVAL )); then
+            echo "$now" > "$attempt_file"
+            # サブシェル + 全FDの切り離しで完全にデタッチする（get_usd_jpy_rate と同じ理由）
+            ( refresh_pr_cache "$cache_key" "$cache_file" "$now" </dev/null >/dev/null 2>&1 & )
+        fi
+    fi
+    echo "$cached_result"
+}
+
+# PR キャッシュ更新（バックグラウンド実行前提）。gh 失敗（PR 無し・オフライン・未認証等。
+# gh の exit code では区別できない）も「無し」としてキャッシュし、TTL で再試行を抑える
+refresh_pr_cache() {
+    local cache_key="$1" cache_file="$2" now="$3"
+    local pr_json result=""
+    pr_json=$("$GH_BIN" pr view --json number,reviewDecision,state,isDraft 2>/dev/null)
+    if [[ -n "$pr_json" ]]; then
+        result=$(jq -r 'select(.state == "OPEN")
+            | "\(.number) \(if .isDraft then "DRAFT"
+                elif (.reviewDecision // "") == "" then "NONE"
+                else .reviewDecision end)"' <<< "$pr_json" 2>/dev/null)
+    fi
+    printf '%s\n%s\n%s' "$now" "$cache_key" "$result" > "${cache_file}.$$" \
+        && mv "${cache_file}.$$" "$cache_file"
 }
 
 # Git情報取得（キャッシュ付き）
@@ -235,6 +292,29 @@ main() {
     # --- Git ---
     local git_info=$(get_git_info "$current_dir" "$now")
 
+    # --- PR ---
+    local pr_str=""
+    if [[ -n "$git_info" ]]; then
+        # git_info は " (branch[ +N][ ~N][ ↑N][ ↓N])" 形式（branch 名に空白は入らない）
+        local branch="${git_info#" ("}"
+        branch="${branch%%)*}"
+        branch="${branch%% *}"
+        if [[ -n "$branch" ]]; then
+            local pr_info=$(get_pr_info "${current_dir}:${branch}" "$now")
+            local pr_number="" pr_state=""
+            read -r pr_number pr_state <<< "$pr_info"
+            if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
+                local pr_color=""
+                case "$pr_state" in
+                    APPROVED) pr_color="$GREEN" ;;
+                    CHANGES_REQUESTED) pr_color="$RED" ;;
+                    DRAFT) pr_color="$GRAY" ;;
+                esac
+                pr_str=" ${pr_color}PR #${pr_number}${NC}"
+            fi
+        fi
+    fi
+
     # --- モデル + コスト ---
     local model_str=""
     local cost_str=""
@@ -299,7 +379,7 @@ main() {
     # 1行目は2パス表示（project > current）で長くなりうるため、通常最短のブランチ行側に置き、
     # 非 git ディレクトリでもIDが消えないよう単独でも2行目を出す
     local line2=""
-    [[ -n "$git_info" ]] && line2="${GREEN}${git_info# }${NC}"
+    [[ -n "$git_info" ]] && line2="${GREEN}${git_info# }${NC}${pr_str}"
     if [[ -n "$session_id" ]]; then
         [[ -n "$line2" ]] && line2="${line2} "
         line2="${line2}${GRAY}${session_id}${NC}"

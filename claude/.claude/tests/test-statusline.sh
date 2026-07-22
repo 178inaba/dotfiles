@@ -4,7 +4,8 @@
 #
 # 実行: bash claude/.claude/tests/test-statusline.sh
 # 失敗したケースがあれば exit 1 で終了する。
-# GIT_CACHE_BASE を一時ディレクトリに差し替えるため /tmp の実キャッシュには触れない。
+# キャッシュ（GIT_CACHE_BASE / USD_JPY_CACHE_FILE / PR_CACHE_BASE）を一時ディレクトリに
+# 差し替えるため /tmp の実キャッシュには触れない。curl / gh も env 差し替えでスタブ化する。
 
 set -u
 
@@ -32,6 +33,21 @@ cat "$CURL_STUB_RESPONSE"
 EOF
 chmod +x "$TEST_TMPDIR/curl-stub"
 export CURL_BIN="$TEST_TMPDIR/curl-stub"
+
+# gh スタブ: 応答ファイルがあればその内容を返し、無ければ失敗。呼び出しはログに記録。
+# GH_STUB_DELAY で応答遅延を再現できる（フェッチ中の再スポーン抑止テスト用）
+export GH_STUB_LOG="$TEST_TMPDIR/gh-calls.log"
+export GH_STUB_RESPONSE="$TEST_TMPDIR/gh-response"
+cat > "$TEST_TMPDIR/gh-stub" <<'EOF'
+#!/bin/bash
+echo "called" >> "$GH_STUB_LOG"
+[ -n "${GH_STUB_DELAY:-}" ] && sleep "$GH_STUB_DELAY"
+[ -f "$GH_STUB_RESPONSE" ] || exit 1
+cat "$GH_STUB_RESPONSE"
+EOF
+chmod +x "$TEST_TMPDIR/gh-stub"
+export GH_BIN="$TEST_TMPDIR/gh-stub"
+export PR_CACHE_BASE="$TEST_TMPDIR/pr-cache"
 
 pass=0
 fail=0
@@ -264,6 +280,101 @@ yen_reset
 run_test 'yen: fetch failure keeps USD fallback' "$YEN_INPUT" '$1.23'
 sleep 0.3
 check 'yen: failed fetch writes no cache' '[ ! -f "$USD_JPY_CACHE_FILE" ]'
+
+# --- PR 表示（2行目） ---
+
+# upstream 同期済みのクリーンな repo: ブランチ行は "(main)" のみ
+REPO_PR="$TEST_TMPDIR/repo-pr"
+git clone -q "$ORIGIN" "$REPO_PR"
+
+ESC_GREEN=$(printf '\033[0;32m')
+ESC_RED=$(printf '\033[0;31m')
+ESC_GRAY=$(printf '\033[0;90m')
+
+pr_reset() {
+  rm -f "$PR_CACHE_BASE"-* "$GH_STUB_RESPONSE" "$GH_STUB_LOG"
+}
+
+# 指定ディレクトリで描画し、2行目（ブランチ行）を返す。_raw は ANSI 付き
+render_line2_raw() {
+  local dir=$1
+  (cd "$dir" && printf '{"workspace":{"current_dir":"%s","project_dir":"%s"}}' "$dir" "$dir" | bash "$STATUSLINE" 2>/dev/null) | sed -n 2p
+}
+render_line2() {
+  render_line2_raw "$1" | sed $'s/\x1b\\[[0-9;]*m//g'
+}
+pr_line2_is() { [ "$(render_line2 "$REPO_PR")" = "$1" ]; }
+
+# バックグラウンド更新で書かれた本キャッシュ（attempt を除く）の存在確認
+pr_cache_written() { ls "$PR_CACHE_BASE"-* 2>/dev/null | grep -v attempt | grep -q .; }
+
+# OPEN PR: 初回描画は表示なし（非同期フェッチ）、更新完了後の描画で PR 番号が出る
+pr_reset
+printf '{"number":123,"reviewDecision":"","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+check 'pr: first render shows nothing before fetch' 'pr_line2_is "(main)"'
+check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(main) PR #123\""'
+
+# 表示順: ブランチ情報 → PR → セッションID
+pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$REPO_PR" "$REPO_PR" | bash "$STATUSLINE" 2>/dev/null | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g')
+check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(main) PR #123 $SESSION_ID" ]'
+
+# reviewDecision の色分け: APPROVED=緑 / CHANGES_REQUESTED=赤 / draft=グレー
+pr_reset
+printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+check 'pr: approved shown' 'wait_for "pr_line2_is \"(main) PR #124\""'
+check 'pr: approved colored green' 'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GREEN}PR #124"'
+
+pr_reset
+printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(main) PR #125\""'
+check 'pr: changes_requested colored red' 'render_line2_raw "$REPO_PR" | grep -qF "${ESC_RED}PR #125"'
+
+pr_reset
+printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true}' > "$GH_STUB_RESPONSE"
+check 'pr: draft shown' 'wait_for "pr_line2_is \"(main) PR #126\""'
+check 'pr: draft colored gray' 'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GRAY}PR #126"'
+
+# OPEN 以外（マージ済み等）は表示しない
+pr_reset
+printf '{"number":127,"reviewDecision":"APPROVED","state":"MERGED","isDraft":false}' > "$GH_STUB_RESPONSE"
+render_line2 "$REPO_PR" >/dev/null
+check 'pr: merged PR hidden' 'wait_for "pr_cache_written" && pr_line2_is "(main)"'
+
+# gh 失敗（PR 無し・オフライン等）: 「無し」としてキャッシュし、新鮮な間は再フェッチしない
+pr_reset
+render_line2 "$REPO_PR" >/dev/null
+check 'pr: gh failure cached as none' 'wait_for "pr_cache_written" && pr_line2_is "(main)"'
+rm -f "$GH_STUB_LOG"
+render_line2 "$REPO_PR" >/dev/null
+sleep 0.3
+check 'pr: fresh none-cache suppresses refetch' '[ ! -f "$GH_STUB_LOG" ]'
+
+# フェッチ完了前の再描画では gh を多重起動しない（attempt ファイルによる抑止）
+pr_reset
+printf '{"number":128,"reviewDecision":"","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+export GH_STUB_DELAY=0.5
+render_line2 "$REPO_PR" >/dev/null
+render_line2 "$REPO_PR" >/dev/null
+unset GH_STUB_DELAY
+check 'pr: in-flight fetch not re-spawned' \
+  'wait_for "pr_line2_is \"(main) PR #128\"" && [ "$(grep -c called "$GH_STUB_LOG")" -eq 1 ]'
+
+# ブランチ切替でキャッシュが即無効化される（キーが dir+branch のため）
+pr_reset
+printf '{"number":129,"reviewDecision":"","state":"OPEN","isDraft":false}' > "$GH_STUB_RESPONSE"
+check 'pr: cached on main' 'wait_for "pr_line2_is \"(main) PR #129\""'
+(cd "$REPO_PR" && git switch -qc feature)
+rm -f "$GIT_CACHE_BASE"-*
+check 'pr: branch switch invalidates cache' 'pr_line2_is "(feature)"'
+
+# detached HEAD・非 git ディレクトリでは gh を起動しない
+pr_reset
+(cd "$REPO_B" && git switch -q --detach HEAD)
+rm -f "$GIT_CACHE_BASE"-*
+render_line2 "$REPO_B" >/dev/null
+render_line2 "$PLAIN" >/dev/null
+sleep 0.3
+check 'pr: detached HEAD / non-git dir do not invoke gh' '[ ! -f "$GH_STUB_LOG" ]'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
