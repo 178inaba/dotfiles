@@ -10,6 +10,8 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 GRAY='\033[0;90m'
+UNDERLINE='\033[4m'
+UNDERLINE_OFF='\033[24m'
 NC='\033[0m'
 
 # テストから差し替え可能
@@ -311,9 +313,10 @@ main() {
                     DRAFT) pr_color="$GRAY" ;;
                 esac
                 local pr_text="PR #${pr_number}"
-                # OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）。非対応ターミナルでは
-                # Claude Code 側でプレーンテキスト表示にフォールバックされる
-                [[ -n "$pr_url" ]] && pr_text="\033]8;;${pr_url}\a${pr_text}\033]8;;\a"
+                # OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）。番号のみ下線を付けて
+                # フッターバッジと見た目を揃える。非対応ターミナルでは Claude Code 側で
+                # プレーンテキスト表示にフォールバックされる
+                [[ -n "$pr_url" ]] && pr_text="\033]8;;${pr_url}\aPR ${UNDERLINE}#${pr_number}${UNDERLINE_OFF}\033]8;;\a"
                 pr_str=" ${pr_color}${pr_text}${NC}"
             fi
         fi
