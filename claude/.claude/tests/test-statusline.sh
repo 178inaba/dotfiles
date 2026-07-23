@@ -297,7 +297,6 @@ git clone -q "$ORIGIN" "$REPO_PR"
 
 ESC_GREEN=$(printf '\033[0;32m')
 ESC_RED=$(printf '\033[0;31m')
-ESC_PR_GRAY=$(printf '\033[38;5;246m')
 ESC_PR_YELLOW=$(printf '\033[38;5;220m')
 ESC_NC=$(printf '\033[0m')
 ESC_UL=$(printf '\033[4m')
@@ -338,25 +337,25 @@ pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"cur
 check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(feat) PR #123 $SESSION_ID" ]'
 
 # reviewDecision の色分け（本家フッターバッジと同じマッピング）:
-# "PR " は常に固定グレー、番号部分が APPROVED=緑 / CHANGES_REQUESTED=赤 /
-# レビュー待ち=固定黄 / draft=無色（テーマのデフォルト前景色に委ねるため NC）
+# "PR " は無色（テーマのデフォルト前景色 = 直前が branch 部の NC）、番号部分が
+# APPROVED=緑 / CHANGES_REQUESTED=赤 / レビュー待ち=固定黄 / draft=無色
 pr_reset
 printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/124"}' > "$GH_STUB_RESPONSE"
 check 'pr: approved shown' 'wait_for "pr_line2_is \"(feat) PR #124\""'
 check 'pr: approved colored green' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_GREEN}${OSC8}https://example.test/pull/124${BEL}${ESC_UL}#124"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_GREEN}${OSC8}https://example.test/pull/124${BEL}${ESC_UL}#124"'
 
 pr_reset
 printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/125"}' > "$GH_STUB_RESPONSE"
 check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(feat) PR #125\""'
 check 'pr: changes_requested colored red' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_RED}${OSC8}https://example.test/pull/125${BEL}${ESC_UL}#125"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_RED}${OSC8}https://example.test/pull/125${BEL}${ESC_UL}#125"'
 
 pr_reset
 printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://example.test/pull/126"}' > "$GH_STUB_RESPONSE"
 check 'pr: draft shown' 'wait_for "pr_line2_is \"(feat) PR #126\""'
-check 'pr: draft number uncolored (default fg)' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_NC}${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
+check 'pr: draft uncolored (default fg)' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
 
 # レビュー待ちは reviewDecision が REVIEW_REQUIRED（必須レビュー設定あり）と
 # 空文字（設定なし）の2形態がある。どちらも黄
@@ -364,13 +363,13 @@ pr_reset
 printf '{"number":130,"reviewDecision":"REVIEW_REQUIRED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/130"}' > "$GH_STUB_RESPONSE"
 check 'pr: review_required shown' 'wait_for "pr_line2_is \"(feat) PR #130\""'
 check 'pr: review_required colored yellow' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/130${BEL}${ESC_UL}#130"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/130${BEL}${ESC_UL}#130"'
 
 pr_reset
 printf '{"number":134,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/134"}' > "$GH_STUB_RESPONSE"
 check 'pr: empty decision shown' 'wait_for "pr_line2_is \"(feat) PR #134\""'
 check 'pr: empty decision colored yellow' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/134${BEL}${ESC_UL}#134"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/134${BEL}${ESC_UL}#134"'
 
 # OPEN 以外（マージ済み等）は表示しない
 pr_reset

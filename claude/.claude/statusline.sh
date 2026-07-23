@@ -12,10 +12,8 @@ PURPLE='\033[0;35m'
 GRAY='\033[0;90m'
 UNDERLINE='\033[4m'
 UNDERLINE_OFF='\033[24m'
-# PR 表示用の固定色（256色はテーマによるパレット再割り当てを受けない）。
-# ANSI 90 のグレーや 1;33 の黄は Solarized 系テーマで別系統の色に再割り当て
-# されるため、意図した見た目を保てる 256色で指定する
-PR_GRAY='\033[38;5;246m'   # #949494
+# PR のレビュー待ち色。1;33 の黄は Solarized 系テーマで暗色に再割り当てされる
+# ため、テーマの影響を受けない 256色で鮮やかな黄に固定する
 PR_YELLOW='\033[38;5;220m' # #ffd700
 NC='\033[0m'
 
@@ -326,10 +324,10 @@ main() {
             local pr_number="" pr_state="" pr_url=""
             read -r pr_number pr_state pr_url <<< "$pr_info"
             if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
-                # "PR " は固定グレー、番号部分を本家フッターバッジの色ドットと同じ
-                # マッピングで色分けする（緑=approved / 黄=pending review /
-                # 赤=changes requested / draft=無色 = テーマのデフォルト前景色）
-                local pr_color="$NC"
+                # "PR " は無色（テーマのデフォルト前景色）、番号部分を本家フッター
+                # バッジの色ドットと同じマッピングで色分けする（緑=approved /
+                # 黄=pending review / 赤=changes requested / draft=無色）
+                local pr_color=""
                 case "$pr_state" in
                     APPROVED) pr_color="$GREEN" ;;
                     CHANGES_REQUESTED) pr_color="$RED" ;;
@@ -341,7 +339,7 @@ main() {
                 # 下線 = クリック可能範囲としてフッターバッジと見た目を揃える。非対応ターミナル
                 # では Claude Code 側でプレーンテキスト表示にフォールバックされる
                 [[ -n "$pr_url" ]] && pr_text="\033]8;;${pr_url}\a${UNDERLINE}#${pr_number}${UNDERLINE_OFF}\033]8;;\a"
-                pr_str=" ${PR_GRAY}PR ${pr_color}${pr_text}${NC}"
+                pr_str=" PR ${pr_color}${pr_text}${NC}"
             fi
         fi
     fi
