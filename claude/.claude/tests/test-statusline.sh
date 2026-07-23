@@ -371,6 +371,14 @@ check 'pr: empty decision shown' 'wait_for "pr_line2_is \"(feat) PR #134\""'
 check 'pr: empty decision colored yellow' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/134${BEL}${ESC_UL}#134"'
 
+# 想定外の状態値（キャッシュ破損・将来のプロトコル変更ミス等）は「レビュー待ち」を
+# 主張せず無色に倒す
+pr_reset
+printf '{"number":135,"reviewDecision":"SOME_FUTURE_VALUE","state":"OPEN","isDraft":false,"url":"https://example.test/pull/135"}' > "$GH_STUB_RESPONSE"
+check 'pr: unknown decision shown' 'wait_for "pr_line2_is \"(feat) PR #135\""'
+check 'pr: unknown decision uncolored (fail-neutral)' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${OSC8}https://example.test/pull/135${BEL}${ESC_UL}#135"'
+
 # OPEN 以外（マージ済み等）は表示しない
 pr_reset
 printf '{"number":127,"reviewDecision":"APPROVED","state":"MERGED","isDraft":false}' > "$GH_STUB_RESPONSE"

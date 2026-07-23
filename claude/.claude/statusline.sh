@@ -326,13 +326,13 @@ main() {
             if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
                 # "PR " は無色（テーマのデフォルト前景色）、番号部分を本家フッター
                 # バッジの色ドットと同じマッピングで色分けする（緑=approved /
-                # 黄=pending review / 赤=changes requested / draft=無色）
+                # 黄=pending review / 赤=changes requested / draft=無色）。
+                # 列挙にマッチしない値（draft・想定外の状態値）は無色に倒す
                 local pr_color=""
                 case "$pr_state" in
                     APPROVED) pr_color="$GREEN" ;;
                     CHANGES_REQUESTED) pr_color="$RED" ;;
-                    DRAFT) ;;
-                    *) pr_color="$PR_YELLOW" ;;
+                    REVIEW_REQUIRED|NONE) pr_color="$PR_YELLOW" ;;
                 esac
                 local pr_text="#${pr_number}"
                 # 下線付きの番号部分のみ OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）にし、
