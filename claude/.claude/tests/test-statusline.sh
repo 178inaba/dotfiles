@@ -297,7 +297,8 @@ git clone -q "$ORIGIN" "$REPO_PR"
 
 ESC_GREEN=$(printf '\033[0;32m')
 ESC_RED=$(printf '\033[0;31m')
-ESC_YELLOW=$(printf '\033[1;33m')
+ESC_PR_GRAY=$(printf '\033[38;5;246m')
+ESC_PR_YELLOW=$(printf '\033[38;5;220m')
 ESC_NC=$(printf '\033[0m')
 ESC_UL=$(printf '\033[4m')
 ESC_UL_OFF=$(printf '\033[24m')
@@ -330,33 +331,32 @@ check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(feat)
 
 # フッターバッジと同じ見た目: 下線付きの番号部分のみ OSC 8 ハイパーリンク（"PR " は非リンク）
 check 'pr: only underlined number wrapped in OSC 8 hyperlink' \
-  'render_line2_raw "$REPO_PR" | grep -qF "PR ${OSC8}https://example.test/pull/123${BEL}${ESC_UL}#123${ESC_UL_OFF}${OSC8}${BEL}"'
+  'render_line2_raw "$REPO_PR" | grep -qF "PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/123${BEL}${ESC_UL}#123${ESC_UL_OFF}${OSC8}${BEL}"'
 
 # 表示順: ブランチ情報 → PR → セッションID
 pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$REPO_PR" "$REPO_PR" | bash "$STATUSLINE" 2>/dev/null | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g; s/\x1b]8;;[^\x07]*\x07//g')
 check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(feat) PR #123 $SESSION_ID" ]'
 
 # reviewDecision の色分け（本家フッターバッジと同じマッピング）:
-# APPROVED=緑 / CHANGES_REQUESTED=赤 / レビュー待ち=黄 / draft=無色
-# （色エスケープの直後に "PR " とリンク開始が続き、テキスト全体に色が乗る。
-# draft の「グレー」はテーマのデフォルト前景色に委ねるため無色 = 直前が branch 部の NC）
+# "PR " は常に固定グレー、番号部分が APPROVED=緑 / CHANGES_REQUESTED=赤 /
+# レビュー待ち=固定黄 / draft=無色（テーマのデフォルト前景色に委ねるため NC）
 pr_reset
 printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/124"}' > "$GH_STUB_RESPONSE"
 check 'pr: approved shown' 'wait_for "pr_line2_is \"(feat) PR #124\""'
 check 'pr: approved colored green' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_GREEN}PR ${OSC8}https://example.test/pull/124${BEL}${ESC_UL}#124"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_GREEN}${OSC8}https://example.test/pull/124${BEL}${ESC_UL}#124"'
 
 pr_reset
 printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/125"}' > "$GH_STUB_RESPONSE"
 check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(feat) PR #125\""'
 check 'pr: changes_requested colored red' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_RED}PR ${OSC8}https://example.test/pull/125${BEL}${ESC_UL}#125"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_RED}${OSC8}https://example.test/pull/125${BEL}${ESC_UL}#125"'
 
 pr_reset
 printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://example.test/pull/126"}' > "$GH_STUB_RESPONSE"
 check 'pr: draft shown' 'wait_for "pr_line2_is \"(feat) PR #126\""'
-check 'pr: draft uncolored (default fg)' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
+check 'pr: draft number uncolored (default fg)' \
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_NC}${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
 
 # レビュー待ちは reviewDecision が REVIEW_REQUIRED（必須レビュー設定あり）と
 # 空文字（設定なし）の2形態がある。どちらも黄
@@ -364,13 +364,13 @@ pr_reset
 printf '{"number":130,"reviewDecision":"REVIEW_REQUIRED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/130"}' > "$GH_STUB_RESPONSE"
 check 'pr: review_required shown' 'wait_for "pr_line2_is \"(feat) PR #130\""'
 check 'pr: review_required colored yellow' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_YELLOW}PR ${OSC8}https://example.test/pull/130${BEL}${ESC_UL}#130"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/130${BEL}${ESC_UL}#130"'
 
 pr_reset
 printf '{"number":134,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/134"}' > "$GH_STUB_RESPONSE"
 check 'pr: empty decision shown' 'wait_for "pr_line2_is \"(feat) PR #134\""'
 check 'pr: empty decision colored yellow' \
-  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_YELLOW}PR ${OSC8}https://example.test/pull/134${BEL}${ESC_UL}#134"'
+  'render_line2_raw "$REPO_PR" | grep -qF "${ESC_PR_GRAY}PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/134${BEL}${ESC_UL}#134"'
 
 # OPEN 以外（マージ済み等）は表示しない
 pr_reset

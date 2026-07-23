@@ -12,6 +12,11 @@ PURPLE='\033[0;35m'
 GRAY='\033[0;90m'
 UNDERLINE='\033[4m'
 UNDERLINE_OFF='\033[24m'
+# PR 表示用の固定色（256色はテーマによるパレット再割り当てを受けない）。
+# ANSI 90 のグレーや 1;33 の黄は Solarized 系テーマで別系統の色に再割り当て
+# されるため、意図した見た目を保てる 256色で指定する
+PR_GRAY='\033[38;5;246m'   # #949494
+PR_YELLOW='\033[38;5;220m' # #ffd700
 NC='\033[0m'
 
 # テストから差し替え可能
@@ -321,24 +326,22 @@ main() {
             local pr_number="" pr_state="" pr_url=""
             read -r pr_number pr_state pr_url <<< "$pr_info"
             if [[ "$pr_number" =~ ^[0-9]+$ ]]; then
-                # 本家フッターバッジの色ドットと同じマッピング
-                # （緑=approved / 黄=pending review / 赤=changes requested / グレー=draft）。
-                # draft のグレーは ANSI 90 だと Solarized 系テーマで青緑系に再割り当てされる
-                # ため、レートリミット残り時間等と同じ無色（テーマのデフォルト前景色 =
-                # このテーマではグレーに見える）で表現する
-                local pr_color=""
+                # "PR " は固定グレー、番号部分を本家フッターバッジの色ドットと同じ
+                # マッピングで色分けする（緑=approved / 黄=pending review /
+                # 赤=changes requested / draft=無色 = テーマのデフォルト前景色）
+                local pr_color="$NC"
                 case "$pr_state" in
                     APPROVED) pr_color="$GREEN" ;;
                     CHANGES_REQUESTED) pr_color="$RED" ;;
                     DRAFT) ;;
-                    *) pr_color="$YELLOW" ;;
+                    *) pr_color="$PR_YELLOW" ;;
                 esac
-                local pr_text="PR #${pr_number}"
+                local pr_text="#${pr_number}"
                 # 下線付きの番号部分のみ OSC 8 ハイパーリンク（Cmd+クリックで PR を開く）にし、
                 # 下線 = クリック可能範囲としてフッターバッジと見た目を揃える。非対応ターミナル
                 # では Claude Code 側でプレーンテキスト表示にフォールバックされる
-                [[ -n "$pr_url" ]] && pr_text="PR \033]8;;${pr_url}\a${UNDERLINE}#${pr_number}${UNDERLINE_OFF}\033]8;;\a"
-                pr_str=" ${pr_color}${pr_text}${NC}"
+                [[ -n "$pr_url" ]] && pr_text="\033]8;;${pr_url}\a${UNDERLINE}#${pr_number}${UNDERLINE_OFF}\033]8;;\a"
+                pr_str=" ${PR_GRAY}PR ${pr_color}${pr_text}${NC}"
             fi
         fi
     fi
