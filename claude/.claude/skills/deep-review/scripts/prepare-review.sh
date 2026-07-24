@@ -100,17 +100,23 @@ if [ "$pr_exists" = "true" ]; then
   [ -n "$head_ref" ] && [ "$head_ref" != "null" ] || fatal 'failed to read headRefName from gh pr view'
 fi
 
+# 出力フィールドはグローバル変数から組む。emit 時点で確定している変数だけが非 null になる
+# （停止 status では context_path 以降が未確定のまま出力される）
+context_path=""
+base_branch=""
+modes=null
+freshness=null
+issues='[]'
+
 emit() {
-  local status=$1 context_path=$2 base_branch=$3 modes=$4 freshness=$5 issues=$6 degraded=$7
+  local status=$1
   jq -n \
     --arg status "$status" \
-    --argjson flags "$(jq -n \
-      --argjson pr "${pr_number:-null}" \
-      --argjson issue "${issue_number:-null}" \
-      --argjson worktree "$worktree" \
-      --argjson local_only "$local_only" \
-      --argjson no_autofix "$no_autofix" \
-      '{pr_number: $pr, issue: $issue, worktree: $worktree, local_only: $local_only, no_autofix: $no_autofix}')" \
+    --argjson pr "${pr_number:-null}" \
+    --argjson issue "${issue_number:-null}" \
+    --argjson worktree "$worktree" \
+    --argjson local_only "$local_only" \
+    --argjson no_autofix "$no_autofix" \
     --argjson pr_exists "$pr_exists" \
     --arg head_ref "$head_ref" \
     --arg context_path "$context_path" \
@@ -118,14 +124,14 @@ emit() {
     --argjson modes "$modes" \
     --argjson freshness "$freshness" \
     --argjson issues "$issues" \
-    --argjson degraded "$degraded" \
     --argjson warnings "$(printf '%s' "$warnings" | jq -Rs 'split("\n") | map(select(length > 0))')" \
-    '{status: $status, flags: $flags, pr_exists: $pr_exists,
+    '{status: $status,
+      flags: {pr_number: $pr, issue: $issue, worktree: $worktree, local_only: $local_only, no_autofix: $no_autofix},
+      pr_exists: $pr_exists,
       head_ref: (if $head_ref == "" then null else $head_ref end),
       context_path: (if $context_path == "" then null else $context_path end),
       base_branch: (if $base_branch == "" then null else $base_branch end),
-      modes: $modes, freshness: $freshness, issues: $issues,
-      degraded: $degraded, warnings: $warnings}'
+      modes: $modes, freshness: $freshness, issues: $issues, warnings: $warnings}'
   exit 0
 }
 
@@ -144,11 +150,12 @@ decide_modes() {
     '{comment: $c, personal_rules: $p, autofix: $a}'
 }
 
-# --- PR なし: ローカルレビューへの縮退 ---
+# --- PR なし: ローカルレビューへの縮退（pr_exists: false がその表明） ---
 if [ "$pr_exists" = "false" ]; then
   default_branch=$(git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's|^origin/||')
   base_branch="origin/${default_branch:-main}"
-  emit ok "" "$base_branch" "$(decide_modes false)" null '[]' true
+  modes=$(decide_modes false)
+  emit ok
 fi
 
 # --- branch 一致確認（<pr-number> 明示 かつ --worktree なし。推論経路は一致が自明。
@@ -156,7 +163,7 @@ fi
 if [ "$explicit_pr" = "true" ] && [ "$worktree" = "false" ]; then
   current_branch=$(git rev-parse --abbrev-ref HEAD)
   if [ "$current_branch" != "$head_ref" ]; then
-    emit branch_mismatch "" "" null null '[]' false
+    emit branch_mismatch
   fi
 fi
 
@@ -192,9 +199,11 @@ else
   issues=$(jq '.linked_issues // []' "$context_path")
 fi
 
+modes=$(decide_modes "$is_own_pr")
+
 case "$freshness_status" in
   ok|synced|ahead_own) top_status=ok ;;
   *) top_status=$freshness_status ;;
 esac
 
-emit "$top_status" "$context_path" "$base_branch" "$(decide_modes "$is_own_pr")" "$freshness" "$issues" false
+emit "$top_status"

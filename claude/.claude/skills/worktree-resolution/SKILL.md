@@ -33,7 +33,7 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
    ```bash
    bash ~/.claude/skills/worktree-resolution/scripts/resolve-pr-worktree.sh resolve [<pr-number>]
    ```
-   出力 JSON のうち本手順で使うフィールド（契約の正はスクリプトヘッダー）: `status` / `action` / `worktree_path` / `worktree_name` / `head_ref` / `evacuated` / `warnings[]`
+   出力 JSON のうち本手順で使うフィールド（契約の正はスクリプトヘッダー）: `status` / `action` / `worktree_path` / `worktree_name` / `head_ref` / `evacuated` / `synced`（true なら origin へ ff 同期した旨を報告に含める）/ `warnings[]`
    - `status` が `ok` 以外（`behind_dirty` / `diverged` / `evacuation_dirty`）→ **停止**してユーザー判断を仰ぐ（未コミット変更・ローカル独自 commit を破棄しないため。「共通サブ手順: origin への同期」の status 解釈を参照）
    - `evacuated: true` → ユーザーに1行通知: 「メインリポジトリを default branch に退避しました（worktree 作成のため）」
    - PR 番号の解決失敗等は非ゼロ exit + stderr で返る → stderr を提示して停止し、`<pr-number>` の明示指定を促す

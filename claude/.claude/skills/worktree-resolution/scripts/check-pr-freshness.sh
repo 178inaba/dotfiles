@@ -30,12 +30,13 @@
 #   head_ref    PR の head branch 名
 #   head_oid    PR の最新 head commit SHA（入力の pr.head_oid）
 #   local_head  実行時点のローカル HEAD SHA（synced の場合は同期後）
-#   warnings[]  非致命の注意。空でなければ AI が報告に併記する
 #
 # 前提不成立（引数欠如・ファイル/フィールド欠落・リポジトリ外・jq 欠如・ff 失敗）は
 # 非ゼロ exit + 英語 stderr。
 
 set -u
+
+. "$(cd "$(dirname "$0")" && pwd)/sync-lib.sh"
 
 fatal() {
   printf '%s\n' "$1" >&2
@@ -69,7 +70,7 @@ emit() {
     --arg head_oid "$head_oid" \
     --arg local_head "$(git rev-parse HEAD)" \
     '{status: $status, head_ref: $head_ref, head_oid: $head_oid,
-      local_head: $local_head, warnings: []}'
+      local_head: $local_head}'
   exit 0
 }
 
@@ -88,12 +89,9 @@ if [ "$is_own_pr" = "true" ] && git merge-base --is-ancestor "$head_oid" HEAD 2>
 fi
 
 if git merge-base --is-ancestor HEAD "$head_oid" 2>/dev/null; then
-  if [ -n "$(git status --porcelain | grep -v '^??' | head -n1)" ]; then
-    emit behind_dirty
-  fi
-  git merge --ff-only -q "$head_oid" >/dev/null 2>&1 \
-    || fatal "fast-forward merge to $head_oid failed (untracked file collision?)"
-  emit synced
+  # コマンド置換内の exit はサブシェルしか止めないため、失敗を明示的に伝播させる
+  sync=$(safe_ff_or_dirty . "$head_oid") || exit 1
+  emit "$sync"
 fi
 
 emit diverged

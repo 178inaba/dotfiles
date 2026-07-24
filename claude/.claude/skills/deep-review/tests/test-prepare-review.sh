@@ -153,7 +153,6 @@ assert_json 'other pr: base_branch from pr' "$out" '.base_branch == "origin/main
 assert_json 'other pr: context_path set' "$out" '.context_path | type == "string"'
 assert_json 'other pr: linked issues surfaced' "$out" '.issues == [{repo: null, number: 77}]'
 assert_json 'other pr: freshness ok' "$out" '.freshness.status == "ok"'
-assert_json 'other pr: not degraded' "$out" '.degraded == false'
 assert 'other pr: freshness received context path' "grep -q 'pr-context-stub.json' '$FRESHNESS_STUB_LOG'"
 
 # --- ケース2: 自分の PR → コメントOFF・個人ルールON・自動対応ON ---
@@ -185,8 +184,7 @@ assert_json 'explicit issue: flag recorded' "$out" '.flags.issue == 123'
 # --- ケース6: PR なし（番号省略・推論失敗）→ 縮退（ローカルレビュー） ---
 out=$(cd "$REPO" && GH_STUB_PR_JSON= bash "$SCRIPT" "$TMP/scratch")
 assert_exit 'no pr: exit 0' $? 0
-assert_json 'no pr: degraded' "$out" '.degraded == true'
-assert_json 'no pr: pr_exists false' "$out" '.pr_exists == false'
+assert_json 'no pr: pr_exists false (local-review degradation)' "$out" '.pr_exists == false'
 assert_json 'no pr: context null' "$out" '.context_path == null'
 assert_json 'no pr: freshness null' "$out" '.freshness == null'
 assert_json 'no pr: comment OFF' "$out" '.modes.comment == false'
@@ -232,13 +230,8 @@ assert_json 'branch mismatch: head_ref provided for guidance' "$out" '.head_ref 
 # 注: --worktree 時は worktree 解決後に prepare が呼ばれる想定のため、ここでは
 # フラグ解釈（1.6 スキップ）だけを検証する。branch は main のままでも通る
 out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/scratch" 9 --worktree 2>/dev/null)
-rc=$?
-if [ "$rc" -eq 0 ]; then
-  assert_json 'worktree flag: 1.6 check skipped' "$out" '.flags.worktree == true'
-else
-  # freshness スタブは ok を返すので、--worktree で branch チェックが残っていれば失敗する
-  assert 'worktree flag: 1.6 check skipped' "false" "(exit $rc)"
-fi
+assert_exit 'worktree flag: exit 0' $? 0
+assert_json 'worktree flag: 1.6 check skipped (status ok on mismatched branch)' "$out" '.status == "ok" and .flags.worktree == true'
 (cd "$REPO" && git switch -q feature/9-work)
 
 # --- ケース13: 未定義フラグ → 非ゼロ exit + stderr に定義済みフラグ一覧 ---

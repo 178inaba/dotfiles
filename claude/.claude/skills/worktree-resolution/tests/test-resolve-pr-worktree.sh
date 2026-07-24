@@ -68,13 +68,13 @@ cat > "$TMP/stub/gh" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$GH_STUB_LOG"
 case "$*" in
+  *"--json number,headRefName"*)
+    [ -n "${GH_STUB_PR_NUMBER:-}" ] || exit 1
+    printf '{"number": %s, "headRefName": "%s"}\n' "$GH_STUB_PR_NUMBER" "$GH_STUB_HEAD_REF"
+    ;;
   *headRefName*)
     [ -n "${GH_STUB_HEAD_REF:-}" ] || exit 1
     printf '%s\n' "$GH_STUB_HEAD_REF"
-    ;;
-  *"--json number"*)
-    [ -n "${GH_STUB_PR_NUMBER:-}" ] || exit 1
-    printf '%s\n' "$GH_STUB_PR_NUMBER"
     ;;
   *defaultBranchRef*)
     printf 'main\n'

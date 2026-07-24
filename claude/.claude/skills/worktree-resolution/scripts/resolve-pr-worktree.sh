@@ -35,7 +35,6 @@
 #   worktree_path  対象 worktree の絶対パス（resolve は enter_existing 時のみ非 null）
 #   evacuated      メインリポジトリをデフォルト branch へ退避したか（resolve のみ）
 #   synced         origin への ff 同期を実施したか
-#   ahead / behind ローカル branch と origin の乖離 commit 数（同期判定時のみ、それ以外は 0）
 #   warnings[]     非致命の注意（temp branch 削除失敗等）。空でなければ AI が報告に併記する
 #
 # 前提不成立（リポジトリ外・jq/gh 欠如・PR 解決失敗・git 操作の機械的失敗）は非ゼロ exit +
@@ -44,6 +43,8 @@
 set -u
 
 GH_BIN=${GH_BIN:-gh}
+
+. "$(cd "$(dirname "$0")" && pwd)/sync-lib.sh"
 
 fatal() {
   printf '%s\n' "$1" >&2
@@ -68,38 +69,41 @@ warnings_json() {
   printf '%s' "$warnings" | jq -Rs 'split("\n") | map(select(length > 0))'
 }
 
-# 変更あり（untracked は除く）なら真
-is_dirty() {
-  local dir=$1
-  [ -n "$(git -C "$dir" status --porcelain | grep -v '^??' | head -n1)" ]
-}
-
-# ローカル branch と origin/<branch> の乖離を分類して ahead/behind をグローバルに設定
-# 戻り status: ok（乖離なし）| synced（ff 同期済み）| behind_dirty | diverged
+# ローカル branch と origin/<branch> の乖離を分類し、安全な ff のみ自動同期する。
+# 出力 status: ok（乖離なし）| synced | behind_dirty | diverged
 sync_with_origin() {
-  local dir=$1 branch=$2
-  ahead=0
-  behind=0
-  local counts
+  local dir=$1 branch=$2 counts ahead behind
   counts=$(git -C "$dir" rev-list --left-right --count "$branch...origin/$branch" 2>/dev/null) \
     || fatal "failed to compare $branch with origin/$branch"
   ahead=$(printf '%s' "$counts" | awk '{print $1}')
   behind=$(printf '%s' "$counts" | awk '{print $2}')
   if [ "$ahead" -gt 0 ]; then
     printf 'diverged'
-    return
-  fi
-  if [ "$behind" -eq 0 ]; then
+  elif [ "$behind" -eq 0 ]; then
     printf 'ok'
-    return
+  else
+    safe_ff_or_dirty "$dir" "origin/$branch"
   fi
-  if is_dirty "$dir"; then
-    printf 'behind_dirty'
-    return
-  fi
-  git -C "$dir" merge --ff-only -q "origin/$branch" >/dev/null 2>&1 \
-    || fatal "fast-forward merge of origin/$branch failed (untracked file collision?)"
-  printf 'synced'
+}
+
+# sync_with_origin の出力を出力契約の (status, synced) へ正規化する
+normalize_sync() {
+  case "$1" in
+    ok)     status=ok; synced=false ;;
+    synced) status=ok; synced=true ;;
+    *)      status=$1; synced=false ;;
+  esac
+}
+
+# create-fallback / finalize 共通の結果出力
+emit_worktree_result() {
+  local path=$1
+  jq -n \
+    --arg status "$status" \
+    --arg path "$path" \
+    --argjson synced "$synced" \
+    --argjson warnings "$(warnings_json)" \
+    '{status: $status, worktree_path: $path, synced: $synced, warnings: $warnings}'
 }
 
 # git worktree list --porcelain から branch <ref> を checkout 中の linked worktree パスを返す。
@@ -128,14 +132,15 @@ case "$subcommand" in
       case "$pr_number" in
         *[!0-9]*) fatal "invalid pr number: $pr_number" ;;
       esac
+      head_ref=$("$GH_BIN" pr view "$pr_number" --json headRefName -q .headRefName 2>/dev/null) || head_ref=""
     else
-      pr_number=$("$GH_BIN" pr view --json number -q .number 2>/dev/null) || pr_number=""
-      [ -n "$pr_number" ] \
+      probe=$("$GH_BIN" pr view --json number,headRefName 2>/dev/null) \
         || fatal 'failed to infer PR number from current branch (gh pr view); pass <pr-number> explicitly'
+      pr_number=$(printf '%s' "$probe" | jq -r '.number')
+      head_ref=$(printf '%s' "$probe" | jq -r '.headRefName')
     fi
-
-    head_ref=$("$GH_BIN" pr view "$pr_number" --json headRefName -q .headRefName 2>/dev/null) || head_ref=""
-    [ -n "$head_ref" ] || fatal "failed to get head branch of PR #$pr_number (gh pr view)"
+    [ -n "$head_ref" ] && [ "$head_ref" != "null" ] \
+      || fatal "failed to get head branch of PR #$pr_number (gh pr view)"
 
     worktree_name=$(printf '%s' "$head_ref" | tr '/' '-')
 
@@ -150,25 +155,20 @@ case "$subcommand" in
         --arg path "$path" \
         --argjson evacuated "$evacuated" \
         --argjson synced "$synced" \
-        --argjson ahead "${ahead:-0}" \
-        --argjson behind "${behind:-0}" \
         --argjson warnings "$(warnings_json)" \
         '{status: $status, action: $action, pr_number: $pr, head_ref: $head_ref,
           worktree_name: $name, worktree_path: (if $path == "" then null else $path end),
-          evacuated: $evacuated, synced: $synced, ahead: $ahead, behind: $behind,
-          warnings: $warnings}'
+          evacuated: $evacuated, synced: $synced, warnings: $warnings}'
     }
 
     found=$(find_worktree_for_branch "$head_ref")
     if [ -n "$found" ]; then
       git fetch -q origin "$head_ref" 2>/dev/null \
         || fatal "git fetch origin $head_ref failed (network issue, or fork PR whose head branch is not on origin — out of scope)"
-      sync_status=$(sync_with_origin "$found" "$head_ref")
-      case "$sync_status" in
-        ok)     emit_resolve ok enter_existing "$found" false false ;;
-        synced) emit_resolve ok enter_existing "$found" false true ;;
-        *)      emit_resolve "$sync_status" enter_existing "$found" false false ;;
-      esac
+      # コマンド置換内の fatal はサブシェルしか止めないため、失敗を明示的に伝播させる
+      sync_status=$(sync_with_origin "$found" "$head_ref") || exit 1
+      normalize_sync "$sync_status"
+      emit_resolve "$status" enter_existing "$found" false "$synced"
       exit 0
     fi
 
@@ -212,22 +212,9 @@ case "$subcommand" in
     git -C "$wt_path" switch -q "$head_ref" \
       || fatal "git switch $head_ref failed inside $wt_path"
 
-    sync_status=$(sync_with_origin "$wt_path" "$head_ref")
-    case "$sync_status" in
-      ok)     status=ok; synced=false ;;
-      synced) status=ok; synced=true ;;
-      *)      status=$sync_status; synced=false ;;
-    esac
-
-    jq -n \
-      --arg status "$status" \
-      --arg path "$wt_path" \
-      --argjson synced "$synced" \
-      --argjson ahead "${ahead:-0}" \
-      --argjson behind "${behind:-0}" \
-      --argjson warnings "$(warnings_json)" \
-      '{status: $status, worktree_path: $path, synced: $synced,
-        ahead: $ahead, behind: $behind, warnings: $warnings}'
+    sync_status=$(sync_with_origin "$wt_path" "$head_ref") || exit 1
+    normalize_sync "$sync_status"
+    emit_worktree_result "$wt_path"
     ;;
 
   finalize)
@@ -239,12 +226,8 @@ case "$subcommand" in
     wt_path=$(git rev-parse --show-toplevel)
     git switch -q "$head_ref" || fatal "git switch $head_ref failed in $wt_path"
 
-    sync_status=$(sync_with_origin "$wt_path" "$head_ref")
-    case "$sync_status" in
-      ok)     status=ok; synced=false ;;
-      synced) status=ok; synced=true ;;
-      *)      status=$sync_status; synced=false ;;
-    esac
+    sync_status=$(sync_with_origin "$wt_path" "$head_ref") || exit 1
+    normalize_sync "$sync_status"
 
     temp_branch="worktree-$worktree_name"
     if git show-ref -q --verify "refs/heads/$temp_branch"; then
@@ -254,15 +237,7 @@ case "$subcommand" in
       add_warning "temp branch $temp_branch not found (nothing to delete)"
     fi
 
-    jq -n \
-      --arg status "$status" \
-      --arg path "$wt_path" \
-      --argjson synced "$synced" \
-      --argjson ahead "${ahead:-0}" \
-      --argjson behind "${behind:-0}" \
-      --argjson warnings "$(warnings_json)" \
-      '{status: $status, worktree_path: $path, synced: $synced,
-        ahead: $ahead, behind: $behind, warnings: $warnings}'
+    emit_worktree_result "$wt_path"
     ;;
 
   *)

@@ -89,15 +89,8 @@ if [ "$comment_count" -gt 0 ]; then
     inhunk && /^ / { print file ":" n; n++; next }
     { inhunk = 0 }
   ')
-  invalid=""
-  while IFS= read -r entry; do
-    if ! printf '%s\n' "$valid_lines" | grep -qFx "$entry"; then
-      invalid="${invalid}${entry}
-"
-    fi
-  done <<EOF
-$(jq -r '.comments[] | "\(.path):\(.line)"' "$review_file")
-EOF
+  invalid=$(jq -r '.comments[] | "\(.path):\(.line)"' "$review_file" \
+    | grep -Fxv -f <(printf '%s\n' "$valid_lines")) || true
   if [ -n "$invalid" ]; then
     printf 'the following review comments point to lines absent from the current diff (origin/%s...HEAD); re-anchor them before posting:\n%s' \
       "$base_ref" "$invalid" >&2
@@ -106,12 +99,11 @@ EOF
 fi
 
 # --- 投稿 ---
-payload=$(jq -n \
+payload=$(jq \
   --arg commit_id "$head_oid" \
   --arg event "$event" \
-  --arg body "$(jq -r '.body' "$review_file")" \
-  --argjson comments "$(jq '[.comments[] | {path, line, body}]' "$review_file")" \
-  '{commit_id: $commit_id, event: $event, body: $body, comments: $comments}')
+  '{commit_id: $commit_id, event: $event, body, comments: [.comments[] | {path, line, body}]}' \
+  "$review_file")
 
 response=$(printf '%s' "$payload" | "$GH_BIN" api "repos/$repo/pulls/$pr_number/reviews" --method POST --input -) \
   || fatal 'failed to post review (gh api)'

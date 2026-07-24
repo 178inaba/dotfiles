@@ -51,7 +51,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
   - `"branch_mismatch"` → **停止**（`<pr-number>` 指定かつ `--worktree` なしでカレント branch が PR の head branch（出力の `head_ref`）と不一致 — 別 branch の差分を誤レビューしない安全策）。ユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する
   - 鮮度確認の停止 status（`behind_dirty` / `diverged` / `fetch_failed`）→ **停止**し、@~/.claude/skills/worktree-resolution/SKILL.md の「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
   - 停止 status では `context_path` 以降のフィールドは null になりうる
-- `pr_exists` / `degraded`: `degraded: true` は「PR なし」のローカルレビューへの正常縮退。**PR があるのに取得系が失敗した場合はスクリプトが非ゼロ exit で止まる**ため、stderr を提示して停止する（縮退と混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
+- `pr_exists`: `false` は「PR なし」のローカルレビューへの正常縮退（コメント投稿なし）。**PR があるのに取得系が失敗した場合はスクリプトが非ゼロ exit で止まる**ため、stderr を提示して停止する（縮退と混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
 - `modes`: `{comment, personal_rules, autofix}` — 3モードの判定結果（決定表: PR なし/自分の PR は comment OFF・personal ON・autofix ON、他人の PR は comment ON・personal OFF・autofix OFF。`--local-only` は comment を、`--no-autofix` は autofix を個別に強制OFF）。コメントと自動対応が同時ONになる組み合わせは存在しない
 - `context_path`: PR コンテキスト JSON のパス（読み方はセクション2）
 - `base_branch`: `origin/<ベースブランチ>` — セクション3の差分取得に使う
@@ -63,7 +63,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 - 個人ルールモード → セクション5「文書化されたルールとの突き合わせ」の個人ルール項目
 - 自動対応モード → セクション5「自動対応モードON時の追加要件」、セクション9
 
-### 2. PR コンテキストの読了（`context_path`。PR なし縮退時はスキップ）
+### 2. PR コンテキストの読了（`context_path`。PR なし縮退（`pr_exists: false`）時はスキップ）
 
 コンテキストの内容は `pr` / `repo` / `is_own_pr` / `comments[]` / `reviews[]` / `review_threads[]` 等（契約の正は `~/.claude/scripts/fetch-pr-context.sh` のヘッダーコメント）。
 
@@ -331,6 +331,6 @@ bash ~/.claude/skills/deep-review/scripts/post-review.sh <context_path> <review.
    - 既存PRがあれば説明更新、未PRなら新規作成
 
 ## 注意事項
-- prepare-review.sh が非ゼロ exit した場合（明示指定 PR の不在・コンテキスト取得失敗等）は stderr を提示して停止する。「PR なし」縮退（`degraded: true`）と混同しない
+- prepare-review.sh が非ゼロ exit した場合（明示指定 PR の不在・コンテキスト取得失敗等）は stderr を提示して停止する。「PR なし」縮退（`pr_exists: false`）と混同しない
 - **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
 - **鮮度ガード**: prepare-review.sh が差分取得前に鮮度確認を実行し、post-review.sh が投稿直前に再確認する（停止条件の正は worktree-resolution の「共通サブ手順: PR head との鮮度確認」）
