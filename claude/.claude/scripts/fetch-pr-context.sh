@@ -4,15 +4,25 @@
 # worktree-resolution の鮮度確認サブ手順も出力の pr.head_oid・is_own_pr・pr.head_ref を消費する）
 #
 # PR メタ情報・通常コメント・レビュー本文・レビュースレッドを 1 回で取得し、
-# 正規化した JSON を stdout に出力する。3 種のコメントは GitHub 上で別管理のため、
+# 正規化した JSON を <out-dir> 配下のファイルに出力する。3 種のコメントは GitHub 上で別管理のため、
 # 個別取得だと取りこぼしが起きる — スーパーセットの一括取得をスクリプトで保証する。
 #
-# 使用方法: fetch-pr-context.sh [<pr-number>]
+# 使用方法: fetch-pr-context.sh <out-dir> [<pr-number>]
+#   <out-dir>   コンテキストファイルの書き込み先ディレクトリ（既存であること。通常は scratchpad）
 #   <pr-number> 省略時はカレント branch の PR を推論（失敗時は非ゼロ exit + stderr）
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
 #           MAX_COMMENTS — comments 取得の打ち切り上限（既定 500）。打ち切り発生時に引き上げて再実行する
 #
-# 出力 JSON の契約（正はここ。各 SKILL.md には自スキルが使うフィールドの解釈のみ書く）:
+# stdout は {"path": "<out-dir>/pr-context-<owner>-<repo>-<PR番号>.json"} のみ。
+# コンテキスト本体は path のファイルに書く。ファイル名の一意化（repo・PR 番号の埋め込み）を
+# スクリプト側で保証する理由:
+#   - 並列サブエージェントは同一セッションの scratchpad を共有するため、呼び出し側のプロンプト
+#     指示に命名を委ねると固定名での衝突が起きる（別リポジトリの PR コンテキストを読む事故が実際に発生）
+#   - 番号省略の推論経路では、呼び出し側は実行前に番号を知り得ない
+# 書き込みは一時ファイル経由の atomic rename（途中失敗で部分 JSON を残さない）。
+# 出力が数百 KB に達する PR があるため、本体はモデルのリダイレクト組み立てを経由させず直接書く。
+#
+# 出力ファイル JSON の契約（正はここ。各 SKILL.md には自スキルが使うフィールドの解釈のみ書く）:
 #   repo              owner/name 形式
 #   current_user      実行ユーザーの login
 #   is_own_pr         PR 作成者 == current_user
@@ -33,7 +43,17 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
-pr_number=${1:-}
+out_dir=${1:-}
+if [ -z "$out_dir" ]; then
+  printf 'usage: fetch-pr-context.sh <out-dir> [<pr-number>]\n' >&2
+  exit 1
+fi
+if [ ! -d "$out_dir" ]; then
+  printf 'output directory not found: %s\n' "$out_dir" >&2
+  exit 1
+fi
+
+pr_number=${2:-}
 if [ -n "$pr_number" ]; then
   case "$pr_number" in
     *[!0-9]*)
@@ -69,6 +89,8 @@ else
     exit 1
   fi
 fi
+
+out_file="$out_dir/pr-context-${owner}-${name}-${pr_number}.json"
 
 # reviews は提出日時昇順で返るため last:50 で最新側を取る（first だと CI 通知・ボットレビュー等で
 # 50 件を超えた際に未対応の修正依頼を取りこぼす）。comments は固定ウィンドウだと CI bot の
@@ -122,7 +144,12 @@ esac
 # ページの蓄積はファイルで行う（シェル変数に持って --argjson で渡すと、ページごとに
 # 全体を再パースする O(n^2) の無駄と、execve の引数上限（ARG_MAX）超過リスクがあるため）
 comments_pages=$(mktemp)
-trap 'rm -f "$comments_pages"' EXIT
+# atomic rename を保証するため、一時ファイルは out_dir と同一ファイルシステム上に作る
+if ! tmp_out=$(mktemp "$out_dir/.pr-context.XXXXXX"); then
+  rm -f "$comments_pages"
+  exit 1
+fi
+trap 'rm -f "$comments_pages" "$tmp_out"' EXIT
 
 printf '%s' "$gql" | jq -c '.data.repository.pullRequest.comments.nodes' > "$comments_pages"
 comment_count=$(printf '%s' "$gql" | jq '.data.repository.pullRequest.comments.nodes | length')
@@ -153,7 +180,7 @@ done
 #   - 同リポ `#N` / クロスリポ `OWNER/REPO#N`、大文字小文字・コロン付き許容
 #   - URL 形式・キーワードなしの素の `#N` は対象外（GitHub の自動 close 対象外に揃える）
 # is_skill_comment: /review-response の投稿マーカー。引用返信（`> ` 付き）を誤検知しないよう先頭一致
-jq -n \
+if ! jq -n \
   --arg repo "$repo" \
   --argjson pr "$pr_meta" \
   --argjson gql "$gql" \
@@ -218,4 +245,10 @@ jq -n \
           url
         }]
       }]
-    }'
+    }' > "$tmp_out"; then
+  printf 'failed to build output JSON\n' >&2
+  exit 1
+fi
+
+mv "$tmp_out" "$out_file" || exit 1
+jq -n --arg path "$out_file" '{path: $path}'

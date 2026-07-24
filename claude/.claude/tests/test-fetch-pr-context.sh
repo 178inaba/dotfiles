@@ -24,7 +24,7 @@ mkdir -p "$TMP/stub" "$TMP/data"
 cat > "$TMP/stub/gh" <<'EOF'
 #!/bin/bash
 case "$1" in
-  repo) printf 'owner/repo\n' ;;
+  repo) printf '%s\n' "${GH_STUB_REPO:-owner/repo}" ;;
   pr)
     # 引数に PR 番号（純数値）があれば番号指定の meta 取得、無ければカレント branch 推論。
     # 位置ではなく内容で判別する（スクリプト側の引数順変更でテストが壊れないように）
@@ -64,6 +64,12 @@ EOF
 chmod +x "$TMP/stub/gh"
 export GH_BIN="$TMP/stub/gh"
 export GH_STUB_DATA="$TMP/data"
+
+OUT_DIR="$TMP/out"
+mkdir -p "$OUT_DIR"
+
+fetch() { bash "$SCRIPT" "$OUT_DIR" "$@"; }
+ctx_path() { printf '%s' "$1" | jq -r .path; }
 
 # --- フィクスチャ ---
 # body は closing keyword 検出のテストコーパス:
@@ -150,50 +156,80 @@ assert_exit() {
   fi
 }
 
-# 番号明示指定
-out=$(bash "$SCRIPT" 5)
-assert_exit 'explicit pr number: exit 0' $? 0
+assert_eq() {
+  local name=$1 got=$2 want=$3
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+    printf 'PASS  %s\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  %s (got %s, want %s)\n' "$name" "$got" "$want"
+  fi
+}
 
-assert 'pr meta mapped' "$out" \
+# 番号明示指定
+out=$(fetch 5)
+assert_exit 'explicit pr number: exit 0' $? 0
+assert 'stdout is path-only JSON' "$out" 'keys == ["path"]'
+assert_eq 'context file named pr-context-<owner>-<repo>-<number>.json' \
+  "$(ctx_path "$out")" "$OUT_DIR/pr-context-owner-repo-5.json"
+if [ -f "$OUT_DIR/pr-context-owner-repo-5.json" ]; then
+  pass=$((pass + 1)); printf 'PASS  context file written\n'
+else
+  fail=$((fail + 1)); printf 'FAIL  context file written\n'
+fi
+ctx=$(cat "$OUT_DIR/pr-context-owner-repo-5.json" 2>/dev/null)
+
+assert 'pr meta mapped' "$ctx" \
   '.pr.number == 5 and .pr.author == "testuser" and .pr.head_ref == "feature/x" and .pr.base_ref == "main" and .pr.head_oid == "abc123"'
-assert 'is_own_pr true for own PR' "$out" '.is_own_pr == true and .current_user == "testuser"'
-assert 'linked issues: same-repo forms detected (dedup)' "$out" \
+assert 'is_own_pr true for own PR' "$ctx" '.is_own_pr == true and .current_user == "testuser"'
+assert 'linked issues: same-repo forms detected (dedup)' "$ctx" \
   '(.linked_issues | length) == 3 and any(.linked_issues[]; .repo == null and .number == 10) and any(.linked_issues[]; .repo == null and .number == 11)'
-assert 'linked issues: cross-repo form detected' "$out" \
+assert 'linked issues: cross-repo form detected' "$ctx" \
   'any(.linked_issues[]; .repo == "other/repo" and .number == 12)'
-assert 'linked issues: bare #N and URL forms excluded' "$out" \
+assert 'linked issues: bare #N and URL forms excluded' "$ctx" \
   '[.linked_issues[].number] | (index(99) or index(13) or index(14)) | not'
-assert 'skill comment flagged by prefix match' "$out" \
+assert 'skill comment flagged by prefix match' "$ctx" \
   '(.comments | map(select(.is_skill_comment)) | length) == 1 and (.comments[] | select(.is_skill_comment) | .url) == "https://example.com/c2"'
-assert 'quoted marker not flagged' "$out" \
+assert 'quoted marker not flagged' "$ctx" \
   '.comments[] | select(.url == "https://example.com/c3") | .is_skill_comment == false'
-assert 'author_type mapped from __typename' "$out" \
+assert 'author_type mapped from __typename' "$ctx" \
   '(.comments[] | select(.url == "https://example.com/c1") | .author_type == "User")
    and (.comments[] | select(.url == "https://example.com/c4") | .author_type == "Bot")'
-assert 'comments_total_count exposed, not truncated' "$out" \
+assert 'comments_total_count exposed, not truncated' "$ctx" \
   '.comments_total_count == 4 and (.comments | length) == 4 and .comments_truncated == false'
-assert 'reviews_total_count exposed, not truncated' "$out" \
+assert 'reviews_total_count exposed, not truncated' "$ctx" \
   '.reviews_total_count == 1 and .reviews_truncated == false'
-assert 'reviews mapped' "$out" \
+assert 'reviews mapped' "$ctx" \
   '.reviews == [{"author": "reviewer1", "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submitted_at": "2026-01-01T00:00:00Z"}]'
-assert 'threads mapped with resolution state' "$out" \
+assert 'threads mapped with resolution state' "$ctx" \
   '(.review_threads | length) == 2
    and (.review_threads[0] | .id == "PRRT_1" and .is_resolved == false and .path == "src/main.go" and .line == 30 and .resolved_by == null)
    and (.review_threads[1] | .is_resolved == true and .is_outdated == true and .resolved_by == "testuser")'
 
+# ファイル名一意化: 別リポジトリなら同じ out-dir でも別ファイルになる
+# （並列サブエージェントが共有 scratchpad を out-dir に使っても衝突しない性質の担保）
+out_x=$(GH_STUB_REPO=other/proj fetch 5)
+assert_exit 'cross-repo: exit 0' $? 0
+assert_eq 'cross-repo: repo name embedded in filename' \
+  "$(ctx_path "$out_x")" "$OUT_DIR/pr-context-other-proj-5.json"
+
 # 番号省略（カレント branch から推論）
-out_infer=$(bash "$SCRIPT")
+out_infer=$(fetch)
 assert_exit 'inferred pr number: exit 0' $? 0
-assert 'inferred pr number used' "$out_infer" '.pr.number == 5'
+assert_eq 'inferred number embedded in filename' \
+  "$(ctx_path "$out_infer")" "$OUT_DIR/pr-context-owner-repo-5.json"
+assert 'inferred pr number used' "$(cat "$(ctx_path "$out_infer")" 2>/dev/null)" '.pr.number == 5'
 
 # 他人の PR → is_own_pr false
 sed 's/"login": "testuser"/"login": "othercoder"/' "$TMP/data/pr-meta.json" > "$TMP/data/pr-meta.json.tmp" \
   && mv "$TMP/data/pr-meta.json.tmp" "$TMP/data/pr-meta.json"
-out_other=$(bash "$SCRIPT" 5)
-assert 'is_own_pr false for others PR' "$out_other" '.is_own_pr == false and .pr.author == "othercoder"'
+out_other=$(fetch 5)
+assert 'is_own_pr false for others PR' "$(cat "$(ctx_path "$out_other")" 2>/dev/null)" \
+  '.is_own_pr == false and .pr.author == "othercoder"'
 
 # エラー系
-GH_STUB_NO_PR=1 bash "$SCRIPT" >/dev/null 2>"$TMP/err.txt"
+GH_STUB_NO_PR=1 fetch >/dev/null 2>"$TMP/err.txt"
 assert_exit 'inference failure: non-zero exit' $? 1
 if [ -s "$TMP/err.txt" ]; then
   pass=$((pass + 1)); printf 'PASS  inference failure: stderr message present\n'
@@ -201,8 +237,14 @@ else
   fail=$((fail + 1)); printf 'FAIL  inference failure: stderr message present\n'
 fi
 
-bash "$SCRIPT" abc >/dev/null 2>/dev/null
+fetch abc >/dev/null 2>/dev/null
 assert_exit 'non-numeric pr number rejected' $? 1
+
+bash "$SCRIPT" >/dev/null 2>/dev/null
+assert_exit 'missing out-dir rejected' $? 1
+
+bash "$SCRIPT" "$TMP/no-such-dir" 5 >/dev/null 2>/dev/null
+assert_exit 'nonexistent out-dir rejected' $? 1
 
 # ページネーション: 2 ページ分を順序どおり結合して全量取得
 # （reviews.totalCount を窓より大きくし、reviews_truncated の true 経路も同時に検証する）
@@ -220,11 +262,12 @@ jq -n '{data: {repository: {pullRequest: {comments: {
       pageInfo: {hasNextPage: false, endCursor: "p2"},
       nodes: [{author: {login: "reviewer1", __typename: "User"}, body: "page2-a", createdAt: "2026-01-02T00:00:00Z", url: "https://example.com/p2a"}]
     }}}}}' > "$TMP/data/graphql-2.json"
-out_page=$(bash "$SCRIPT" 5)
+out_page=$(fetch 5)
 assert_exit 'pagination: exit 0' $? 0
-assert 'pagination: pages merged in order' "$out_page" \
+ctx_page=$(cat "$(ctx_path "$out_page")" 2>/dev/null)
+assert 'pagination: pages merged in order' "$ctx_page" \
   '[.comments[].body] == ["page1-a", "page1-b", "page2-a"] and .comments_total_count == 3 and .comments_truncated == false'
-assert 'reviews window eviction flagged' "$out_page" \
+assert 'reviews window eviction flagged' "$ctx_page" \
   '.reviews_total_count == 60 and .reviews_truncated == true'
 rm -f "$TMP/data/graphql-1.json" "$TMP/data/graphql-2.json" "$TMP/data/.graphql-call-count"
 
@@ -241,35 +284,38 @@ jq -n --argjson nodes "$nodes100" '{data: {repository: {pullRequest: {comments: 
       nodes: $nodes
     }}}}}' > "$TMP/data/graphql-2.json"
 for i in 3 4 5; do cp "$TMP/data/graphql-2.json" "$TMP/data/graphql-$i.json"; done
-out_cap=$(bash "$SCRIPT" 5)
+out_cap=$(fetch 5)
 assert_exit 'comment cap: exit 0' $? 0
-assert 'comment cap: stops at MAX_COMMENTS with truncation flag' "$out_cap" \
+assert 'comment cap: stops at MAX_COMMENTS with truncation flag' "$(cat "$(ctx_path "$out_cap")" 2>/dev/null)" \
   '(.comments | length) == 500 and .comments_total_count == 600 and .comments_truncated == true'
 
 # MAX_COMMENTS の環境変数上書き（cap フィクスチャを再利用。100件/ページ × 上限250 → 300件で停止）
 rm -f "$TMP/data/.graphql-call-count"
-out_override=$(MAX_COMMENTS=250 bash "$SCRIPT" 5)
+out_override=$(MAX_COMMENTS=250 fetch 5)
 assert_exit 'cap override: exit 0' $? 0
-assert 'cap override: MAX_COMMENTS env changes the cap' "$out_override" \
+assert 'cap override: MAX_COMMENTS env changes the cap' "$(cat "$(ctx_path "$out_override")" 2>/dev/null)" \
   '(.comments | length) == 300 and .comments_truncated == true'
 rm -f "$TMP/data"/graphql-[1-5].json "$TMP/data/.graphql-call-count"
 
-# ページ取得途中の GraphQL 失敗: 部分取得のまま正常出力せず exit 1 で停止する
+# ページ取得途中の GraphQL 失敗: 部分取得のまま正常出力せず exit 1 で停止し、
+# 出力ファイルも作らない（atomic 書き込み — 部分 JSON を後段の jq 参照が読む事故を防ぐ）
 rm -f "$TMP/data/.graphql-call-count"
 jq '.data.repository.pullRequest.comments.pageInfo = {hasNextPage: true, endCursor: "p1"}' \
   "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
 : > "$TMP/data/graphql-2.fail"
-bash "$SCRIPT" 5 >"$TMP/page-out.txt" 2>"$TMP/page-err.txt"
+FAIL_DIR="$TMP/out-fail"
+mkdir -p "$FAIL_DIR"
+bash "$SCRIPT" "$FAIL_DIR" 5 >"$TMP/page-out.txt" 2>"$TMP/page-err.txt"
 assert_exit 'page fetch failure: non-zero exit' $? 1
-if grep -q 'failed to fetch PR comments page' "$TMP/page-err.txt" && [ ! -s "$TMP/page-out.txt" ]; then
-  pass=$((pass + 1)); printf 'PASS  page fetch failure: stderr message, no partial stdout\n'
+if grep -q 'failed to fetch PR comments page' "$TMP/page-err.txt" && [ ! -s "$TMP/page-out.txt" ] && [ -z "$(ls -A "$FAIL_DIR")" ]; then
+  pass=$((pass + 1)); printf 'PASS  page fetch failure: stderr message, no stdout, no partial file\n'
 else
-  fail=$((fail + 1)); printf 'FAIL  page fetch failure: stderr message, no partial stdout\n'
+  fail=$((fail + 1)); printf 'FAIL  page fetch failure: stderr message, no stdout, no partial file\n'
 fi
 rm -f "$TMP/data/graphql-1.json" "$TMP/data/graphql-2.fail" "$TMP/data/.graphql-call-count"
 
 # MAX_COMMENTS の非数値は exit 1（書式ミスのまま「上限を上げて再実行」が空回りする事故を防ぐ）
-MAX_COMMENTS=abc bash "$SCRIPT" 5 >/dev/null 2>/dev/null
+MAX_COMMENTS=abc fetch 5 >/dev/null 2>/dev/null
 assert_exit 'non-numeric MAX_COMMENTS rejected' $? 1
 
 # マーカー文字列の双方向契約: review-response SKILL.md（書く側）とスクリプトの startswith（検出側）の一致

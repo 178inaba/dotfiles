@@ -85,12 +85,12 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 セクション1でPRからベースブランチを取得できた場合、PRコンテキストを一括取得する:
 
 ```bash
-bash ~/.claude/scripts/fetch-pr-context.sh [<pr-number>] > <scratchpadディレクトリ>/pr-context.json
+bash ~/.claude/scripts/fetch-pr-context.sh <scratchpadディレクトリ> [<pr-number>]
 ```
 
-PRメタ情報・通常コメント・レビュー本文・レビュースレッド・関連Issue検出・モード判定材料を1回で取得し、正規化した JSON を stdout に返す（挙動の担保: `claude/.claude/tests/test-fetch-pr-context.sh`）。
+PRメタ情報・通常コメント・レビュー本文・レビュースレッド・関連Issue検出・モード判定材料を1回で取得し、正規化した JSON を `<scratchpadディレクトリ>/pr-context-<owner>-<repo>-<PR番号>.json` に書き、stdout には `{"path": "..."}` のみを返す。一意なファイル名の合成はスクリプトが保証する — 並列サブエージェントは同一セッションの scratchpad を共有するため、呼び出し側で保存先を組み立てない（挙動の担保: `claude/.claude/tests/test-fetch-pr-context.sh`）。
 
-- **出力の扱い**: **必ずファイルに保存し、以後は jq で必要部分を段階的に参照する**。stdout の直接表示や `| head` での部分読みはしない（CI bot が多い PR では出力が数百 KB に達し、部分読みは「見えた範囲だけで判断」を誘発して comments[] の読み落としにつながるため）
+- **出力の扱い**: **返された `path` のファイルを jq で必要部分を段階的に参照する**。`cat` での全文表示や `| head` での部分読みはしない（CI bot が多い PR では出力が数百 KB に達し、部分読みは「見えた範囲だけで判断」を誘発して comments[] の読み落としにつながるため）
 - **PRが存在しない場合**（セクション1で判明）: 本セクション全体をスキップ
 - **PRが存在するのにスクリプトが非ゼロ終了した場合**: 実行環境の問題（`~/.claude/scripts` 未リンク・GraphQL 失敗等）のため、stderr を提示して停止する。「PRなし」と混同してスキップすると、既存レビュー文脈なしの重複指摘や、セクション3のモード判定が `is_own_pr` 不在のまま自動対応ONへ倒れる事故につながる
 
