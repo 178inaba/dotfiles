@@ -292,7 +292,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
 
 5. **品質チェック**
    - `/simplify` を実行し、変更コードの再利用性・品質・効率性を確認・修正
-   - finding を見送る（skip する）場合、@~/.claude/skills/finding-triage/SKILL.md を読み、その規律で見送り理由を実地検証してから確定する（写像: /simplify の finding = 「対応が期待される指摘」。/simplify 組み込みスキルの skip 基準だけでは印象ベースの見送りを弾けないため）
+   - finding を見送る（skip する）場合、@~/.claude/skills/finding-triage/SKILL.md を読み、その規律で検証してから確定する（写像: /simplify の finding = 「対応が期待される指摘」。/simplify 組み込みスキルの skip 基準だけでは印象ベースの見送りを弾けないため）
    - 修正があればコミット
 
 6. **実装完了処理**
