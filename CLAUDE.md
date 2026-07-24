@@ -119,6 +119,10 @@ zsh -l
   - `skills/review-assigned-prs/scripts/list-pending-reviews.sh` — Bot 以外のレビュー未着 PR の候補収集・判定
   - `skills/review-assigned-prs/scripts/ensure-clone.sh` — レビュー用 clone dir の ensure（未 clone は clone、既存は fetch）
   - `skills/review-assigned-prs/scripts/verify-posted-reviews.sh` — サブエージェント完了報告後のレビュー投稿検証
+  - `skills/worktree-resolution/scripts/resolve-pr-worktree.sh` — PR worktree 解決の配管（`resolve` / `create-fallback` / `finalize` の3サブコマンド。作成・切替プリミティブの分岐だけを AI に残す）
+  - `skills/worktree-resolution/scripts/check-pr-freshness.sh` — PR head との鮮度確認と安全な ff 自動同期（`/deep-review`・`/review-response` 共有）
+  - `skills/deep-review/scripts/prepare-review.sh` — レビュー準備の集約（フラグ検証・PR 存在プローブ・コンテキスト取得・3モード判定・鮮度確認・ベースブランチ判定）
+  - `skills/deep-review/scripts/post-review.sh` — レビュー投稿（総合評価→event 決定表・投稿前の行番号検証・REST 投稿）
   - `scripts/fetch-pr-context.sh` — PR コンテキスト一括取得（`/deep-review`・`/review-response` 共有）
 - **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 
