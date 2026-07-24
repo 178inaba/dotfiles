@@ -141,6 +141,6 @@ bash ~/.claude/skills/review-assigned-prs/scripts/verify-posted-reviews.sh <owne
 1. **サブエージェント失敗時は自動リトライしない**: Agent が null/error を返した場合はユーザーに提示（`@~/.claude/skills/issue-handle/SKILL.md` の「7-2. 親セッションで自動修正」に準拠）。次回イテレーションで再挑戦される
 2. **fork PR は現状スコープ外**: `gh search prs` は fork 由来 PR も返すが、`/deep-review --worktree` の worktree 解決は「fork 由来 PR は対象外」として停止する。当該 PR は毎イテレーションでサブエージェント失敗として報告される（次イテレーションで自動復旧はしない）
 3. **同一リポジトリの並列レビュー**: 同じ owner/repo に属する複数 PR が同時に候補になっても、初回の並列 clone は安全（並行実行の契約の正は `ensure-clone.sh` のヘッダーコメント）。既存 clone への並列 `git fetch` は ref ロック競合で片方が一時失敗することがあるが、次回イテレーションで自動復旧する
-4. **clone dir のクリーンアップは手動**: 累積して困る場合はスクリプトヘッダーに記載された clone 先ディレクトリを手動で削除。自動掃除ロジックは持たない（YAGNI）
+4. **clone dir のクリーンアップは手動**: 累積して困る場合はスクリプトヘッダーに記載された clone 先ディレクトリを手動で削除（クラッシュ時に残りうる隠し一時ディレクトリ `.<repo>.XXXXXX` も同様）。自動掃除ロジックは持たない（YAGNI）
 5. **プライベートリポジトリ**: `gh` 認証済みで clone アクセス権があれば `gh repo clone` が SSH/HTTPS を自動選択して clone する
 6. **常駐は 1 セッションのみ**: in-flight PR の除外（セクション 3）は単一セッションの会話コンテキスト内でしか機能しないため、`/loop` 常駐は同時に 1 セッションだけで運用する

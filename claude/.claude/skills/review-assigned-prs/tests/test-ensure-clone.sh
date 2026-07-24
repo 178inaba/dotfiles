@@ -217,7 +217,8 @@ bash "$SCRIPT" "no-slash" 2>"$TMP/err.txt"
 assert_exit 'no slash: non-zero exit' $? 1
 assert 'no slash: stderr present' "[ -s '$TMP/err.txt' ]"
 
-for arg in "too/many/slashes" "/missing-owner" "missing-repo/"; do
+# ドット成分は path traversal で rm -rf が clone 空間外を指すため拒否する
+for arg in "too/many/slashes" "/missing-owner" "missing-repo/" "../evil" "evil/.." "./evil" "evil/."; do
   bash "$SCRIPT" "$arg" 2>/dev/null
   assert_exit "invalid arg [$arg]: non-zero exit" $? 1
 done

@@ -18,6 +18,13 @@
 # 待ち合わせロックを使わないのは、macOS に flock(1) が無く mkdir ロック + stale 検出の
 # 複雑さがこの稀な無駄と釣り合わないため。
 #
+# 既知の制約（ロックなし設計のトレードオフとして許容）:
+#   - 旧実装の残骸（.git 無し $path）の掃除は check-then-act のため、残骸が残る repo に
+#     並行呼び出しが同時進入した場合に限り理論上のウィンドウが残る（過渡的条件のみで発現）
+#   - EXIT trap を経ないクラッシュ（SIGKILL 等）では隠し一時ディレクトリ .<repo>.XXXXXX が
+#     残る。自動回収は持たない（並行実行中の生存 tmp との判別機構が YAGNI）— 手動クリーン
+#     アップ（SKILL.md 注意事項参照）の対象に含める
+#
 # 使用方法: ensure-clone.sh <owner>/<repo>
 # 出力契約: SKILL.md の「出力 JSON の契約」を参照
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
@@ -49,6 +56,17 @@ fi
 
 owner=${repo_ref%%/*}
 repo=${repo_ref#*/}
+
+# ドット成分は path traversal（例: owner「..」で $path が clone 空間の外を指す）により
+# 残骸掃除の rm -rf が管理外を削除しうるため拒否する
+for part in "$owner" "$repo"; do
+  case "$part" in
+    . | ..)
+      printf 'invalid repo reference (dot components not allowed): %s\n' "$repo_ref" >&2
+      exit 1
+      ;;
+  esac
+done
 
 base="${XDG_DATA_HOME:-$HOME/.local/share}/claude-review-prs"
 path="$base/$owner/$repo"
