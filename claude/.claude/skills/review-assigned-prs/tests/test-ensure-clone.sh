@@ -2,14 +2,14 @@
 
 # ensure-clone.sh のリグレッションテスト
 #
-# 実行: bash claude/.claude/tests/test-ensure-clone.sh
+# 実行: bash claude/.claude/skills/review-assigned-prs/tests/test-ensure-clone.sh
 # 使い捨ての bare リポジトリを origin 代わりに使い、gh スタブが git clone に置き換える。
 # 実 gh・実 GitHub には触れない。失敗したケースがあれば exit 1 で終了する。
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-SCRIPT="$SCRIPT_DIR/../skills/review-assigned-prs/scripts/ensure-clone.sh"
+SCRIPT="$SCRIPT_DIR/../scripts/ensure-clone.sh"
 
 if [ ! -f "$SCRIPT" ]; then
   printf 'ERROR: script not found: %s\n' "$SCRIPT" >&2

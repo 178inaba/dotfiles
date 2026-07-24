@@ -2,14 +2,14 @@
 
 # collect-candidates.sh のリグレッションテスト
 #
-# 実行: bash claude/.claude/tests/test-collect-candidates.sh
+# 実行: bash claude/.claude/skills/cleanup-merged/tests/test-collect-candidates.sh
 # 使い捨ての git リポジトリと gh スタブ（GH_BIN 差し替え）で完結し、実 gh・実リポジトリには触れない。
 # 失敗したケースがあれば exit 1 で終了する。
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-SCRIPT="$SCRIPT_DIR/../skills/cleanup-merged/scripts/collect-candidates.sh"
+SCRIPT="$SCRIPT_DIR/../scripts/collect-candidates.sh"
 
 if [ ! -f "$SCRIPT" ]; then
   printf 'ERROR: script not found: %s\n' "$SCRIPT" >&2

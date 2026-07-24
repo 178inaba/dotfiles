@@ -2,14 +2,14 @@
 
 # verify-posted-reviews.sh のリグレッションテスト
 #
-# 実行: bash claude/.claude/tests/test-verify-posted-reviews.sh
+# 実行: bash claude/.claude/skills/review-assigned-prs/tests/test-verify-posted-reviews.sh
 # gh スタブ（GH_BIN 差し替え）で完結し、実 gh・実リポジトリには触れない。
 # 失敗したケースがあれば exit 1 で終了する。
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-SCRIPT="$SCRIPT_DIR/../skills/review-assigned-prs/scripts/verify-posted-reviews.sh"
+SCRIPT="$SCRIPT_DIR/../scripts/verify-posted-reviews.sh"
 
 if [ ! -f "$SCRIPT" ]; then
   printf 'ERROR: script not found: %s\n' "$SCRIPT" >&2

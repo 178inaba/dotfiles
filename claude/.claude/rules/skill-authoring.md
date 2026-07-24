@@ -100,7 +100,7 @@ disable-model-invocation: true  # 副作用がある場合はtrue
 - **スキル横断の共有スクリプト**は、契約の正をスクリプトのヘッダーコメントに置き、各 SKILL.md には自スキルが使うフィールドの解釈のみ書く（複数 SKILL.md への契約複製はドリフトの元）
 
 ### テスト必須
-- 配置: `claude/.claude/tests/test-<name>.sh`
+- 配置: 対象スクリプトの兄弟 `tests/` ディレクトリ（`skills/<skill>/tests/test-<name>.sh`。配置規約の正は `claude/.claude/rules/script-testing.md`）
 - 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない。新規スクリプト追加時は同ルールの対応表にも行を追加する
 - 既存例の一覧はプロジェクト CLAUDE.md の「スキルスクリプト」を参照（列挙の正はそちらに一本化）
 
@@ -159,6 +159,7 @@ description: 本番環境へのデプロイを実行
 ├── skill-name/
 │   ├── SKILL.md        # メイン定義（必須）
 │   ├── scripts/        # 決定的処理のスクリプト（オプション、「スクリプト同梱パターン」参照）
+│   ├── tests/          # scripts/ のリグレッションテスト（scripts/ があるなら必須）
 │   ├── template.md     # テンプレート（オプション）
 │   └── examples/       # 例（オプション）
 └── ...

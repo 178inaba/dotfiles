@@ -98,7 +98,7 @@ zsh -l
 ├── scripts/            # スキル横断で共有するスクリプト（fetch-pr-context.sh等）
 ├── hooks/              # イベントフック（通知・事故防止等）
 │   └── tests/          # フックのリグレッションテスト
-├── tests/              # フック以外のスクリプトのリグレッションテスト（statusline・スキルスクリプト等）
+├── tests/              # ルート直下スクリプト（statusline.sh 等）のリグレッションテスト。テストは対象コンポーネントの隣の tests/ に置く（scripts/tests/・skills/<name>/tests/ 等。配置規約の正は rules/script-testing.md）
 ├── settings.json       # Claude Code設定
 └── statusline.sh       # ステータスライン表示スクリプト
 ```
@@ -111,7 +111,7 @@ zsh -l
 - `start-caffeinate.sh` (UserPromptSubmit, PreToolUse, SubagentStart) / `stop-caffeinate.sh` (Stop, Notification, SessionEnd, SubagentStop) — Claude が作業中の間だけ macOS のスリープを抑止する。caffeinate は30分リース（`-t 1800`）付きで起動し、ツール呼び出しのたびに kill→再起動でリースを更新する。Esc 中断・API エラー等 Stop フックを経ない終了では更新が止まって自己失効するため、caffeinate が残留して眠らなくなる事故を防ぐ。サブエージェント（バックグラウンド実行され、親ターン終了の Stop 後も動き続ける）には SubagentStart で per-agent caffeinate（`/tmp/claude-caffeinate-${session_id}-agent-${agent_id}.pid`）を起動し、SubagentStop で `.done` にリネームして親の次の Stop で回収する（完了直後に親が結果を読んでいる間の抑止空白を防ぐ。稼働中の `.pid` は Stop でも殺さない）。例外として Remote Control 接続中（`CLAUDE_CODE_BRIDGE_SESSION_ID` あり、Claude Code v2.1.199+）は、ホストのスリープで約10分後にリモートセッションがタイムアウトするため、セッションの caffeinate を `-t` なしで起動し SessionEnd 以外では停止せず返信待ちの間も抑止を維持する。caffeinate は Claude 本体プロセスを `-w` で watch して起動するため、クラッシュ・SIGKILL 等フックを経由しない終了でも残留しない
 - `subagent-tracker.sh` (SubagentStart, SubagentStop, SessionEnd) / `idle-notify.sh` (Notification の `idle_prompt`) — 「人間の入力が必要な時だけ通知」を実現するペア。親セッションがサブエージェントの完了待ちでターンを終えた一時的なアイドルでは `idle_prompt` が発火するが、親は完了通知で自動再開するため人間のやることが無い。tracker が稼働マーカー（`/tmp/claude-subagents-${session_id}/${agent_id}`）を SubagentStart/Stop で管理し、idle-notify が idle_prompt 受信時にマーカーを走査して、稼働中なら通知を抑止・いなければ端末ベル（`terminal-bell.sh`）+ Ping 音 + `slack-notify.sh` を実行する（`permission_prompt` は無条件で通知）。caffeinate の per-agent PID file は再利用しない（ライフサイクルの所有者がスリープ抑止都合で別に変わりうる上、残留時に通知が「沈黙」側へ倒れるため通知専用に独立管理）。判定不能・マーカーの記録 PID 死亡（クラッシュ残骸）は通知する側に倒す。既知の制約: `run_in_background` の Bash・Monitor は SubagentStart を経ないため検知外、SubagentStop 直後〜親再開の隙間の idle は鳴る（いずれも「うるさい」側の漏れ）。ネイティブ通知はタイプ別フィルタ不可で本ガードを素通りするため `preferredNotifChannel: "notifications_disabled"` で停止している（「通知チャンネル」参照）
 - `terminal-bell.sh`（Notification） — 端末ベルを hook JSON の `terminalSequence` フィールド（Claude Code v2.1.141+）で鳴らす共有スクリプト。フックは controlling terminal を持たない独自セッションで実行され（v2.1.139+）`/dev/tty` へ `\a` を直接書けないため、Claude Code に代理出力させる。tmux が BEL を受けて window の bell flag を立てる（タブ点灯。Ghostty はデフォルトでベル音を鳴らさないため音は afplay が担当）。`permission_prompt` の直付けフックと `idle-notify.sh` のガード通過後の 2 経路から呼ばれ、ベルのタイミングを「人間の入力が必要な時だけ」に揃える
-- **編集時は必ずテストを走らせる**: 対応表・理由・テストの設計制約は `claude/.claude/rules/script-testing.md` を参照
+- **編集時は必ずテストを走らせる**: 配置規約・理由・テストの設計制約は `claude/.claude/rules/script-testing.md` を参照
 
 ### スキルスクリプト
 - スキル内の決定的処理（収集・判定・正規化）はスクリプトに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/rules/skill-authoring.md` の「スクリプト同梱パターン」）

@@ -35,7 +35,7 @@ disable-model-invocation: true
 bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh [--include-closed]
 ```
 
-事前準備（デフォルトブランチ取得・`git fetch`・保護 branch 除外）、worktree/branch の収集、マージ判定、セーフティチェックを一括実行し、JSON を stdout に出力する。判定ロジックの詳細はスクリプト本体を、挙動の担保は `claude/.claude/tests/test-collect-candidates.sh` を参照。
+事前準備（デフォルトブランチ取得・`git fetch`・保護 branch 除外）、worktree/branch の収集、マージ判定、セーフティチェックを一括実行し、JSON を stdout に出力する。判定ロジックの詳細はスクリプト本体を、挙動の担保は `claude/.claude/skills/cleanup-merged/tests/test-collect-candidates.sh` を参照。
 
 #### 出力 JSON の契約
 

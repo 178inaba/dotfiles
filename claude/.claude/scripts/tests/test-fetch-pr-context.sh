@@ -2,14 +2,14 @@
 
 # fetch-pr-context.sh のリグレッションテスト
 #
-# 実行: bash claude/.claude/tests/test-fetch-pr-context.sh
+# 実行: bash claude/.claude/scripts/tests/test-fetch-pr-context.sh
 # gh スタブ（GH_BIN 差し替え）で完結し、実 gh・実リポジトリには触れない。
 # 失敗したケースがあれば exit 1 で終了する。
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-SCRIPT="$SCRIPT_DIR/../scripts/fetch-pr-context.sh"
+SCRIPT="$SCRIPT_DIR/../fetch-pr-context.sh"
 
 if [ ! -f "$SCRIPT" ]; then
   printf 'ERROR: script not found: %s\n' "$SCRIPT" >&2
@@ -316,7 +316,7 @@ assert_exit 'non-numeric MAX_COMMENTS rejected' $? 1
 
 # マーカー文字列の双方向契約: review-response SKILL.md（書く側）とスクリプトの startswith（検出側）の一致
 # 片側だけ変更されると is_skill_comment が silent に false 化し、自分の過去投稿を新規指摘として再対応する退行が起きる
-MARKER_SKILL="$SCRIPT_DIR/../skills/review-response/SKILL.md"
+MARKER_SKILL="$SCRIPT_DIR/../../skills/review-response/SKILL.md"
 grep -q 'startswith("<!-- review-response -->")' "$SCRIPT" && grep -q '<!-- review-response -->' "$MARKER_SKILL"
 assert_exit 'skill comment marker in sync between writer skill and detector script' $? 0
 
