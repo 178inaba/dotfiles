@@ -13,7 +13,7 @@
 # 出力契約: SKILL.md の「prepare-review.sh の出力 JSON の契約」を参照
 #
 # 「PR なし」（番号省略かつカレント branch に PR が無い）はローカルレビューへの正常な縮退
-# （degraded: true）。それ以外の失敗 — 明示指定 PR の不在・PR があるのにコンテキスト取得や
+# （pr_exists: false）。それ以外の失敗 — 明示指定 PR の不在・PR があるのにコンテキスト取得や
 # 鮮度確認が失敗 — は縮退させず非ゼロ exit + 英語 stderr で停止する（「PR なし」と混同すると
 # is_own_pr 不在のまま自動対応 ON へ倒れる事故になるため）。
 #
@@ -87,7 +87,7 @@ explicit_pr=false
 [ -z "$pr_number" ] || explicit_pr=true
 if [ -n "$pr_number" ]; then
   probe=$("$GH_BIN" pr view "$pr_number" --json number,headRefName 2>/dev/null) \
-    || fatal "PR #$pr_number not found (gh pr view)"
+    || fatal "gh pr view failed for PR #$pr_number (not found, unauthenticated, or network error)"
 else
   if probe=$("$GH_BIN" pr view --json number,headRefName 2>/dev/null); then
     pr_number=$(printf '%s' "$probe" | jq -r '.number')
@@ -153,7 +153,12 @@ decide_modes() {
 # --- PR なし: ローカルレビューへの縮退（pr_exists: false がその表明） ---
 if [ "$pr_exists" = "false" ]; then
   default_branch=$(git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's|^origin/||')
-  base_branch="origin/${default_branch:-main}"
+  default_branch=${default_branch:-main}
+  # stale な remote tracking ref への diff は base 取り込み済みの変更を誤検出するため、
+  # PR なしでも base の fetch は省略しない。ただしオフラインのローカルレビューは塞がず warning に留める
+  git fetch -q origin "$default_branch" 2>/dev/null \
+    || add_warning "git fetch origin $default_branch failed; diff may be computed against a stale remote tracking ref"
+  base_branch="origin/$default_branch"
   modes=$(decide_modes false)
   emit ok
 fi

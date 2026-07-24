@@ -135,12 +135,12 @@ case "$subcommand" in
       head_ref=$("$GH_BIN" pr view "$pr_number" --json headRefName -q .headRefName 2>/dev/null) || head_ref=""
     else
       probe=$("$GH_BIN" pr view --json number,headRefName 2>/dev/null) \
-        || fatal 'failed to infer PR number from current branch (gh pr view); pass <pr-number> explicitly'
+        || fatal 'gh pr view failed to infer the PR from current branch (no PR, unauthenticated, or network error); pass <pr-number> explicitly'
       pr_number=$(printf '%s' "$probe" | jq -r '.number')
       head_ref=$(printf '%s' "$probe" | jq -r '.headRefName')
     fi
     [ -n "$head_ref" ] && [ "$head_ref" != "null" ] \
-      || fatal "failed to get head branch of PR #$pr_number (gh pr view)"
+      || fatal "gh pr view failed to get the head branch of PR #$pr_number (not found, unauthenticated, or network error)"
 
     worktree_name=$(printf '%s' "$head_ref" | tr '/' '-')
 
@@ -222,6 +222,11 @@ case "$subcommand" in
     head_ref=${3:-}
     { [ -n "$worktree_name" ] && [ -n "$head_ref" ]; } \
       || fatal 'usage: resolve-pr-worktree.sh finalize <worktree-name> <head-ref>'
+
+    # EnterWorktree(name:) の失敗を呼び出し側が見逃したままメインリポジトリ cwd で実行されると
+    # メインリポジトリを PR branch へ switch してしまうため、linked worktree 内であることを前置確認する
+    [ "$(git rev-parse --path-format=absolute --git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ] \
+      || fatal 'finalize must run inside a linked worktree (cwd is the main worktree)'
 
     wt_path=$(git rev-parse --show-toplevel)
     git switch -q "$head_ref" || fatal "git switch $head_ref failed in $wt_path"

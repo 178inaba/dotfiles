@@ -28,6 +28,7 @@ paths:
 規約から導出できない例外:
 - `hooks/start-caffeinate.sh`・`hooks/stop-caffeinate.sh`: ペアで `hooks/tests/test-caffeinate.sh`
 - `skills/review-response/SKILL.md`（`<!-- review-response -->` マーカー変更時のみ）: `scripts/tests/test-fetch-pr-context.sh`（マーカー同期テスト）
+- `skills/worktree-resolution/scripts/sync-lib.sh`（source 用の共有関数、単体テストなし）: `skills/worktree-resolution/tests/test-resolve-pr-worktree.sh` と `test-check-pr-freshness.sh` の両方を実行（source 元2スクリプトのテストでカバー）
 
 全テストの列挙: `find claude/.claude -path '*/tests/test-*.sh'`
 

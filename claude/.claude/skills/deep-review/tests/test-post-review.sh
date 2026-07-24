@@ -21,6 +21,8 @@ TMP=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$TMP"' EXIT
 
 # --- 対象リポジトリ: main（10行のファイル）→ feature で5行目を変更 + 新規ファイル追加 ---
+# added.txt の "++ tricky" は diff 上 "+++ tricky" と描画される追加行。ファイルヘッダと
+# 衝突しても行番号追跡が壊れないこと（後続行の検証）のリグレッション用フィクスチャ
 git init -q --bare -b main "$TMP/origin.git"
 git clone -q "$TMP/origin.git" "$TMP/repo" 2>/dev/null
 REPO="$TMP/repo"
@@ -33,8 +35,8 @@ REPO="$TMP/repo"
   git commit -qm "initial"
   git push -q origin main
   git switch -qc feature/5-change
-  sed -i '' 's/^line 5$/line 5 changed/' stable.txt
-  printf 'new a\nnew b\n' > added.txt
+  { seq 1 4 | sed 's/^/line /'; printf 'line 5 changed\n'; seq 6 10 | sed 's/^/line /'; } > stable.txt
+  printf 'new a\n++ tricky\nnew b\n' > added.txt
   git add stable.txt added.txt
   git commit -qm "change line 5 and add file"
 )
@@ -109,12 +111,12 @@ payload() {
 
 write_context "$TMP/ctx.json"
 
-# --- ケース1: Approve可能 + 行コメント（変更行・context 行・新規ファイル）→ 投稿成功 ---
+# --- ケース1: Approve可能 + 行コメント（変更行・context 行・"+++ " 描画行の直後）→ 投稿成功 ---
 : > "$GH_STUB_LOG"
 write_review "$TMP/rev1.json" "Approve可能" \
   '[{"path": "stable.txt", "line": 5, "body": "変更行への指摘"},
     {"path": "stable.txt", "line": 3, "body": "context 行への指摘"},
-    {"path": "added.txt", "line": 2, "body": "新規ファイルへの指摘"}]'
+    {"path": "added.txt", "line": 3, "body": "++ 行の直後への指摘（ヘッダ誤認リグレッション検知）"}]'
 out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev1.json")
 assert_exit 'approve: exit 0' $? 0
 assert_json 'approve: url returned' "$out" '.url | test("pullrequestreview")'

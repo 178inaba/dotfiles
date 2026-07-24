@@ -122,7 +122,7 @@ bash ~/.claude/scripts/fetch-pr-context.sh <scratchpadディレクトリ> [<pr-n
 - `reviews[]`: レビュー本文。`body` を必ず読み、本文内の指摘（総評・優先度付きリスト・サマリー）を行コメントと同じ粒度で列挙する
 - `review_threads[]`: 行コメントスレッド。修正・返信判断の対象は `is_resolved: false` のもの。返信・解決 mutation の `THREAD_ID` には `id` を使う
 - `comments[]`: 通常コメント。議論経緯の把握に用い、レビュアーによる明示的な修正依頼のみ指摘として列挙する（「通常コメントの扱い」参照）。`is_skill_comment: true` は本スキルの過去の自動投稿（修正判断の対象外、議論経緯の参照には使う）
-- `pr.head_oid` / `pr.head_ref` / `is_own_pr`: 鮮度確認サブ手順（手順2）の入力
+- `pr.head_oid` / `pr.head_ref` / `pr.base_ref` / `is_own_pr`: 鮮度確認サブ手順（手順2）の入力
 - `pr` / `repo`: 完了報告の投稿先（`gh pr comment` の対象 PR・`-R` 指定）に使用
 
 ### スレッドに返信

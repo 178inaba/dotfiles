@@ -182,6 +182,12 @@ assert_json 'explicit issue: issues from flag' "$out" '.issues == [{repo: null, 
 assert_json 'explicit issue: flag recorded' "$out" '.flags.issue == 123'
 
 # --- ケース6: PR なし（番号省略・推論失敗）→ 縮退（ローカルレビュー） ---
+# base fetch が省略されないことの検証用に origin の main を先に進めておく
+git clone -q "$TMP/origin.git" "$TMP/advance" 2>/dev/null
+git -C "$TMP/advance" config user.email test@example.com
+git -C "$TMP/advance" config user.name test
+git -C "$TMP/advance" commit -q --allow-empty -m "advance main"
+git -C "$TMP/advance" push -q origin main
 out=$(cd "$REPO" && GH_STUB_PR_JSON= bash "$SCRIPT" "$TMP/scratch")
 assert_exit 'no pr: exit 0' $? 0
 assert_json 'no pr: pr_exists false (local-review degradation)' "$out" '.pr_exists == false'
@@ -192,6 +198,9 @@ assert_json 'no pr: personal rules ON' "$out" '.modes.personal_rules == true'
 assert_json 'no pr: autofix ON' "$out" '.modes.autofix == true'
 assert_json 'no pr: base_branch from default branch' "$out" '.base_branch == "origin/main"'
 assert_json 'no pr: issues empty' "$out" '.issues == []'
+origin_main=$(git -C "$TMP/advance" rev-parse HEAD)
+local_main=$(git -C "$REPO" rev-parse origin/main)
+assert 'no pr: base branch fetched (tracking ref fresh)' "[ '$local_main' = '$origin_main' ]"
 
 # --- ケース7: PR 番号明示だが PR が見つからない → 非ゼロ exit（縮退と混同しない） ---
 (cd "$REPO" && GH_STUB_PR_JSON= bash "$SCRIPT" "$TMP/scratch" 9 2>"$TMP/err7.txt")

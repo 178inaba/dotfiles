@@ -69,8 +69,15 @@ local_head=$(git rev-parse HEAD)
 # --- 投稿前検証2: 行コメントの path/line が最新 diff に存在すること ---
 comment_count=$(jq -r '.comments | length' "$review_file")
 if [ "$comment_count" -gt 0 ]; then
-  valid_lines=$(git diff "origin/$base_ref...HEAD" | awk '
+  # -c color.diff=false / --no-ext-diff: ユーザーの git 設定（色・外部 diff）に左右されず
+  # unified diff を決定的に得る。awk は hunk 内の行規則をファイルヘッダ規則より先に評価する —
+  # "++ " で始まる追加行は "+++ ..." と描画されヘッダと衝突するため（実ヘッダは
+  # "diff --git" 行で inhunk が 0 に戻った後にしか現れない）
+  valid_lines=$(git -c color.diff=false diff --no-ext-diff "origin/$base_ref...HEAD" | awk '
     /^\\ / { next }
+    inhunk && /^\+/ { print file ":" n; n++; next }
+    inhunk && /^-/ { next }
+    inhunk && /^ / { print file ":" n; n++; next }
     /^\+\+\+ / {
       file = substr($0, 5)
       sub(/^b\//, "", file)
@@ -84,9 +91,6 @@ if [ "$comment_count" -gt 0 ]; then
       }
       next
     }
-    inhunk && /^\+/ { print file ":" n; n++; next }
-    inhunk && /^-/ { next }
-    inhunk && /^ / { print file ":" n; n++; next }
     { inhunk = 0 }
   ')
   invalid=$(jq -r '.comments[] | "\(.path):\(.line)"' "$review_file" \

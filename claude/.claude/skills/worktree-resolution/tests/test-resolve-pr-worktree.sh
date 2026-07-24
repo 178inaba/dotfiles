@@ -189,7 +189,7 @@ assert_json 'resolve existing behind-dirty: status behind_dirty' "$out" '.status
 after=$(git -C "$wt" rev-parse HEAD)
 assert 'resolve existing behind-dirty: HEAD untouched' "[ '$before' = '$after' ]"
 assert 'resolve existing behind-dirty: dirty file intact' "grep -q dirty '$wt/tracked.txt'"
-git -C "$wt" checkout -q -- tracked.txt
+git -C "$wt" restore tracked.txt
 
 # --- ケース7: resolve — 既存 worktree にローカル独自 commit → diverged で停止 ---
 git -C "$wt" merge -q --ff-only "origin/$HEAD_REF"
@@ -291,6 +291,16 @@ out=$(cd "$wt" && bash "$SCRIPT" finalize "$WT_NAME" "$HEAD_REF")
 assert_exit 'finalize without temp branch: exit 0' $? 0
 assert_json 'finalize without temp branch: status ok' "$out" '.status == "ok"'
 assert_json 'finalize without temp branch: warning recorded' "$out" '.warnings | length >= 1'
+
+# --- ケース15.5: finalize — メイン worktree の cwd で実行 → 非ゼロ exit（誤 switch ガード） ---
+repo=$(setup_repo case15b)
+git -C "$repo" fetch -q origin "$HEAD_REF"
+before=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
+(cd "$repo" && bash "$SCRIPT" finalize "$WT_NAME" "$HEAD_REF" 2>"$TMP/err15b.txt")
+assert_exit 'finalize in main worktree: non-zero exit' $? 1
+assert 'finalize in main worktree: stderr present' "[ -s '$TMP/err15b.txt' ]"
+after=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
+assert 'finalize in main worktree: branch untouched' "[ '$before' = '$after' ]"
 
 # --- ケース16: 引数不正 → 非ゼロ exit + stderr ---
 repo=$(setup_repo case16)
