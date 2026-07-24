@@ -101,7 +101,7 @@ disable-model-invocation: true  # 副作用がある場合はtrue
 
 ### テスト必須
 - 配置: 対象スクリプトの兄弟 `tests/` ディレクトリ（`skills/<skill>/tests/test-<name>.sh`。配置規約の正は `claude/.claude/rules/script-testing.md`）
-- 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない。新規スクリプト追加時は同ルールの対応表にも行を追加する
+- 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない
 - 既存例の一覧はプロジェクト CLAUDE.md の「スキルスクリプト」を参照（列挙の正はそちらに一本化）
 
 ## 良い例・悪い例

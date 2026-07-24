@@ -89,6 +89,11 @@ assert_exit() {
   fi
 }
 
+assert_no_residue() {
+  local name=$1 dir=$2 pattern=$3
+  assert "$name" "[ -z \"\$(find '$dir' -maxdepth 1 -name '$pattern' 2>/dev/null)\" ]"
+}
+
 # --- ケース1: 未 clone → clone が走る ---
 : > "$GH_STUB_LOG"
 out=$(bash "$SCRIPT" acme/foo)
@@ -100,8 +105,7 @@ expected_path="$XDG_DATA_HOME/claude-review-prs/acme/foo"
 assert 'path matches XDG_DATA_HOME layout' "[ '$path' = '$expected_path' ]"
 assert 'clone dir has .git' "[ -d '$path/.git' ]"
 assert 'clone invocation recorded in log' "grep -q 'repo clone acme/foo' '$GH_STUB_LOG'"
-assert 'no temp dir residue after clone' \
-  "[ -z \"\$(find '$XDG_DATA_HOME/claude-review-prs/acme' -maxdepth 1 -name '.foo.*' 2>/dev/null)\" ]"
+assert_no_residue 'no temp dir residue after clone' "$XDG_DATA_HOME/claude-review-prs/acme" '.foo.*'
 
 # --- ケース2: 既 clone → fetch のみ、clone は呼ばれない ---
 # origin に新しい commit を追加して fetch で取り込まれることを検証
@@ -143,10 +147,9 @@ GH_BIN="$TMP/stub-fail/gh" bash "$SCRIPT" acme/broken 2>/dev/null
 assert_exit 'failing clone: non-zero exit' $? 1
 assert 'partial clone dir cleaned up on failure' \
   "[ ! -e '$XDG_DATA_HOME/claude-review-prs/acme/broken' ]"
-assert 'no temp dir residue after failing clone' \
-  "[ -z \"\$(find '$XDG_DATA_HOME/claude-review-prs/acme' -maxdepth 1 -name '.broken.*' 2>/dev/null)\" ]"
+assert_no_residue 'no temp dir residue after failing clone' "$XDG_DATA_HOME/claude-review-prs/acme" '.broken.*'
 
-# --- ケース6: clone 競合（敗者側・clone 失敗）→ 勝者の clone を破壊せず採用する ---
+# --- ケース5: clone 競合（敗者側・clone 失敗）→ 勝者の clone を破壊せず採用する ---
 # 「.git 存在チェックの後・自分の clone 完了前」に他エージェントが完成 clone を publish した
 # 状況を再現する: gh スタブが clone 失敗と同時に、最終パスへ完成 clone + マーカーを置く。
 # 旧実装はこの状況で失敗時クリーンアップの rm -rf が勝者の clone を破壊していた
@@ -164,13 +167,13 @@ exit 1
 EOF
 chmod +x "$TMP/stub-race-fail/gh"
 
-out6=$(GH_BIN="$TMP/stub-race-fail/gh" GH_STUB_RACE_PATH="$race_path" bash "$SCRIPT" acme/raced 2>/dev/null)
+out5=$(GH_BIN="$TMP/stub-race-fail/gh" GH_STUB_RACE_PATH="$race_path" bash "$SCRIPT" acme/raced 2>/dev/null)
 assert_exit 'race (clone failed, winner published): exit 0 by adopting winner' $? 0
 assert 'race: winner clone not destroyed' "[ -d '$race_path/.git' ]"
 assert 'race: winner marker survives' "[ -f '$race_path/winner-marker' ]"
-assert_json 'race: adopted path returned' "$out6" ".path == \"$race_path\""
+assert_json 'race: adopted path returned' "$out5" ".path == \"$race_path\""
 
-# --- ケース7: clone 競合（敗者側・clone 成功後に publish 負け）→ 既存 clone を汚さず採用する ---
+# --- ケース6: clone 競合（敗者側・clone 成功後に publish 負け）→ 既存 clone を汚さず採用する ---
 # 自分の clone は完成したが、mv より先に他エージェントが publish していた状況。
 # POSIX mv は既存ディレクトリの中へ移動するため、その残骸回収まで検証する
 : > "$GH_STUB_LOG"
@@ -189,25 +192,23 @@ exit 1
 EOF
 chmod +x "$TMP/stub-race-win/gh"
 
-out7=$(GH_BIN="$TMP/stub-race-win/gh" GH_STUB_RACE_PATH="$adopt_path" bash "$SCRIPT" acme/adopt 2>/dev/null)
+out6=$(GH_BIN="$TMP/stub-race-win/gh" GH_STUB_RACE_PATH="$adopt_path" bash "$SCRIPT" acme/adopt 2>/dev/null)
 assert_exit 'race (own clone ok, winner published first): exit 0' $? 0
 assert 'race: existing clone intact (marker survives)' "[ -f '$adopt_path/winner-marker' ]"
-assert 'race: no temp residue inside published clone' \
-  "[ -z \"\$(find '$adopt_path' -maxdepth 1 -name '.adopt.*' 2>/dev/null)\" ]"
-assert 'race: no temp residue in parent dir' \
-  "[ -z \"\$(find '$XDG_DATA_HOME/claude-review-prs/acme' -maxdepth 1 -name '.adopt.*' 2>/dev/null)\" ]"
-assert_json 'race: published path returned' "$out7" ".path == \"$adopt_path\""
+assert_no_residue 'race: no temp residue inside published clone' "$adopt_path" '.adopt.*'
+assert_no_residue 'race: no temp residue in parent dir' "$XDG_DATA_HOME/claude-review-prs/acme" '.adopt.*'
+assert_json 'race: published path returned' "$out6" ".path == \"$adopt_path\""
 
-# --- ケース8: 旧実装のクラッシュ残骸（.git 無しディレクトリ）→ 掃除して clone し直す ---
+# --- ケース7: 旧実装のクラッシュ残骸（.git 無しディレクトリ）→ 掃除して clone し直す ---
 debris_path="$XDG_DATA_HOME/claude-review-prs/acme/debris"
 mkdir -p "$debris_path/partial-stuff"
 : > "$GH_STUB_LOG"
-out8=$(bash "$SCRIPT" acme/debris)
+bash "$SCRIPT" acme/debris >/dev/null
 assert_exit 'legacy debris: exit 0' $? 0
 assert 'legacy debris: replaced by fresh clone' "[ -d '$debris_path/.git' ]"
 assert 'legacy debris: partial content removed' "[ ! -e '$debris_path/partial-stuff' ]"
 
-# --- ケース5: 引数不正 → 非ゼロ exit + stderr ---
+# --- ケース8: 引数不正 → 非ゼロ exit + stderr ---
 bash "$SCRIPT" 2>"$TMP/err.txt"
 assert_exit 'missing arg: non-zero exit' $? 1
 assert 'missing arg: stderr present' "[ -s '$TMP/err.txt' ]"

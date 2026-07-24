@@ -64,8 +64,10 @@ else
     exit 1
   fi
   # .git の無いディレクトリは旧実装（$path へ直接 clone）が中断された残骸。現実装では
-  # $path に不完全状態が置かれることはないため、残骸と断定して掃除する
-  if [ -d "$path" ]; then
+  # $path に不完全状態が置かれることはないため、.git の有無だけで残骸と断定して掃除できる。
+  # .git があるものは直前に他の並行呼び出しが publish した clone なので消さない（後続の
+  # publish 手順が既存 clone の採用として解決する）
+  if [ -d "$path" ] && [ ! -d "$path/.git" ]; then
     rm -rf "$path"
   fi
   if ! tmp=$(mktemp -d "$base/$owner/.$repo.XXXXXX"); then
@@ -74,7 +76,6 @@ else
   trap 'rm -rf "$tmp"' EXIT
   if ! "$GH_BIN" repo clone "$repo_ref" "$tmp" >/dev/null 2>&1; then
     # clone 中に他の並行呼び出しが $path を publish していればそれを採用する
-    # （自分の失敗理由に関係なく、完成 clone があれば目的は達成されている）
     if [ -d "$path/.git" ]; then
       jq -n --arg path "$path" '{path: $path}'
       exit 0
@@ -83,9 +84,9 @@ else
     exit 1
   fi
   # 先に他の並行呼び出しが publish 済みの場合、mv は $path の「中へ」移動する（POSIX mv の
-  # 仕様）。その残骸と mv 失敗時の tmp を無条件に回収し、成否は .git の有無だけで判定する
+  # 仕様）。その残骸を回収し、成否は .git の有無だけで判定する（tmp 自体の回収は trap が所有）
   mv "$tmp" "$path" 2>/dev/null
-  rm -rf "$tmp" "$path/${tmp##*/}"
+  rm -rf "$path/${tmp##*/}"
   if [ ! -d "$path/.git" ]; then
     printf 'failed to publish clone for %s\n' "$repo_ref" >&2
     exit 1

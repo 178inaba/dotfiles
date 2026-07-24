@@ -98,7 +98,7 @@ zsh -l
 ├── scripts/            # スキル横断で共有するスクリプト（fetch-pr-context.sh等）
 ├── hooks/              # イベントフック（通知・事故防止等）
 │   └── tests/          # フックのリグレッションテスト
-├── tests/              # ルート直下スクリプト（statusline.sh 等）のリグレッションテスト。テストは対象コンポーネントの隣の tests/ に置く（scripts/tests/・skills/<name>/tests/ 等。配置規約の正は rules/script-testing.md）
+├── tests/              # ルート直下スクリプト（statusline.sh 等）のリグレッションテスト（テスト配置規約の正は rules/script-testing.md）
 ├── settings.json       # Claude Code設定
 └── statusline.sh       # ステータスライン表示スクリプト
 ```
