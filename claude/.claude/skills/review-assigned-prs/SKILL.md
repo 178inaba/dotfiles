@@ -69,7 +69,9 @@ bash ~/.claude/skills/review-assigned-prs/scripts/list-pending-reviews.sh
 
 ### 3. 各 PR ごとにサブエージェントを並列起動
 
-`.prs` の各要素について、Agent ツール (`subagent_type: "claude"`・`model: "opus"`) を**1 メッセージ内で並列起動**する（対象 PR 数ぶんの Agent 呼び出しを 1 つの tool_use ブロックにまとめる）。
+起動前に、このセッションの過去イテレーションで起動したレビューサブエージェントが**未完了のままの PR を候補から除外する**。GitHub の review request はレビュー投稿まで外れないため、レビュー所要時間がループ間隔を超えると実行中の PR が候補に再出現し、除外しないと同一 PR への二重レビュー投稿と同一 worktree への同時 git 操作が起きる。in-flight 状態を知っているのは親セッションの会話コンテキストだけなので、この除外はスクリプトではなくここで行う。
+
+残った `.prs` の各要素について、Agent ツール (`subagent_type: "claude"`・`model: "opus"`) を**1 メッセージ内で並列起動**する（対象 PR 数ぶんの Agent 呼び出しを 1 つの tool_use ブロックにまとめる）。
 
 model を明示固定する理由: レビューは見落としが観測不能な最後の検証機構のため、親モデルの変更（実験・コスト調整等）で外向きに投稿されるレビューの品質が黙って下がるのを防ぐ。`fable` でなく `opus` なのは、常駐ループで PR 数ぶん並列起動するため単価差が数量で増幅されることと、親 Opus 継承で運用してきた品質実績があるため。
 
@@ -138,6 +140,7 @@ bash ~/.claude/skills/review-assigned-prs/scripts/verify-posted-reviews.sh <owne
 
 1. **サブエージェント失敗時は自動リトライしない**: Agent が null/error を返した場合はユーザーに提示（`@~/.claude/skills/issue-handle/SKILL.md` の「7-2. 親セッションで自動修正」に準拠）。次回イテレーションで再挑戦される
 2. **fork PR は現状スコープ外**: `gh search prs` は fork 由来 PR も返すが、`/deep-review --worktree` の worktree 解決は「fork 由来 PR は対象外」として停止する。当該 PR は毎イテレーションでサブエージェント失敗として報告される（次イテレーションで自動復旧はしない）
-3. **同一リポジトリの並列レビュー**: 同じ owner/repo に属する複数 PR が同時に候補になった場合、初回イテレーションでは `ensure-clone.sh` の並列実行で片方が「destination path already exists」または fetch ロック競合で失敗する可能性がある。次回イテレーションで clone が完了していれば fetch 経路に入り両方成功する
+3. **同一リポジトリの並列レビュー**: 同じ owner/repo に属する複数 PR が同時に候補になっても、初回の並列 clone は安全（`ensure-clone.sh` が一時ディレクトリ経由の atomic 配置で解消し、競合に負けた側も勝者の clone を採用して成功する。並行契約の正はスクリプトヘッダー参照）。既存 clone への並列 `git fetch` は ref ロック競合で片方が一時失敗することがあるが、次回イテレーションで自動復旧する
 4. **clone dir のクリーンアップは手動**: 累積して困る場合はスクリプトヘッダーに記載された clone 先ディレクトリを手動で削除。自動掃除ロジックは持たない（YAGNI）
 5. **プライベートリポジトリ**: `gh` 認証済みで clone アクセス権があれば `gh repo clone` が SSH/HTTPS を自動選択して clone する
+6. **常駐は 1 セッションのみ**: in-flight PR の除外（セクション 3）は親セッションの会話コンテキストに依存するため、複数セッションで同時に常駐させると同一 PR への二重レビューを防げない。`/loop` 常駐は同時に 1 セッションだけで運用する

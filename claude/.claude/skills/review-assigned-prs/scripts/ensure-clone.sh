@@ -11,6 +11,13 @@
 # ユーザーの通常作業 clone とは別空間に置くことで、レビュー中の worktree が普段の作業を
 # 汚さないようにする。
 #
+# 並行実行の契約: 同一 repo への同時呼び出し（同一リポジトリの複数 PR を並列レビューする
+# サブエージェント）に安全。clone は一時ディレクトリで完成させてから mv で atomic に配置し、
+# 最終パスには常に完成 clone しか存在しない（不完全状態を経由しない）。競合に負けた側は
+# 自分の clone を捨てて勝者の clone を採用する（無駄になるのは初回 1 回分の clone のみ）。
+# 待ち合わせロックを使わないのは、macOS に flock(1) が無く mkdir ロック + stale 検出の
+# 複雑さがこの稀な無駄と釣り合わないため。
+#
 # 使用方法: ensure-clone.sh <owner>/<repo>
 # 出力契約: SKILL.md の「出力 JSON の契約」を参照
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
@@ -56,11 +63,31 @@ else
     printf 'failed to create parent dir %s\n' "$base/$owner" >&2
     exit 1
   fi
-  if ! "$GH_BIN" repo clone "$repo_ref" "$path" >/dev/null 2>&1; then
-    # partial clone（.git 未作成のまま中断された残骸）を掃除して、次回イテレーションで
-    # 再 clone できる状態にする（放置すると gh repo clone が「path exists」で永続失敗する）
+  # .git の無いディレクトリは旧実装（$path へ直接 clone）が中断された残骸。現実装では
+  # $path に不完全状態が置かれることはないため、残骸と断定して掃除する
+  if [ -d "$path" ]; then
     rm -rf "$path"
+  fi
+  if ! tmp=$(mktemp -d "$base/$owner/.$repo.XXXXXX"); then
+    exit 1
+  fi
+  trap 'rm -rf "$tmp"' EXIT
+  if ! "$GH_BIN" repo clone "$repo_ref" "$tmp" >/dev/null 2>&1; then
+    # clone 中に他の並行呼び出しが $path を publish していればそれを採用する
+    # （自分の失敗理由に関係なく、完成 clone があれば目的は達成されている）
+    if [ -d "$path/.git" ]; then
+      jq -n --arg path "$path" '{path: $path}'
+      exit 0
+    fi
     printf 'failed to clone %s\n' "$repo_ref" >&2
+    exit 1
+  fi
+  # 先に他の並行呼び出しが publish 済みの場合、mv は $path の「中へ」移動する（POSIX mv の
+  # 仕様）。その残骸と mv 失敗時の tmp を無条件に回収し、成否は .git の有無だけで判定する
+  mv "$tmp" "$path" 2>/dev/null
+  rm -rf "$tmp" "$path/${tmp##*/}"
+  if [ ! -d "$path/.git" ]; then
+    printf 'failed to publish clone for %s\n' "$repo_ref" >&2
     exit 1
   fi
 fi
