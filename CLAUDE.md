@@ -127,6 +127,9 @@ zsh -l
 - なお、さらに過去の `"iterm2"` 固定は Ghostty + tmux で通知が届かないバグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策で、v2.1.78 の修正（Ghostty popup の tmux パススルー対応）により撤去済み
 - OSC 系の通知・progress bar が tmux 越しに届くには `.tmux.conf` の `allow-passthrough all` が前提（`on` だと非表示 window のペインからの通知が破棄される）。`terminalSequence` 経由の BEL はパススルー不要（tmux 自身が bell として解釈し window flag を立てる）
 
+### 組み込みスキルの可視性
+- `skillOverrides` で組み込み `review` スキルを `"user-invocable-only"` に指定（モデルのスキル一覧から除去。ユーザーの手打ち `/review` は可能なまま）。`deep-review` と名前・機能が近接しているため、サブエージェントが「`/deep-review` を実行せよ」という指示を組み込み `review` で解決してしまい、`--worktree` が自由記述扱いになって worktree-resolution 規約に従わない worktree を即興作成する事故（2026-07-24、review-assigned-prs 経由の並列レビューで発生）を構造的に防ぐ。あわせて `deep-review` の description に PR レビュー対応を明記し、一覧上の意味マッチでも `deep-review` が PR レビューの受け皿になるようにしている
+
 ### Worktree 設定
 - `worktree.baseRef: "head"` を指定。`--worktree` を持つスキル群（規約定義: `claude/.claude/skills/worktree-resolution/SKILL.md`）が「ローカル HEAD を起点に worktree を作成する」契約を保つための前提（デフォルトの `"fresh"` だと origin のデフォルトブランチから分岐するため、計画フェーズで指定された base branch を起点にできない）
 

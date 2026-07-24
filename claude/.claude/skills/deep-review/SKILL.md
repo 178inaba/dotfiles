@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: コード差分を詳細にレビュー
+description: コード差分・GitHub PR を詳細にレビュー（<pr-number> で PR を指定、--worktree で対象 PR の worktree に切替）
 argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no-autofix]"
 ---
 

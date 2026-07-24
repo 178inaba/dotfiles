@@ -186,6 +186,9 @@
   "worktree": {
     "baseRef": "head"
   },
+  "skillOverrides": {
+    "review": "user-invocable-only"
+  },
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh",
