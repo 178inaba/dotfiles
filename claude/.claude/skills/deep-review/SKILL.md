@@ -88,7 +88,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 bash ~/.claude/scripts/fetch-pr-context.sh <scratchpadディレクトリ> [<pr-number>]
 ```
 
-PRメタ情報・通常コメント・レビュー本文・レビュースレッド・関連Issue検出・モード判定材料を1回で取得し、正規化した JSON を `<scratchpadディレクトリ>/pr-context-<owner>-<repo>-<PR番号>.json` に書き、stdout には `{"path": "..."}` のみを返す。一意なファイル名の合成はスクリプトが保証する — 並列サブエージェントは同一セッションの scratchpad を共有するため、呼び出し側で保存先を組み立てない（挙動の担保: `claude/.claude/tests/test-fetch-pr-context.sh`）。
+PRメタ情報・通常コメント・レビュー本文・レビュースレッド・関連Issue検出・モード判定材料を1回で取得し、正規化した JSON を scratchpad 配下の一意な名前のファイルに書き、stdout には `{"path": "..."}` のみを返す。命名はスクリプトが所有する — 呼び出し側で保存先を組み立てず、返された `path` だけを使う（命名規約と理由の正はスクリプトのヘッダーコメント。挙動の担保: `claude/.claude/tests/test-fetch-pr-context.sh`）。
 
 - **出力の扱い**: **返された `path` のファイルを jq で必要部分を段階的に参照する**。`cat` での全文表示や `| head` での部分読みはしない（CI bot が多い PR では出力が数百 KB に達し、部分読みは「見えた範囲だけで判断」を誘発して comments[] の読み落としにつながるため）
 - **PRが存在しない場合**（セクション1で判明）: 本セクション全体をスキップ

@@ -13,7 +13,7 @@
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
 #           MAX_COMMENTS — comments 取得の打ち切り上限（既定 500）。打ち切り発生時に引き上げて再実行する
 #
-# stdout は {"path": "<out-dir>/pr-context-<owner>-<repo>-<PR番号>.json"} のみ。
+# stdout は {"path": "<out-dir>/pr-context-<owner>@<repo>-<PR番号>.json"} のみ。
 # コンテキスト本体は path のファイルに書く。ファイル名の一意化（repo・PR 番号の埋め込み）を
 # スクリプト側で保証する理由:
 #   - 並列サブエージェントは同一セッションの scratchpad を共有するため、呼び出し側のプロンプト
@@ -90,7 +90,9 @@ else
   fi
 fi
 
-out_file="$out_dir/pr-context-${owner}-${name}-${pr_number}.json"
+# owner と repo の区切りは両者の名前に使えない「@」にする（hyphen 区切りだと
+# a-b/c と a/b-c の同番号 PR が同名に潰れ、一意性保証に穴が開くため）
+out_file="$out_dir/pr-context-${owner}@${name}-${pr_number}.json"
 
 # reviews は提出日時昇順で返るため last:50 で最新側を取る（first だと CI 通知・ボットレビュー等で
 # 50 件を超えた際に未対応の修正依頼を取りこぼす）。comments は固定ウィンドウだと CI bot の
@@ -144,12 +146,10 @@ esac
 # ページの蓄積はファイルで行う（シェル変数に持って --argjson で渡すと、ページごとに
 # 全体を再パースする O(n^2) の無駄と、execve の引数上限（ARG_MAX）超過リスクがあるため）
 comments_pages=$(mktemp)
-# atomic rename を保証するため、一時ファイルは out_dir と同一ファイルシステム上に作る
-if ! tmp_out=$(mktemp "$out_dir/.pr-context.XXXXXX"); then
-  rm -f "$comments_pages"
-  exit 1
-fi
+tmp_out=''
 trap 'rm -f "$comments_pages" "$tmp_out"' EXIT
+# atomic rename を保証するため、一時ファイルは out_dir と同一ファイルシステム上に作る
+tmp_out=$(mktemp "$out_dir/.pr-context.XXXXXX") || exit 1
 
 printf '%s' "$gql" | jq -c '.data.repository.pullRequest.comments.nodes' > "$comments_pages"
 comment_count=$(printf '%s' "$gql" | jq '.data.repository.pullRequest.comments.nodes | length')

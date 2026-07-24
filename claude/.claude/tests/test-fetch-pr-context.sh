@@ -70,6 +70,7 @@ mkdir -p "$OUT_DIR"
 
 fetch() { bash "$SCRIPT" "$OUT_DIR" "$@"; }
 ctx_path() { printf '%s' "$1" | jq -r .path; }
+ctx_of() { cat "$(ctx_path "$1")"; }
 
 # --- フィクスチャ ---
 # body は closing keyword 検出のテストコーパス:
@@ -171,14 +172,9 @@ assert_eq() {
 out=$(fetch 5)
 assert_exit 'explicit pr number: exit 0' $? 0
 assert 'stdout is path-only JSON' "$out" 'keys == ["path"]'
-assert_eq 'context file named pr-context-<owner>-<repo>-<number>.json' \
-  "$(ctx_path "$out")" "$OUT_DIR/pr-context-owner-repo-5.json"
-if [ -f "$OUT_DIR/pr-context-owner-repo-5.json" ]; then
-  pass=$((pass + 1)); printf 'PASS  context file written\n'
-else
-  fail=$((fail + 1)); printf 'FAIL  context file written\n'
-fi
-ctx=$(cat "$OUT_DIR/pr-context-owner-repo-5.json" 2>/dev/null)
+assert_eq 'context file named pr-context-<owner>@<repo>-<number>.json' \
+  "$(ctx_path "$out")" "$OUT_DIR/pr-context-owner@repo-5.json"
+ctx=$(ctx_of "$out")
 
 assert 'pr meta mapped' "$ctx" \
   '.pr.number == 5 and .pr.author == "testuser" and .pr.head_ref == "feature/x" and .pr.base_ref == "main" and .pr.head_oid == "abc123"'
@@ -212,20 +208,20 @@ assert 'threads mapped with resolution state' "$ctx" \
 out_x=$(GH_STUB_REPO=other/proj fetch 5)
 assert_exit 'cross-repo: exit 0' $? 0
 assert_eq 'cross-repo: repo name embedded in filename' \
-  "$(ctx_path "$out_x")" "$OUT_DIR/pr-context-other-proj-5.json"
+  "$(ctx_path "$out_x")" "$OUT_DIR/pr-context-other@proj-5.json"
 
 # 番号省略（カレント branch から推論）
 out_infer=$(fetch)
 assert_exit 'inferred pr number: exit 0' $? 0
 assert_eq 'inferred number embedded in filename' \
-  "$(ctx_path "$out_infer")" "$OUT_DIR/pr-context-owner-repo-5.json"
-assert 'inferred pr number used' "$(cat "$(ctx_path "$out_infer")" 2>/dev/null)" '.pr.number == 5'
+  "$(ctx_path "$out_infer")" "$OUT_DIR/pr-context-owner@repo-5.json"
+assert 'inferred pr number used' "$(ctx_of "$out_infer")" '.pr.number == 5'
 
 # 他人の PR → is_own_pr false
 sed 's/"login": "testuser"/"login": "othercoder"/' "$TMP/data/pr-meta.json" > "$TMP/data/pr-meta.json.tmp" \
   && mv "$TMP/data/pr-meta.json.tmp" "$TMP/data/pr-meta.json"
 out_other=$(fetch 5)
-assert 'is_own_pr false for others PR' "$(cat "$(ctx_path "$out_other")" 2>/dev/null)" \
+assert 'is_own_pr false for others PR' "$(ctx_of "$out_other")" \
   '.is_own_pr == false and .pr.author == "othercoder"'
 
 # エラー系
@@ -264,7 +260,7 @@ jq -n '{data: {repository: {pullRequest: {comments: {
     }}}}}' > "$TMP/data/graphql-2.json"
 out_page=$(fetch 5)
 assert_exit 'pagination: exit 0' $? 0
-ctx_page=$(cat "$(ctx_path "$out_page")" 2>/dev/null)
+ctx_page=$(ctx_of "$out_page")
 assert 'pagination: pages merged in order' "$ctx_page" \
   '[.comments[].body] == ["page1-a", "page1-b", "page2-a"] and .comments_total_count == 3 and .comments_truncated == false'
 assert 'reviews window eviction flagged' "$ctx_page" \
@@ -286,14 +282,14 @@ jq -n --argjson nodes "$nodes100" '{data: {repository: {pullRequest: {comments: 
 for i in 3 4 5; do cp "$TMP/data/graphql-2.json" "$TMP/data/graphql-$i.json"; done
 out_cap=$(fetch 5)
 assert_exit 'comment cap: exit 0' $? 0
-assert 'comment cap: stops at MAX_COMMENTS with truncation flag' "$(cat "$(ctx_path "$out_cap")" 2>/dev/null)" \
+assert 'comment cap: stops at MAX_COMMENTS with truncation flag' "$(ctx_of "$out_cap")" \
   '(.comments | length) == 500 and .comments_total_count == 600 and .comments_truncated == true'
 
 # MAX_COMMENTS の環境変数上書き（cap フィクスチャを再利用。100件/ページ × 上限250 → 300件で停止）
 rm -f "$TMP/data/.graphql-call-count"
 out_override=$(MAX_COMMENTS=250 fetch 5)
 assert_exit 'cap override: exit 0' $? 0
-assert 'cap override: MAX_COMMENTS env changes the cap' "$(cat "$(ctx_path "$out_override")" 2>/dev/null)" \
+assert 'cap override: MAX_COMMENTS env changes the cap' "$(ctx_of "$out_override")" \
   '(.comments | length) == 300 and .comments_truncated == true'
 rm -f "$TMP/data"/graphql-[1-5].json "$TMP/data/.graphql-call-count"
 
