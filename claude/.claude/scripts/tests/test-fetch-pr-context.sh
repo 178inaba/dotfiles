@@ -152,6 +152,19 @@ cat > "$TMP/data/graphql.json" <<'EOF'
                 ]
               },
               "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "修正しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t3b"}]}
+            },
+            {
+              "id": "PRRT_4", "isResolved": true, "isOutdated": false, "path": "src/db.go", "line": 42,
+              "resolvedBy": {"login": "testuser"},
+              "comments": {
+                "totalCount": 2,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t4"},
+                "nodes": [
+                  {"author": {"login": "reviewer2"}, "body": "ここ確認", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t4a"},
+                  {"author": {"login": "testuser"}, "body": "対応済みです", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t4b"}
+                ]
+              },
+              "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "対応済みです", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t4b"}]}
             }
           ]
         }
@@ -228,7 +241,7 @@ assert 'reviews_total_count exposed, not truncated' "$ctx" \
 assert 'reviews mapped' "$ctx" \
   '.reviews == [{"author": "reviewer1", "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submitted_at": "2026-01-01T00:00:00Z"}]'
 assert 'threads mapped with resolution state' "$ctx" \
-  '(.review_threads | length) == 3
+  '(.review_threads | length) == 4
    and (.review_threads[0] | .id == "PRRT_1" and .is_resolved == false and .path == "src/main.go" and .line == 30 and .resolved_by == null)
    and (.review_threads[1] | .is_resolved == true and .is_outdated == true and .resolved_by == "testuser")'
 assert 'threads not truncated' "$ctx" \
@@ -238,9 +251,11 @@ assert 'last_comment points at the newest comment' "$ctx" \
   '(.review_threads[0].last_comment | .author == "reviewer1" and .url == "https://example.com/t1")
    and (.review_threads[2].last_comment | .author == "testuser" and .body == "修正しました" and .url == "https://example.com/t3b")'
 # waiting_for_response: 未解決 かつ 末尾が自分 かつ 自分の PR の3条件をスクリプト側で確定させる
-# （モデルが手順文から毎回導出すると is_own_pr ガードの見落としで分類が反転しうる）
+# （モデルが手順文から毎回導出すると is_own_pr ガードの見落としで分類が反転しうる）。
+# フィクスチャは3条件を独立に固定する: PRRT_1 未解決+末尾が他人 / PRRT_3 未解決+末尾が自分 /
+# PRRT_4 解決済み+末尾が自分（PRRT_4 が無いと isResolved ガードを外しても全テストが通る）
 assert 'waiting_for_response set only for unresolved threads we replied to last' "$ctx" \
-  '[.review_threads[].waiting_for_response] == [false, false, true]'
+  '[.review_threads[].waiting_for_response] == [false, false, true, false]'
 
 # ファイル名一意化: 別リポジトリなら同じ out-dir でも別ファイルになる
 # （並列サブエージェントが共有 scratchpad を out-dir に使っても衝突しない性質の担保）
