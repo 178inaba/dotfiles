@@ -44,13 +44,17 @@
 #   reviews[]         レビュー本文 {author, state, body, url, submitted_at}
 #   threads_truncated MAX_THREADS 打ち切りの発生フラグ
 #   review_threads[]  {id, is_resolved, is_outdated, path, line, resolved_by,
-#                      comments[], comments_truncated, last_comment}。
+#                      comments[], comments_truncated, last_comment, waiting_for_response}。
 #                     comments[] は昇順（古い順）で MAX_THREAD_COMMENTS まで全量取得。
 #                     last_comment は当該スレッドの最新コメント {author, body, created_at, url}
 #                     （コメント 0 件なら null）。comments[] とは別クエリ（comments(last: 1)）で
 #                     取るため、打ち切り時は comments[] に含まれない要素になる —
 #                     消費側は「comments[] の最終要素」と同一視しないこと。
-#                     打ち切りは最新側で起きるので、末尾判定は必ず last_comment を使う
+#                     前方ページングは両端（最初の指摘と最新の返信）を残すための選択で、
+#                     欠けるのは中間。末尾判定は必ず last_comment を使う。
+#                     waiting_for_response は「未解決 かつ 末尾が自分の返信 かつ 自分の PR」。
+#                     レビュアー側の PR では「末尾が自分」の意味が反転する（相手の応答待ちで
+#                     あって自分の対応漏れではない）ため is_own_pr で絞る
 
 set -u
 
@@ -160,34 +164,25 @@ query($owner: String!, $name: String!, $number: Int!) {
   exit 1
 fi
 
-# 異常に大きい PR で取得コスト・出力サイズが際限なく伸びないよう MAX_COMMENTS で打ち切る
+# 異常に大きい PR で取得コスト・出力サイズが際限なく伸びないよう上限で打ち切る
 # （ページネーション自体は hasNextPage で必ず終端するため、上限はコストガード）。
-# 打ち切り発生は出力の comments_truncated で消費側に伝える
+# 打ち切り発生は出力の *_truncated フラグで消費側に伝える。
+# MAX_THREAD_COMMENTS だけ 1 スレッドあたりの上限にしているのは、全スレッド合計にすると
+# 40 スレッド × 5 コメントで現実的に到達し、以降のスレッドの議論経緯が欠けるため
+require_uint() {
+  case "$2" in
+    '' | *[!0-9]*)
+      printf 'invalid %s: %s\n' "$1" "$2" >&2
+      exit 1
+      ;;
+  esac
+}
 MAX_COMMENTS=${MAX_COMMENTS:-500}
-case "$MAX_COMMENTS" in
-  '' | *[!0-9]*)
-    printf 'invalid MAX_COMMENTS: %s\n' "$MAX_COMMENTS" >&2
-    exit 1
-    ;;
-esac
-
-# MAX_THREADS はスレッド接続の合計、MAX_THREAD_COMMENTS は 1 スレッドあたりの上限。
-# 後者を全スレッド合計にすると 40 スレッド × 5 コメントで現実的に到達し、
-# 以降のスレッドの議論経緯が欠ける。いずれも打ち切りは truncated フラグで消費側に伝える
 MAX_THREADS=${MAX_THREADS:-300}
-case "$MAX_THREADS" in
-  '' | *[!0-9]*)
-    printf 'invalid MAX_THREADS: %s\n' "$MAX_THREADS" >&2
-    exit 1
-    ;;
-esac
 MAX_THREAD_COMMENTS=${MAX_THREAD_COMMENTS:-200}
-case "$MAX_THREAD_COMMENTS" in
-  '' | *[!0-9]*)
-    printf 'invalid MAX_THREAD_COMMENTS: %s\n' "$MAX_THREAD_COMMENTS" >&2
-    exit 1
-    ;;
-esac
+require_uint MAX_COMMENTS "$MAX_COMMENTS"
+require_uint MAX_THREADS "$MAX_THREADS"
+require_uint MAX_THREAD_COMMENTS "$MAX_THREAD_COMMENTS"
 
 # ページの蓄積はファイルで行う（シェル変数に持って --argjson で渡すと、ページごとに
 # 全体を再パースする O(n^2) の無駄と、execve の引数上限（ARG_MAX）超過リスクがあるため）
@@ -199,12 +194,32 @@ trap 'rm -f "$comments_pages" "$threads_pages" "$thread_comment_pages" "$tmp_out
 # atomic rename を保証するため、一時ファイルは out_dir と同一ファイルシステム上に作る
 tmp_out=$(mktemp "$out_dir/.pr-context.XXXXXX") || exit 1
 
-printf '%s' "$gql" | jq -c '.data.repository.pullRequest.comments.nodes' > "$comments_pages"
-comment_count=$(printf '%s' "$gql" | jq '.data.repository.pullRequest.comments.nodes | length')
-has_next=$(printf '%s' "$gql" | jq -r '.data.repository.pullRequest.comments.pageInfo.hasNextPage')
-cursor=$(printf '%s' "$gql" | jq -r '.data.repository.pullRequest.comments.pageInfo.endCursor')
-while [ "$has_next" = "true" ] && [ "$comment_count" -lt "$MAX_COMMENTS" ]; do
-  if ! page=$("$GH_BIN" api graphql -f query='
+# pullRequest 直下の接続（comments / reviewThreads）を全量取得し、1 ページ 1 行の
+# JSON 配列として蓄積ファイルへ書く。初回ページは既に $gql にあるので継続分だけ取りに行く。
+# 引数: <接続名> <上限> <蓄積ファイル> <継続クエリ> <失敗時メッセージ>
+paginate_pr_connection() {
+  local conn=$1 max=$2 out=$3 query=$4 err_msg=$5
+  local path=".data.repository.pullRequest.$conn"
+  local count has_next cursor page
+
+  printf '%s' "$gql" | jq -c "$path.nodes" > "$out"
+  count=$(printf '%s' "$gql" | jq "$path.nodes | length")
+  has_next=$(printf '%s' "$gql" | jq -r "$path.pageInfo.hasNextPage")
+  cursor=$(printf '%s' "$gql" | jq -r "$path.pageInfo.endCursor")
+  while [ "$has_next" = "true" ] && [ "$count" -lt "$max" ]; do
+    if ! page=$("$GH_BIN" api graphql -f query="$query" \
+      -f owner="$owner" -f name="$name" -F number="$pr_number" -f cursor="$cursor"); then
+      printf '%s\n' "$err_msg" >&2
+      exit 1
+    fi
+    printf '%s' "$page" | jq -c "$path.nodes" >> "$out"
+    count=$((count + $(printf '%s' "$page" | jq "$path.nodes | length")))
+    has_next=$(printf '%s' "$page" | jq -r "$path.pageInfo.hasNextPage")
+    cursor=$(printf '%s' "$page" | jq -r "$path.pageInfo.endCursor")
+  done
+}
+
+paginate_pr_connection comments "$MAX_COMMENTS" "$comments_pages" '
 query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -214,22 +229,9 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
       }
     }
   }
-}' -f owner="$owner" -f name="$name" -F number="$pr_number" -f cursor="$cursor"); then
-    printf 'failed to fetch PR comments page (GraphQL)\n' >&2
-    exit 1
-  fi
-  printf '%s' "$page" | jq -c '.data.repository.pullRequest.comments.nodes' >> "$comments_pages"
-  comment_count=$((comment_count + $(printf '%s' "$page" | jq '.data.repository.pullRequest.comments.nodes | length')))
-  has_next=$(printf '%s' "$page" | jq -r '.data.repository.pullRequest.comments.pageInfo.hasNextPage')
-  cursor=$(printf '%s' "$page" | jq -r '.data.repository.pullRequest.comments.pageInfo.endCursor')
-done
+}' 'failed to fetch PR comments page (GraphQL)'
 
-printf '%s' "$gql" | jq -c '.data.repository.pullRequest.reviewThreads.nodes' > "$threads_pages"
-thread_count=$(printf '%s' "$gql" | jq '.data.repository.pullRequest.reviewThreads.nodes | length')
-t_has_next=$(printf '%s' "$gql" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
-t_cursor=$(printf '%s' "$gql" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
-while [ "$t_has_next" = "true" ] && [ "$thread_count" -lt "$MAX_THREADS" ]; do
-  if ! t_page=$("$GH_BIN" api graphql -f query='
+paginate_pr_connection reviewThreads "$MAX_THREADS" "$threads_pages" '
 query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -239,15 +241,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
       }
     }
   }
-}' -f owner="$owner" -f name="$name" -F number="$pr_number" -f cursor="$t_cursor"); then
-    printf 'failed to fetch review threads page (GraphQL)\n' >&2
-    exit 1
-  fi
-  printf '%s' "$t_page" | jq -c '.data.repository.pullRequest.reviewThreads.nodes' >> "$threads_pages"
-  thread_count=$((thread_count + $(printf '%s' "$t_page" | jq '.data.repository.pullRequest.reviewThreads.nodes | length')))
-  t_has_next=$(printf '%s' "$t_page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
-  t_cursor=$(printf '%s' "$t_page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
-done
+}' 'failed to fetch review threads page (GraphQL)'
 
 # スレッド内コメントの続きは node(id:) で 1 スレッドずつ辿る。取得したページは
 # {thread_id, nodes} で記録し、後段の jq がスレッド ID で束ね直す（通常コメントのような
@@ -298,8 +292,9 @@ if ! jq -n \
     | unique;
   ($gql.data.repository.pullRequest) as $p
   | ($gql.data.viewer.login) as $current_user
+  | ($pr.author.login == $current_user) as $is_own_pr
   | ($comment_pages | add) as $comments
-  | (($thread_pages | add) // []) as $threads
+  | ($thread_pages | add) as $threads
   | ($thread_comment_pages
       | group_by(.thread_id)
       | map({key: .[0].thread_id, value: (map(.nodes // []) | add // [])})
@@ -307,7 +302,7 @@ if ! jq -n \
   | {
       repo: $repo,
       current_user: $current_user,
-      is_own_pr: ($pr.author.login == $current_user),
+      is_own_pr: $is_own_pr,
       pr: {
         number: $pr.number,
         title: $pr.title,
@@ -343,6 +338,12 @@ if ! jq -n \
       review_threads: [$threads[]
         | . as $t
         | (($t.comments.nodes // []) + ($extra_thread_comments[$t.id] // [])) as $thread_comments
+        | ($t.tail.nodes[0] | if . == null then null else {
+            author: .author.login,
+            body,
+            created_at: .createdAt,
+            url
+          } end) as $last_comment
         | {
             id: $t.id,
             is_resolved: $t.isResolved,
@@ -357,12 +358,11 @@ if ! jq -n \
               created_at: .createdAt,
               url
             }],
-            last_comment: ($t.tail.nodes[0] | if . == null then null else {
-              author: .author.login,
-              body,
-              created_at: .createdAt,
-              url
-            } end)
+            last_comment: $last_comment,
+            waiting_for_response: ($is_own_pr
+              and ($t.isResolved | not)
+              and $last_comment != null
+              and $last_comment.author == $current_user)
           }]
     }' > "$tmp_out"; then
   printf 'failed to build output JSON\n' >&2

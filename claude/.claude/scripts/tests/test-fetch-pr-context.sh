@@ -237,6 +237,10 @@ assert 'threads not truncated' "$ctx" \
 assert 'last_comment points at the newest comment' "$ctx" \
   '(.review_threads[0].last_comment | .author == "reviewer1" and .url == "https://example.com/t1")
    and (.review_threads[2].last_comment | .author == "testuser" and .body == "修正しました" and .url == "https://example.com/t3b")'
+# waiting_for_response: 未解決 かつ 末尾が自分 かつ 自分の PR の3条件をスクリプト側で確定させる
+# （モデルが手順文から毎回導出すると is_own_pr ガードの見落としで分類が反転しうる）
+assert 'waiting_for_response set only for unresolved threads we replied to last' "$ctx" \
+  '[.review_threads[].waiting_for_response] == [false, false, true]'
 
 # ファイル名一意化: 別リポジトリなら同じ out-dir でも別ファイルになる
 # （並列サブエージェントが共有 scratchpad を out-dir に使っても衝突しない性質の担保）
@@ -258,6 +262,9 @@ sed 's/"login": "testuser"/"login": "othercoder"/' "$TMP/data/pr-meta.json" > "$
 out_other=$(fetch 5)
 assert 'is_own_pr false for others PR' "$(ctx_of "$out_other")" \
   '.is_own_pr == false and .pr.author == "othercoder"'
+# レビュアー側の PR では「末尾が自分」の意味が反転する（相手の応答待ち）ため分類しない
+assert 'waiting_for_response never set on someone elses PR' "$(ctx_of "$out_other")" \
+  'all(.review_threads[]; .waiting_for_response == false)'
 
 # エラー系
 GH_STUB_NO_PR=1 fetch >/dev/null 2>"$TMP/err.txt"
