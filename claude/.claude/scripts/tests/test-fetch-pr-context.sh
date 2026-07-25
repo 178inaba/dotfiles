@@ -46,6 +46,10 @@ case "$1" in
         n=$(cat "$GH_STUB_DATA/.graphql-call-count" 2>/dev/null || printf '0')
         n=$((n + 1))
         printf '%s' "$n" > "$GH_STUB_DATA/.graphql-call-count"
+        # 継続クエリに渡った変数（threadId 等）を呼び出し番号ごとに記録する。
+        # スタブはレスポンスを呼び出し回数だけで選ぶため、これが無いと
+        # 誤った threadId を渡すバグ（スレッド間のページ取り違え）を検出できない
+        printf '%s\n' "$@" > "$GH_STUB_DATA/.graphql-args-$n"
         if [ -f "$GH_STUB_DATA/graphql-$n.fail" ]; then
           exit 1
         fi
@@ -113,16 +117,41 @@ cat > "$TMP/data/graphql.json" <<'EOF'
           ]
         },
         "reviewThreads": {
+          "totalCount": 3,
+          "pageInfo": {"hasNextPage": false, "endCursor": "tc-1"},
           "nodes": [
             {
               "id": "PRRT_1", "isResolved": false, "isOutdated": false, "path": "src/main.go", "line": 30,
               "resolvedBy": null,
-              "comments": {"nodes": [{"author": {"login": "reviewer1"}, "body": "ここ直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t1"}]}
+              "comments": {
+                "totalCount": 1,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t1"},
+                "nodes": [{"author": {"login": "reviewer1"}, "body": "ここ直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t1"}]
+              },
+              "tail": {"nodes": [{"author": {"login": "reviewer1"}, "body": "ここ直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t1"}]}
             },
             {
               "id": "PRRT_2", "isResolved": true, "isOutdated": true, "path": "src/util.go", "line": 10,
               "resolvedBy": {"login": "testuser"},
-              "comments": {"nodes": [{"author": {"login": "reviewer2"}, "body": "解決済み", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t2"}]}
+              "comments": {
+                "totalCount": 1,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t2"},
+                "nodes": [{"author": {"login": "reviewer2"}, "body": "解決済み", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t2"}]
+              },
+              "tail": {"nodes": [{"author": {"login": "reviewer2"}, "body": "解決済み", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t2"}]}
+            },
+            {
+              "id": "PRRT_3", "isResolved": false, "isOutdated": false, "path": "src/api.go", "line": 7,
+              "resolvedBy": null,
+              "comments": {
+                "totalCount": 2,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t3"},
+                "nodes": [
+                  {"author": {"login": "reviewer1"}, "body": "ここも直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t3a"},
+                  {"author": {"login": "testuser"}, "body": "修正しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t3b"}
+                ]
+              },
+              "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "修正しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t3b"}]}
             }
           ]
         }
@@ -199,9 +228,15 @@ assert 'reviews_total_count exposed, not truncated' "$ctx" \
 assert 'reviews mapped' "$ctx" \
   '.reviews == [{"author": "reviewer1", "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submitted_at": "2026-01-01T00:00:00Z"}]'
 assert 'threads mapped with resolution state' "$ctx" \
-  '(.review_threads | length) == 2
+  '(.review_threads | length) == 3
    and (.review_threads[0] | .id == "PRRT_1" and .is_resolved == false and .path == "src/main.go" and .line == 30 and .resolved_by == null)
    and (.review_threads[1] | .is_resolved == true and .is_outdated == true and .resolved_by == "testuser")'
+assert 'threads not truncated' "$ctx" \
+  '.threads_truncated == false and all(.review_threads[]; .comments_truncated == false)'
+# last_comment は反応待ち分類（review-response）の入力。末尾が自分／他人の両方向を張る
+assert 'last_comment points at the newest comment' "$ctx" \
+  '(.review_threads[0].last_comment | .author == "reviewer1" and .url == "https://example.com/t1")
+   and (.review_threads[2].last_comment | .author == "testuser" and .body == "修正しました" and .url == "https://example.com/t3b")'
 
 # ファイル名一意化: 別リポジトリなら同じ out-dir でも別ファイルになる
 # （並列サブエージェントが共有 scratchpad を out-dir に使っても衝突しない性質の担保）
@@ -313,6 +348,121 @@ rm -f "$TMP/data/graphql-1.json" "$TMP/data/graphql-2.fail" "$TMP/data/.graphql-
 # MAX_COMMENTS の非数値は exit 1（書式ミスのまま「上限を上げて再実行」が空回りする事故を防ぐ）
 MAX_COMMENTS=abc fetch 5 >/dev/null 2>/dev/null
 assert_exit 'non-numeric MAX_COMMENTS rejected' $? 1
+
+reset_stub() { rm -f "$TMP/data"/graphql-[0-9]*.json "$TMP/data"/graphql-[0-9]*.fail \
+  "$TMP/data/.graphql-call-count" "$TMP/data"/.graphql-args-*; }
+
+# スレッドコメントのページネーション: スレッド ID で keyed にマージし、別スレッドのページが混線しないこと。
+# 継続クエリに渡した threadId も検証する（スタブは呼び出し回数でレスポンスを選ぶため、
+# 引数を見ないと PRRT_1 の続きを PRRT_3 に積むようなバグが素通りする）
+reset_stub
+jq '.data.repository.pullRequest.reviewThreads.nodes[0].comments += {totalCount: 2, pageInfo: {hasNextPage: true, endCursor: "t1p1"}}
+    | .data.repository.pullRequest.reviewThreads.nodes[2].comments += {totalCount: 3, pageInfo: {hasNextPage: true, endCursor: "t3p1"}}' \
+  "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+jq -n '{data: {node: {comments: {
+      pageInfo: {hasNextPage: false, endCursor: "t1p2"},
+      nodes: [{author: {login: "reviewer1"}, body: "t1-page2", createdAt: "2026-01-03T00:00:00Z", url: "https://example.com/t1p2"}]
+    }}}}' > "$TMP/data/graphql-2.json"
+jq -n '{data: {node: {comments: {
+      pageInfo: {hasNextPage: false, endCursor: "t3p2"},
+      nodes: [{author: {login: "reviewer1"}, body: "t3-page2", createdAt: "2026-01-03T00:00:00Z", url: "https://example.com/t3p2"}]
+    }}}}' > "$TMP/data/graphql-3.json"
+out_tp=$(fetch 5)
+assert_exit 'thread comment pagination: exit 0' $? 0
+assert 'thread comment pagination: pages merged per thread without cross-talk' "$(ctx_of "$out_tp")" \
+  '(.review_threads[0] | [.comments[].body] == ["ここ直して", "t1-page2"])
+   and (.review_threads[1] | [.comments[].body] == ["解決済み"])
+   and (.review_threads[2] | [.comments[].body] == ["ここも直して", "修正しました", "t3-page2"])'
+if grep -q 'threadId=PRRT_1' "$TMP/data/.graphql-args-2" \
+  && grep -q 'threadId=PRRT_3' "$TMP/data/.graphql-args-3"; then
+  pass=$((pass + 1)); printf 'PASS  thread comment pagination: threadId passed per thread\n'
+else
+  fail=$((fail + 1)); printf 'FAIL  thread comment pagination: threadId passed per thread\n'
+fi
+
+# reviewThreads 自体のページネーションと MAX_THREADS 打ち切り。
+# cap は overshoot する（初回ページは cap に関わらず 100 件取る）ため 250 指定 → 300 件で停止
+reset_stub
+threads100=$(jq -n '[range(100)] | map({
+      id: ("PRRT_P_" + tostring), isResolved: false, isOutdated: false, path: "noise.go", line: 1,
+      resolvedBy: null,
+      comments: {totalCount: 0, pageInfo: {hasNextPage: false, endCursor: null}, nodes: []},
+      tail: {nodes: []}
+    })')
+jq --argjson nodes "$threads100" '.data.repository.pullRequest.reviewThreads = {
+      totalCount: 600,
+      pageInfo: {hasNextPage: true, endCursor: "tN"},
+      nodes: $nodes
+    }' "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+jq -n --argjson nodes "$threads100" '{data: {repository: {pullRequest: {reviewThreads: {
+      pageInfo: {hasNextPage: true, endCursor: "tN"},
+      nodes: $nodes
+    }}}}}' > "$TMP/data/graphql-2.json"
+cp "$TMP/data/graphql-2.json" "$TMP/data/graphql-3.json"
+out_tcap=$(MAX_THREADS=250 fetch 5)
+assert_exit 'thread cap: exit 0' $? 0
+assert 'thread cap: stops at MAX_THREADS with truncation flag' "$(ctx_of "$out_tcap")" \
+  '(.review_threads | length) == 300 and .threads_truncated == true'
+assert 'threads with no comments get null last_comment' "$(ctx_of "$out_tcap")" \
+  '.review_threads[0].last_comment == null'
+
+# MAX_THREAD_COMMENTS の per-thread 打ち切り。打ち切っても last_comment は tail 由来で真の末尾を指す
+# （comments[] に含まれない要素になる — 分類が silent に誤らないための要の保証）
+reset_stub
+tcomments100=$(jq -n '[range(100)] | map({author: {login: "reviewer1"}, body: "noise", createdAt: "2026-01-01T00:00:00Z", url: "https://example.com/tn"})')
+jq --argjson nodes "$tcomments100" '.data.repository.pullRequest.reviewThreads = {
+      totalCount: 1,
+      pageInfo: {hasNextPage: false, endCursor: "tc-1"},
+      nodes: [{
+        id: "PRRT_BIG", isResolved: false, isOutdated: false, path: "big.go", line: 1,
+        resolvedBy: null,
+        comments: {totalCount: 600, pageInfo: {hasNextPage: true, endCursor: "bc"}, nodes: $nodes},
+        tail: {nodes: [{author: {login: "testuser"}, body: "最後の返信", createdAt: "2026-02-01T00:00:00Z", url: "https://example.com/newest"}]}
+      }]
+    }' "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+jq -n --argjson nodes "$tcomments100" '{data: {node: {comments: {
+      pageInfo: {hasNextPage: true, endCursor: "bc"},
+      nodes: $nodes
+    }}}}' > "$TMP/data/graphql-2.json"
+for i in 3 4 5; do cp "$TMP/data/graphql-2.json" "$TMP/data/graphql-$i.json"; done
+out_tccap=$(fetch 5)
+assert_exit 'thread comment cap: exit 0' $? 0
+assert 'thread comment cap: stops at MAX_THREAD_COMMENTS with per-thread truncation flag' "$(ctx_of "$out_tccap")" \
+  '(.review_threads[0].comments | length) == 200 and .review_threads[0].comments_truncated == true'
+assert 'last_comment stays accurate under truncation' "$(ctx_of "$out_tccap")" \
+  '.review_threads[0].last_comment.url == "https://example.com/newest"
+   and (.review_threads[0].last_comment.author == "testuser")
+   and ([.review_threads[0].comments[].url] | index("https://example.com/newest") | not)'
+
+# MAX_THREAD_COMMENTS の環境変数上書き（同じフィクスチャで上限 50 → 初回 100 件のまま追撃しない）
+rm -f "$TMP/data/.graphql-call-count" "$TMP/data"/.graphql-args-*
+out_tcoverride=$(MAX_THREAD_COMMENTS=50 fetch 5)
+assert_exit 'thread comment cap override: exit 0' $? 0
+assert 'thread comment cap override: MAX_THREAD_COMMENTS env changes the cap' "$(ctx_of "$out_tcoverride")" \
+  '(.review_threads[0].comments | length) == 100 and .review_threads[0].comments_truncated == true'
+
+# スレッド継続ページの取得失敗も部分出力せず停止する
+reset_stub
+jq '.data.repository.pullRequest.reviewThreads.nodes[0].comments += {totalCount: 2, pageInfo: {hasNextPage: true, endCursor: "t1p1"}}' \
+  "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+: > "$TMP/data/graphql-2.fail"
+TFAIL_DIR="$TMP/out-thread-fail"
+mkdir -p "$TFAIL_DIR"
+bash "$SCRIPT" "$TFAIL_DIR" 5 >"$TMP/tpage-out.txt" 2>"$TMP/tpage-err.txt"
+assert_exit 'thread page fetch failure: non-zero exit' $? 1
+if grep -q 'failed to fetch review thread comments page' "$TMP/tpage-err.txt" \
+  && [ ! -s "$TMP/tpage-out.txt" ] && [ -z "$(ls -A "$TFAIL_DIR")" ]; then
+  pass=$((pass + 1)); printf 'PASS  thread page fetch failure: stderr message, no stdout, no partial file\n'
+else
+  fail=$((fail + 1)); printf 'FAIL  thread page fetch failure: stderr message, no stdout, no partial file\n'
+fi
+reset_stub
+
+# 新 cap の非数値も MAX_COMMENTS と同様に exit 1
+MAX_THREADS=abc fetch 5 >/dev/null 2>/dev/null
+assert_exit 'non-numeric MAX_THREADS rejected' $? 1
+MAX_THREAD_COMMENTS=abc fetch 5 >/dev/null 2>/dev/null
+assert_exit 'non-numeric MAX_THREAD_COMMENTS rejected' $? 1
 
 # マーカー文字列の双方向契約: review-response SKILL.md（書く側）とスクリプトの startswith（検出側）の一致
 # 片側だけ変更されると is_skill_comment が silent に false 化し、自分の過去投稿を新規指摘として再対応する退行が起きる

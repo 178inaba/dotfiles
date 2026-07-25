@@ -114,7 +114,15 @@ GitHubのレビューコメントに対応し、修正コミット・返信投�
 bash ~/.claude/scripts/fetch-pr-context.sh <scratchpadディレクトリ> [<pr-number>]
 ```
 
-レビュー本文（`reviews[]`）・レビュースレッド（`review_threads[]`）・通常コメント（`comments[]`）の3種を一括取得し、正規化した JSON を scratchpad 配下の一意な名前のファイルに書き、stdout には `{"path": "..."}` のみを返す（命名はスクリプトが所有する — 呼び出し側で保存先を組み立てず、返された `path` だけを使う。命名規約と理由の正はスクリプトのヘッダーコメント）。以後は返された `path` のファイルを jq で必要部分を段階的に参照する（CI bot が多い PR では数百 KB に達し、直接表示の部分読みは指摘・議論経緯の読み落としを誘発するため）。3つは GitHub 上で別管理のため、一部だけ取得すると本文の指摘（優先度付きリスト等）や通常コメント上の議論経緯・追加依頼を見落とす — 一括取得・`comments` の全量取得（ページネーション。既定500件で打ち切り、発生時は `comments_truncated: true` になるため `MAX_COMMENTS` 環境変数で上限を引き上げて再実行する）・マーカーの先頭一致判定はスクリプトが保証する（挙動の担保: `claude/.claude/scripts/tests/test-fetch-pr-context.sh`）。`<pr-number>` 省略時はカレント branch の PR を推論し、失敗時は非ゼロ exit + stderr メッセージで停止する。
+レビュー本文（`reviews[]`）・レビュースレッド（`review_threads[]`）・通常コメント（`comments[]`）の3種を一括取得し、正規化した JSON を scratchpad 配下の一意な名前のファイルに書き、stdout には `{"path": "..."}` のみを返す（命名はスクリプトが所有する — 呼び出し側で保存先を組み立てず、返された `path` だけを使う。命名規約と理由の正はスクリプトのヘッダーコメント）。以後は返された `path` のファイルを jq で必要部分を段階的に参照する（CI bot が多い PR では数百 KB に達し、直接表示の部分読みは指摘・議論経緯の読み落としを誘発するため）。3つは GitHub 上で別管理のため、一部だけ取得すると本文の指摘（優先度付きリスト等）や通常コメント上の議論経緯・追加依頼を見落とす — 一括取得・全量取得（ページネーション）・マーカーの先頭一致判定はスクリプトが保証する（挙動の担保: `claude/.claude/scripts/tests/test-fetch-pr-context.sh`）。`<pr-number>` 省略時はカレント branch の PR を推論し、失敗時は非ゼロ exit + stderr メッセージで停止する。
+
+全量取得にはコストガードの上限がある。打ち切りが発生したら該当の環境変数で上限を引き上げて再実行する:
+
+| 対象 | 打ち切りフラグ | 環境変数（既定） |
+|---|---|---|
+| 通常コメント | `comments_truncated` | `MAX_COMMENTS`（500） |
+| レビュースレッド | `threads_truncated` | `MAX_THREADS`（300） |
+| スレッド内コメント | `review_threads[].comments_truncated` | `MAX_THREAD_COMMENTS`（200、スレッドごと） |
 
 本スキルで使用するフィールド:
 - `reviews[]`: レビュー本文。`body` を必ず読み、本文内の指摘（総評・優先度付きリスト・サマリー）を行コメントと同じ粒度で列挙する

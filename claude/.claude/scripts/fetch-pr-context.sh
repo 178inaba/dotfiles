@@ -12,6 +12,9 @@
 #   <pr-number> 省略時はカレント branch の PR を推論（失敗時は非ゼロ exit + stderr）
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
 #           MAX_COMMENTS — comments 取得の打ち切り上限（既定 500）。打ち切り発生時に引き上げて再実行する
+#           MAX_THREADS — review_threads 取得の打ち切り上限（既定 300）。同上
+#           MAX_THREAD_COMMENTS — 1 スレッドあたりのコメント取得上限（既定 200）。同上
+#           いずれも初回ページは上限に関わらず 100 件取るため、実際の停止件数は上限を超えうる
 #
 # stdout は {"path": "<out-dir>/pr-context-<owner>@<repo>-<PR番号>.json"} のみ。
 # コンテキスト本体は path のファイルに書く。ファイル名の一意化（repo・PR 番号の埋め込み）を
@@ -30,14 +33,24 @@
 #   linked_issues[]   PR 本文の closing keyword から検出した {repo, number}（repo: null は同リポ）。
 #                     URL 形式・キーワードなしの素の #N は対象外（GitHub の自動 close 対象に揃える）
 #   comments_total_count / comments_truncated
-#                     PR 上の通常コメント総数と、MAX_COMMENTS 打ち切りの発生フラグ
+#                     PR 上の通常コメント総数と、MAX_COMMENTS 打ち切りの発生フラグ。
+#                     comments_truncated は review_threads[] 要素内にも同名で存在する（別物）。
+#                     トップレベル = 通常コメント、要素内 = 当該スレッドのコメント
 #   comments[]        通常コメント {author, author_type, body, created_at, url, is_skill_comment}。
 #                     ページネーションで全量取得（MAX_COMMENTS 件で打ち切り）。author_type は
 #                     GraphQL Actor の __typename（"User" / "Bot" 等）で、CI bot の機械的判別に使う
 #   reviews_total_count / reviews_truncated
 #                     レビュー総数と、取得窓（最新50件）からの欠落発生フラグ
 #   reviews[]         レビュー本文 {author, state, body, url, submitted_at}
-#   review_threads[]  {id, is_resolved, is_outdated, path, line, resolved_by, comments[]}
+#   threads_truncated MAX_THREADS 打ち切りの発生フラグ
+#   review_threads[]  {id, is_resolved, is_outdated, path, line, resolved_by,
+#                      comments[], comments_truncated, last_comment}。
+#                     comments[] は昇順（古い順）で MAX_THREAD_COMMENTS まで全量取得。
+#                     last_comment は当該スレッドの最新コメント {author, body, created_at, url}
+#                     （コメント 0 件なら null）。comments[] とは別クエリ（comments(last: 1)）で
+#                     取るため、打ち切り時は comments[] に含まれない要素になる —
+#                     消費側は「comments[] の最終要素」と同一視しないこと。
+#                     打ち切りは最新側で起きるので、末尾判定は必ず last_comment を使う
 
 set -u
 
@@ -94,10 +107,33 @@ fi
 # a-b/c と a/b-c の同番号 PR が同名に潰れ、一意性保証に穴が開くため）
 out_file="$out_dir/pr-context-${owner}@${name}-${pr_number}.json"
 
+# スレッドのノード選択は初回ページと継続ページで完全に同一でなければならない
+# （ズレると 2 ページ目以降のスレッドだけコメント・last_comment が空になる）。
+# 両方の query へ同じ変数を差し込むことで構造的に揃える。
+# tail は comments と同じフィールドの別引数エイリアス。cap による打ち切りは最新側で起きるため、
+# ページネーションだけでは末尾を保証できず、末尾判定（review-response の反応待ち分類）が
+# silent に誤る — tail を併用して打ち切り時も last_comment を正確に保つ
+thread_node_fields='
+  id
+  isResolved
+  isOutdated
+  path
+  line
+  resolvedBy { login }
+  comments(first: 100) {
+    totalCount
+    pageInfo { hasNextPage endCursor }
+    nodes { author { login } body createdAt url }
+  }
+  tail: comments(last: 1) { nodes { author { login } body createdAt url } }
+'
+
 # reviews は提出日時昇順で返るため last:50 で最新側を取る（first だと CI 通知・ボットレビュー等で
 # 50 件を超えた際に未対応の修正依頼を取りこぼす）。comments は固定ウィンドウだと CI bot の
 # sticky コメントが人間のコメントを窓外へ押し出して黙って欠落するため（実 PR で 97 件中
-# 人間コメント 3 件を含む 47 件が欠落した事例あり）、後段でページネーションして全量取得する
+# 人間コメント 3 件を含む 47 件が欠落した事例あり）、後段でページネーションして全量取得する。
+# reviewThreads とスレッド内コメントも同じ理由で全量取得する（こちらは昇順のため
+# 打ち切ると最新側が落ち、末尾判定が壊れる）
 if ! gql=$("$GH_BIN" api graphql -f query='
 query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
@@ -113,17 +149,9 @@ query($owner: String!, $name: String!, $number: Int!) {
         nodes { author { login } state body url submittedAt }
       }
       reviewThreads(first: 100) {
-        nodes {
-          id
-          isResolved
-          isOutdated
-          path
-          line
-          resolvedBy { login }
-          comments(first: 20) {
-            nodes { author { login } body createdAt url }
-          }
-        }
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes {'"$thread_node_fields"'}
       }
     }
   }
@@ -143,11 +171,31 @@ case "$MAX_COMMENTS" in
     ;;
 esac
 
+# MAX_THREADS はスレッド接続の合計、MAX_THREAD_COMMENTS は 1 スレッドあたりの上限。
+# 後者を全スレッド合計にすると 40 スレッド × 5 コメントで現実的に到達し、
+# 以降のスレッドの議論経緯が欠ける。いずれも打ち切りは truncated フラグで消費側に伝える
+MAX_THREADS=${MAX_THREADS:-300}
+case "$MAX_THREADS" in
+  '' | *[!0-9]*)
+    printf 'invalid MAX_THREADS: %s\n' "$MAX_THREADS" >&2
+    exit 1
+    ;;
+esac
+MAX_THREAD_COMMENTS=${MAX_THREAD_COMMENTS:-200}
+case "$MAX_THREAD_COMMENTS" in
+  '' | *[!0-9]*)
+    printf 'invalid MAX_THREAD_COMMENTS: %s\n' "$MAX_THREAD_COMMENTS" >&2
+    exit 1
+    ;;
+esac
+
 # ページの蓄積はファイルで行う（シェル変数に持って --argjson で渡すと、ページごとに
 # 全体を再パースする O(n^2) の無駄と、execve の引数上限（ARG_MAX）超過リスクがあるため）
 comments_pages=$(mktemp)
+threads_pages=$(mktemp)
+thread_comment_pages=$(mktemp)
 tmp_out=''
-trap 'rm -f "$comments_pages" "$tmp_out"' EXIT
+trap 'rm -f "$comments_pages" "$threads_pages" "$thread_comment_pages" "$tmp_out"' EXIT
 # atomic rename を保証するため、一時ファイルは out_dir と同一ファイルシステム上に作る
 tmp_out=$(mktemp "$out_dir/.pr-context.XXXXXX") || exit 1
 
@@ -176,6 +224,59 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
   cursor=$(printf '%s' "$page" | jq -r '.data.repository.pullRequest.comments.pageInfo.endCursor')
 done
 
+printf '%s' "$gql" | jq -c '.data.repository.pullRequest.reviewThreads.nodes' > "$threads_pages"
+thread_count=$(printf '%s' "$gql" | jq '.data.repository.pullRequest.reviewThreads.nodes | length')
+t_has_next=$(printf '%s' "$gql" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+t_cursor=$(printf '%s' "$gql" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
+while [ "$t_has_next" = "true" ] && [ "$thread_count" -lt "$MAX_THREADS" ]; do
+  if ! t_page=$("$GH_BIN" api graphql -f query='
+query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {'"$thread_node_fields"'}
+      }
+    }
+  }
+}' -f owner="$owner" -f name="$name" -F number="$pr_number" -f cursor="$t_cursor"); then
+    printf 'failed to fetch review threads page (GraphQL)\n' >&2
+    exit 1
+  fi
+  printf '%s' "$t_page" | jq -c '.data.repository.pullRequest.reviewThreads.nodes' >> "$threads_pages"
+  thread_count=$((thread_count + $(printf '%s' "$t_page" | jq '.data.repository.pullRequest.reviewThreads.nodes | length')))
+  t_has_next=$(printf '%s' "$t_page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+  t_cursor=$(printf '%s' "$t_page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
+done
+
+# スレッド内コメントの続きは node(id:) で 1 スレッドずつ辿る。取得したページは
+# {thread_id, nodes} で記録し、後段の jq がスレッド ID で束ね直す（通常コメントのような
+# 単一ストリームではないため、フラットな append では取り違える）。
+# gh が stdin を消費してループを壊さないよう、リストは fd 3 から読む
+while IFS=$'\t' read -r tc_id tc_cursor tc_count <&3; do
+  tc_has_next=true
+  while [ "$tc_has_next" = "true" ] && [ "$tc_count" -lt "$MAX_THREAD_COMMENTS" ]; do
+    if ! tc_page=$("$GH_BIN" api graphql -f query='
+query($threadId: ID!, $cursor: String!) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { author { login } body createdAt url }
+      }
+    }
+  }
+}' -f threadId="$tc_id" -f cursor="$tc_cursor"); then
+      printf 'failed to fetch review thread comments page (GraphQL)\n' >&2
+      exit 1
+    fi
+    printf '%s' "$tc_page" | jq -c --arg tid "$tc_id" '{thread_id: $tid, nodes: .data.node.comments.nodes}' >> "$thread_comment_pages"
+    tc_count=$((tc_count + $(printf '%s' "$tc_page" | jq '.data.node.comments.nodes | length')))
+    tc_has_next=$(printf '%s' "$tc_page" | jq -r '.data.node.comments.pageInfo.hasNextPage')
+    tc_cursor=$(printf '%s' "$tc_page" | jq -r '.data.node.comments.pageInfo.endCursor')
+  done
+done 3< <(jq -r '.[] | select(.comments.pageInfo.hasNextPage) | [.id, .comments.pageInfo.endCursor, (.comments.nodes | length)] | @tsv' "$threads_pages")
+
 # linked_issues: GitHub closing keyword 仕様に準拠した関連 Issue 検出
 #   - 同リポ `#N` / クロスリポ `OWNER/REPO#N`、大文字小文字・コロン付き許容
 #   - URL 形式・キーワードなしの素の `#N` は対象外（GitHub の自動 close 対象外に揃える）
@@ -185,6 +286,8 @@ if ! jq -n \
   --argjson pr "$pr_meta" \
   --argjson gql "$gql" \
   --slurpfile comment_pages "$comments_pages" \
+  --slurpfile thread_pages "$threads_pages" \
+  --slurpfile thread_comment_pages "$thread_comment_pages" \
   '
   def issue_refs:
     [match("\\b(close[sd]?|fix(es|ed)?|resolve[sd]?):?\\s+(?:(?<xrepo>[\\w.-]+/[\\w.-]+))?#(?<num>[0-9]+)"; "gi")
@@ -196,6 +299,11 @@ if ! jq -n \
   ($gql.data.repository.pullRequest) as $p
   | ($gql.data.viewer.login) as $current_user
   | ($comment_pages | add) as $comments
+  | (($thread_pages | add) // []) as $threads
+  | ($thread_comment_pages
+      | group_by(.thread_id)
+      | map({key: .[0].thread_id, value: (map(.nodes // []) | add // [])})
+      | from_entries) as $extra_thread_comments
   | {
       repo: $repo,
       current_user: $current_user,
@@ -231,20 +339,31 @@ if ! jq -n \
         url,
         submitted_at: .submittedAt
       }],
-      review_threads: [$p.reviewThreads.nodes[] | {
-        id,
-        is_resolved: .isResolved,
-        is_outdated: .isOutdated,
-        path,
-        line,
-        resolved_by: (.resolvedBy.login // null),
-        comments: [.comments.nodes[] | {
-          author: .author.login,
-          body,
-          created_at: .createdAt,
-          url
-        }]
-      }]
+      threads_truncated: ($p.reviewThreads.totalCount > ($threads | length)),
+      review_threads: [$threads[]
+        | . as $t
+        | (($t.comments.nodes // []) + ($extra_thread_comments[$t.id] // [])) as $thread_comments
+        | {
+            id: $t.id,
+            is_resolved: $t.isResolved,
+            is_outdated: $t.isOutdated,
+            path: $t.path,
+            line: $t.line,
+            resolved_by: ($t.resolvedBy.login // null),
+            comments_truncated: ($t.comments.totalCount > ($thread_comments | length)),
+            comments: [$thread_comments[] | {
+              author: .author.login,
+              body,
+              created_at: .createdAt,
+              url
+            }],
+            last_comment: ($t.tail.nodes[0] | if . == null then null else {
+              author: .author.login,
+              body,
+              created_at: .createdAt,
+              url
+            } end)
+          }]
     }' > "$tmp_out"; then
   printf 'failed to build output JSON\n' >&2
   exit 1
