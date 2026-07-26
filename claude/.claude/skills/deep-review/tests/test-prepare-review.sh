@@ -54,15 +54,16 @@ chmod +x "$TMP/stub/gh"
 
 # --- fetch-pr-context.sh スタブ ---
 # FETCH_STUB_CONTEXT の JSON を out-dir に書き、{"path": ...} を返す。
-# MAX_COMMENTS 付き再実行の検証のため、呼び出し時の MAX_COMMENTS を記録し、
-# MAX_COMMENTS が設定されていれば FETCH_STUB_CONTEXT_FULL の方を書く
+# 上限引き上げ再実行の検証のため、呼び出し時の MAX_COMMENTS / MAX_THREADS /
+# MAX_THREAD_COMMENTS を記録し、いずれかが非空なら FETCH_STUB_CONTEXT_FULL の方を書く
 cat > "$TMP/stub/fetch-pr-context.sh" <<'EOF'
 #!/bin/bash
-printf 'MAX_COMMENTS=%s\n' "${MAX_COMMENTS:-}" >> "$FETCH_STUB_LOG"
+printf 'MAX_COMMENTS=%s MAX_THREADS=%s MAX_THREAD_COMMENTS=%s\n' \
+  "${MAX_COMMENTS:-}" "${MAX_THREADS:-}" "${MAX_THREAD_COMMENTS:-}" >> "$FETCH_STUB_LOG"
 [ "${FETCH_STUB_FAIL:-}" != "1" ] || { printf 'stub fetch failure\n' >&2; exit 1; }
 out_dir=$1
 path="$out_dir/pr-context-stub.json"
-if [ -n "${MAX_COMMENTS:-}" ] && [ -n "${FETCH_STUB_CONTEXT_FULL:-}" ]; then
+if [ -n "${MAX_COMMENTS:-}${MAX_THREADS:-}${MAX_THREAD_COMMENTS:-}" ] && [ -n "${FETCH_STUB_CONTEXT_FULL:-}" ]; then
   printf '%s' "$FETCH_STUB_CONTEXT_FULL" > "$path"
 else
   printf '%s' "$FETCH_STUB_CONTEXT" > "$path"
@@ -218,8 +219,9 @@ full=$(context_json false | jq '.comments_total_count = 700')
 : > "$FETCH_STUB_LOG"
 out=$(cd "$REPO" && FETCH_STUB_CONTEXT="$truncated" FETCH_STUB_CONTEXT_FULL="$full" bash "$SCRIPT" "$TMP/scratch" 9)
 assert_exit 'truncation rerun: exit 0' $? 0
-assert 'truncation rerun: first call without MAX_COMMENTS' "grep -q '^MAX_COMMENTS=$' '$FETCH_STUB_LOG'"
-assert 'truncation rerun: second call raised MAX_COMMENTS' "grep -q '^MAX_COMMENTS=700$' '$FETCH_STUB_LOG'"
+assert 'truncation rerun: first call without MAX_COMMENTS' "grep -q '^MAX_COMMENTS= ' '$FETCH_STUB_LOG'"
+assert 'truncation rerun: second call raised MAX_COMMENTS only' \
+  "grep -q '^MAX_COMMENTS=700 MAX_THREADS= MAX_THREAD_COMMENTS=$' '$FETCH_STUB_LOG'"
 assert_json 'truncation rerun: status ok' "$out" '.status == "ok"'
 
 # --- ケース10: 再実行しても truncated のまま → warnings で通知して続行 ---
@@ -227,6 +229,38 @@ assert_json 'truncation rerun: status ok' "$out" '.status == "ok"'
 out=$(cd "$REPO" && FETCH_STUB_CONTEXT="$truncated" FETCH_STUB_CONTEXT_FULL="$truncated" bash "$SCRIPT" "$TMP/scratch" 9)
 assert_exit 'still truncated: exit 0' $? 0
 assert_json 'still truncated: warning recorded' "$out" '.warnings | length >= 1'
+
+# --- ケース9b: comments・threads・スレッド内コメントの3種同時打ち切り → 1回の再実行でまとめて引き上げ ---
+# MAX_THREAD_COMMENTS は per-thread 上限のため、打ち切られたスレッドの総数の最大値へ引き上げる
+threads_truncated=$(context_json false | jq '
+  .comments_total_count = 700 | .comments_truncated = true
+  | .threads_total_count = 450 | .threads_truncated = true
+  | .review_threads = [
+      {comments_truncated: true, comments_total_count: 320},
+      {comments_truncated: false, comments_total_count: 3},
+      {comments_truncated: true, comments_total_count: 250}
+    ]')
+threads_full=$(context_json false | jq '
+  .comments_total_count = 700
+  | .threads_total_count = 450 | .threads_truncated = false
+  | .review_threads = [{comments_truncated: false, comments_total_count: 320}]')
+: > "$FETCH_STUB_LOG"
+out=$(cd "$REPO" && FETCH_STUB_CONTEXT="$threads_truncated" FETCH_STUB_CONTEXT_FULL="$threads_full" bash "$SCRIPT" "$TMP/scratch" 9)
+assert_exit 'thread truncation rerun: exit 0' $? 0
+assert 'thread truncation rerun: single rerun raised all three caps' \
+  "grep -q '^MAX_COMMENTS=700 MAX_THREADS=450 MAX_THREAD_COMMENTS=320$' '$FETCH_STUB_LOG'"
+assert 'thread truncation rerun: exactly two fetch calls' "[ \$(wc -l < '$FETCH_STUB_LOG') -eq 2 ]"
+assert_json 'thread truncation rerun: no warnings once resolved' "$out" '.status == "ok" and .warnings == []'
+
+# --- ケース10b: threads / スレッド内コメントが再実行後も truncated → 種別ごとの warning ---
+: > "$FETCH_STUB_LOG"
+out=$(cd "$REPO" && FETCH_STUB_CONTEXT="$threads_truncated" FETCH_STUB_CONTEXT_FULL="$threads_truncated" bash "$SCRIPT" "$TMP/scratch" 9)
+assert_exit 'threads still truncated: exit 0' $? 0
+assert_json 'threads still truncated: warning per truncation kind' "$out" \
+  '(.warnings | length) == 3
+   and any(.warnings[]; test("MAX_COMMENTS"))
+   and any(.warnings[]; test("MAX_THREADS"))
+   and any(.warnings[]; test("MAX_THREAD_COMMENTS"))'
 
 # --- ケース11: <pr-number> 指定・--worktree なし・branch 不一致 → branch_mismatch で停止 ---
 (cd "$REPO" && git switch -q main)

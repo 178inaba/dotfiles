@@ -34,7 +34,7 @@
 #                     URL 形式・キーワードなしの素の #N は対象外（GitHub の自動 close 対象に揃える）
 #   comments_total_count / comments_truncated
 #                     PR 上の通常コメント総数と、MAX_COMMENTS 打ち切りの発生フラグ。
-#                     comments_truncated は review_threads[] 要素内にも同名で存在する（別物）。
+#                     どちらも review_threads[] 要素内に同名で存在する（別物）。
 #                     トップレベル = 通常コメント、要素内 = 当該スレッドのコメント
 #   comments[]        通常コメント {author, author_type, body, created_at, url, is_skill_comment}。
 #                     ページネーションで全量取得（MAX_COMMENTS 件で打ち切り）。author_type は
@@ -42,9 +42,13 @@
 #   reviews_total_count / reviews_truncated
 #                     レビュー総数と、取得窓（最新50件）からの欠落発生フラグ
 #   reviews[]         レビュー本文 {author, state, body, url, submitted_at}
-#   threads_truncated MAX_THREADS 打ち切りの発生フラグ
-#   review_threads[]  {id, is_resolved, is_outdated, path, line, resolved_by,
-#                      comments[], comments_truncated, last_comment, waiting_for_response}。
+#   threads_total_count / threads_truncated
+#                     レビュースレッド総数と、MAX_THREADS 打ち切りの発生フラグ
+#   review_threads[]  {id, is_resolved, is_outdated, path, line, resolved_by, comments[],
+#                      comments_total_count, comments_truncated, last_comment,
+#                      waiting_for_response}。
+#                     総数フィールドは打ち切り時の引き上げ先（prepare-review.sh の
+#                     自動再実行が消費する）。
 #                     comments[] は昇順（古い順）で MAX_THREAD_COMMENTS まで全量取得。
 #                     last_comment は当該スレッドの最新コメント {author, body, created_at, url}
 #                     （コメント 0 件なら null）。comments[] とは別クエリ（comments(last: 1)）で
@@ -334,6 +338,7 @@ if ! jq -n \
         url,
         submitted_at: .submittedAt
       }],
+      threads_total_count: $p.reviewThreads.totalCount,
       threads_truncated: ($p.reviewThreads.totalCount > ($threads | length)),
       review_threads: [$threads[]
         | . as $t
@@ -351,6 +356,7 @@ if ! jq -n \
             path: $t.path,
             line: $t.line,
             resolved_by: ($t.resolvedBy.login // null),
+            comments_total_count: $t.comments.totalCount,
             comments_truncated: ($t.comments.totalCount > ($thread_comments | length)),
             comments: [$thread_comments[] | {
               author: .author.login,

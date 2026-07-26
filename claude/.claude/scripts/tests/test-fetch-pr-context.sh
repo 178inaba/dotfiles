@@ -117,7 +117,7 @@ cat > "$TMP/data/graphql.json" <<'EOF'
           ]
         },
         "reviewThreads": {
-          "totalCount": 3,
+          "totalCount": 4,
           "pageInfo": {"hasNextPage": false, "endCursor": "tc-1"},
           "nodes": [
             {
@@ -246,6 +246,11 @@ assert 'threads mapped with resolution state' "$ctx" \
    and (.review_threads[1] | .is_resolved == true and .is_outdated == true and .resolved_by == "testuser")'
 assert 'threads not truncated' "$ctx" \
   '.threads_truncated == false and all(.review_threads[]; .comments_truncated == false)'
+# 総数は打ち切り時の引き上げ先（prepare-review.sh の自動再実行が消費する）
+assert 'thread total counts exposed' "$ctx" \
+  '.threads_total_count == 4
+   and (.review_threads[0].comments_total_count == 1)
+   and (.review_threads[2].comments_total_count == 2)'
 # last_comment は反応待ち分類（review-response）の入力。末尾が自分／他人の両方向を張る
 assert 'last_comment points at the newest comment' "$ctx" \
   '(.review_threads[0].last_comment | .author == "reviewer1" and .url == "https://example.com/t1")
@@ -424,7 +429,7 @@ cp "$TMP/data/graphql-2.json" "$TMP/data/graphql-3.json"
 out_tcap=$(MAX_THREADS=250 fetch 5)
 assert_exit 'thread cap: exit 0' $? 0
 assert 'thread cap: stops at MAX_THREADS with truncation flag' "$(ctx_of "$out_tcap")" \
-  '(.review_threads | length) == 300 and .threads_truncated == true'
+  '(.review_threads | length) == 300 and .threads_truncated == true and .threads_total_count == 600'
 assert 'threads with no comments get null last_comment' "$(ctx_of "$out_tcap")" \
   '.review_threads[0].last_comment == null'
 
@@ -450,7 +455,8 @@ for i in 3 4 5; do cp "$TMP/data/graphql-2.json" "$TMP/data/graphql-$i.json"; do
 out_tccap=$(fetch 5)
 assert_exit 'thread comment cap: exit 0' $? 0
 assert 'thread comment cap: stops at MAX_THREAD_COMMENTS with per-thread truncation flag' "$(ctx_of "$out_tccap")" \
-  '(.review_threads[0].comments | length) == 200 and .review_threads[0].comments_truncated == true'
+  '(.review_threads[0].comments | length) == 200 and .review_threads[0].comments_truncated == true
+   and .review_threads[0].comments_total_count == 600'
 assert 'last_comment stays accurate under truncation' "$(ctx_of "$out_tccap")" \
   '.review_threads[0].last_comment.url == "https://example.com/newest"
    and (.review_threads[0].last_comment.author == "testuser")

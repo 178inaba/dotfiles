@@ -172,19 +172,32 @@ if [ "$explicit_pr" = "true" ] && [ "$worktree" = "false" ]; then
   fi
 fi
 
-# --- PR コンテキスト取得（truncation 時は MAX_COMMENTS を総数へ引き上げて1回だけ再実行） ---
+# --- PR コンテキスト取得（truncation 時は該当上限を総数へ引き上げて1回だけ再実行） ---
 fetch_out=$("$FETCH_PR_CONTEXT_BIN" "$scratch_dir" "$pr_number") \
   || fatal 'fetch-pr-context.sh failed while the PR exists; fix the environment issue instead of falling back to a no-PR review'
 context_path=$(printf '%s' "$fetch_out" | jq -r '.path')
 [ -n "$context_path" ] && [ -f "$context_path" ] || fatal 'fetch-pr-context.sh did not return a valid path'
 
-if jq -e '.comments_truncated == true' "$context_path" >/dev/null 2>&1; then
-  total=$(jq -r '.comments_total_count' "$context_path")
-  fetch_out=$(MAX_COMMENTS="$total" "$FETCH_PR_CONTEXT_BIN" "$scratch_dir" "$pr_number") \
-    || fatal 'fetch-pr-context.sh failed on the MAX_COMMENTS rerun'
+# 3種の打ち切り（通常コメント・スレッド一覧・スレッド内コメント）をまとめて検出し、
+# 発生した種別だけ上限を総数へ引き上げて1回の再実行で解消する。未発生の上限は空文字で渡す
+# （fetch 側の ${VAR:-既定} は空文字を未設定と同じ既定値に解決する）。
+# MAX_THREAD_COMMENTS は per-thread 上限のため、打ち切られたスレッドの総数の最大値を使う
+max_comments=$(jq -r 'if .comments_truncated == true then .comments_total_count else "" end' "$context_path")
+max_threads=$(jq -r 'if .threads_truncated == true then .threads_total_count else "" end' "$context_path")
+max_thread_comments=$(jq -r '[.review_threads // [] | .[] | select(.comments_truncated == true) | .comments_total_count] | max // ""' "$context_path")
+if [ -n "$max_comments$max_threads$max_thread_comments" ]; then
+  fetch_out=$(MAX_COMMENTS="$max_comments" MAX_THREADS="$max_threads" MAX_THREAD_COMMENTS="$max_thread_comments" \
+    "$FETCH_PR_CONTEXT_BIN" "$scratch_dir" "$pr_number") \
+    || fatal 'fetch-pr-context.sh failed on the raised-limit rerun'
   context_path=$(printf '%s' "$fetch_out" | jq -r '.path')
   if jq -e '.comments_truncated == true' "$context_path" >/dev/null 2>&1; then
-    add_warning "comments still truncated after raising MAX_COMMENTS to $total; rerun fetch-pr-context.sh with a larger MAX_COMMENTS before reading comments"
+    add_warning "comments still truncated after raising MAX_COMMENTS to $max_comments; rerun fetch-pr-context.sh with a larger MAX_COMMENTS before reading comments"
+  fi
+  if jq -e '.threads_truncated == true' "$context_path" >/dev/null 2>&1; then
+    add_warning "review threads still truncated after raising MAX_THREADS to $max_threads; rerun fetch-pr-context.sh with a larger MAX_THREADS before reading review_threads"
+  fi
+  if jq -e 'any(.review_threads // [] | .[]; .comments_truncated == true)' "$context_path" >/dev/null 2>&1; then
+    add_warning "thread comments still truncated after raising MAX_THREAD_COMMENTS to $max_thread_comments; rerun fetch-pr-context.sh with a larger MAX_THREAD_COMMENTS before reading review_threads"
   fi
 fi
 

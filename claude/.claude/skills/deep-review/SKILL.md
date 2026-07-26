@@ -42,7 +42,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレクトリ> [<pr-number>] [--issue N] [--worktree] [--local-only] [--no-autofix]
 ```
 
-フラグ検証・PR 存在プローブ・branch 一致確認・PR コンテキスト一括取得（fetch-pr-context.sh、comments 打ち切り時の自動再取得込み）・3モード判定・PR head との鮮度確認・ベースブランチ判定を1回で行う。未定義フラグ（旧名・typo）は定義済み一覧を添えた非ゼロ exit で止まる — 黙って無視され意図しないモードで実行される事故を防ぐため。
+フラグ検証・PR 存在プローブ・branch 一致確認・PR コンテキスト一括取得（fetch-pr-context.sh、打ち切り時の自動再取得込み）・3モード判定・PR head との鮮度確認・ベースブランチ判定を1回で行う。未定義フラグ（旧名・typo）は定義済み一覧を添えた非ゼロ exit で止まる — 黙って無視され意図しないモードで実行される事故を防ぐため。
 
 #### prepare-review.sh の出力 JSON の契約
 
@@ -56,7 +56,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 - `context_path`: PR コンテキスト JSON のパス（読み方はセクション2）
 - `base_branch`: `origin/<ベースブランチ>` — セクション3の差分取得に使う
 - `issues`: セクション4で読む Issue の一覧 `[{repo, number}]`（`--issue` 明示時はそれのみ、未指定時は PR 本文の closing keyword から検出された関連 Issue。`repo: null` は同リポ）
-- `warnings[]`: 空でなければユーザーへの報告に併記する（comments 打ち切りが解消しなかった場合等 — その場合は記載の指示に従い再取得してからセクション2へ進む）
+- `warnings[]`: 空でなければユーザーへの報告に併記する（打ち切りが解消しなかった場合等 — その場合は記載の指示に従い再取得してからセクション2へ進む）
 
 モードの効き先（ONのとき追加で読む箇所）:
 - コメントモード → セクション5「コメントモードON時の追加要件」、セクション6「言語」、セクション8
