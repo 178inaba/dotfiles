@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 各フックの設計意図（何を防ぐために存在するか）は `claude/.claude/rules/hooks-design.md` を参照（フック・`settings.json` 編集時に自動ロードされる）。
 
 ### スキルスクリプト
-- スキル内の決定的処理（収集・判定・正規化）はスクリプトに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/rules/skill-authoring.md` の「スクリプト同梱パターン」）
+- スキル内の決定的処理（収集・判定・正規化）はスクリプトに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/skills/skill-authoring/SKILL.md` の「スクリプト同梱パターン」）
 - **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 
 ### 通知チャンネル
