@@ -1,11 +1,13 @@
 ---
 name: troubleshooting
-description: エラー調査・テスト失敗時のデバッグ手法。デバッグログによる事実確認、実行順序の検証、段階的な問題の絞り込み、よくある問題パターン（外部キー制約・データ重複・実行順序）の対処
+description: エラー調査・テスト失敗時のデバッグ手法。デバッグログによる事実確認、実行順序の検証、段階的な絞り込み、最小再現ケースの作成
 ---
 
 # /troubleshooting
 
 エラー調査・テスト失敗時のデバッグ手法。基本原則はグローバルCLAUDE.mdの「トラブルシューティング原則」を参照。本スキルはその具体的手法を提供する。
+
+Go + RDB のテスト環境における実例（デバッグログ、Cleanup の LIFO 検証、外部キー制約・データ重複・実行順序の各パターン）は [go-db-debugging.md](go-db-debugging.md) を参照。
 
 ## 原則の適用
 
@@ -22,7 +24,7 @@ description: エラー調査・テスト失敗時のデバッグ手法。デバ�
 ✅ 良い例:
 1. エラーが出た
 2. ログを入れて現在の状態を確認
-3. SELECT クエリでデータを確認
+3. データを直接確認
 4. 実行順序を確認
 5. 根本原因を特定
 6. 最小限の修正で解決
@@ -44,203 +46,40 @@ description: エラー調査・テスト失敗時のデバッグ手法。デバ�
 
 一時的なデバッグログは積極的に追加する。問題解決後に削除すればよい。
 
-```go
-// デバッグログの例
-t.Cleanup(func() {
-    // 現在の状態を確認
-    var count int
-    db.Get(&count, "SELECT COUNT(*) FROM child WHERE parent_id = ?", parentID)
-    t.Logf("[DEBUG] Cleanup parent_id=%d, remaining children=%d", parentID, count)
+推測で書かず、**次の判断に必要な事実**を出力する:
+- 分岐の入力値と、実際に通った経路
+- 件数・ID 等、期待と実際を突き合わせられる具体値（「失敗した」ではなく「何件残っていたか」）
+- 外部リソースの状態は、呼び出し側の変数ではなく実体（DB・ファイル・API レスポンス）を読んで出力する
 
-    // どのデータが残っているか確認
-    var ids []int
-    db.Select(&ids, "SELECT id FROM child WHERE parent_id = ?", parentID)
-    t.Logf("[DEBUG] Remaining child IDs: %v", ids)
-
-    if _, err := db.Exec("DELETE FROM parent WHERE id = ?", parentID); err != nil {
-        t.Fatal(err)
-    }
-})
-```
+`[DEBUG]` 等の固定タグを付けておくと、後で機械的に回収できる。
 
 ### 実行順序を確認する
 
-処理の順序が重要な場合（LIFO、トランザクション、非同期処理等）は、ログで実行順序を明示的に確認する。
-
-```go
-t.Logf("[DEBUG] Step 1: Creating parent")
-parent := createParent(t)
-
-t.Logf("[DEBUG] Step 2: Registering parent cleanup")
-t.Cleanup(func() {
-    t.Logf("[DEBUG] Executing parent cleanup")
-    deleteParent(parent.ID)
-})
-
-t.Logf("[DEBUG] Step 3: Creating child")
-child := createChild(t, parent.ID)
-
-t.Logf("[DEBUG] Step 4: Registering child cleanup")
-t.Cleanup(func() {
-    t.Logf("[DEBUG] Executing child cleanup")
-    deleteChild(child.ID)
-})
-```
-
-実行結果のログで、期待通りの順序かを確認:
-```
-[DEBUG] Step 1: Creating parent
-[DEBUG] Step 2: Registering parent cleanup
-[DEBUG] Step 3: Creating child
-[DEBUG] Step 4: Registering child cleanup
-[DEBUG] Executing child cleanup      ← 後で登録したものが先に実行される（LIFO）
-[DEBUG] Executing parent cleanup
-```
+処理の順序が重要な場合（LIFO で走る後処理、トランザクション、非同期処理、並行実行等）は、順序を推測せずログで確認する。各ステップの開始時点と実行時点の両方を出力し、登録順と実行順が一致しているかを突き合わせる。
 
 ## 段階的な問題の絞り込み
 
-### 1. 全体像の把握
+各段で「何を確定させるか」を意識して進める。前の段の結論が出ないまま次へ行かない。
 
-まず、問題の範囲を特定する。
-
-```bash
-# 全テストを実行して失敗箇所を確認
-make test
-
-# 特定のパッケージのみ実行
-go test ./path/to/package
-
-# 特定のテストのみ実行
-go test -v ./path/to/package -run TestSpecificTest
-```
-
-### 2. 個別の確認
-
-問題が特定のテストに限定されたら、そのテストを詳細に調査する。
-
-```bash
-# 詳細出力で実行
-go test -v ./path/to/package -run TestSpecificTest
-
-# race detector 付きで実行（並行処理の問題を検出）
-go test -race -v ./path/to/package -run TestSpecificTest
-```
-
-### 3. データの確認
-
-エラーメッセージだけでなく、実際のデータの状態を確認する。
-
-```go
-// テスト中にDBの状態を確認
-var records []Record
-db.Select(&records, "SELECT * FROM records WHERE parent_id = ?", parentID)
-t.Logf("[DEBUG] Current records: %+v", records)
-
-var relations []Relation
-db.Select(&relations, "SELECT * FROM relations WHERE record_id IN (?)", recordIDs)
-t.Logf("[DEBUG] Current relations: %+v", relations)
-```
-
-### 4. 最小再現ケースの作成
-
-問題を最小限のコードで再現できるか試す。
-
-```go
-// 複雑なテストケースを単純化
-func TestMinimalReproduction(t *testing.T) {
-    // 最小限のセットアップ
-    parent := createParent(t)
-    child := createChild(t, parent.ID)
-
-    // 問題が再現するか確認
-    // ...
-}
-```
-
-## よくある問題パターン
-
-### 外部キー制約エラー
-
-**症状**: `Cannot delete or update a parent row: a foreign key constraint fails`
-
-**確認方法**:
-```go
-// どの子データが残っているか確認
-var count int
-db.Get(&count, "SELECT COUNT(*) FROM child_table WHERE parent_id = ?", parentID)
-t.Logf("[DEBUG] Remaining children: %d", count)
-
-if count > 0 {
-    var childIDs []int
-    db.Select(&childIDs, "SELECT id FROM child_table WHERE parent_id = ?", parentID)
-    t.Logf("[DEBUG] Child IDs: %v", childIDs)
-}
-```
-
-**根本原因**: 削除順序の問題、Cleanup の登録順序の問題
-
-### データの重複エラー
-
-**症状**: `Duplicate entry 'xxx' for key 'unique_constraint'`
-
-**確認方法**:
-```go
-// 既存データを確認
-var existing []Entity
-db.Select(&existing, "SELECT * FROM table WHERE unique_key = ?", key)
-t.Logf("[DEBUG] Existing entries: %+v", existing)
-
-// 前回のテストのデータが残っていないか確認
-var allData []Entity
-db.Select(&allData, "SELECT * FROM table")
-t.Logf("[DEBUG] All entries in table: %+v", allData)
-```
-
-**根本原因**: Cleanup の失敗、テスト間の分離不足、DROP DATABASE の欠如
-
-### 実行順序の問題
-
-**症状**: テストが単独では成功するが、全体では失敗する
-
-**確認方法**:
-```bash
-# 単独実行
-go test -v -run TestA
-# → PASS
-
-# 全体実行
-go test -v
-# → FAIL
-
-# 特定の組み合わせで実行
-go test -v -run "TestA|TestB"
-```
-
-**根本原因**: グローバル変数の共有、Cleanup の欠如、race condition
+1. **全体像の把握** — 問題の範囲を確定する。全体を実行し、どこが失敗するか／単独では通るかを見る
+2. **個別の確認** — 失敗箇所を 1 つに絞る。詳細出力・並行処理検出等のオプションを付けて再実行する
+3. **データの確認** — エラーメッセージではなく実体を確定する。DB・ファイル・レスポンスを直接読む
+4. **最小再現ケースの作成** — 再現に必要な最小の条件を確定する。関係ない要素を削り、それでも再現するかを見る
 
 ## デバッグログの削除
 
-問題解決後は、デバッグログを削除する。
-
-### 一括削除パターン
+問題解決後は必ず削除する。固定タグを付けておけば機械的に回収できる。
 
 ```bash
-# [DEBUG] を含む行を検索
-grep -r "\[DEBUG\]" .
-
-# 削除対象ファイルを確認
-git diff
-
-# コミット前に必ず削除
+grep -rn "\[DEBUG\]" .   # 残骸の検出
+git diff                 # コミット前に目視確認
 ```
 
-### 残すべきログと削除すべきログ
-
-**残すべき:**
+**残すべき**:
 - 本番環境でも役立つ情報（エラー、警告、重要な状態変化）
 - パフォーマンス監視用のログ
 
-**削除すべき:**
+**削除すべき**:
 - `[DEBUG]` タグ付きの一時的なログ
-- SELECT COUNT(*) 等のデバッグクエリ
+- 状態確認のための追加クエリ・追加出力
 - 開発中の試行錯誤コード
