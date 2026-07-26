@@ -194,7 +194,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
        - [ ] Test, Lint成功確認
        - [ ] `/simplify` で品質チェック・修正
        - [ ] プッシュ・PR作成（Issue番号指定時は `Closes #<issue-number>` を含める）
-       - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由、model はエージェント定義で fable 固定）→ 親で自動修正
+       - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
    - **計画準拠チェック**: @~/.claude/skills/check-plan-compliance/SKILL.md の Step 2〜4 を実行（Step 1 は本Planモード冒頭で実施済みのためスキップ。`--no-plan-review` 未指定時は後続の計画検証が ExitPlanMode を担うため、Step 4 の ExitPlanMode は呼ばず計画修正までに留める。`--no-plan-review` 指定時は後続の計画検証が無いため、同スキルの原則どおり Step 4 の ExitPlanMode まで実行する）
    - **計画検証**（`--no-plan-review` 未指定時のみ）: @~/.claude/skills/deep-plan-review/SKILL.md を実行（修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない）
    - ユーザーの承認を待つ
@@ -239,7 +239,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
 
 **起動**
 - Agent ツールで `subagent_type: "claude"`・`model: "sonnet"` のサブエージェント（実装エージェント）を起動する（承認済み計画に沿った実装は判断密度が低く出力量が多いため下位モデルを充てる）
-  - `fork` は model 指定が無視され常に親モデルを継承するため使わない
+  - `fork` は使わない（model 指定が効かないため）
 - 起動結果の agent ID を控える（以降の再開・照会・修正指示はすべて SendMessage で同一エージェントに送るため。agent ID はセッションをまたいで有効ではない）
 - 実装エージェントは親と同じ session cwd（`--worktree` 時は worktree 内）で動くため、worktree・ブランチ操作の指示は不要
 
@@ -309,8 +309,8 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
        - `--delegate-impl` 時、親は計画 + 実装報告 + diff を判断材料とし、実装経緯が必要で報告に無い場合は SendMessage で実装エージェントに照会して補う
 
    7-1. **サブエージェントでレビュー実行**
-   - Agent ツールで `subagent_type: "independent-reviewer"` のサブエージェントを起動する（model はエージェント定義 `~/.claude/agents/independent-reviewer.md` の frontmatter で fable に固定。呼び出し時に `model` パラメータは指定しない — 定義側の固定に一本化し、起動時の指定漏れで親モデルを継承する事故を構造的に防ぐ）
-     - `fork` は親コンテキストを継承するため使わない（実装バイアスが残るため目的に反する。また `fork` は model 指定が無視され常に親モデルを継承する）
+   - Agent ツールで `subagent_type: "independent-reviewer"` のサブエージェントを起動する（呼び出し時に `model` パラメータは指定しない。モデルは `~/.claude/agents/independent-reviewer.md` で固定されている）
+     - `fork` は親コンテキストを継承するため使わない（実装バイアスが残るため目的に反する）
    - サブエージェントへのプロンプトに以下を含める:
      - このセッションが独立レビュー専用であり、親セッションの実装コンテキストを持たない旨
      - 実行コマンド: `/deep-review <pr-number> --issue <issue-number> --no-autofix`

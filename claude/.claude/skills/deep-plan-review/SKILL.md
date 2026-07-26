@@ -41,5 +41,5 @@ argument-hint: "[計画ファイルパス]"
 
 ## 注意事項
 - @~/.claude/skills/check-plan-compliance/SKILL.md（プロジェクト規約への準拠検証）と併用する場合は **compliance 先 → 本スキル後** の順で実行する（高コストな検証は最終形の計画に 1 回だけ充てるため）。その場合 ExitPlanMode は本スキル側が担い、compliance 側では呼ばない
-- 検証モデルは fresh-reader エージェント定義で `opus` 固定（2026-07-15 に `fable` から変更、2026-07-16 に呼び出し時指定からエージェント定義固定へ移行）: 実測で検出できた blocker は参照実在性クラスでモデルティアの影響が小さく、fable の単価（opus の 2 倍、2026-07-20 以降はサブスクリプション外の従量課金）に見合わないため。設計妥当性の批評を厚くしたい場合のみ手順 2 の起動で `model: "fable"` を明示指定する（Agent ツールの `model` 指定はエージェント定義より優先される。上位ティアの批評は完了時の deep-review 側に残っている）
+- **例外**: 設計妥当性の批評を厚くしたい場合のみ、手順 2 の起動で `model: "fable"` を明示指定する（Agent ツールの `model` 指定はエージェント定義より優先される）。既定は fresh-reader 定義の opus で、その選定理由は `~/.claude/agents/fresh-reader.md` を参照
 - 検証サブエージェントは読み取り専用（fresh-reader の tools 設定で Edit/Write 不可を機械的に強制）で、計画の修正は本スキル（親セッション）が行う
