@@ -202,6 +202,5 @@
   "tui": "fullscreen",
   "preferredNotifChannel": "notifications_disabled",
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true,
-  "advisorModel": "opus"
+  "skipAutoPermissionPrompt": true
 }
