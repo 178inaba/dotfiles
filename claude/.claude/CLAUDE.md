@@ -4,50 +4,21 @@
 - **EditorConfig**: プロジェクトに.editorconfigファイルが存在する場合は、その設定に必ず従ってください
 - **コメント規約**:
   - **言語**: 既存のコメント言語（英語/日本語）を踏襲し、コードベース全体で一貫性を保つ
-  - **最小主義**: コードを読めば分かる内容はコメント不要。以下は**書かない**
-    - 変数代入・関数呼び出しの説明（例: `// Get user data`）
-    - 自明な条件分岐（例: `// If no items found, return early`）
-    - ループ処理の説明（例: `// Convert to response`）
-    - データ構造の準備（例: `// Prepare request body`）
-  - **書くべきコメント**: 以下の場合のみコメントを追加
-    - **設計判断の理由**: なぜこの実装方法を選んだか（例: パフォーマンスのため特定のJOIN方式を使用）
-    - **TODO/FIXME**: 将来の改善予定や既知の制約
-    - **複雑なアルゴリズム**: ビジネスロジックや計算式の意図
-    - **非自明な回避策**: フレームワークの制約やバグ回避
+  - **内容**: コードを読めば分かる内容は書かない。設計判断の理由・非自明な回避策・TODO/FIXME は書く
 - **ブランチ操作**: `git checkout` ではなく `git switch` / `git restore` を使用する
   - ブランチ作成: `git switch -c branch-name`
   - ブランチ切り替え: `git switch branch-name`
   - ファイル復元: `git restore file`
-- **ghコマンド（書き込み系は `-R` 必須）**: `gh issue` / `gh pr` / `gh release` / `gh repo` / `gh label` の書き込み系サブコマンド（create / comment / edit / close / reopen / delete / merge / review / archive / rename 等）は、必ず `-R owner/repo` でリポジトリを明示する
-  - 理由: 別リポジトリへ調査目的で `cd` した状態で、cwd の git remote が暗黙参照され、意図しないリポジトリに Issue/PR を作成してしまう事故を防ぐため
-  - 実行先が不明な場合: `gh repo view --json nameWithOwner -q .nameWithOwner` で先に取得してから `-R` に渡す
-  - 機械的強制: `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `-R`/`--repo`/`GH_REPO=` のいずれも無い場合に `exit 2` でブロックする。ブロック時は同フックの stderr メッセージに従い、対象リポジトリを明示して再実行する
-  - 除外対象: `gh repo create` / `gh repo fork`（新規対象を引数で指定するため `-R` の意味がない）、および read 系（list / view / status / checks / diff / clone / download 等）
-- **gh の書き込み系で複数行の本文は `--body-file` で渡す**: 本文を一時ファイル（scratchpad 等）に Write してから `--body-file <path>` を指定する（`gh pr create` / `gh pr edit` / `gh issue create` / `gh issue comment` 等すべて対象。単行の短い本文は `--body` のままで可）
-  - 理由: `--body "$(cat <<'EOF' ... EOF)"` パターンは引用符レイヤ（`"..."` → `$(...)` → `<<'EOF'`）が重なり、本来不要な `` \` `` エスケープを書き込むと本文にリテラルの `\` が残る事故が起きる。`--body-file` は本文がシェル解釈を通らないため安全
-  - 機械的強制: `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が書き込み系サブコマンドの複数行 `--body`/`-b` を `exit 2` でブロックする。ブロック時は本文をファイルに書き出して `--body-file` で再実行する
+- **ghコマンド（書き込み系）**: 以下は `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `exit 2` でブロックする。ブロック時は stderr の理由・復旧手順に従って再実行する
+  - `-R owner/repo` の省略（`gh issue` / `gh pr` / `gh release` / `gh repo` / `gh label` の create / comment / edit / close / merge / review 等。`gh repo create` / `gh repo fork` と read 系は対象外）
+  - 複数行の本文を `--body`/`-b` で渡すこと（scratchpad 等へ Write して `--body-file <path>` を使う。単行の短い本文は `--body` で可）
+  - 後述「マークダウン記法」の項番・closing keyword 規約への違反
 - **PR/Issue 作成時は自分をアサイン**: `gh pr create` / `gh issue create` では `--assignee @me` を付けて作成者自身をアサインする（担当者が明示されないと後追いしにくいため）
-- **エラーハンドリング**: 言語別パターン
-  - **Go言語**: 戻り値を使わない場合、条件文内でエラーハンドリング
-    ```go
-    if _, err := someFunction(); err != nil {
-        return err
-    }
-    ```
-  - **TypeScript/JavaScript**: エラーオブジェクト不使用時はparameterless catch
-    ```typescript
-    try {
-        riskyOperation()
-    } catch {
-        // エラー処理
-    }
-    ```
+- **エラーハンドリング**: 戻り値を使わないエラーは条件文内で処理する（Go: `if _, err := f(); err != nil`）、エラーオブジェクトを使わない場合は parameterless catch を使う（TypeScript）
 - **マークダウン記法（GitHub）**: Issue・PR説明・コメント・README等に文章を書く際の記法
   - `@import`・`@use` 等をバッククォートで囲む（ユーザーリンク化を避けるため）
-  - 項目の番号付けに素の `#数字` を使わない（`#1` `#2` … は Issue/PR への自動リンクになり、無関係な Issue/PR へ参照通知が飛ぶため）。項番は順序リスト（`1.`）等で表し、実在の Issue/PR を参照する意図があるときだけ書く。参照先を明確にしたい場合は `owner/repo#数字` 形式で明示する
-    - 機械的強制: `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `gh` 書き込み系の本文中に項番とみられる素の `#数字` の連番を検出した場合 `exit 2` でブロックする（検出条件・除外の詳細はフックのヘッダーコメント参照）。ブロック時は項番を順序リストに書き換えるか、実参照なら `owner/repo#数字` 形式にして再実行する
-  - **例外（GitHub closing keyword）**: PR 本文で Issue を自動 close する意図の `Closes #N` / `Fixes #N` / `Resolves #N`（`Closes owner/repo#N` 形式含む。大文字小文字は問わず GitHub が解釈する）は、バッククォートで囲まず生のまま書く。コードスパン・コードブロック内に入れると closing keyword として解釈されず、PR をマージしても Issue が自動 close されない（open のまま残る事故になる）。なお自動 close が発火するのはデフォルトブランチへのマージ時のみ
-    - 機械的強制: `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `gh pr create` / `gh pr edit` の本文中にバッククォートで囲まれた実番号付き closing keyword を検出した場合 `exit 2` でブロックする。ブロック時は、自動 close の意図ならバッククォートを外し、引用・文書化の意図なら実番号をプレースホルダ（`Closes #N` 等）に置き換えて再実行する
+  - 項目の番号付けに素の `#数字` を使わない（Issue/PR への自動リンクになり無関係な参照通知が飛ぶため）。項番は順序リスト（`1.`）で表し、実参照は `owner/repo#数字` 形式で明示する
+  - **例外（GitHub closing keyword）**: 自動 close の意図で書く `Closes #N` / `Fixes #N` / `Resolves #N` はバッククォートで囲まない（コードスパン内では解釈されず、マージしても Issue が open のまま残る）。引用・文書化の意図なら実番号をプレースホルダにする
   - 文章では伝わりにくい内容はGitHubのネイティブレンダリングを活用する（処理フロー・構造の変化 → Mermaid図、数式・アルゴリズム → LaTeX数式）。ただし変更の理解を助ける一時的な用途に限る。恒常的なアーキテクチャ図はdocsに置き、同じPRで更新する
 
 ## テスト開発原則
