@@ -65,7 +65,7 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 ### テスト必須
 - 配置: 対象スクリプトの兄弟 `tests/` ディレクトリ（`skills/<skill>/tests/test-<name>.sh`。配置規約の正は `claude/.claude/rules/script-testing.md`）
 - 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない
-- 既存例の一覧はプロジェクト CLAUDE.md の「スキルスクリプト」を参照（列挙の正はそちらに一本化）
+- 既存例は `~/.claude/skills/*/scripts/`（スキル専用）と `~/.claude/scripts/`（スキル横断）を参照
 
 ## ディレクトリ構造
 ```

@@ -12,7 +12,7 @@ user-invocable: false
 
 ## 1. 起動
 
-- Agent ツールで `subagent_type: "fresh-reader"` のサブエージェントを起動する（`model` は渡さない）
+- Agent ツールで `subagent_type: "fresh-reader"` のサブエージェントを起動する（`model` は渡さない。消費者スキルが明示的に上書きを定めている場合を除く）
 - **検証対象のファイルパスのみ**を渡す。会話コンテキストを渡さないことが新規読者性の担保そのもの
 - `fork` は使わない（親コンテキストを継承するため目的に反する）
 
