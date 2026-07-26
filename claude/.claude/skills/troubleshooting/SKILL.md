@@ -7,7 +7,7 @@ description: エラー調査・テスト失敗時のデバッグ手法。デバ�
 
 エラー調査・テスト失敗時のデバッグ手法。基本原則はグローバルCLAUDE.mdの「トラブルシューティング原則」を参照。本スキルはその具体的手法を提供する。
 
-Go + RDB のテスト環境における実例（デバッグログ、Cleanup の LIFO 検証、外部キー制約・データ重複・実行順序の各パターン）は [go-db-debugging.md](go-db-debugging.md) を参照。
+Go + RDB のテスト環境における実例（デバッグログ、Cleanup の LIFO 検証、絞り込みのコマンド例、外部キー制約・データ重複・実行順序の各パターン）は [go-db-debugging.md](go-db-debugging.md) を参照。
 
 ## 原則の適用
 
