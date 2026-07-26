@@ -54,6 +54,9 @@
     ],
     "defaultMode": "auto"
   },
+  "skillOverrides": {
+    "review": "user-invocable-only"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -185,9 +188,6 @@
   "worktree": {
     "baseRef": "head"
   },
-  "skillOverrides": {
-    "review": "user-invocable-only"
-  },
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh",
@@ -202,5 +202,6 @@
   "tui": "fullscreen",
   "preferredNotifChannel": "notifications_disabled",
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "advisorModel": "opus"
 }
