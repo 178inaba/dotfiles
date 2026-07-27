@@ -46,7 +46,7 @@
 #                     レビュースレッド総数と、MAX_THREADS 打ち切りの発生フラグ
 #   review_threads[]  {id, is_resolved, is_outdated, path, line, resolved_by, comments[],
 #                      comments_total_count, comments_truncated, last_comment,
-#                      waiting_for_response}。
+#                      waiting_for_response, awaiting_my_confirmation}。
 #                     総数フィールドは打ち切り時の引き上げ先（prepare-review.sh の
 #                     自動再実行が消費する）。
 #                     comments[] は昇順（古い順）で MAX_THREAD_COMMENTS まで全量取得。
@@ -58,7 +58,17 @@
 #                     欠けるのは中間。末尾判定は必ず last_comment を使う。
 #                     waiting_for_response は「未解決 かつ 末尾が自分の返信 かつ 自分の PR」。
 #                     レビュアー側の PR では「末尾が自分」の意味が反転する（相手の応答待ちで
-#                     あって自分の対応漏れではない）ため is_own_pr で絞る
+#                     あって自分の対応漏れではない）ため is_own_pr で絞る。
+#                     awaiting_my_confirmation は「未解決 かつ 起点が自分 かつ 末尾が自分でない」
+#                     = 自分が出した指摘に相手が応答し、解消判定（返信・resolve）のボールが
+#                     自分に戻っているスレッド（/deep-review が消費）。「起点が自分」を条件に
+#                     するのは、resolve が指摘者の権限行為であり、他レビュアーのスレッドの
+#                     解消判定を代行しないため。起点判定は comments[0]（昇順ページングのため
+#                     打ち切りが起きても先頭要素は必ず残る）。waiting_for_response と違い
+#                     is_own_pr で絞らないのは、「起点が自分 かつ 末尾が相手」が PR の所有者に
+#                     依らず「ボールが自分にある」を意味し、意味の反転が起きないため。
+#                     末尾条件が返信後の再実行での二重返信も防ぐ（返信すると自分が末尾になり
+#                     フラグが落ちる）ため、返信本文に識別マーカーは要らない
 
 set -u
 
@@ -368,7 +378,11 @@ if ! jq -n \
             waiting_for_response: ($is_own_pr
               and ($t.isResolved | not)
               and $last_comment != null
-              and $last_comment.author == $current_user)
+              and $last_comment.author == $current_user),
+            awaiting_my_confirmation: (($t.isResolved | not)
+              and (($thread_comments[0].author.login // null) == $current_user)
+              and $last_comment != null
+              and $last_comment.author != $current_user)
           }]
     }' > "$tmp_out"; then
   printf 'failed to build output JSON\n' >&2

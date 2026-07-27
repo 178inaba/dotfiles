@@ -117,7 +117,7 @@ cat > "$TMP/data/graphql.json" <<'EOF'
           ]
         },
         "reviewThreads": {
-          "totalCount": 4,
+          "totalCount": 7,
           "pageInfo": {"hasNextPage": false, "endCursor": "tc-1"},
           "nodes": [
             {
@@ -165,6 +165,46 @@ cat > "$TMP/data/graphql.json" <<'EOF'
                 ]
               },
               "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "対応済みです", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t4b"}]}
+            },
+            {
+              "id": "PRRT_5", "isResolved": false, "isOutdated": false, "path": "src/cache.go", "line": 12,
+              "resolvedBy": null,
+              "comments": {
+                "totalCount": 2,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t5"},
+                "nodes": [
+                  {"author": {"login": "testuser"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t5a"},
+                  {"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t5b"}
+                ]
+              },
+              "tail": {"nodes": [{"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t5b"}]}
+            },
+            {
+              "id": "PRRT_6", "isResolved": false, "isOutdated": false, "path": "src/cache.go", "line": 20,
+              "resolvedBy": null,
+              "comments": {
+                "totalCount": 3,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t6"},
+                "nodes": [
+                  {"author": {"login": "testuser"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t6a"},
+                  {"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t6b"},
+                  {"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/t6c"}
+                ]
+              },
+              "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/t6c"}]}
+            },
+            {
+              "id": "PRRT_7", "isResolved": true, "isOutdated": false, "path": "src/cache.go", "line": 31,
+              "resolvedBy": {"login": "testuser"},
+              "comments": {
+                "totalCount": 2,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t7"},
+                "nodes": [
+                  {"author": {"login": "testuser"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t7a"},
+                  {"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t7b"}
+                ]
+              },
+              "tail": {"nodes": [{"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t7b"}]}
             }
           ]
         }
@@ -241,14 +281,14 @@ assert 'reviews_total_count exposed, not truncated' "$ctx" \
 assert 'reviews mapped' "$ctx" \
   '.reviews == [{"author": "reviewer1", "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submitted_at": "2026-01-01T00:00:00Z"}]'
 assert 'threads mapped with resolution state' "$ctx" \
-  '(.review_threads | length) == 4
+  '(.review_threads | length) == 7
    and (.review_threads[0] | .id == "PRRT_1" and .is_resolved == false and .path == "src/main.go" and .line == 30 and .resolved_by == null)
    and (.review_threads[1] | .is_resolved == true and .is_outdated == true and .resolved_by == "testuser")'
 assert 'threads not truncated' "$ctx" \
   '.threads_truncated == false and all(.review_threads[]; .comments_truncated == false)'
 # 総数は打ち切り時の引き上げ先（prepare-review.sh の自動再実行が消費する）
 assert 'thread total counts exposed' "$ctx" \
-  '.threads_total_count == 4
+  '.threads_total_count == 7
    and (.review_threads[0].comments_total_count == 1)
    and (.review_threads[2].comments_total_count == 2)'
 # last_comment は反応待ち分類（review-response）の入力。末尾が自分／他人の両方向を張る
@@ -260,7 +300,16 @@ assert 'last_comment points at the newest comment' "$ctx" \
 # フィクスチャは3条件を独立に固定する: PRRT_1 未解決+末尾が他人 / PRRT_3 未解決+末尾が自分 /
 # PRRT_4 解決済み+末尾が自分（PRRT_4 が無いと isResolved ガードを外しても全テストが通る）
 assert 'waiting_for_response set only for unresolved threads we replied to last' "$ctx" \
-  '[.review_threads[].waiting_for_response] == [false, false, true, false]'
+  '[.review_threads[].waiting_for_response] == [false, false, true, false, false, true, false]'
+# awaiting_my_confirmation: 未解決 かつ 起点が自分 かつ 末尾が自分でない の3条件（/deep-review が
+# 返信・resolve の対象選定に使う）。誤って true になると他人のスレッドを resolve する越権や、
+# 対応未確認のスレッドの取りこぼしにつながるため、3条件を独立に固定する:
+#   PRRT_1 起点が他人+未解決+末尾が他人（起点ガードを外すと true に化ける）
+#   PRRT_5 起点が自分+未解決+末尾が他人 → true
+#   PRRT_6 起点が自分+未解決+末尾が自分（返信後の再実行での二重返信ガード）
+#   PRRT_7 起点が自分+解決済み+末尾が他人（isResolved ガード）
+assert 'awaiting_my_confirmation set only for our own unresolved threads awaiting our judgement' "$ctx" \
+  '[.review_threads[].awaiting_my_confirmation] == [false, false, false, false, true, false, false]'
 
 # ファイル名一意化: 別リポジトリなら同じ out-dir でも別ファイルになる
 # （並列サブエージェントが共有 scratchpad を out-dir に使っても衝突しない性質の担保）
@@ -285,6 +334,11 @@ assert 'is_own_pr false for others PR' "$(ctx_of "$out_other")" \
 # レビュアー側の PR では「末尾が自分」の意味が反転する（相手の応答待ち）ため分類しない
 assert 'waiting_for_response never set on someone elses PR' "$(ctx_of "$out_other")" \
   'all(.review_threads[]; .waiting_for_response == false)'
+# awaiting_my_confirmation は is_own_pr で絞らない（「起点が自分 かつ 末尾が相手」は PR の
+# 所有者に依らず意味が反転しない）。他人の PR でのレビュアー運用が主用途なので、
+# ここが false に化けると /deep-review の返信・resolve が丸ごと発火しなくなる
+assert 'awaiting_my_confirmation applies on someone elses PR too' "$(ctx_of "$out_other")" \
+  '[.review_threads[].awaiting_my_confirmation] == [false, false, false, false, true, false, false]'
 
 # エラー系
 GH_STUB_NO_PR=1 fetch >/dev/null 2>"$TMP/err.txt"
