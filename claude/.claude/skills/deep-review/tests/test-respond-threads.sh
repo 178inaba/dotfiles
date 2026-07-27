@@ -150,8 +150,9 @@ clear_fail() { rm -f "$TMP/reply-fail" "$TMP/resolve-fail"; }
 no_mutation() { [ ! -s "$GH_STUB_CALL_LOG" ]; }
 no_call_matching() { ! grep -q "$1" "$GH_STUB_CALL_LOG"; }
 
-# 入力ファイル名は prepare-review.sh が払い出す規約（末尾が <owner>@<repo>-<PR>.json）に従う。
-# 固定名だと並列サブエージェント間で上書きされるため、スクリプトが名前を検証する
+# 入力ファイルは prepare-review.sh が払い出す作業ディレクトリの配下に置く。
+# 共有 scratchpad 直下だと並列サブエージェント間で上書きされるため、スクリプトが置き場所を検証する
+# （work dir 配下なら固定名でよい）
 write_input() { printf '%s' "$2" > "$WORK/$1.json"; printf '%s' "$WORK/$1.json"; }
 
 # --- 正常系: 返信 + resolve ---

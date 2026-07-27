@@ -5,7 +5,7 @@ description: 自分にレビュー依頼が来ているPR（他人が先にレ�
 
 # /review-assigned-prs
 
-担当者が自分に明示的にレビューを求めている open PR — 初回依頼、あるいは自分の過去レビュー後の再レビュー依頼 — を検出し、各 PR に対してサブエージェント経由で `/deep-review <PR番号> --worktree --no-autofix` を並列実行する。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
+担当者が自分に明示的にレビューを求めている open PR — 初回依頼、あるいは自分の過去レビュー後の再レビュー依頼 — を検出し、各 PR を専用サブエージェント（`assigned-pr-reviewer`）で並列にレビュー・投稿させる。`/loop 5m /review-assigned-prs` で常駐運用することを想定。
 
 「他人が先にレビュー済みで自分だけ未レビュー」の PR は除外する（他人のレビューに機械的に上乗せしないため）。Draft PR も対象外（作者が Ready for review にした時点で候補に入る）。
 
