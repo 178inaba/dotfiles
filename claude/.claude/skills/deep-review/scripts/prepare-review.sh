@@ -103,10 +103,21 @@ fi
 # 出力フィールドはグローバル変数から組む。emit 時点で確定している変数だけが非 null になる
 # （停止 status では context_path 以降が未確定のまま出力される）
 context_path=""
+review_path=""
+threads_path=""
 base_branch=""
 modes=null
 freshness=null
 issues='[]'
+
+# 後続ステップがモデルに Write させる入力ファイルの名前はスクリプトが払い出す。
+# 命名をプロンプト指示に委ねると、同一セッションの scratchpad を共有する並列サブエージェント間で
+# 固定名が衝突し、別 PR のレビュー内容に上書きされたまま投稿される（fetch-pr-context.sh が
+# 出力名に repo@PR を埋める理由と同じ）。context_path の識別子部分をそのまま流用することで、
+# 3 ファイルの PR 識別子が乖離しないようにする
+derive_input_path() {
+  printf '%s/%s-%s' "$(dirname "$context_path")" "$1" "$(basename "$context_path" | sed 's/^pr-context-//')"
+}
 
 emit() {
   local status=$1
@@ -120,6 +131,8 @@ emit() {
     --argjson pr_exists "$pr_exists" \
     --arg head_ref "$head_ref" \
     --arg context_path "$context_path" \
+    --arg review_path "$review_path" \
+    --arg threads_path "$threads_path" \
     --arg base_branch "$base_branch" \
     --argjson modes "$modes" \
     --argjson freshness "$freshness" \
@@ -130,6 +143,8 @@ emit() {
       pr_exists: $pr_exists,
       head_ref: (if $head_ref == "" then null else $head_ref end),
       context_path: (if $context_path == "" then null else $context_path end),
+      review_path: (if $review_path == "" then null else $review_path end),
+      threads_path: (if $threads_path == "" then null else $threads_path end),
       base_branch: (if $base_branch == "" then null else $base_branch end),
       modes: $modes, freshness: $freshness, issues: $issues, warnings: $warnings}'
   exit 0
@@ -200,6 +215,9 @@ if [ -n "$max_comments$max_threads$max_thread_comments" ]; then
     add_warning "thread comments still truncated after raising MAX_THREAD_COMMENTS to $max_thread_comments; rerun fetch-pr-context.sh with a larger MAX_THREAD_COMMENTS before reading review_threads"
   fi
 fi
+
+review_path=$(derive_input_path review)
+threads_path=$(derive_input_path threads)
 
 is_own_pr=$(jq -r 'if (.is_own_pr | type) == "boolean" then (.is_own_pr | tostring) else "" end' "$context_path")
 [ -n "$is_own_pr" ] || fatal "is_own_pr missing in $context_path"

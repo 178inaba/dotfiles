@@ -62,7 +62,7 @@ printf 'MAX_COMMENTS=%s MAX_THREADS=%s MAX_THREAD_COMMENTS=%s\n' \
   "${MAX_COMMENTS:-}" "${MAX_THREADS:-}" "${MAX_THREAD_COMMENTS:-}" >> "$FETCH_STUB_LOG"
 [ "${FETCH_STUB_FAIL:-}" != "1" ] || { printf 'stub fetch failure\n' >&2; exit 1; }
 out_dir=$1
-path="$out_dir/pr-context-stub.json"
+path="$out_dir/pr-context-acme@foo-9.json"
 if [ -n "${MAX_COMMENTS:-}${MAX_THREADS:-}${MAX_THREAD_COMMENTS:-}" ] && [ -n "${FETCH_STUB_CONTEXT_FULL:-}" ]; then
   printf '%s' "$FETCH_STUB_CONTEXT_FULL" > "$path"
 else
@@ -152,9 +152,16 @@ assert_json 'other pr: personal rules OFF' "$out" '.modes.personal_rules == fals
 assert_json 'other pr: autofix OFF' "$out" '.modes.autofix == false'
 assert_json 'other pr: base_branch from pr' "$out" '.base_branch == "origin/main"'
 assert_json 'other pr: context_path set' "$out" '.context_path | type == "string"'
+# review_path / threads_path はスクリプトが払い出す（命名をプロンプト指示に委ねると、
+# scratchpad を共有する並列サブエージェント間で固定名が衝突して別 PR のレビューを投稿する）。
+# context_path の識別子部分を流用するので、3ファイルの PR 識別子は必ず一致する
+assert_json 'other pr: review_path derived from context_path' "$out" \
+  '.review_path == ((.context_path | sub("/pr-context-[^/]*$"; "")) + "/review-acme@foo-9.json")'
+assert_json 'other pr: threads_path derived from context_path' "$out" \
+  '.threads_path == ((.context_path | sub("/pr-context-[^/]*$"; "")) + "/threads-acme@foo-9.json")'
 assert_json 'other pr: linked issues surfaced' "$out" '.issues == [{repo: null, number: 77}]'
 assert_json 'other pr: freshness ok' "$out" '.freshness.status == "ok"'
-assert 'other pr: freshness received context path' "grep -q 'pr-context-stub.json' '$FRESHNESS_STUB_LOG'"
+assert 'other pr: freshness received context path' "grep -q 'pr-context-acme@foo-9.json' '$FRESHNESS_STUB_LOG'"
 
 # --- ケース2: 自分の PR → コメントOFF・個人ルールON・自動対応ON ---
 out=$(cd "$REPO" && FETCH_STUB_CONTEXT="$(context_json true)" bash "$SCRIPT" "$TMP/scratch" 9)
@@ -193,6 +200,8 @@ out=$(cd "$REPO" && GH_STUB_PR_JSON= bash "$SCRIPT" "$TMP/scratch")
 assert_exit 'no pr: exit 0' $? 0
 assert_json 'no pr: pr_exists false (local-review degradation)' "$out" '.pr_exists == false'
 assert_json 'no pr: context null' "$out" '.context_path == null'
+assert_json 'no pr: input paths null (comment mode is OFF, nothing to write)' "$out" \
+  '.review_path == null and .threads_path == null'
 assert_json 'no pr: freshness null' "$out" '.freshness == null'
 assert_json 'no pr: comment OFF' "$out" '.modes.comment == false'
 assert_json 'no pr: personal rules ON' "$out" '.modes.personal_rules == true'

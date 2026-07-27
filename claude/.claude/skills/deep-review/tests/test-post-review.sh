@@ -113,11 +113,11 @@ write_context "$TMP/ctx.json"
 
 # --- ケース1: Approve可能 + 行コメント（変更行・context 行・"+++ " 描画行の直後）→ 投稿成功 ---
 : > "$GH_STUB_LOG"
-write_review "$TMP/rev1.json" "Approve可能" \
+write_review "$TMP/rev1-acme@foo-9.json" "Approve可能" \
   '[{"path": "stable.txt", "line": 5, "body": "変更行への指摘"},
     {"path": "stable.txt", "line": 3, "body": "context 行への指摘"},
     {"path": "added.txt", "line": 3, "body": "++ 行の直後への指摘（ヘッダ誤認リグレッション検知）"}]'
-out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev1.json")
+out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev1-acme@foo-9.json")
 assert_exit 'approve: exit 0' $? 0
 assert_json 'approve: url returned' "$out" '.url | test("pullrequestreview")'
 assert_json 'approve: event APPROVE' "$(payload)" '.event == "APPROVE"'
@@ -127,58 +127,58 @@ assert_json 'approve: 3 comments passed' "$(payload)" '.comments | length == 3'
 assert 'approve: posted to pulls/9/reviews' "grep -q 'repos/acme/foo/pulls/9/reviews' '$GH_STUB_LOG'"
 
 # --- ケース2: 修正が必要 → REQUEST_CHANGES ---
-write_review "$TMP/rev2.json" "修正が必要" '[]'
-out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev2.json")
+write_review "$TMP/rev2-acme@foo-9.json" "修正が必要" '[]'
+out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev2-acme@foo-9.json")
 assert_exit 'request changes: exit 0' $? 0
 assert_json 'request changes: event' "$(payload)" '.event == "REQUEST_CHANGES"'
 assert_json 'request changes: empty comments array' "$(payload)" '.comments == []'
 
 # --- ケース3: 要議論 → COMMENT ---
-write_review "$TMP/rev3.json" "要議論" '[]'
-out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev3.json")
+write_review "$TMP/rev3-acme@foo-9.json" "要議論" '[]'
+out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev3-acme@foo-9.json")
 assert_exit 'discussion: exit 0' $? 0
 assert_json 'discussion: event COMMENT' "$(payload)" '.event == "COMMENT"'
 
 # --- ケース4: diff 外の行番号 → 投稿せず非ゼロ exit + stderr に違反エントリ ---
 : > "$GH_STUB_LOG"
-write_review "$TMP/rev4.json" "Approve可能" \
+write_review "$TMP/rev4-acme@foo-9.json" "Approve可能" \
   '[{"path": "stable.txt", "line": 10, "body": "hunk 外の行"}]'
-(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev4.json" 2>"$TMP/err4.txt")
+(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev4-acme@foo-9.json" 2>"$TMP/err4.txt")
 assert_exit 'line outside diff: non-zero exit' $? 1
 assert 'line outside diff: not posted' "! grep -q 'pulls/9/reviews' '$GH_STUB_LOG'"
 assert 'line outside diff: offending entry in stderr' "grep -q 'stable.txt:10' '$TMP/err4.txt'"
 
 # --- ケース5: diff に無いファイルへのコメント → 投稿せず非ゼロ exit ---
 : > "$GH_STUB_LOG"
-write_review "$TMP/rev5.json" "Approve可能" \
+write_review "$TMP/rev5-acme@foo-9.json" "Approve可能" \
   '[{"path": "not-in-diff.txt", "line": 1, "body": "diff 外ファイル"}]'
-(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev5.json" 2>"$TMP/err5.txt")
+(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev5-acme@foo-9.json" 2>"$TMP/err5.txt")
 assert_exit 'file outside diff: non-zero exit' $? 1
 assert 'file outside diff: not posted' "! grep -q 'pulls/9/reviews' '$GH_STUB_LOG'"
 
 # --- ケース6: HEAD != head_oid（stale）→ 投稿せず非ゼロ exit ---
 : > "$GH_STUB_LOG"
 write_context "$TMP/ctx-stale.json" "0000000000000000000000000000000000000000"
-write_review "$TMP/rev6.json" "Approve可能" '[]'
-(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx-stale.json" "$TMP/rev6.json" 2>"$TMP/err6.txt")
+write_review "$TMP/rev6-acme@foo-9.json" "Approve可能" '[]'
+(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx-stale.json" "$TMP/rev6-acme@foo-9.json" 2>"$TMP/err6.txt")
 assert_exit 'stale head: non-zero exit' $? 1
 assert 'stale head: not posted' "! grep -q 'pulls/9/reviews' '$GH_STUB_LOG'"
 assert 'stale head: stderr present' "[ -s '$TMP/err6.txt' ]"
 
 # --- ケース7: 不正な assessment → 非ゼロ exit ---
-write_review "$TMP/rev7.json" "たぶん大丈夫" '[]'
-(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev7.json" 2>"$TMP/err7.txt")
+write_review "$TMP/rev7-acme@foo-9.json" "たぶん大丈夫" '[]'
+(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev7-acme@foo-9.json" 2>"$TMP/err7.txt")
 assert_exit 'invalid assessment: non-zero exit' $? 1
 assert 'invalid assessment: stderr present' "[ -s '$TMP/err7.txt' ]"
 
 # --- ケース8: 行コメントのフィールド欠落 → 非ゼロ exit ---
-printf '{"assessment": "Approve可能", "body": "b", "comments": [{"path": "stable.txt"}]}' > "$TMP/rev8.json"
-(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev8.json" 2>"$TMP/err8.txt")
+printf '{"assessment": "Approve可能", "body": "b", "comments": [{"path": "stable.txt"}]}' > "$TMP/rev8-acme@foo-9.json"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev8-acme@foo-9.json" 2>"$TMP/err8.txt")
 assert_exit 'malformed comment: non-zero exit' $? 1
 
 # --- ケース9: gh api 失敗 → 非ゼロ exit + stderr ---
-write_review "$TMP/rev9.json" "Approve可能" '[]'
-(cd "$REPO" && GH_STUB_FAIL=1 bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev9.json" 2>"$TMP/err9.txt")
+write_review "$TMP/rev9-acme@foo-9.json" "Approve可能" '[]'
+(cd "$REPO" && GH_STUB_FAIL=1 bash "$SCRIPT" "$TMP/ctx.json" "$TMP/rev9-acme@foo-9.json" 2>"$TMP/err9.txt")
 assert_exit 'api failure: non-zero exit' $? 1
 assert 'api failure: stderr present' "[ -s '$TMP/err9.txt' ]"
 
@@ -187,6 +187,23 @@ bash "$SCRIPT" 2>"$TMP/err10a.txt"
 assert_exit 'no args: non-zero exit' $? 1
 bash "$SCRIPT" "$TMP/ctx.json" 2>"$TMP/err10b.txt"
 assert_exit 'missing review json: non-zero exit' $? 1
+
+# --- ケース11: レビューファイル名の PR 束縛 ---
+# 並列サブエージェントは同一セッションの scratchpad を共有するため、固定名のレビューファイルは
+# 別 PR のレビュー内容に上書きされる。comments[] が空のレビューでは path/line 検証が
+# 取り違えを検出できず、他 PR の本文をそのまま投稿してしまうため、名前の側で構造的に止める
+: > "$GH_STUB_LOG"
+write_review "$TMP/review.json" "Approve可能" '[]'
+(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/review.json" 2>"$TMP/err11a.txt")
+assert_exit 'fixed-name review file: non-zero exit' $? 1
+assert 'fixed-name review file: nothing posted' "[ ! -s '$GH_STUB_LOG' ]"
+assert 'fixed-name review file: stderr points at review_path' "grep -q 'review_path' '$TMP/err11a.txt'"
+
+# 別 PR の識別子が付いたファイル（他 PR のレビューに上書きされた状態）も拒否する
+write_review "$TMP/review-acme@foo-99.json" "Approve可能" '[]'
+(cd "$REPO" && bash "$SCRIPT" "$TMP/ctx.json" "$TMP/review-acme@foo-99.json" 2>"$TMP/err11b.txt")
+assert_exit 'review file bound to another PR: non-zero exit' $? 1
+assert 'review file bound to another PR: nothing posted' "[ ! -s '$GH_STUB_LOG' ]"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

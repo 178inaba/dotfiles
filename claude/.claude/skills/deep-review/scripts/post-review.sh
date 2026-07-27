@@ -12,10 +12,12 @@
 # 「総合評価 → event」の決定表もここが所有する（レビュアーの遠慮・忖度で event が
 # 揺れないよう機械的に変換する）。
 #
-# 使用方法: post-review.sh <pr-context.json> <review.json>
+# 使用方法: post-review.sh <pr-context.json> <review-file>
 #   <pr-context.json> fetch-pr-context.sh の出力ファイル（repo / pr.number / pr.base_ref /
 #                     pr.head_oid を読む）
-#   <review.json>     入力契約は SKILL.md の「review.json の入力契約」を参照
+#   <review-file>     入力契約は SKILL.md の「review_path に書く JSON の入力契約」を参照。
+#                     パスは prepare-review.sh の review_path を使う（末尾が
+#                     <owner>@<repo>-<PR番号>.json であることを検証する — 下記コメント参照）
 #   対象リポジトリ内の cwd で実行すること
 #
 # 出力契約: SKILL.md の「post-review.sh の出力 JSON の契約」を参照
@@ -37,7 +39,7 @@ command -v git >/dev/null 2>&1 || fatal 'git is required'
 context_file=${1:-}
 review_file=${2:-}
 { [ -n "$context_file" ] && [ -n "$review_file" ]; } \
-  || fatal 'usage: post-review.sh <pr-context.json> <review.json>'
+  || fatal 'usage: post-review.sh <pr-context.json> <review-file>'
 [ -f "$context_file" ] || fatal "pr context file not found: $context_file"
 [ -f "$review_file" ] || fatal "review file not found: $review_file"
 
@@ -47,6 +49,17 @@ repo=$(jq -er '.repo' "$context_file" 2>/dev/null) || fatal "repo missing in $co
 pr_number=$(jq -er '.pr.number' "$context_file" 2>/dev/null) || fatal "pr.number missing in $context_file"
 base_ref=$(jq -er '.pr.base_ref' "$context_file" 2>/dev/null) || fatal "pr.base_ref missing in $context_file"
 head_oid=$(jq -er '.pr.head_oid' "$context_file" 2>/dev/null) || fatal "pr.head_oid missing in $context_file"
+
+# 入力ファイル名に PR 識別子が入っていることを確認する（prepare-review.sh が review_path として
+# 払い出す名前の規約）。固定名だと、同一セッションの scratchpad を共有する並列サブエージェント間で
+# 別 PR のレビュー内容に上書きされ、それを取り違えて投稿する事故になる。行コメントの path/line 検証は
+# comments[] が空のレビューでは取り違えを検出できないため、名前の側で構造的に止める
+expected_token="$(printf '%s' "$repo" | tr '/' '@')-${pr_number}.json"
+case "$(basename "$review_file")" in
+  *"$expected_token") ;;
+  *) fatal "review file name must end with '$expected_token' to bind it to this PR: $review_file
+use the review_path emitted by prepare-review.sh (a fixed name is overwritten by parallel reviews of other PRs)" ;;
+esac
 
 assessment=$(jq -er '.assessment' "$review_file" 2>/dev/null) || fatal "assessment missing in $review_file"
 jq -e '.body | type == "string"' "$review_file" >/dev/null 2>&1 || fatal "body missing in $review_file"

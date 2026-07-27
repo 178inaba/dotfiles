@@ -22,9 +22,11 @@
 # 権限エラーが同一リクエスト内の返信ごと巻き込み、どこまで適用されたかの切り分けが
 # 効かなくなるため（対象スレッド数は実運用で 1 桁のため逐次でコストに問題はない）。
 #
-# 使用方法: respond-threads.sh <pr-context.json> <threads.json>
+# 使用方法: respond-threads.sh <pr-context.json> <threads-file>
 #   <pr-context.json> fetch-pr-context.sh の出力ファイル（review_threads[] を読む）
-#   <threads.json>    入力契約は SKILL.md の「threads.json の入力契約」を参照
+#   <threads-file>    入力契約は SKILL.md の「threads_path に書く JSON の入力契約」を参照。
+#                     パスは prepare-review.sh の threads_path を使う（末尾が
+#                     <owner>@<repo>-<PR番号>.json であることを検証する — 下記コメント参照）
 #
 # 出力契約: SKILL.md の「respond-threads.sh の出力 JSON の契約」を参照
 #
@@ -44,12 +46,25 @@ command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 context_file=${1:-}
 threads_file=${2:-}
 { [ -n "$context_file" ] && [ -n "$threads_file" ]; } \
-  || fatal 'usage: respond-threads.sh <pr-context.json> <threads.json>'
+  || fatal 'usage: respond-threads.sh <pr-context.json> <threads-file>'
 [ -f "$context_file" ] || fatal "pr context file not found: $context_file"
 [ -f "$threads_file" ] || fatal "threads file not found: $threads_file"
 
 jq -e '.review_threads | type == "array"' "$context_file" >/dev/null 2>&1 \
   || fatal "review_threads missing in $context_file"
+repo=$(jq -er '.repo' "$context_file" 2>/dev/null) || fatal "repo missing in $context_file"
+pr_number=$(jq -er '.pr.number' "$context_file" 2>/dev/null) || fatal "pr.number missing in $context_file"
+
+# 入力ファイル名に PR 識別子が入っていることを確認する（prepare-review.sh が threads_path として
+# 払い出す名前の規約）。固定名だと並列サブエージェント間で別 PR の判定結果に上書きされる。
+# 適格性検証でも取り違えは止まるが（スレッド ID は PR を跨いで一意）、そちらのエラーは
+# 「対象が確認待ちでない」と読めてしまい原因を誤診させるため、名前の側で先に落とす
+expected_token="$(printf '%s' "$repo" | tr '/' '@')-${pr_number}.json"
+case "$(basename "$threads_file")" in
+  *"$expected_token") ;;
+  *) fatal "threads file name must end with '$expected_token' to bind it to this PR: $threads_file
+use the threads_path emitted by prepare-review.sh (a fixed name is overwritten by parallel reviews of other PRs)" ;;
+esac
 
 # --- 入力契約の検証 ---
 jq -e '.threads | type == "array"' "$threads_file" >/dev/null 2>&1 \
@@ -129,7 +144,7 @@ while [ "$i" -lt "$count" ]; do
 
   if [ "$do_resolve" = "true" ]; then
     if "$GH_BIN" api graphql -f query="$resolve_mutation" -f threadId="$tid" >/dev/null 2>"$gh_err"; then
-      printf '%s\n' "$tid" >> "$resolved"
+      jq -nc --arg id "$tid" '$id' >> "$resolved"
     else
       jq -nc --arg id "$tid" --arg error "$(cat "$gh_err")" '{id: $id, error: $error}' >> "$resolve_failed"
     fi
@@ -140,14 +155,13 @@ done
 
 jq -nc \
   --slurpfile replied "$replied" \
+  --slurpfile resolved "$resolved" \
   --slurpfile resolve_failed "$resolve_failed" \
-  --rawfile resolved_raw "$resolved" \
-  '($resolved_raw | split("\n") | map(select(. != ""))) as $resolved
-   | {
-       replied: $replied,
-       resolved: $resolved,
-       resolve_failed: $resolve_failed,
-       warnings: (if ($resolve_failed | length) > 0 then
-         ["replied but could not resolve \($resolve_failed | length) thread(s) (write access to the repository is required to resolve): \($resolve_failed | map(.id) | join(", ")). The replies are posted; resolve them manually or ask the author to."]
-       else [] end)
-     }'
+  '{
+     replied: $replied,
+     resolved: $resolved,
+     resolve_failed: $resolve_failed,
+     warnings: (if ($resolve_failed | length) > 0 then
+       ["replied but could not resolve \($resolve_failed | length) thread(s) (write access to the repository is required to resolve): \($resolve_failed | map(.id) | join(", ")). The replies are posted; resolve them manually or ask the author to."]
+     else [] end)
+   }'

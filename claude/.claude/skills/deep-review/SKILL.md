@@ -54,6 +54,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 - `pr_exists`: `false` は「PR なし」のローカルレビューへの正常縮退（コメント投稿なし）。**PR があるのに取得系が失敗した場合はスクリプトが非ゼロ exit で止まる**ため、stderr を提示して停止する（縮退と混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
 - `modes`: `{comment, personal_rules, autofix}` — 3モードの判定結果（決定表: PR なし/自分の PR は comment OFF・personal ON・autofix ON、他人の PR は comment ON・personal OFF・autofix OFF。`--local-only` は comment を、`--no-autofix` は autofix を個別に強制OFF）。コメントと自動対応が同時ONになる組み合わせは存在しない
 - `context_path`: PR コンテキスト JSON のパス（読み方はセクション2）
+- `review_path` / `threads_path`: セクション8・9でモデルが Write する入力ファイルのパス。**このパスをそのまま使う**（自分で命名しない — 同一セッションの scratchpad を共有する並列サブエージェントが固定名を使うと、別 PR のレビュー内容に上書きされる。両スクリプトは受け取ったファイル名の PR 識別子を検証して非ゼロ exit する）
 - `base_branch`: `origin/<ベースブランチ>` — セクション3の差分取得に使う
 - `issues`: セクション4で読む Issue の一覧 `[{repo, number}]`（`--issue` 明示時はそれのみ、未指定時は PR 本文の closing keyword から検出された関連 Issue。`repo: null` は同リポ）
 - `warnings[]`: 空でなければユーザーへの報告に併記する（打ち切りが解消しなかった場合等 — その場合は記載の指示に従い再取得してからセクション2へ進む）
@@ -203,7 +204,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 **言語**:
 - PR に投稿する body・行コメントは対象 PR の記述言語（PR 本文・既存レビューコメント）に合わせる。サブエージェント実行では作業言語が英語に揺れがちだが、それに引きずられない
-- 投稿フォーマット（セクション8の review.json に書く body の見出し・定型文）は構造の規定であり、見出しも含め対象 PR の言語で書く
+- 投稿フォーマット（セクション8で `review_path` に書く body の見出し・定型文）は構造の規定であり、見出しも含め対象 PR の言語で書く
 
 ### 7. レビュー結果出力
 
@@ -246,13 +247,13 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 （`modes.comment` が false の場合はスキップ）
 
-レビュー結果を review.json として scratchpad に Write し、投稿スクリプトを実行する:
+レビュー結果を `review_path`（prepare-review.sh の出力）に Write し、投稿スクリプトを実行する:
 
 ```bash
-bash ~/.claude/skills/deep-review/scripts/post-review.sh <context_path> <review.jsonのパス>
+bash ~/.claude/skills/deep-review/scripts/post-review.sh <context_path> <review_path>
 ```
 
-#### review.json の入力契約
+#### review_path に書く JSON の入力契約
 
 ```json
 {
@@ -298,13 +299,13 @@ jq '[.review_threads[] | select(.awaiting_my_confirmation) | {id, path, line, la
 - 未解消・部分対応と判定した内容は、セクション7の指摘事項にも再掲する（スレッド内の返信だけに置くと総合評価と乖離する）
 - 反論・議論は resolve せず、修正を求めるか押し返すかの最終判断をユーザーへの報告に残す（合意形成を飛ばして一方的に「解決」で閉じない）
 
-判定結果を threads.json として scratchpad に Write し、スクリプトを実行する:
+判定結果を `threads_path`（prepare-review.sh の出力）に Write し、スクリプトを実行する:
 
 ```bash
-bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <threads.jsonのパス>
+bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <threads_path>
 ```
 
-#### threads.json の入力契約
+#### threads_path に書く JSON の入力契約
 
 ```json
 {
@@ -322,7 +323,7 @@ bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <thr
 
 - 成功時の出力は `{replied[], resolved[], resolve_failed[], warnings[]}` → 返信・解決したスレッド数をユーザーに報告する
 - `resolve_failed[]` / `warnings[]` が空でない場合: 権限不足（fork PR、write 権限なし）で resolve だけ失敗した縮退。返信は投稿済みなので**再実行しない**。warning をユーザーへの報告に併記する
-- 返信失敗時は非ゼロ exit で停止し、stderr に投稿済み・未処理スレッドを列挙する。**投稿済みスレッドを再送しない**（二重返信になる）。未処理分だけで threads.json を作り直して再実行する
+- 返信失敗時は非ゼロ exit で停止し、stderr に投稿済み・未処理スレッドを列挙する。**投稿済みスレッドを再送しない**（二重返信になる）。未処理分だけで `threads_path` を書き直して再実行する
 
 ### 10. 自動対応モードON時: レビュー指摘の反映
 

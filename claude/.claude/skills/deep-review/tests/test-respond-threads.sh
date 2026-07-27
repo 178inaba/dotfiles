@@ -120,16 +120,6 @@ assert_ok() {
   fi
 }
 
-assert_fails() {
-  local name=$1
-  shift
-  if "$@"; then
-    fail=$((fail + 1)); printf 'FAIL  %s\n' "$name"
-  else
-    pass=$((pass + 1)); printf 'PASS  %s\n' "$name"
-  fi
-}
-
 run() {
   : > "$GH_STUB_CALL_LOG"
   bash "$SCRIPT" "$TMP/context.json" "$1" 2>"$TMP/err.txt"
@@ -138,8 +128,11 @@ calls() { cat "$GH_STUB_CALL_LOG"; }
 inject_fail() { printf '%s\n' "$2" > "$TMP/$1-fail"; }
 clear_fail() { rm -f "$TMP/reply-fail" "$TMP/resolve-fail"; }
 no_mutation() { [ ! -s "$GH_STUB_CALL_LOG" ]; }
+no_call_matching() { ! grep -q "$1" "$GH_STUB_CALL_LOG"; }
 
-write_input() { printf '%s' "$2" > "$TMP/$1.json"; printf '%s' "$TMP/$1.json"; }
+# 入力ファイル名は prepare-review.sh が払い出す規約（末尾が <owner>@<repo>-<PR>.json）に従う。
+# 固定名だと並列サブエージェント間で上書きされるため、スクリプトが名前を検証する
+write_input() { printf '%s' "$2" > "$TMP/$1-owner@repo-5.json"; printf '%s' "$TMP/$1-owner@repo-5.json"; }
 
 # --- 正常系: 返信 + resolve ---
 in_ok=$(write_input ok '{"threads": [{"id": "PRRT_A", "body": "対応を確認しました", "resolve": true}]}')
@@ -158,7 +151,7 @@ out=$(run "$in_nores")
 assert_exit 'reply only: exit 0' $? 0
 assert 'reply only: replied but nothing resolved' "$out" \
   '(.replied | length) == 1 and .resolved == []'
-assert_fails 'reply only: no resolveReviewThread call' grep -q '^resolve' "$GH_STUB_CALL_LOG"
+assert_ok 'reply only: no resolveReviewThread call' no_call_matching '^resolve'
 
 # --- 複数スレッドを順に処理 ---
 in_multi=$(write_input multi '{"threads": [{"id": "PRRT_A", "body": "確認", "resolve": true}, {"id": "PRRT_B", "body": "未解消", "resolve": false}]}')
@@ -260,8 +253,8 @@ run "$in_multi3" >/dev/null
 assert_exit 'reply failure: exit 1' $? 1
 assert_ok 'reply failure: stderr names the failed thread' grep -q 'PRRT_A' "$TMP/err.txt"
 assert_ok 'reply failure: stderr names the unprocessed thread' grep -q 'PRRT_B' "$TMP/err.txt"
-assert_fails 'reply failure: does not proceed to reply the rest' \
-  grep -q "$(printf 'reply\tPRRT_B')" "$GH_STUB_CALL_LOG"
+assert_ok 'reply failure: does not proceed to reply the rest' \
+  no_call_matching "$(printf 'reply\tPRRT_B')"
 
 # 途中失敗では投稿済みスレッドを stderr で切り分けられること
 inject_fail reply PRRT_B
@@ -270,6 +263,21 @@ assert_exit 'mid-run reply failure: exit 1' $? 1
 assert_ok 'mid-run reply failure: already-replied thread reported' \
   grep -q 'PRRT_A' "$TMP/err.txt"
 clear_fail
+
+# --- 入力ファイル名の PR 束縛 ---
+# 並列サブエージェントは scratchpad を共有するため、固定名の入力は別 PR のレビューに
+# 上書きされる。適格性検証でも止まるが原因を誤診させるため、名前の側で先に落とす
+printf '%s' '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}]}' > "$TMP/threads.json"
+run "$TMP/threads.json" >/dev/null
+assert_exit 'fixed-name input rejected: exit 1' $? 1
+assert_ok 'fixed-name input: no mutation issued' no_mutation
+assert_ok 'fixed-name input: stderr points at threads_path' grep -q 'threads_path' "$TMP/err.txt"
+
+# 別 PR の識別子が付いたファイル（他 PR のレビューに上書きされた状態）も拒否する
+printf '%s' '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}]}' > "$TMP/threads-owner@repo-99.json"
+run "$TMP/threads-owner@repo-99.json" >/dev/null
+assert_exit 'input bound to another PR rejected: exit 1' $? 1
+assert_ok 'another PR input: no mutation issued' no_mutation
 
 # --- 引数・ファイル不備 ---
 bash "$SCRIPT" >/dev/null 2>&1
