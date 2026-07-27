@@ -71,27 +71,15 @@ bash ~/.claude/skills/review-assigned-prs/scripts/list-pending-reviews.sh
 
 起動前に、このセッションの過去イテレーションで起動したレビューサブエージェントが**未完了のままの PR を候補から除外する**。GitHub の review request はレビュー投稿まで外れないため、レビュー所要時間がループ間隔を超えると実行中の PR が候補に再出現し、除外しないと同一 PR への二重レビュー投稿と同一 worktree への同時 git 操作が起きる。in-flight 状態を知っているのは親セッションの会話コンテキストだけなので、この除外はスクリプトではなくここで行う。
 
-残った `.prs` の各要素について、Agent ツール (`subagent_type: "claude"`・`model: "opus"`) を**1 メッセージ内で並列起動**する（対象 PR 数ぶんの Agent 呼び出しを 1 つの tool_use ブロックにまとめる）。
-
-model を明示固定する理由: レビューは見落としが観測不能な最後の検証機構のため、親モデルの変更（実験・コスト調整等）で外向きに投稿されるレビューの品質が黙って下がるのを防ぐ。`fable` でなく `opus` なのは、常駐ループで PR 数ぶん並列起動するため単価差が数量で増幅されることと、親 Opus 継承で運用してきた品質実績があるため。
+残った `.prs` の各要素について、Agent ツール (`subagent_type: "assigned-pr-reviewer"`) を**1 メッセージ内で並列起動**する（対象 PR 数ぶんの Agent 呼び出しを 1 つの tool_use ブロックにまとめる）。`model` は指定しない — レビュー手順・投稿の必須性・モデルの固定はエージェント定義 (`~/.claude/agents/assigned-pr-reviewer.md`) が所有する（プロンプトに書き起こす形だと、呼び出しごとに欠落しうる）。
 
 `fork` は使わない。`--worktree` による cwd 切替がメインセッションに漏れないよう、独立コンテキストが必須。
 
-サブエージェントへのプロンプトに以下を含める:
+プロンプトには対象の識別情報だけを渡す（手順は定義側にある）:
 
-- このセッションが独立レビュー専用であり、親セッションのコンテキストを持たない旨
-- レビュー用 clone dir の取得:
-  ```bash
-  bash ~/.claude/skills/review-assigned-prs/scripts/ensure-clone.sh <owner>/<repo>
-  ```
-  → JSON `{"path": "..."}` を返す。clone 先パスの規約はスクリプトヘッダーコメントを参照
-- `cd <path>` してから、**Skill ツールで** `deep-review` を引数 `<PR番号> --worktree --no-autofix` で起動する旨（SKILL.md を Read して自力で手順をなぞるのではなく、スキルとして起動させる — Read 経路ではスキル本文が参照している他スキルが読み込まれない）
-  - 起動時 cwd が対象リポジトリ外のため EnterWorktree（`name:`/`path:` とも）は使えず、worktree-resolution 共通規約の Bash `cd` 代替を最初から使う旨
-  - 対象は他人の PR のためコメントモードが ON になり、**レビューを PR に投稿するところまでが必須成果物である**旨を明示する（投稿スキップは失敗扱い）
-- レビュー結果と投稿したレビューの URL をそのまま返すよう指示（追加の解釈・要約は不要）
-- 補助コンテキスト: PR URL・PR 番号・repo 名
+- リポジトリ (`<owner>/<repo>`)・PR 番号・PR URL
 
-#### `ensure-clone.sh` の出力 JSON 契約
+#### `ensure-clone.sh` の出力 JSON 契約（レビュアーエージェントが実行する）
 
 ```json
 {"path": "/absolute/path/to/clone/dir"}
