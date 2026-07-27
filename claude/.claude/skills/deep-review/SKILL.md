@@ -54,7 +54,8 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 - `pr_exists`: `false` は「PR なし」のローカルレビューへの正常縮退（コメント投稿なし）。**PR があるのに取得系が失敗した場合はスクリプトが非ゼロ exit で止まる**ため、stderr を提示して停止する（縮退と混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
 - `modes`: `{comment, personal_rules, autofix}` — 3モードの判定結果（決定表: PR なし/自分の PR は comment OFF・personal ON・autofix ON、他人の PR は comment ON・personal OFF・autofix OFF。`--local-only` は comment を、`--no-autofix` は autofix を個別に強制OFF）。コメントと自動対応が同時ONになる組み合わせは存在しない
 - `context_path`: PR コンテキスト JSON のパス（読み方はセクション2）
-- `review_path` / `threads_path`: セクション8・9でモデルが Write する入力ファイルのパス。**このパスをそのまま使う**（自分で命名しない — 同一セッションの scratchpad を共有する並列サブエージェントが固定名を使うと、別 PR のレビュー内容に上書きされる。両スクリプトは受け取ったファイル名の PR 識別子を検証して非ゼロ exit する）
+- `work_dir`: このレビューの作業ディレクトリ（作成済み）。**レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる
+- `review_path` / `threads_path`: セクション8・9でモデルが Write する入力ファイルのパス（`work_dir` 配下）。**このパスをそのまま使う**（自分で命名しない。両スクリプトは受け取ったパスが対象 PR の `work_dir` 直下にあることを検証して非ゼロ exit する）
 - `base_branch`: `origin/<ベースブランチ>` — セクション3の差分取得に使う
 - `issues`: セクション4で読む Issue の一覧 `[{repo, number}]`（`--issue` 明示時はそれのみ、未指定時は PR 本文の closing keyword から検出された関連 Issue。`repo: null` は同リポ）
 - `warnings[]`: 空でなければユーザーへの報告に併記する（打ち切りが解消しなかった場合等 — その場合は記載の指示に従い再取得してからセクション2へ進む）

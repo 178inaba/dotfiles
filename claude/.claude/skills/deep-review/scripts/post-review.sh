@@ -16,8 +16,8 @@
 #   <pr-context.json> fetch-pr-context.sh の出力ファイル（repo / pr.number / pr.base_ref /
 #                     pr.head_oid を読む）
 #   <review-file>     入力契約は SKILL.md の「review_path に書く JSON の入力契約」を参照。
-#                     パスは prepare-review.sh の review_path を使う（末尾が
-#                     <owner>@<repo>-<PR番号>.json であることを検証する — 下記コメント参照）
+#                     パスは prepare-review.sh の review_path を使う（context と対になる
+#                     作業ディレクトリの直下にあることを検証する — 下記コメント参照）
 #   対象リポジトリ内の cwd で実行すること
 #
 # 出力契約: SKILL.md の「post-review.sh の出力 JSON の契約」を参照
@@ -36,8 +36,8 @@ fatal() {
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
 
-# shellcheck source=input-name-lib.sh
-. "$(dirname "$0")/input-name-lib.sh"
+# shellcheck source=review-dir-lib.sh
+. "$(dirname "$0")/review-dir-lib.sh"
 
 context_file=${1:-}
 review_file=${2:-}
@@ -54,8 +54,8 @@ base_ref=$(jq -er '.pr.base_ref' "$context_file" 2>/dev/null) || fatal "pr.base_
 head_oid=$(jq -er '.pr.head_oid' "$context_file" 2>/dev/null) || fatal "pr.head_oid missing in $context_file"
 
 # 行コメントの path/line 検証は comments[] が空のレビューでは取り違えを検出できないため、
-# 入力ファイル名の側で構造的に止める（規約と理由は input-name-lib.sh のヘッダー参照）
-require_pr_bound_filename "$review_file" review_path "$context_file"
+# 入力ファイルの置き場所の側で構造的に止める（規約と理由は review-dir-lib.sh のヘッダー参照）
+require_in_review_work_dir "$review_file" review_path "$context_file"
 
 assessment=$(jq -er '.assessment' "$review_file" 2>/dev/null) || fatal "assessment missing in $review_file"
 jq -e '.body | type == "string"' "$review_file" >/dev/null 2>&1 || fatal "body missing in $review_file"

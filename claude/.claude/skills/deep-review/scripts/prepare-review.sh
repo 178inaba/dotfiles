@@ -37,6 +37,9 @@ fatal() {
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
 
+# shellcheck source=review-dir-lib.sh
+. "$(dirname "$0")/review-dir-lib.sh"
+
 scratch_dir=${1:-}
 [ -n "$scratch_dir" ] || fatal "$USAGE"
 [ -d "$scratch_dir" ] || fatal "scratchpad directory not found: $scratch_dir"
@@ -103,21 +106,13 @@ fi
 # 出力フィールドはグローバル変数から組む。emit 時点で確定している変数だけが非 null になる
 # （停止 status では context_path 以降が未確定のまま出力される）
 context_path=""
+work_dir=""
 review_path=""
 threads_path=""
 base_branch=""
 modes=null
 freshness=null
 issues='[]'
-
-# 後続ステップがモデルに Write させる入力ファイルの名前はスクリプトが払い出す。
-# 命名をプロンプト指示に委ねると、同一セッションの scratchpad を共有する並列サブエージェント間で
-# 固定名が衝突し、別 PR のレビュー内容に上書きされたまま投稿される（fetch-pr-context.sh が
-# 出力名に repo@PR を埋める理由と同じ）。context_path の識別子部分をそのまま流用することで、
-# 3 ファイルの PR 識別子が乖離しないようにする
-derive_input_path() {
-  printf '%s/%s-%s' "$(dirname "$context_path")" "$1" "$(basename "$context_path" | sed 's/^pr-context-//')"
-}
 
 emit() {
   local status=$1
@@ -131,6 +126,7 @@ emit() {
     --argjson pr_exists "$pr_exists" \
     --arg head_ref "$head_ref" \
     --arg context_path "$context_path" \
+    --arg work_dir "$work_dir" \
     --arg review_path "$review_path" \
     --arg threads_path "$threads_path" \
     --arg base_branch "$base_branch" \
@@ -143,6 +139,7 @@ emit() {
       pr_exists: $pr_exists,
       head_ref: (if $head_ref == "" then null else $head_ref end),
       context_path: (if $context_path == "" then null else $context_path end),
+      work_dir: (if $work_dir == "" then null else $work_dir end),
       review_path: (if $review_path == "" then null else $review_path end),
       threads_path: (if $threads_path == "" then null else $threads_path end),
       base_branch: (if $base_branch == "" then null else $base_branch end),
@@ -216,8 +213,14 @@ if [ -n "$max_comments$max_threads$max_thread_comments" ]; then
   fi
 fi
 
-review_path=$(derive_input_path review)
-threads_path=$(derive_input_path threads)
+# 後続ステップでモデルが Write する入力ファイルと、レビュー中に作る補助ファイルの置き場所は
+# スクリプトが払い出す。置き場所をプロンプト指示に委ねると、同一セッションの scratchpad を
+# 共有する並列サブエージェント間で固定名が衝突し、別 PR のレビュー内容に上書きされたまま
+# 投稿される（導出規約は review-dir-lib.sh のヘッダー参照）
+work_dir=$(review_work_dir "$context_path")
+mkdir -p "$work_dir" || fatal "failed to create review work dir: $work_dir"
+review_path="$work_dir/review.json"
+threads_path="$work_dir/threads.json"
 
 is_own_pr=$(jq -r 'if (.is_own_pr | type) == "boolean" then (.is_own_pr | tostring) else "" end' "$context_path")
 [ -n "$is_own_pr" ] || fatal "is_own_pr missing in $context_path"

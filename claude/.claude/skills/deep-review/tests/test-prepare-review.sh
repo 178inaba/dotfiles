@@ -152,13 +152,15 @@ assert_json 'other pr: personal rules OFF' "$out" '.modes.personal_rules == fals
 assert_json 'other pr: autofix OFF' "$out" '.modes.autofix == false'
 assert_json 'other pr: base_branch from pr' "$out" '.base_branch == "origin/main"'
 assert_json 'other pr: context_path set' "$out" '.context_path | type == "string"'
-# review_path / threads_path はスクリプトが払い出す（命名をプロンプト指示に委ねると、
+# work_dir と配下の入力パスはスクリプトが払い出す（命名をプロンプト指示に委ねると、
 # scratchpad を共有する並列サブエージェント間で固定名が衝突して別 PR のレビューを投稿する）。
-# context_path の識別子部分を流用するので、3ファイルの PR 識別子は必ず一致する
-assert_json 'other pr: review_path derived from context_path' "$out" \
-  '.review_path == ((.context_path | sub("/pr-context-[^/]*$"; "")) + "/review-acme@foo-9.json")'
-assert_json 'other pr: threads_path derived from context_path' "$out" \
-  '.threads_path == ((.context_path | sub("/pr-context-[^/]*$"; "")) + "/threads-acme@foo-9.json")'
+# context_path の識別子でディレクトリを分けるので、レビュー1件の生成物は必ず1箇所に閉じる
+assert_json 'other pr: work_dir derived from context_path' "$out" \
+  '.work_dir == ((.context_path | sub("/pr-context-[^/]*$"; "")) + "/deep-review-acme@foo-9")'
+assert_json 'other pr: review_path inside work_dir' "$out" '.review_path == (.work_dir + "/review.json")'
+assert_json 'other pr: threads_path inside work_dir' "$out" '.threads_path == (.work_dir + "/threads.json")'
+# 補助ファイルの置き場所として案内するため、モデルが Write する前に存在している必要がある
+assert 'other pr: work_dir created' "[ -d '$TMP/scratch/deep-review-acme@foo-9' ]"
 assert_json 'other pr: linked issues surfaced' "$out" '.issues == [{repo: null, number: 77}]'
 assert_json 'other pr: freshness ok' "$out" '.freshness.status == "ok"'
 assert 'other pr: freshness received context path' "grep -q 'pr-context-acme@foo-9.json' '$FRESHNESS_STUB_LOG'"
@@ -172,7 +174,7 @@ assert_json 'own pr: autofix ON' "$out" '.modes.autofix == true'
 # 払い出しの条件は context_path の有無であってモードではない（comment OFF でも非 null）。
 # ここが null に化けると「PR 不在時だけ null」の不変条件が崩れたことになる
 assert_json 'own pr: input paths set even though comment mode is OFF' "$out" \
-  '(.review_path | type == "string") and (.threads_path | type == "string")'
+  '(.work_dir | type == "string") and (.review_path | type == "string") and (.threads_path | type == "string")'
 
 # --- ケース3: 自分の PR + --no-autofix → 自動対応のみ強制OFF ---
 out=$(cd "$REPO" && FETCH_STUB_CONTEXT="$(context_json true)" bash "$SCRIPT" "$TMP/scratch" 9 --no-autofix)
@@ -207,7 +209,7 @@ assert_json 'no pr: context null' "$out" '.context_path == null'
 # null になる理由は comment モードではなく context_path が未確定（PR 不在で fetch を通らない）こと。
 # 自分の PR も comment OFF だが review_path は非 null になる（下のケース2で検証）
 assert_json 'no pr: input paths null because context was never fetched' "$out" \
-  '.review_path == null and .threads_path == null'
+  '.work_dir == null and .review_path == null and .threads_path == null'
 assert_json 'no pr: freshness null' "$out" '.freshness == null'
 assert_json 'no pr: comment OFF' "$out" '.modes.comment == false'
 assert_json 'no pr: personal rules ON' "$out" '.modes.personal_rules == true'

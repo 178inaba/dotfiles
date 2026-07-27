@@ -79,9 +79,11 @@ export GH_STUB_CALL_LOG="$TMP/calls.log"
 
 # --- フィクスチャ ---
 # コンテキストは実物と同じ命名（pr-context-<owner>@<repo>-<PR>.json）にする。
-# 入力ファイル名の検証はこの名前から `pr-context-` を strip した識別子で行われるため、
-# フィクスチャを固定名にすると検証の対象そのものがテストされない
+# 入力ファイルの置き場所の検証はこの名前から導出した作業ディレクトリで行われるため、
+# フィクスチャを scratchpad 直下の固定名にすると検証の対象そのものがテストされない
 CTX="$TMP/pr-context-owner@repo-5.json"
+WORK="$TMP/deep-review-owner@repo-5"
+mkdir -p "$WORK"
 # PRRT_A / PRRT_B: 対象適格（awaiting_my_confirmation true）
 # PRRT_X: 未解決だが起点が他人 / PRRT_Y: 解決済み → どちらも不適格
 jq -n --arg oid "$HEAD_OID" '{
@@ -150,7 +152,7 @@ no_call_matching() { ! grep -q "$1" "$GH_STUB_CALL_LOG"; }
 
 # 入力ファイル名は prepare-review.sh が払い出す規約（末尾が <owner>@<repo>-<PR>.json）に従う。
 # 固定名だと並列サブエージェント間で上書きされるため、スクリプトが名前を検証する
-write_input() { printf '%s' "$2" > "$TMP/$1-owner@repo-5.json"; printf '%s' "$TMP/$1-owner@repo-5.json"; }
+write_input() { printf '%s' "$2" > "$WORK/$1.json"; printf '%s' "$WORK/$1.json"; }
 
 # --- 正常系: 返信 + resolve ---
 in_ok=$(write_input ok '{"threads": [{"id": "PRRT_A", "body": "対応を確認しました", "resolve": true}]}')
@@ -304,20 +306,22 @@ assert_ok 'mid-run reply failure: already-replied thread reported' \
   grep -q 'PRRT_A' "$TMP/err.txt"
 clear_fail
 
-# --- 入力ファイル名の PR 束縛 ---
-# 並列サブエージェントは scratchpad を共有するため、固定名の入力は別 PR のレビューに
-# 上書きされる。適格性検証でも止まるが原因を誤診させるため、名前の側で先に落とす
+# --- 入力ファイルの作業ディレクトリ束縛 ---
+# 並列サブエージェントは scratchpad を共有するため、共有直下の固定名の入力は別 PR の
+# レビューに上書きされる。適格性検証でも止まるが原因を誤診させるため、置き場所で先に落とす
 printf '%s' '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}]}' > "$TMP/threads.json"
 run "$TMP/threads.json" >/dev/null
-assert_exit 'fixed-name input rejected: exit 1' $? 1
-assert_ok 'fixed-name input: no mutation issued' no_mutation
-assert_ok 'fixed-name input: stderr points at threads_path' grep -q 'threads_path' "$TMP/err.txt"
+assert_exit 'input outside the work dir rejected: exit 1' $? 1
+assert_ok 'input outside the work dir: no mutation issued' no_mutation
+assert_ok 'input outside the work dir: stderr points at threads_path' grep -q 'threads_path' "$TMP/err.txt"
 
-# 別 PR の識別子が付いたファイル（他 PR のレビューに上書きされた状態）も拒否する
-printf '%s' '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}]}' > "$TMP/threads-owner@repo-99.json"
-run "$TMP/threads-owner@repo-99.json" >/dev/null
-assert_exit 'input bound to another PR rejected: exit 1' $? 1
-assert_ok 'another PR input: no mutation issued' no_mutation
+# 別 PR の作業ディレクトリに置かれたファイル（取り違え）も拒否する
+mkdir -p "$TMP/deep-review-owner@repo-99"
+printf '%s' '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}]}' \
+  > "$TMP/deep-review-owner@repo-99/threads.json"
+run "$TMP/deep-review-owner@repo-99/threads.json" >/dev/null
+assert_exit 'input in another PR work dir rejected: exit 1' $? 1
+assert_ok 'another PR work dir: no mutation issued' no_mutation
 
 # --- run をまたぐ再送の拒否 ---
 # 適格性は fetch 時点で凍結された context のフラグで判定するため、同じ入力を再実行すると
@@ -345,8 +349,10 @@ jq --arg oid 0000000000000000000000000000000000000000 '.pr.head_oid = $oid' "$CT
   > "$TMP/pr-context-owner@repo-9.json"
 : > "$GH_STUB_CALL_LOG"
 in_stale=$(write_input stale '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}]}')
-cp "$in_stale" "$TMP/stale-owner@repo-9.json"
-(cd "$TMP/repo" && bash "$SCRIPT" "$TMP/pr-context-owner@repo-9.json" "$TMP/stale-owner@repo-9.json" 2>"$TMP/err.txt")
+mkdir -p "$TMP/deep-review-owner@repo-9"
+cp "$in_stale" "$TMP/deep-review-owner@repo-9/threads.json"
+(cd "$TMP/repo" && bash "$SCRIPT" "$TMP/pr-context-owner@repo-9.json" \
+  "$TMP/deep-review-owner@repo-9/threads.json" 2>"$TMP/err.txt")
 assert_exit 'stale head: exit 1' $? 1
 assert_ok 'stale head: no mutation issued' no_mutation
 assert_ok 'stale head: stderr mentions the PR head' grep -q 'differs from PR head' "$TMP/err.txt"

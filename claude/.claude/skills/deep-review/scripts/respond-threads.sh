@@ -36,8 +36,8 @@
 # 使用方法: respond-threads.sh <pr-context.json> <threads-file>
 #   <pr-context.json> fetch-pr-context.sh の出力ファイル（review_threads[] を読む）
 #   <threads-file>    入力契約は SKILL.md の「threads_path に書く JSON の入力契約」を参照。
-#                     パスは prepare-review.sh の threads_path を使う（末尾が
-#                     <owner>@<repo>-<PR番号>.json であることを検証する — 下記コメント参照）
+#                     パスは prepare-review.sh の threads_path を使う（context と対になる
+#                     作業ディレクトリの直下にあることを検証する — 下記コメント参照）
 #
 # 出力契約: SKILL.md の「respond-threads.sh の出力 JSON の契約」を参照
 #
@@ -55,8 +55,8 @@ fatal() {
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
 
-# shellcheck source=input-name-lib.sh
-. "$(dirname "$0")/input-name-lib.sh"
+# shellcheck source=review-dir-lib.sh
+. "$(dirname "$0")/review-dir-lib.sh"
 
 context_file=${1:-}
 threads_file=${2:-}
@@ -70,9 +70,9 @@ jq -e '.review_threads | type == "array"' "$context_file" >/dev/null 2>&1 \
 head_oid=$(jq -er '.pr.head_oid' "$context_file" 2>/dev/null) || fatal "pr.head_oid missing in $context_file"
 
 # 適格性検証でも取り違えは止まるが（スレッド ID は PR を跨いで一意）、そちらのエラーは
-# 「対象が確認待ちでない」と読めてしまい原因を誤診させるため、名前の側で先に落とす
-# （規約と理由は input-name-lib.sh のヘッダー参照）
-require_pr_bound_filename "$threads_file" threads_path "$context_file"
+# 「対象が確認待ちでない」と読めてしまい原因を誤診させるため、置き場所の側で先に落とす
+# （規約と理由は review-dir-lib.sh のヘッダー参照）
+require_in_review_work_dir "$threads_file" threads_path "$context_file"
 
 # post-review.sh と同じ投稿前検証。resolve の判断根拠は「差分で解消を確認した」ことなので、
 # 差分を読んだ時点から head が動いていると、取り消された修正に対して resolve しうる
