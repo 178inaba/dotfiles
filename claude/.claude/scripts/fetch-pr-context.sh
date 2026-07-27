@@ -30,6 +30,11 @@
 #   current_user      実行ユーザーの login
 #   is_own_pr         PR 作成者 == current_user
 #   pr                number / title / body / url / state / author / head_ref / base_ref / head_oid
+#   head_committed_at pr.head_oid が指すコミットの committedDate（ISO-8601 UTC）。
+#                     review_threads[].awaiting_my_confirmation の時刻条件の比較相手。
+#                     コミットの日時はコミッタのマシン時刻由来のため、時計のずれで判定が
+#                     揺れうる（最悪ケースは確認返信が1回余分に出ることで、resolve 自体は
+#                     SKILL.md 側が差分確認を別途要求するため誤 resolve には至らない）
 #   linked_issues[]   PR 本文の closing keyword から検出した {repo, number}（repo: null は同リポ）。
 #                     URL 形式・キーワードなしの素の #N は対象外（GitHub の自動 close 対象に揃える）
 #   comments_total_count / comments_truncated
@@ -59,16 +64,26 @@
 #                     waiting_for_response は「未解決 かつ 末尾が自分の返信 かつ 自分の PR」。
 #                     レビュアー側の PR では「末尾が自分」の意味が反転する（相手の応答待ちで
 #                     あって自分の対応漏れではない）ため is_own_pr で絞る。
-#                     awaiting_my_confirmation は「未解決 かつ 起点が自分 かつ 末尾が自分でない」
-#                     = 自分が出した指摘に相手が応答し、解消判定（返信・resolve）のボールが
-#                     自分に戻っているスレッド（/deep-review が消費）。「起点が自分」を条件に
+#                     awaiting_my_confirmation は「未解決 かつ 起点が自分 かつ
+#                     （末尾が自分でない または 自分の最終コメント以降に head が動いた）」
+#                     = 自分が出した指摘の解消判定（返信・resolve）のボールが自分に
+#                     戻っているスレッド（/deep-review が消費）。「起点が自分」を条件に
 #                     するのは、resolve が指摘者の権限行為であり、他レビュアーのスレッドの
 #                     解消判定を代行しないため。起点判定は comments[0]（昇順ページングのため
 #                     打ち切りが起きても先頭要素は必ず残る）。waiting_for_response と違い
 #                     is_own_pr で絞らないのは、「起点が自分 かつ 末尾が相手」が PR の所有者に
 #                     依らず「ボールが自分にある」を意味し、意味の反転が起きないため。
-#                     末尾条件が返信後の再実行での二重返信も防ぐ（返信すると自分が末尾になり
-#                     フラグが落ちる）ため、返信本文に識別マーカーは要らない
+#                     後半の時刻条件は「作者がスレッドに返信せずコミットだけ push した」
+#                     ケース（GitHub では一般的）を拾うためにある — 末尾条件だけだと自分の指摘が
+#                     末尾のまま残り、無言で修正されたスレッドが永久に未解決で積み上がる。
+#                     同時に冪等性も時刻条件が担っており（返信すると自分の最終コメントが
+#                     head より新しくなってフラグが落ち、その後さらにコミットが来ると再び立つ）、
+#                     返信本文に識別マーカーは要らない。head_committed_at が null のときは
+#                     時刻条件を成立させない（末尾条件だけの判定へ縮退し、余分な返信を出さない）。
+#                     この null ガードは現在の比較向き（created_at < head）では jq の順序
+#                     （null が最小）と同値で冗長だが、向きを反転する改修が入ると
+#                     "文字列 > null" が true になり、head 日時が取れないときに全スレッドが
+#                     true へ化けて毎回二重返信する — dead code ではないので削除しないこと
 
 set -u
 
@@ -152,10 +167,16 @@ thread_node_fields='
 # 人間コメント 3 件を含む 47 件が欠落した事例あり）、後段でページネーションして全量取得する。
 # reviewThreads とスレッド内コメントも同じ理由で全量取得する（こちらは昇順のため
 # 打ち切ると最新側が落ち、末尾判定が壊れる）
+# head commit の committedDate も取る。awaiting_my_confirmation の「自分の最終コメント以降に
+# コードが動いたか」の判定に使う（is_outdated は真偽値で「いつ動いたか」を持たず、返信後も
+# true のままになるため冪等性の判定に使えない）。pr_meta の headRefOid で対象コミットを pin し、
+# 鮮度確認が見ている head と同じコミットを指すようにする
+head_oid_for_query=$(printf '%s' "$pr_meta" | jq -r '.headRefOid')
 if ! gql=$("$GH_BIN" api graphql -f query='
-query($owner: String!, $name: String!, $number: Int!) {
+query($owner: String!, $name: String!, $number: Int!, $headOid: GitObjectID!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
+    headCommit: object(oid: $headOid) { ... on Commit { committedDate } }
     pullRequest(number: $number) {
       comments(first: 100) {
         totalCount
@@ -173,7 +194,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       }
     }
   }
-}' -f owner="$owner" -f name="$name" -F number="$pr_number"); then
+}' -f owner="$owner" -f name="$name" -F number="$pr_number" -f headOid="$head_oid_for_query"); then
   printf 'failed to fetch PR comments/reviews/threads (GraphQL)\n' >&2
   exit 1
 fi
@@ -307,6 +328,8 @@ if ! jq -n \
   ($gql.data.repository.pullRequest) as $p
   | ($gql.data.viewer.login) as $current_user
   | ($pr.author.login == $current_user) as $is_own_pr
+  # ISO-8601 の UTC（Z 終端）同士なので辞書順比較が時刻順比較になる
+  | ($gql.data.repository.headCommit.committedDate // null) as $head_committed_at
   | ($comment_pages | add) as $comments
   | ($thread_pages | add) as $threads
   | ($thread_comment_pages
@@ -329,6 +352,7 @@ if ! jq -n \
         head_oid: $pr.headRefOid
       },
       linked_issues: (($pr.body // "") | issue_refs),
+      head_committed_at: $head_committed_at,
       comments_total_count: $p.comments.totalCount,
       comments_truncated: ($p.comments.totalCount > ($comments | length)),
       comments: [$comments[] | {
@@ -382,7 +406,9 @@ if ! jq -n \
             awaiting_my_confirmation: (($t.isResolved | not)
               and (($thread_comments[0].author.login // null) == $current_user)
               and $last_comment != null
-              and $last_comment.author != $current_user)
+              and ($last_comment.author != $current_user
+                or ($head_committed_at != null
+                  and $last_comment.created_at < $head_committed_at)))
           }]
     }' > "$tmp_out"; then
   printf 'failed to build output JSON\n' >&2

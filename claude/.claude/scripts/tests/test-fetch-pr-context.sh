@@ -99,6 +99,7 @@ cat > "$TMP/data/graphql.json" <<'EOF'
   "data": {
     "viewer": {"login": "testuser"},
     "repository": {
+      "headCommit": {"committedDate": "2026-01-15T00:00:00Z"},
       "pullRequest": {
         "comments": {
           "totalCount": 4,
@@ -117,7 +118,7 @@ cat > "$TMP/data/graphql.json" <<'EOF'
           ]
         },
         "reviewThreads": {
-          "totalCount": 7,
+          "totalCount": 8,
           "pageInfo": {"hasNextPage": false, "endCursor": "tc-1"},
           "nodes": [
             {
@@ -188,10 +189,10 @@ cat > "$TMP/data/graphql.json" <<'EOF'
                 "nodes": [
                   {"author": {"login": "testuser"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t6a"},
                   {"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t6b"},
-                  {"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/t6c"}
+                  {"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-02-01T00:00:00Z", "url": "https://example.com/t6c"}
                 ]
               },
-              "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/t6c"}]}
+              "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-02-01T00:00:00Z", "url": "https://example.com/t6c"}]}
             },
             {
               "id": "PRRT_7", "isResolved": true, "isOutdated": false, "path": "src/cache.go", "line": 31,
@@ -205,6 +206,18 @@ cat > "$TMP/data/graphql.json" <<'EOF'
                 ]
               },
               "tail": {"nodes": [{"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t7b"}]}
+            },
+            {
+              "id": "PRRT_8", "isResolved": false, "isOutdated": true, "path": "src/cache.go", "line": 44,
+              "resolvedBy": null,
+              "comments": {
+                "totalCount": 1,
+                "pageInfo": {"hasNextPage": false, "endCursor": "t8"},
+                "nodes": [
+                  {"author": {"login": "testuser"}, "body": "自分が出した指摘（作者は返信せず修正だけ push）", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t8a"}
+                ]
+              },
+              "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "自分が出した指摘（作者は返信せず修正だけ push）", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t8a"}]}
             }
           ]
         }
@@ -281,14 +294,14 @@ assert 'reviews_total_count exposed, not truncated' "$ctx" \
 assert 'reviews mapped' "$ctx" \
   '.reviews == [{"author": "reviewer1", "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submitted_at": "2026-01-01T00:00:00Z"}]'
 assert 'threads mapped with resolution state' "$ctx" \
-  '(.review_threads | length) == 7
+  '(.review_threads | length) == 8
    and (.review_threads[0] | .id == "PRRT_1" and .is_resolved == false and .path == "src/main.go" and .line == 30 and .resolved_by == null)
    and (.review_threads[1] | .is_resolved == true and .is_outdated == true and .resolved_by == "testuser")'
 assert 'threads not truncated' "$ctx" \
   '.threads_truncated == false and all(.review_threads[]; .comments_truncated == false)'
 # 総数は打ち切り時の引き上げ先（prepare-review.sh の自動再実行が消費する）
 assert 'thread total counts exposed' "$ctx" \
-  '.threads_total_count == 7
+  '.threads_total_count == 8
    and (.review_threads[0].comments_total_count == 1)
    and (.review_threads[2].comments_total_count == 2)'
 # last_comment は反応待ち分類（review-response）の入力。末尾が自分／他人の両方向を張る
@@ -300,16 +313,24 @@ assert 'last_comment points at the newest comment' "$ctx" \
 # フィクスチャは3条件を独立に固定する: PRRT_1 未解決+末尾が他人 / PRRT_3 未解決+末尾が自分 /
 # PRRT_4 解決済み+末尾が自分（PRRT_4 が無いと isResolved ガードを外しても全テストが通る）
 assert 'waiting_for_response set only for unresolved threads we replied to last' "$ctx" \
-  '[.review_threads[].waiting_for_response] == [false, false, true, false, false, true, false]'
-# awaiting_my_confirmation: 未解決 かつ 起点が自分 かつ 末尾が自分でない の3条件（/deep-review が
-# 返信・resolve の対象選定に使う）。誤って true になると他人のスレッドを resolve する越権や、
-# 対応未確認のスレッドの取りこぼしにつながるため、3条件を独立に固定する:
+  '[.review_threads[].waiting_for_response] == [false, false, true, false, false, true, false, true]'
+# awaiting_my_confirmation: 未解決 かつ 起点が自分 かつ（末尾が自分でない または
+# 自分の最終コメント以降に head が動いた）。/deep-review が返信・resolve の対象選定に使う。
+# 誤って true になると他人のスレッドを resolve する越権や余分な二重返信、false になると
+# 対応未確認スレッドの取りこぼしにつながるため、各条件を独立に固定する（head は 01-15）:
 #   PRRT_1 起点が他人+未解決+末尾が他人（起点ガードを外すと true に化ける）
 #   PRRT_5 起点が自分+未解決+末尾が他人 → true
-#   PRRT_6 起点が自分+未解決+末尾が自分（返信後の再実行での二重返信ガード）
+#   PRRT_6 起点が自分+未解決+末尾が自分（02-01 = head より後）→ 返信直後の二重返信ガード
 #   PRRT_7 起点が自分+解決済み+末尾が他人（isResolved ガード）
+#   PRRT_8 起点が自分+未解決+末尾が自分（01-02 = head より前）→ true
+#          作者がスレッドに返信せずコミットだけ push したケース。時刻条件が無いと
+#          このスレッドは永久に拾われない
 assert 'awaiting_my_confirmation set only for our own unresolved threads awaiting our judgement' "$ctx" \
-  '[.review_threads[].awaiting_my_confirmation] == [false, false, false, false, true, false, false]'
+  '[.review_threads[].awaiting_my_confirmation] == [false, false, false, false, true, false, false, true]'
+assert 'head_committed_at exposed for the timestamp condition' "$ctx" \
+  '.head_committed_at == "2026-01-15T00:00:00Z"'
+assert 'head commit pinned to pr.head_oid in the query' \
+  "$(jq -Rs '{args: .}' < "$TMP/data/.graphql-args-1")" '.args | test("headOid=abc123")'
 
 # ファイル名一意化: 別リポジトリなら同じ out-dir でも別ファイルになる
 # （並列サブエージェントが共有 scratchpad を out-dir に使っても衝突しない性質の担保）
@@ -338,7 +359,18 @@ assert 'waiting_for_response never set on someone elses PR' "$(ctx_of "$out_othe
 # 所有者に依らず意味が反転しない）。他人の PR でのレビュアー運用が主用途なので、
 # ここが false に化けると /deep-review の返信・resolve が丸ごと発火しなくなる
 assert 'awaiting_my_confirmation applies on someone elses PR too' "$(ctx_of "$out_other")" \
-  '[.review_threads[].awaiting_my_confirmation] == [false, false, false, false, true, false, false]'
+  '[.review_threads[].awaiting_my_confirmation] == [false, false, false, false, true, false, false, true]'
+
+# head commit の日時が取れない場合（object 参照不能等）は時刻条件を成立させず末尾条件だけへ縮退する。
+# 逆に倒すと「自分が最後に返信したスレッド」を毎イテレーション再返信し続ける
+rm -f "$TMP/data/.graphql-call-count"
+jq '.data.repository.headCommit = null' "$TMP/data/graphql.json" > "$TMP/data/graphql-1.json"
+out_nohead=$(fetch 5)
+assert_exit 'missing head commit date: exit 0' $? 0
+assert 'missing head commit date: degrades to the tail-only condition' "$(ctx_of "$out_nohead")" \
+  '.head_committed_at == null
+   and ([.review_threads[].awaiting_my_confirmation] == [false, false, false, false, true, false, false, false])'
+rm -f "$TMP/data/graphql-1.json" "$TMP/data/.graphql-call-count"
 
 # エラー系
 GH_STUB_NO_PR=1 fetch >/dev/null 2>"$TMP/err.txt"
