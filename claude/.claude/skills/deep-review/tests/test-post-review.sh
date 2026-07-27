@@ -215,5 +215,18 @@ write_review "$TMP/deep-review-acme@foo-99/review.json" "Approve可能" '[]'
 assert_exit 'review file in another PR work dir: non-zero exit' $? 1
 assert 'review file in another PR work dir: nothing posted' "[ ! -s '$GH_STUB_LOG' ]"
 
+# work_dir が存在しない場合は「取り違え」と区別して復旧手順を案内する（prepare-review.sh の未実行・
+# scratchpad の消失で起きる。同じエラーに畳むと置き場所を直そうとして原因を見失う）
+: > "$GH_STUB_LOG"
+mkdir -p "$TMP/nowork"
+write_context "$TMP/nowork/pr-context-acme@foo-9.json"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/nowork/pr-context-acme@foo-9.json" "$TMP/review.json" 2>"$TMP/err11c.txt")
+assert_exit 'missing work dir: non-zero exit' $? 1
+assert 'missing work dir: nothing posted' "[ ! -s '$GH_STUB_LOG' ]"
+assert 'missing work dir: stderr names the missing dir' \
+  "grep -q 'work dir not found' '$TMP/err11c.txt'"
+assert 'missing work dir: stderr gives the recovery step' \
+  "grep -q 'prepare-review.sh' '$TMP/err11c.txt'"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

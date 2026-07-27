@@ -102,7 +102,8 @@ dupes=$(jq -r '[.threads[].id] | group_by(.) | map(select(length > 1) | .[0]) | 
 # run をまたぐ二重返信の拒否。返信失敗時の再実行はこのスクリプトが案内する正規フローであり、
 # 適格性は fetch 時点で凍結された context のフラグで判定されるため、同じ入力を再実行すると
 # 素通りして二重投稿になる。投稿済み id を threads_file の sidecar に記録して構造的に止める
-# （threads_file 自体が PR 束縛済みの名前なので sidecar の一意性も自動的に担保される）
+# （threads_file は PR 束縛済みの work_dir 配下にあることを検証済みなので、sidecar の一意性も
+# 自動的に担保される）
 posted_log="$threads_file.posted"
 
 # posted_log と入力の id の積集合／差集合。停止時の「投稿済み／未処理」の切り分けにも使う。
