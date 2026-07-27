@@ -85,8 +85,7 @@ model を明示固定する理由: レビューは見落としが観測不能な
   bash ~/.claude/skills/review-assigned-prs/scripts/ensure-clone.sh <owner>/<repo>
   ```
   → JSON `{"path": "..."}` を返す。clone 先パスの規約はスクリプトヘッダーコメントを参照
-- `cd <path>` してから実行: `/deep-review <PR番号> --worktree --no-autofix`
-  - 各フラグの意味は `@~/.claude/skills/deep-review/SKILL.md` を参照
+- `cd <path>` してから、**Skill ツールで** `deep-review` を引数 `<PR番号> --worktree --no-autofix` で起動する旨（SKILL.md を Read して自力で手順をなぞるのではなく、スキルとして起動させる — Read 経路ではスキル本文が参照している他スキルが読み込まれない）
   - 起動時 cwd が対象リポジトリ外のため EnterWorktree（`name:`/`path:` とも）は使えず、worktree-resolution 共通規約の Bash `cd` 代替を最初から使う旨
   - 対象は他人の PR のためコメントモードが ON になり、**レビューを PR に投稿するところまでが必須成果物である**旨を明示する（投稿スキップは失敗扱い）
 - レビュー結果と投稿したレビューの URL をそのまま返すよう指示（追加の解釈・要約は不要）
