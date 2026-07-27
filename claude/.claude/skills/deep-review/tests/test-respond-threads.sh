@@ -19,6 +19,13 @@ fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+# --- 使い捨て git リポジトリ ---
+# スクリプトが投稿前にローカル HEAD == pr.head_oid を再確認するため、実 HEAD を持つ
+# リポジトリ内で実行する必要がある（実リポジトリには触れない）
+git init -q -b main "$TMP/repo" 2>/dev/null
+git -C "$TMP/repo" -c user.email=t@example.com -c user.name=t commit -q --allow-empty -m init
+HEAD_OID=$(git -C "$TMP/repo" rev-parse HEAD)
+
 # --- gh スタブ ---
 # mutation の種別は query 文字列で判別する（引数位置に依存させない）。
 # 失敗の注入は env ではなくファイルで行う: `VAR=x shell_function` の assignment は
@@ -71,22 +78,24 @@ export GH_STUB_DIR="$TMP"
 export GH_STUB_CALL_LOG="$TMP/calls.log"
 
 # --- フィクスチャ ---
+# コンテキストは実物と同じ命名（pr-context-<owner>@<repo>-<PR>.json）にする。
+# 入力ファイル名の検証はこの名前から `pr-context-` を strip した識別子で行われるため、
+# フィクスチャを固定名にすると検証の対象そのものがテストされない
+CTX="$TMP/pr-context-owner@repo-5.json"
 # PRRT_A / PRRT_B: 対象適格（awaiting_my_confirmation true）
 # PRRT_X: 未解決だが起点が他人 / PRRT_Y: 解決済み → どちらも不適格
-cat > "$TMP/context.json" <<'EOF'
-{
-  "repo": "owner/repo",
-  "current_user": "testuser",
-  "is_own_pr": false,
-  "pr": {"number": 5, "head_oid": "abc123"},
-  "review_threads": [
-    {"id": "PRRT_A", "is_resolved": false, "path": "a.go", "line": 1, "awaiting_my_confirmation": true},
-    {"id": "PRRT_B", "is_resolved": false, "path": "b.go", "line": 2, "awaiting_my_confirmation": true},
-    {"id": "PRRT_X", "is_resolved": false, "path": "x.go", "line": 3, "awaiting_my_confirmation": false},
-    {"id": "PRRT_Y", "is_resolved": true, "path": "y.go", "line": 4, "awaiting_my_confirmation": false}
+jq -n --arg oid "$HEAD_OID" '{
+  repo: "owner/repo",
+  current_user: "testuser",
+  is_own_pr: false,
+  pr: {number: 5, head_oid: $oid},
+  review_threads: [
+    {id: "PRRT_A", is_resolved: false, path: "a.go", line: 1, awaiting_my_confirmation: true},
+    {id: "PRRT_B", is_resolved: false, path: "b.go", line: 2, awaiting_my_confirmation: true},
+    {id: "PRRT_X", is_resolved: false, path: "x.go", line: 3, awaiting_my_confirmation: false},
+    {id: "PRRT_Y", is_resolved: true, path: "y.go", line: 4, awaiting_my_confirmation: false}
   ]
-}
-EOF
+}' > "$CTX"
 
 pass=0
 fail=0
@@ -120,9 +129,18 @@ assert_ok() {
   fi
 }
 
+# 既定では sidecar（投稿済み記録）を消してから実行する。多くのケースが同じ入力ファイルを
+# 再利用するため、消さないと run をまたぐ再送ガードに引っかかる。
+# ガード自体は run_again で明示的に検証する
 run() {
   : > "$GH_STUB_CALL_LOG"
-  bash "$SCRIPT" "$TMP/context.json" "$1" 2>"$TMP/err.txt"
+  rm -f "$1.posted"
+  (cd "$TMP/repo" && bash "$SCRIPT" "$CTX" "$1" 2>"$TMP/err.txt")
+}
+# sidecar を残したまま同じ入力で再実行する（run をまたぐ再送の検証用）
+run_again() {
+  : > "$GH_STUB_CALL_LOG"
+  (cd "$TMP/repo" && bash "$SCRIPT" "$CTX" "$1" 2>"$TMP/err.txt")
 }
 calls() { cat "$GH_STUB_CALL_LOG"; }
 inject_fail() { printf '%s\n' "$2" > "$TMP/$1-fail"; }
@@ -197,9 +215,9 @@ assert_exit 'mixed eligible/ineligible: exit 1' $? 1
 assert_ok 'mixed eligible/ineligible: no partial posting' no_mutation
 
 # --- 入力契約違反 ---
-for bad_name in nobody badresolve notarray badid nothreads; do
+for bad_name in badbodytype badresolve notarray badid nothreads; do
   case "$bad_name" in
-    nobody)     bad='{"threads": [{"id": "PRRT_A", "resolve": true}]}' ;;
+    badbodytype) bad='{"threads": [{"id": "PRRT_A", "body": 5, "resolve": true}]}' ;;
     badresolve) bad='{"threads": [{"id": "PRRT_A", "body": "a", "resolve": "yes"}]}' ;;
     notarray)   bad='{"threads": {"id": "PRRT_A"}}' ;;
     badid)      bad='{"threads": [{"id": 5, "body": "a", "resolve": true}]}' ;;
@@ -211,11 +229,33 @@ for bad_name in nobody badresolve notarray badid nothreads; do
   assert_ok "malformed input ($bad_name): no mutation issued" no_mutation
 done
 
-# 空本文は「返信したつもりで中身が無い」状態になるため弾く
+# body があるのに空白だけ = 「返信したつもりで中身が無い」ので弾く（省略とは区別する）
 in_blank=$(write_input blankbody '{"threads": [{"id": "PRRT_A", "body": "   ", "resolve": true}]}')
 run "$in_blank" >/dev/null
 assert_exit 'blank body rejected' $? 1
 assert_ok 'blank body: no mutation issued' no_mutation
+assert_ok 'blank body: stderr distinguishes it from omitting body' \
+  grep -q 'omit body entirely' "$TMP/err.txt"
+
+# --- body 省略 = 返信せず resolve のみ ---
+# resolve 権限がないリポジトリでは resolve が恒久的に失敗するため、次回レビューで
+# 返信を重ねずに resolve だけ再試行する経路が必要（判定が前回と同じ場合の抑止にも使う）
+in_resolveonly=$(write_input resolveonly '{"threads": [{"id": "PRRT_A", "resolve": true}]}')
+out=$(run "$in_resolveonly")
+assert_exit 'resolve-only (body omitted): exit 0' $? 0
+assert 'resolve-only: resolved without replying' "$out" \
+  '.replied == [] and .resolved == ["PRRT_A"]'
+assert_ok 'resolve-only: no reply mutation issued' no_call_matching '^reply'
+assert_ok 'resolve-only: resolve mutation issued' grep -q '^resolve' "$GH_STUB_CALL_LOG"
+# 返信していないので sidecar にも記録しない（次回も resolve のみ再試行できる）
+assert_ok 'resolve-only: nothing recorded in the posted sidecar' \
+  [ ! -s "$in_resolveonly.posted" ]
+
+# body 省略 + resolve: false は何もしない指定なので弾く
+in_noop=$(write_input noop '{"threads": [{"id": "PRRT_A", "resolve": false}]}')
+run "$in_noop" >/dev/null
+assert_exit 'neither body nor resolve: exit 1' $? 1
+assert_ok 'neither body nor resolve: no mutation issued' no_mutation
 
 # --- 空配列は正常な no-op ---
 in_none=$(write_input none '{"threads": []}')
@@ -279,14 +319,78 @@ run "$TMP/threads-owner@repo-99.json" >/dev/null
 assert_exit 'input bound to another PR rejected: exit 1' $? 1
 assert_ok 'another PR input: no mutation issued' no_mutation
 
+# --- run をまたぐ再送の拒否 ---
+# 適格性は fetch 時点で凍結された context のフラグで判定するため、同じ入力を再実行すると
+# 素通りして二重投稿になる。返信失敗時の再実行は正規フローとして案内しているので踏みやすい
+in_resend=$(write_input resend '{"threads": [{"id": "PRRT_A", "body": "確認しました", "resolve": false}]}')
+out=$(run "$in_resend")
+assert_exit 'first run: exit 0' $? 0
+assert_ok 'first run: posted id recorded in the sidecar' \
+  grep -qxF 'PRRT_A' "$in_resend.posted"
+run_again "$in_resend" >/dev/null
+assert_exit 'rerunning the same input file: exit 1' $? 1
+assert_ok 'rerunning the same input file: no mutation issued' no_mutation
+assert_ok 'rerunning: stderr names the id and the sidecar' \
+  grep -q 'PRRT_A' "$TMP/err.txt"
+
+# 未処理分だけに書き直せば再実行は通る（案内しているフローが実際に機能すること）
+printf '%s' '{"threads": [{"id": "PRRT_B", "body": "確認しました", "resolve": false}]}' > "$in_resend"
+out=$(run_again "$in_resend")
+assert_exit 'rewritten to the unprocessed thread only: exit 0' $? 0
+assert 'rewritten input: the remaining thread is replied to' "$out" '[.replied[].id] == ["PRRT_B"]'
+
+# --- 投稿前の鮮度再確認（post-review.sh と対） ---
+# 差分を読んだ時点から head が動いていると、取り消された修正に対して resolve しうる
+jq --arg oid 0000000000000000000000000000000000000000 '.pr.head_oid = $oid' "$CTX" \
+  > "$TMP/pr-context-owner@repo-9.json"
+: > "$GH_STUB_CALL_LOG"
+in_stale=$(write_input stale '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}]}')
+cp "$in_stale" "$TMP/stale-owner@repo-9.json"
+(cd "$TMP/repo" && bash "$SCRIPT" "$TMP/pr-context-owner@repo-9.json" "$TMP/stale-owner@repo-9.json" 2>"$TMP/err.txt")
+assert_exit 'stale head: exit 1' $? 1
+assert_ok 'stale head: no mutation issued' no_mutation
+assert_ok 'stale head: stderr mentions the PR head' grep -q 'differs from PR head' "$TMP/err.txt"
+
+# git リポジトリ外での実行も止める（HEAD が取れないまま投稿しない）
+: > "$GH_STUB_CALL_LOG"
+(cd "$TMP" && bash "$SCRIPT" "$CTX" "$in_ok" 2>"$TMP/err.txt")
+assert_exit 'outside a git repository: exit 1' $? 1
+assert_ok 'outside a git repository: no mutation issued' no_mutation
+
+# --- 返信は成立したが url が欠落した場合 ---
+# 返信済みなので、投稿済み側に分類して報告し sidecar にも記録しなければ再実行で二重返信になる
+cat > "$TMP/stub/gh-nourl" <<'EOF'
+#!/bin/bash
+for a in "$@"; do case "$a" in query=*) q=${a#query=} ;; threadId=*) t=${a#threadId=} ;; esac; done
+case "$q" in
+  *addPullRequestReviewThreadReply*)
+    printf 'reply\t%s\n' "$t" >> "$GH_STUB_CALL_LOG"
+    printf '{"data":{"addPullRequestReviewThreadReply":{"comment":{}}}}\n' ;;
+  *) printf 'resolve\t%s\n' "$t" >> "$GH_STUB_CALL_LOG"
+     printf '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}\n' ;;
+esac
+EOF
+chmod +x "$TMP/stub/gh-nourl"
+in_nourl=$(write_input nourl '{"threads": [{"id": "PRRT_A", "body": "a", "resolve": true}, {"id": "PRRT_B", "body": "b", "resolve": true}]}')
+rm -f "$in_nourl.posted"
+: > "$GH_STUB_CALL_LOG"
+(cd "$TMP/repo" && GH_BIN="$TMP/stub/gh-nourl" bash "$SCRIPT" "$CTX" "$in_nourl" 2>"$TMP/err.txt")
+assert_exit 'missing reply url: exit 1' $? 1
+assert_ok 'missing reply url: the posted reply is recorded in the sidecar' \
+  grep -qxF 'PRRT_A' "$in_nourl.posted"
+assert_ok 'missing reply url: reported as already replied, not unprocessed' \
+  grep -q 'already replied (do NOT resend on retry): PRRT_A' "$TMP/err.txt"
+assert_ok 'missing reply url: the untouched thread is reported as unprocessed' \
+  grep -q 'not processed: PRRT_B' "$TMP/err.txt"
+
 # --- 引数・ファイル不備 ---
 bash "$SCRIPT" >/dev/null 2>&1
 assert_exit 'missing args: exit 1' $? 1
-bash "$SCRIPT" "$TMP/context.json" >/dev/null 2>&1
+bash "$SCRIPT" "$CTX" >/dev/null 2>&1
 assert_exit 'missing threads file: exit 1' $? 1
 bash "$SCRIPT" "$TMP/no-such.json" "$in_ok" >/dev/null 2>&1
 assert_exit 'nonexistent context file: exit 1' $? 1
-bash "$SCRIPT" "$TMP/context.json" "$TMP/no-such.json" >/dev/null 2>&1
+bash "$SCRIPT" "$CTX" "$TMP/no-such.json" >/dev/null 2>&1
 assert_exit 'nonexistent threads file: exit 1' $? 1
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

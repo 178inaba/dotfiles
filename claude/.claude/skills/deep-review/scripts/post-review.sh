@@ -36,6 +36,9 @@ fatal() {
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
 
+# shellcheck source=input-name-lib.sh
+. "$(dirname "$0")/input-name-lib.sh"
+
 context_file=${1:-}
 review_file=${2:-}
 { [ -n "$context_file" ] && [ -n "$review_file" ]; } \
@@ -50,16 +53,9 @@ pr_number=$(jq -er '.pr.number' "$context_file" 2>/dev/null) || fatal "pr.number
 base_ref=$(jq -er '.pr.base_ref' "$context_file" 2>/dev/null) || fatal "pr.base_ref missing in $context_file"
 head_oid=$(jq -er '.pr.head_oid' "$context_file" 2>/dev/null) || fatal "pr.head_oid missing in $context_file"
 
-# 入力ファイル名に PR 識別子が入っていることを確認する（prepare-review.sh が review_path として
-# 払い出す名前の規約）。固定名だと、同一セッションの scratchpad を共有する並列サブエージェント間で
-# 別 PR のレビュー内容に上書きされ、それを取り違えて投稿する事故になる。行コメントの path/line 検証は
-# comments[] が空のレビューでは取り違えを検出できないため、名前の側で構造的に止める
-expected_token="$(printf '%s' "$repo" | tr '/' '@')-${pr_number}.json"
-case "$(basename "$review_file")" in
-  *"$expected_token") ;;
-  *) fatal "review file name must end with '$expected_token' to bind it to this PR: $review_file
-use the review_path emitted by prepare-review.sh (a fixed name is overwritten by parallel reviews of other PRs)" ;;
-esac
+# 行コメントの path/line 検証は comments[] が空のレビューでは取り違えを検出できないため、
+# 入力ファイル名の側で構造的に止める（規約と理由は input-name-lib.sh のヘッダー参照）
+require_pr_bound_filename "$review_file" review_path "$context_file"
 
 assessment=$(jq -er '.assessment' "$review_file" 2>/dev/null) || fatal "assessment missing in $review_file"
 jq -e '.body | type == "string"' "$review_file" >/dev/null 2>&1 || fatal "body missing in $review_file"

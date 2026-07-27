@@ -32,9 +32,19 @@
 #   pr                number / title / body / url / state / author / head_ref / base_ref / head_oid
 #   head_committed_at pr.head_oid が指すコミットの committedDate（ISO-8601 UTC）。
 #                     review_threads[].awaiting_my_confirmation の時刻条件の比較相手。
-#                     コミットの日時はコミッタのマシン時刻由来のため、時計のずれで判定が
-#                     揺れうる（最悪ケースは確認返信が1回余分に出ることで、resolve 自体は
-#                     SKILL.md 側が差分確認を別途要求するため誤 resolve には至らない）
+#                     近似であることの既知の限界（どちらの方向にも外れる）:
+#                       - 偽陽性: コミット日時はコミッタのマシン時刻由来なので時計のずれで
+#                         早まりうる。また該当スレッドの path に無関係なコミットでも成立する。
+#                         結果は確認返信が余分に出ることで、resolve 自体は SKILL.md が
+#                         差分確認を別途要求するため誤 resolve には至らない
+#                       - 偽陰性: committedDate は push 時刻ではない。作者がローカルで
+#                         コミット → こちらが返信 → 作者が push の順序だと committedDate が
+#                         返信より古く、コードが動いているのにスレッドを拾えない（次の
+#                         コミットが来るまで復帰の契機がない silent な取りこぼし）。
+#                         push 時刻を持つフィールド（Commit.pushedDate）は現在ほぼ null を
+#                         返すため代替にできず、近似のまま許容している
+#                     絞り込みの改善余地: 「該当スレッドの path に触れたコミットの最新日時」に
+#                     すれば偽陽性は減る（偽陰性は解消しない）。現状は PR 全体の head 日時
 #   linked_issues[]   PR 本文の closing keyword から検出した {repo, number}（repo: null は同リポ）。
 #                     URL 形式・キーワードなしの素の #N は対象外（GitHub の自動 close 対象に揃える）
 #   comments_total_count / comments_truncated

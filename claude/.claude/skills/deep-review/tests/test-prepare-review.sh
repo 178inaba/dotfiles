@@ -169,6 +169,10 @@ assert_exit 'own pr: exit 0' $? 0
 assert_json 'own pr: comment OFF' "$out" '.modes.comment == false'
 assert_json 'own pr: personal rules ON' "$out" '.modes.personal_rules == true'
 assert_json 'own pr: autofix ON' "$out" '.modes.autofix == true'
+# 払い出しの条件は context_path の有無であってモードではない（comment OFF でも非 null）。
+# ここが null に化けると「PR 不在時だけ null」の不変条件が崩れたことになる
+assert_json 'own pr: input paths set even though comment mode is OFF' "$out" \
+  '(.review_path | type == "string") and (.threads_path | type == "string")'
 
 # --- ケース3: 自分の PR + --no-autofix → 自動対応のみ強制OFF ---
 out=$(cd "$REPO" && FETCH_STUB_CONTEXT="$(context_json true)" bash "$SCRIPT" "$TMP/scratch" 9 --no-autofix)
@@ -200,7 +204,9 @@ out=$(cd "$REPO" && GH_STUB_PR_JSON= bash "$SCRIPT" "$TMP/scratch")
 assert_exit 'no pr: exit 0' $? 0
 assert_json 'no pr: pr_exists false (local-review degradation)' "$out" '.pr_exists == false'
 assert_json 'no pr: context null' "$out" '.context_path == null'
-assert_json 'no pr: input paths null (comment mode is OFF, nothing to write)' "$out" \
+# null になる理由は comment モードではなく context_path が未確定（PR 不在で fetch を通らない）こと。
+# 自分の PR も comment OFF だが review_path は非 null になる（下のケース2で検証）
+assert_json 'no pr: input paths null because context was never fetched' "$out" \
   '.review_path == null and .threads_path == null'
 assert_json 'no pr: freshness null' "$out" '.freshness == null'
 assert_json 'no pr: comment OFF' "$out" '.modes.comment == false'
