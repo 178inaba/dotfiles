@@ -390,6 +390,29 @@ assert_ok 'missing reply url: reported as already replied, not unprocessed' \
 assert_ok 'missing reply url: the untouched thread is reported as unprocessed' \
   grep -q 'not processed: PRRT_B' "$TMP/err.txt"
 
+# --- JSON 構文エラー → parse error として報告（フィールド欠落と誤報告しない） ---
+# 長文 body の手書きエスケープ落ちで JSON 全体が無効になった際、jq の stderr を捨てて
+# "threads must be an array" 等と報告すると原因特定を誤誘導する（post-review.sh と対）
+in_broken=$(write_input broken '{"threads": [{"id": "PRRT_A", "body": "a "b" c", "resolve": true}]}')
+run "$in_broken" >/dev/null
+assert_exit 'broken threads JSON: exit 1' $? 1
+assert_ok 'broken threads JSON: no mutation issued' no_mutation
+assert_ok 'broken threads JSON: reported as invalid JSON' grep -q 'invalid JSON' "$TMP/err.txt"
+assert_ok 'broken threads JSON: jq parse error passed through' grep -qi 'parse error' "$TMP/err.txt"
+
+# context ファイルが壊れている場合も同様（"review_threads missing" と誤報告しない）
+: > "$GH_STUB_CALL_LOG"
+printf '{"repo": ' > "$TMP/pr-context-owner@repo-7.json"
+mkdir -p "$TMP/deep-review-owner@repo-7"
+printf '%s' '{"threads": []}' > "$TMP/deep-review-owner@repo-7/threads.json"
+(cd "$TMP/repo" && bash "$SCRIPT" "$TMP/pr-context-owner@repo-7.json" \
+  "$TMP/deep-review-owner@repo-7/threads.json" 2>"$TMP/err.txt")
+assert_exit 'broken context JSON: exit 1' $? 1
+assert_ok 'broken context JSON: no mutation issued' no_mutation
+assert_ok 'broken context JSON: reported as invalid JSON' grep -q 'invalid JSON' "$TMP/err.txt"
+assert_ok 'broken context JSON: not misreported as a missing field' \
+  bash -c "! grep -q 'review_threads missing' '$TMP/err.txt'"
+
 # --- 引数・ファイル不備 ---
 bash "$SCRIPT" >/dev/null 2>&1
 assert_exit 'missing args: exit 1' $? 1

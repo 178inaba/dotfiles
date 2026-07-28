@@ -65,6 +65,11 @@ threads_file=${2:-}
 [ -f "$context_file" ] || fatal "pr context file not found: $context_file"
 [ -f "$threads_file" ] || fatal "threads file not found: $threads_file"
 
+# 構文検査はフィールド検査より先に、jq の stderr を隠さず実行する（post-review.sh と対。
+# parse error を「フィールド欠落」と誤報告すると原因特定を誤誘導する）
+jq . "$context_file" >/dev/null || fatal "invalid JSON in $context_file (see the jq parse error above)"
+jq . "$threads_file" >/dev/null || fatal "invalid JSON in $threads_file (see the jq parse error above)"
+
 jq -e '.review_threads | type == "array"' "$context_file" >/dev/null 2>&1 \
   || fatal "review_threads missing in $context_file"
 head_oid=$(jq -er '.pr.head_oid' "$context_file" 2>/dev/null) || fatal "pr.head_oid missing in $context_file"

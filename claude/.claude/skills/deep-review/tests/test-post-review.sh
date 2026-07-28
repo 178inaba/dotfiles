@@ -228,5 +228,29 @@ assert 'missing work dir: stderr names the missing dir' \
 assert 'missing work dir: stderr gives the recovery step' \
   "grep -q 'prepare-review.sh' '$TMP/err11c.txt'"
 
+# --- ケース12: JSON 構文エラー → parse error として報告（フィールド欠落と誤報告しない） ---
+# 長文 body の手書きエスケープ落ちで JSON 全体が無効になった際、jq の stderr を捨てて
+# "assessment missing" と報告すると原因特定を誤誘導する（2026-07 の実障害）
+: > "$GH_STUB_LOG"
+printf '{"assessment": "Approve可能", "body": "a "b" c", "comments": []}' > "$WORK/rev12.json"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev12.json" 2>"$TMP/err12.txt")
+assert_exit 'broken review JSON: non-zero exit' $? 1
+assert 'broken review JSON: not posted' "[ ! -s '$GH_STUB_LOG' ]"
+assert 'broken review JSON: reported as invalid JSON' "grep -q 'invalid JSON' '$TMP/err12.txt'"
+assert 'broken review JSON: jq parse error passed through' "grep -qi 'parse error' '$TMP/err12.txt'"
+assert 'broken review JSON: not misreported as a missing field' "! grep -q 'assessment missing' '$TMP/err12.txt'"
+
+# context ファイルが壊れている場合も同様（"repo missing" と誤報告しない）
+: > "$GH_STUB_LOG"
+mkdir -p "$TMP/brokenctx/deep-review-acme@foo-9"
+printf '{"repo": ' > "$TMP/brokenctx/pr-context-acme@foo-9.json"
+write_review "$TMP/brokenctx/deep-review-acme@foo-9/rev12b.json" "Approve可能" '[]'
+(cd "$REPO" && bash "$SCRIPT" "$TMP/brokenctx/pr-context-acme@foo-9.json" \
+  "$TMP/brokenctx/deep-review-acme@foo-9/rev12b.json" 2>"$TMP/err12b.txt")
+assert_exit 'broken context JSON: non-zero exit' $? 1
+assert 'broken context JSON: not posted' "[ ! -s '$GH_STUB_LOG' ]"
+assert 'broken context JSON: reported as invalid JSON' "grep -q 'invalid JSON' '$TMP/err12b.txt'"
+assert 'broken context JSON: not misreported as a missing field' "! grep -q 'repo missing' '$TMP/err12b.txt'"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

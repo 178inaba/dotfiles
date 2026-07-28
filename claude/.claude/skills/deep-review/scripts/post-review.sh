@@ -46,6 +46,11 @@ review_file=${2:-}
 [ -f "$context_file" ] || fatal "pr context file not found: $context_file"
 [ -f "$review_file" ] || fatal "review file not found: $review_file"
 
+# 構文検査はフィールド検査より先に、jq の stderr を隠さず実行する。長文 body のエスケープ
+# 落ち等の parse error を「フィールド欠落」と誤報告すると原因特定を誤誘導するため
+jq . "$context_file" >/dev/null || fatal "invalid JSON in $context_file (see the jq parse error above)"
+jq . "$review_file" >/dev/null || fatal "invalid JSON in $review_file (see the jq parse error above)"
+
 git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not inside a git repository'
 
 repo=$(jq -er '.repo' "$context_file" 2>/dev/null) || fatal "repo missing in $context_file"
