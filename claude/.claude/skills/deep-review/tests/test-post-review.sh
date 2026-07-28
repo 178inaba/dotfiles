@@ -252,5 +252,60 @@ assert 'broken context JSON: not posted' "[ ! -s '$GH_STUB_LOG' ]"
 assert 'broken context JSON: reported as invalid JSON' "grep -q 'invalid JSON' '$TMP/err12b.txt'"
 assert 'broken context JSON: not misreported as a missing field' "! grep -q 'repo missing' '$TMP/err12b.txt'"
 
+# --- ケース13: body_file / comments[].body_file の解決（長文プロースの手書きエスケープ回避経路） ---
+printf '## レビュー結果\n\n"エスケープ不要" の本文\n' > "$WORK/body13.md"
+printf '**推奨修正**: `data-testid="x"` を付ける\n' > "$WORK/c13.md"
+jq -n '{assessment: "Approve可能", body_file: "body13.md",
+        comments: [{path: "stable.txt", line: 5, body_file: "c13.md"}]}' > "$WORK/rev13.json"
+out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev13.json")
+assert_exit 'body_file: exit 0' $? 0
+assert_json 'body_file: body read from the referenced file' "$(payload)" '.body | test("エスケープ不要")'
+assert_json 'body_file: comment body read from the referenced file' "$(payload)" '.comments[0].body | test("推奨修正")'
+assert_json 'body_file: body_file key not leaked into the payload' "$(payload)" '(has("body_file") | not) and (.comments[0] | has("body_file") | not)'
+
+# インラインと body_file の混在も可（コメントごとに選べる）
+printf 'file 側の本文\n' > "$WORK/c13b.md"
+jq -n '{assessment: "Approve可能", body: "インライン本文",
+        comments: [{path: "stable.txt", line: 5, body: "インライン指摘"},
+                   {path: "stable.txt", line: 3, body_file: "c13b.md"}]}' > "$WORK/rev13b.json"
+out=$(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev13b.json")
+assert_exit 'mixed inline/body_file: exit 0' $? 0
+assert_json 'mixed: inline comment passed through' "$(payload)" '.comments[0].body == "インライン指摘"'
+assert_json 'mixed: file comment resolved' "$(payload)" '.comments[1].body | test("file 側の本文")'
+
+# --- ケース14: body_file の契約違反 → 投稿せず非ゼロ exit ---
+# body と body_file の両方指定（どちらを投稿すべきか決められない）
+: > "$GH_STUB_LOG"
+jq -n '{assessment: "Approve可能", body: "a", body_file: "body13.md", comments: []}' > "$WORK/rev14a.json"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14a.json" 2>"$TMP/err14a.txt")
+assert_exit 'both body and body_file: non-zero exit' $? 1
+assert 'both body and body_file: not posted' "[ ! -s '$GH_STUB_LOG' ]"
+
+# どちらも無し
+jq -n '{assessment: "Approve可能", comments: []}' > "$WORK/rev14b.json"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14b.json" 2>"$TMP/err14b.txt")
+assert_exit 'neither body nor body_file: non-zero exit' $? 1
+
+# comments[] 側の両方指定
+jq -n '{assessment: "Approve可能", body: "a",
+        comments: [{path: "stable.txt", line: 5, body: "x", body_file: "c13.md"}]}' > "$WORK/rev14c.json"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14c.json" 2>"$TMP/err14c.txt")
+assert_exit 'comment with both body and body_file: non-zero exit' $? 1
+
+# パス区切りを含む参照（work_dir 束縛を file 参照で迂回させない）
+: > "$GH_STUB_LOG"
+jq -n '{assessment: "Approve可能", body_file: "../outside.md", comments: []}' > "$WORK/rev14d.json"
+printf 'outside\n' > "$TMP/outside.md"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14d.json" 2>"$TMP/err14d.txt")
+assert_exit 'body_file with a path separator: non-zero exit' $? 1
+assert 'body_file with a path separator: not posted' "[ ! -s '$GH_STUB_LOG' ]"
+assert 'body_file with a path separator: stderr names body_file' "grep -q 'body_file' '$TMP/err14d.txt'"
+
+# 参照先ファイルが存在しない
+jq -n '{assessment: "Approve可能", body_file: "no-such.md", comments: []}' > "$WORK/rev14e.json"
+(cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14e.json" 2>"$TMP/err14e.txt")
+assert_exit 'body_file not found: non-zero exit' $? 1
+assert 'body_file not found: stderr names the missing file' "grep -q 'no-such.md' '$TMP/err14e.txt'"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

@@ -3,7 +3,9 @@
 # /deep-review のレビュー投稿スクリプト
 #
 # レビュー結果（総合評価・body・行コメント）を受け取り、投稿前検証を通してから
-# GitHub REST API でレビューを投稿する。検証は決定的に実行する:
+# GitHub REST API でレビューを投稿する。本文は body_file / comments[].body_file で
+# work_dir 直下の素の Markdown ファイルを参照でき、投稿前に本文へ解決する。
+# 検証は決定的に実行する:
 #   1. ローカル HEAD == pr.head_oid の再確認（鮮度確認後に head が動いた場合の 422 を防ぐ）
 #   2. 行コメントの path/line を最新 diff（origin/<base>...HEAD の新ファイル側行番号、
 #      追加行 + context 行）と突き合わせ、diff に無い行があれば投稿せず非ゼロ exit で
@@ -63,10 +65,55 @@ head_oid=$(jq -er '.pr.head_oid' "$context_file" 2>/dev/null) || fatal "pr.head_
 require_in_review_work_dir "$review_file" review_path "$context_file"
 
 assessment=$(jq -er '.assessment' "$review_file" 2>/dev/null) || fatal "assessment missing in $review_file"
-jq -e '.body | type == "string"' "$review_file" >/dev/null 2>&1 || fatal "body missing in $review_file"
-jq -e '(.comments | type == "array") and ([.comments[] | select((.path | type) != "string" or (.line | type) != "number" or (.body | type) != "string")] | length == 0)' \
+
+# 本文はインライン（body）と file 参照（body_file）の排他。長文プロースを JSON 文字列として
+# 手書きするとエスケープ1文字の欠落で全体が無効になるため、素の Markdown を Write して
+# body_file で参照する経路を正規に受け付ける
+body_shape='if has("body") then (has("body_file") | not) and (.body | type == "string")
+            elif has("body_file") then (.body_file | type == "string") and (.body_file | length > 0)
+            else false end'
+jq -e "$body_shape" "$review_file" >/dev/null 2>&1 \
+  || fatal "exactly one of body (string) / body_file (non-empty string) is required in $review_file"
+jq -e "(.comments | type == \"array\") and ([.comments[]
+        | select(((.path | type) != \"string\") or ((.line | type) != \"number\") or (($body_shape) | not))]
+        | length == 0)" \
   "$review_file" >/dev/null 2>&1 \
-  || fatal "comments must be an array of {path: string, line: number, body: string} in $review_file"
+  || fatal "comments must be an array of {path: string, line: number, body xor body_file: string} in $review_file"
+
+# body_file 参照を本文へ解決する。参照は work_dir 直下のベース名に限定し、review_path と
+# 同じディレクトリ束縛を file 参照で迂回させない
+work_dir=$(dirname "$review_file")
+resolved_review=$(mktemp)
+trap 'rm -f "$resolved_review" "$resolved_review.tmp"' EXIT
+
+check_body_file() {
+  case "$1" in
+    */*) fatal "body_file must be a bare filename in the review work dir (no path separators): $1" ;;
+  esac
+  [ -f "$work_dir/$1" ] || fatal "body_file not found in the review work dir: $work_dir/$1"
+}
+
+cp "$review_file" "$resolved_review"
+ref=$(jq -r '.body_file // empty' "$resolved_review")
+if [ -n "$ref" ]; then
+  check_body_file "$ref"
+  jq --rawfile b "$work_dir/$ref" 'del(.body_file) | .body = $b' "$resolved_review" > "$resolved_review.tmp" \
+    || fatal "failed to resolve body_file: $ref"
+  mv "$resolved_review.tmp" "$resolved_review"
+fi
+comment_count=$(jq -r '.comments | length' "$resolved_review")
+i=0
+while [ "$i" -lt "$comment_count" ]; do
+  ref=$(jq -r --argjson i "$i" '.comments[$i].body_file // empty' "$resolved_review")
+  if [ -n "$ref" ]; then
+    check_body_file "$ref"
+    jq --rawfile b "$work_dir/$ref" --argjson i "$i" '.comments[$i] |= (del(.body_file) | .body = $b)' \
+      "$resolved_review" > "$resolved_review.tmp" \
+      || fatal "failed to resolve body_file: $ref"
+    mv "$resolved_review.tmp" "$resolved_review"
+  fi
+  i=$((i + 1))
+done
 
 case "$assessment" in
   'Approve可能')  event=APPROVE ;;
@@ -81,7 +128,6 @@ local_head=$(git rev-parse HEAD)
   || fatal "local HEAD ($local_head) differs from PR head ($head_oid); rerun the freshness check before posting"
 
 # --- 投稿前検証2: 行コメントの path/line が最新 diff に存在すること ---
-comment_count=$(jq -r '.comments | length' "$review_file")
 if [ "$comment_count" -gt 0 ]; then
   # -c color.diff=false / --no-ext-diff: ユーザーの git 設定（色・外部 diff）に左右されず
   # unified diff を決定的に得る。awk は hunk 内の行規則をファイルヘッダ規則より先に評価する —
@@ -107,7 +153,7 @@ if [ "$comment_count" -gt 0 ]; then
     }
     { inhunk = 0 }
   ')
-  invalid=$(jq -r '.comments[] | "\(.path):\(.line)"' "$review_file" \
+  invalid=$(jq -r '.comments[] | "\(.path):\(.line)"' "$resolved_review" \
     | grep -Fxv -f <(printf '%s\n' "$valid_lines")) || true
   if [ -n "$invalid" ]; then
     printf 'the following review comments point to lines absent from the current diff (origin/%s...HEAD); re-anchor them before posting:\n%s' \
@@ -121,7 +167,7 @@ payload=$(jq \
   --arg commit_id "$head_oid" \
   --arg event "$event" \
   '{commit_id: $commit_id, event: $event, body, comments: [.comments[] | {path, line, body}]}' \
-  "$review_file")
+  "$resolved_review")
 
 response=$(printf '%s' "$payload" | "$GH_BIN" api "repos/$repo/pulls/$pr_number/reviews" --method POST --input -) \
   || fatal 'failed to post review (gh api)'

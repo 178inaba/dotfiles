@@ -263,7 +263,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 （`modes.comment` が false の場合はスキップ）
 
-レビュー結果を `review_path`（prepare-review.sh の出力）に Write し、投稿スクリプトを実行する:
+レビュー本文（body・各行コメント）を素の Markdown ファイルとして `work_dir` 直下に Write し、`review_path`（prepare-review.sh の出力）にはそれらを `body_file` で参照する JSON を Write して、投稿スクリプトを実行する:
 
 ```bash
 bash ~/.claude/skills/deep-review/scripts/post-review.sh <context_path> <review_path>
@@ -274,13 +274,15 @@ bash ~/.claude/skills/deep-review/scripts/post-review.sh <context_path> <review_
 ```json
 {
   "assessment": "Approve可能" | "修正が必要" | "要議論",
-  "body": "レビュー全体のサマリー（総合評価、良い点、指摘事項の全リスト、検証記録）",
-  "comments": [{"path": "src/main.go", "line": 30, "body": "指摘内容"}]
+  "body_file": "body.md",
+  "comments": [{"path": "src/main.go", "line": 30, "body_file": "c1.md"}]
 }
 ```
 
 - `assessment`: セクション7の総合評価をそのまま書く（event への変換決定表はスクリプトが所有）
-- `body` / `comments[].body`: セクション6の原則・口調・言語（対象 PR の言語）で書く
+- `body_file` / `comments[].body_file`: `work_dir` 直下に Write した Markdown のファイル名（ベース名のみ・パス区切り不可）。スクリプトが投稿前に本文へ解決する
+- インラインの `body` / `comments[].body`（`body_file` と各エントリで排他・どちらか一方が必須）も受け付けるが、**短い一段落までに限る**。レビュー本文はコードスパン・表・`"` を含む長文になり、JSON 文字列への手書きエスケープは1文字の欠落で JSON 全体が無効になるため、原則 `body_file` を使う（Write した `.md` にはエスケープが発生しない）
+- 本文の内容（`body_file` の参照先・インラインとも）: セクション6の原則・口調・言語（対象 PR の言語）で書く
 - `comments[]`: 行に紐づく指摘のみ（`line` は新ファイル側の行番号）。無ければ空配列で body のみのレビューになる
 - **折りたたみの原則**: 作者のアクションが不要な内容（コメント内の長い根拠・検証記録・前回指摘の対応状況・nit）は `<details>` で折りたたみ、アクションを要求する内容は折りたたまない。`<details>` は PR への投稿（body・行コメント）専用 — セクション7のローカル出力には入れない（HTML タグは端末表示では単なるノイズ）。`<summary>` 行の直後の空行は必須（無いと中身の Markdown がレンダリングされない）
 - **`comments[].body` は冒頭に重要度ラベルを付ける**。ラベルは `**必須修正**:` / `**推奨修正**:` / `**質問**:`（対象 PR の言語の相当表現）— 無いと作者は行コメント単体でブロッキング性を判別できない。長い根拠（動作解説・実測値・コードスニペット等）は `<details><summary>検証詳細</summary>` に折りたたむ
@@ -354,6 +356,12 @@ bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <thr
 
 - `id`: `review_threads[].id`。`awaiting_my_confirmation: true` 以外を含めるとスクリプトが1件も投稿せず非ゼロ exit する（他レビュアーのスレッドの解消判定の代行・解決済みへの再投稿を構造的に防ぐため）
 - `body`: セクション6の原則・口調・言語（対象 PR の言語）で書く。**省略すると返信せず resolve のみ実行する**（2件目の例）。用途は2つ — 前回の自分の返信から判定が変わっていない場合と、下記の resolve 権限不足からの回復
+- 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープはセクション8と同じ理由で避ける）:
+
+  ```bash
+  jq -n --rawfile r1 <work_dir>/t1.md \
+    '{threads: [{id: "PRRT_...", body: $r1, resolve: true}]}' > <threads_path>
+  ```
 - `resolve`: 上記の決定表に従う。`body` 省略時は `true` でなければならない（返信も resolve もしないエントリは無意味なため非ゼロ exit）
 
 #### respond-threads.sh の出力・失敗時の契約
