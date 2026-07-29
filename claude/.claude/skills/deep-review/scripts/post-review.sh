@@ -48,10 +48,8 @@ review_file=${2:-}
 [ -f "$context_file" ] || fatal "pr context file not found: $context_file"
 [ -f "$review_file" ] || fatal "review file not found: $review_file"
 
-# 構文検査はフィールド検査より先に、jq の stderr を隠さず実行する。長文 body のエスケープ
-# 落ち等の parse error を「フィールド欠落」と誤報告すると原因特定を誤誘導するため
-jq . "$context_file" >/dev/null || fatal "invalid JSON in $context_file (see the jq parse error above)"
-jq . "$review_file" >/dev/null || fatal "invalid JSON in $review_file (see the jq parse error above)"
+require_valid_json "$context_file"
+require_valid_json "$review_file"
 
 git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not inside a git repository'
 
@@ -68,23 +66,23 @@ assessment=$(jq -er '.assessment' "$review_file" 2>/dev/null) || fatal "assessme
 
 # 本文はインライン（body）と file 参照（body_file）の排他。長文プロースを JSON 文字列として
 # 手書きするとエスケープ1文字の欠落で全体が無効になるため、素の Markdown を Write して
-# body_file で参照する経路を正規に受け付ける
-body_shape='if has("body") then (has("body_file") | not) and (.body | type == "string")
-            elif has("body_file") then (.body_file | type == "string") and (.body_file | length > 0)
-            else false end'
-jq -e "$body_shape" "$review_file" >/dev/null 2>&1 \
+# body_file で参照する経路を正規に受け付ける。排他条件は def に閉じて共有する
+# （ダブルクォート展開で jq プログラム側に \" エスケープを持ち込まない）
+body_ok='def body_ok:
+  if has("body") then (has("body_file") | not) and (.body | type == "string")
+  elif has("body_file") then (.body_file | type == "string") and (.body_file | length > 0)
+  else false end;'
+jq -e "$body_ok"' body_ok' "$review_file" >/dev/null 2>&1 \
   || fatal "exactly one of body (string) / body_file (non-empty string) is required in $review_file"
-jq -e "(.comments | type == \"array\") and ([.comments[]
-        | select(((.path | type) != \"string\") or ((.line | type) != \"number\") or (($body_shape) | not))]
-        | length == 0)" \
+jq -e "$body_ok"' (.comments | type == "array")
+  and all(.comments[]?; (.path | type) == "string" and (.line | type) == "number" and body_ok)' \
   "$review_file" >/dev/null 2>&1 \
   || fatal "comments must be an array of {path: string, line: number, body xor body_file: string} in $review_file"
 
 # body_file 参照を本文へ解決する。参照は work_dir 直下のベース名に限定し、review_path と
-# 同じディレクトリ束縛を file 参照で迂回させない
+# 同じディレクトリ束縛を file 参照で迂回させない。参照ファイル名 → 内容のマップを先に
+# 作り、単一の jq パスで一括解決する（body / comments[] で解決ロジックを複製しない）
 work_dir=$(dirname "$review_file")
-resolved_review=$(mktemp)
-trap 'rm -f "$resolved_review" "$resolved_review.tmp"' EXIT
 
 check_body_file() {
   case "$1" in
@@ -93,27 +91,20 @@ check_body_file() {
   [ -f "$work_dir/$1" ] || fatal "body_file not found in the review work dir: $work_dir/$1"
 }
 
-cp "$review_file" "$resolved_review"
-ref=$(jq -r '.body_file // empty' "$resolved_review")
-if [ -n "$ref" ]; then
+contents='{}'
+while IFS= read -r ref; do
   check_body_file "$ref"
-  jq --rawfile b "$work_dir/$ref" 'del(.body_file) | .body = $b' "$resolved_review" > "$resolved_review.tmp" \
-    || fatal "failed to resolve body_file: $ref"
-  mv "$resolved_review.tmp" "$resolved_review"
-fi
+  contents=$(jq --arg k "$ref" --rawfile v "$work_dir/$ref" '. + {($k): $v}' <<<"$contents") \
+    || fatal "failed to read body_file: $ref"
+done < <(jq -r '[.body_file] + [.comments[].body_file] | map(select(. != null)) | unique | .[]' "$review_file")
+
+resolved_review=$(mktemp)
+trap 'rm -f "$resolved_review"' EXIT
+jq --argjson contents "$contents" '
+  def resolve: if has("body_file") then del(.body_file) + {body: $contents[.body_file]} else . end;
+  resolve | .comments |= map(resolve)' "$review_file" > "$resolved_review" \
+  || fatal 'failed to resolve body_file references'
 comment_count=$(jq -r '.comments | length' "$resolved_review")
-i=0
-while [ "$i" -lt "$comment_count" ]; do
-  ref=$(jq -r --argjson i "$i" '.comments[$i].body_file // empty' "$resolved_review")
-  if [ -n "$ref" ]; then
-    check_body_file "$ref"
-    jq --rawfile b "$work_dir/$ref" --argjson i "$i" '.comments[$i] |= (del(.body_file) | .body = $b)' \
-      "$resolved_review" > "$resolved_review.tmp" \
-      || fatal "failed to resolve body_file: $ref"
-    mv "$resolved_review.tmp" "$resolved_review"
-  fi
-  i=$((i + 1))
-done
 
 case "$assessment" in
   'Approve可能')  event=APPROVE ;;

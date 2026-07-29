@@ -356,7 +356,7 @@ bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <thr
 
 - `id`: `review_threads[].id`。`awaiting_my_confirmation: true` 以外を含めるとスクリプトが1件も投稿せず非ゼロ exit する（他レビュアーのスレッドの解消判定の代行・解決済みへの再投稿を構造的に防ぐため）
 - `body`: セクション6の原則・口調・言語（対象 PR の言語）で書く。**省略すると返信せず resolve のみ実行する**（2件目の例）。用途は2つ — 前回の自分の返信から判定が変わっていない場合と、下記の resolve 権限不足からの回復
-- 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープはセクション8と同じ理由で避ける）:
+- 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープはセクション8と同じ理由で避ける。セクション8の `body_file` 機構を threads に持たせないのは意図的な省略 — 返信は通常短く機構が過剰なため。長文返信が常態化したら respond-threads.sh への `body_file` 対応を検討する）:
 
   ```bash
   jq -n --rawfile r1 <work_dir>/t1.md \

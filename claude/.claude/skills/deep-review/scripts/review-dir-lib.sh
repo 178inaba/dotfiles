@@ -1,4 +1,5 @@
-# /deep-review スクリプト共有のレビュー作業ディレクトリの導出・検証（source して使う。単体実行しない）
+# /deep-review スクリプト共有の入力検証 — レビュー作業ディレクトリの導出・検証と
+# 入力 JSON の構文検査（source して使う。単体実行しない）
 #
 # レビュー1件あたり1ディレクトリを割り当て、モデルが Write する入力ファイル（review / threads）と
 # レビュー中に作る補助ファイルをその中に閉じ込める。同一セッションの scratchpad を共有する
@@ -11,6 +12,13 @@
 # 識別子は context ファイル名から `pr-context-` と拡張子を strip して得る。repo と PR 番号から
 # 再構築しないのは、識別子の形式を定義しているのは fetch-pr-context.sh の出力名であり、
 # 各消費側で再構築すると起点の命名変更に追従できないため。
+
+# 入力 JSON の構文を検証する。フィールド検査より先に呼び、jq の stderr を隠さない —
+# 長文 body のエスケープ落ち等の parse error を「フィールド欠落」と誤報告すると
+# 原因特定を誤誘導するため。呼び出し元で fatal() が定義済みであること
+require_valid_json() {
+  jq . "$1" >/dev/null || fatal "invalid JSON in $1 (see the jq parse error above)"
+}
 
 # context ファイルと対になる作業ディレクトリのパスを返す（存在は保証しない）
 review_work_dir() {
