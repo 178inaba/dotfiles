@@ -280,17 +280,20 @@ jq -n '{assessment: "Approve可能", body: "a", body_file: "body13.md", comments
 (cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14a.json" 2>"$TMP/err14a.txt")
 assert_exit 'both body and body_file: non-zero exit' $? 1
 assert 'both body and body_file: not posted' "[ ! -s '$GH_STUB_LOG' ]"
+assert 'both body and body_file: stderr states the exclusivity' "grep -q 'exactly one of' '$TMP/err14a.txt'"
 
 # どちらも無し
 jq -n '{assessment: "Approve可能", comments: []}' > "$WORK/rev14b.json"
 (cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14b.json" 2>"$TMP/err14b.txt")
 assert_exit 'neither body nor body_file: non-zero exit' $? 1
+assert 'neither body nor body_file: stderr states the exclusivity' "grep -q 'exactly one of' '$TMP/err14b.txt'"
 
 # comments[] 側の両方指定
 jq -n '{assessment: "Approve可能", body: "a",
         comments: [{path: "stable.txt", line: 5, body: "x", body_file: "c13.md"}]}' > "$WORK/rev14c.json"
 (cd "$REPO" && bash "$SCRIPT" "$TMP/pr-context-acme@foo-9.json" "$WORK/rev14c.json" 2>"$TMP/err14c.txt")
 assert_exit 'comment with both body and body_file: non-zero exit' $? 1
+assert 'comment with both body and body_file: stderr names the comments contract' "grep -q 'comments must be' '$TMP/err14c.txt'"
 
 # パス区切りを含む参照（work_dir 束縛を file 参照で迂回させない）
 : > "$GH_STUB_LOG"
