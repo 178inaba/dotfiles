@@ -9,7 +9,7 @@
 name: skill-name
 description: 概要（1行）
 argument-hint: [引数]
-disable-model-invocation: true  # 副作用がある場合はtrue
+disable-model-invocation: true  # 副作用がある場合はtrue（例外は SKILL.md の判断基準を参照）
 ---
 
 # /skill-name
