@@ -22,6 +22,19 @@ $ gh auth login
 `gh` and `jq` are required by the Claude Code scripts (hooks, skills, statusline).
 Run `gh auth login` to authenticate the GitHub CLI after installing.
 
+### Optional CLI tools
+
+Some Claude Code skills wrap a dedicated CLI. They are optional — without them
+the corresponding skill just reports the missing command and stops.
+
+```zsh
+$ go install github.com/178inaba/cflio@latest  # Confluence (cflio skill)
+$ go install github.com/178inaba/rdsh@latest   # Redash (rdsh skill)
+$ go install github.com/178inaba/slio@latest   # Slack (slio skill)
+```
+
+Each requires a one-time `<command> auth login`.
+
 ## Packages
 
 - `claude`: Claude Code configuration
