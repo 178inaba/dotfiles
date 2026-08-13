@@ -37,6 +37,8 @@ precmd() {
 
 PS1='[%* %~$(__git_ps1 " (%s)")]\$ '
 RPROMPT='${exec_time}'
+# Remove RPROMPT from accepted lines so copied scrollback stays clean
+setopt TRANSIENT_RPROMPT
 
 # Alias
 alias ls='ls --color=auto'
