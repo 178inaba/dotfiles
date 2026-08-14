@@ -45,8 +45,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `skillOverrides` で組み込み `review` スキルを `"user-invocable-only"` に指定（モデルのスキル一覧から除去。ユーザーの手打ち `/review` は可能なまま）。`deep-review` と名前・機能が近接しているため、サブエージェントが「`/deep-review` を実行せよ」という指示を組み込み `review` で解決してしまい、`--worktree` が自由記述扱いになって worktree-resolution 規約に従わない worktree を即興作成する事故（2026-07-24、review-assigned-prs 経由の並列レビューで発生）を構造的に防ぐ。あわせて `deep-review` の description に PR レビュー対応を明記し、一覧上の意味マッチでも `deep-review` が PR レビューの受け皿になるようにしている
 
 ### Worktree 設定
-- `worktree.baseRef: "head"` を指定。`EnterWorktree(name:)` で worktree を作る経路（deep-review 等の PR worktree 解決、サブエージェントの `isolation: worktree`）が「ローカル HEAD を起点に worktree を作成する」契約を保つための前提（規約定義: `claude/.claude/skills/worktree-resolution/SKILL.md`）
-- issue-handle の `--worktree` はこの設定に依存しない（`git worktree add` 直接作成 + `EnterWorktree(path:)` 入場。経緯は `claude/.claude/skills/issue-handle/scripts/create-worktree.sh` のヘッダー参照）
+- `worktree.baseRef: "head"` を指定。`EnterWorktree(name:)` で worktree を作る経路が「ローカル HEAD を起点に worktree を作成する」契約を保つための前提。現在の消費者はサブエージェントの `isolation: worktree`（ハーネス機能）のみ
+- スキルの `--worktree`（issue-handle・deep-review 等の PR worktree 解決）はこの設定に依存しない。いずれも `git worktree add` による直接作成 + `EnterWorktree(path:)` 入場で、起点 ref を自分で指定するため（経緯は `claude/.claude/skills/issue-handle/scripts/create-worktree.sh` と `claude/.claude/skills/worktree-resolution/scripts/resolve-pr-worktree.sh` の各ヘッダー参照）
 
 ## テーマ統一
 - **ターミナル**: Ghostty (Solarized Dark Higher Contrast)

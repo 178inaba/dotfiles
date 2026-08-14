@@ -254,7 +254,8 @@ origin_head=$(git -C "$TMP/seed" rev-parse "$HEAD_REF")
 wt_head=$(git -C "$expected_wt" rev-parse HEAD)
 assert 'create: head matches origin' "[ '$wt_head' = '$origin_head' ]"
 # メインセッションもこの経路を使うため、メイン worktree の cwd から実行してもメインリポジトリの
-# branch・HEAD が動かないことを pin する（旧 finalize 経路が worktree 内実行を強制していた性質）
+# branch・HEAD が動かないことを pin する（切替前の cwd はメインツリーなので、誤って
+# メインリポジトリを PR branch へ switch する事故が最も起きやすい実行形）
 main_branch_after=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
 main_head_after=$(git -C "$repo" rev-parse HEAD)
 assert 'create: main repo branch untouched' "[ '$main_branch_before' = '$main_branch_after' ]"
