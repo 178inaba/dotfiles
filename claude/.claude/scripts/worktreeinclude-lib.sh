@@ -7,7 +7,9 @@
 # 変更時にドリフトするので、経路ごとではなく「バイパス作成」の性質としてここに一本化する。
 # テストは scripts/tests/test-worktreeinclude-lib.sh。
 #
-# 呼び出し元が定義済みであることを前提とする関数（warning・JSON の配管は持たない）:
+# 呼び出し元が定義済みであることを前提とする関数（warning・JSON の配管は持たない）。
+# 実体は warnings-lib.sh が提供するので、呼び出し元は両方を source する（この lib からは
+# source しない — 二重 source による warnings の再初期化と source 順への依存を避けるため）:
 #   add_warning <msg>  非致命の注意を蓄積する
 #   fatal <msg>        前提不成立で非ゼロ exit する
 #

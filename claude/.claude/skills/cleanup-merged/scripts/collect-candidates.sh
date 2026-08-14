@@ -13,32 +13,22 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
+
 include_closed=false
 for arg in "$@"; do
   case "$arg" in
     --include-closed) include_closed=true ;;
-    *)
-      printf 'unknown argument: %s\n' "$arg" >&2
-      exit 1
-      ;;
+    *) fatal "unknown argument: $arg" ;;
   esac
 done
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  printf 'not a git repository\n' >&2
-  exit 1
-fi
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq is required\n' >&2
-  exit 1
-fi
+git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not a git repository'
+command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 
 degraded=false
-warnings=""
-
-add_warning() {
-  warnings+="$1"$'\n'
-}
 
 default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
 [ -z "$default_branch" ] && default_branch="main"
@@ -225,11 +215,6 @@ to_json_array() {
   printf '%s' "$1" | jq -s '.'
 }
 
-# 改行区切りの文字列リスト → JSON 文字列配列
-to_string_array() {
-  printf '%s' "$1" | jq -Rs 'split("\n") | map(select(length > 0))'
-}
-
 jq -n \
   --argjson degraded "$degraded" \
   --arg default_branch "$default_branch" \
@@ -238,7 +223,7 @@ jq -n \
   --argjson branches "$(to_json_array "$br_candidates")" \
   --argjson skipped "$(to_json_array "$skipped")" \
   --argjson detached "$(to_string_array "$detached")" \
-  --argjson warnings "$(to_string_array "$warnings")" \
+  --argjson warnings "$(warnings_json)" \
   '{
     degraded: $degraded,
     default_branch: $default_branch,

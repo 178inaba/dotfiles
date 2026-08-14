@@ -7,7 +7,9 @@
 # 失敗したケースがあれば exit 1 で終了する。
 #
 # lib は source して使う関数のため、呼び出し元が担う add_warning / fatal をここで定義して
-# ドライブする（呼び出し元スクリプト経由ではなく lib 単体の挙動を見る）。
+# ドライブする（呼び出し元スクリプト経由ではなく lib 単体の挙動を見る）。実体は
+# warnings-lib.sh だが、それを source すると fatal が本当に exit して以降のケースが走らない
+# ため、ここでは記録に留めるスタブを置く。
 
 set -u
 
@@ -19,7 +21,7 @@ if [ ! -f "$LIB" ]; then
   exit 1
 fi
 
-# --- 呼び出し元が定義する前提の関数（実物の create-worktree.sh と同じ形） ---
+# --- 呼び出し元が定義する前提の関数（実物は warnings-lib.sh 由来） ---
 warnings=""
 add_warning() {
   warnings="${warnings}${1}

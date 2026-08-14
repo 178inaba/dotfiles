@@ -50,12 +50,9 @@ set -u
 
 # skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
 # ~/.claude 側で同一なので相対トラバースで解決する
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/worktreeinclude-lib.sh"
-
-fatal() {
-  printf '%s\n' "$1" >&2
-  exit 1
-}
+shared_scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts
+. "$shared_scripts/warnings-lib.sh"
+. "$shared_scripts/worktreeinclude-lib.sh"
 
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
@@ -66,16 +63,6 @@ subcommand=${1:-}
 common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
   || fatal 'not inside a git repository'
 main_root=$(dirname "$common_dir")
-
-warnings=""
-add_warning() {
-  warnings="${warnings}${1}
-"
-}
-
-warnings_json() {
-  printf '%s' "$warnings" | jq -Rs 'split("\n") | map(select(length > 0))'
-}
 
 # --- detect: Issue 番号に対応する既存 worktree の検索 ---
 detect() {
