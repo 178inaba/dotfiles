@@ -31,8 +31,16 @@ git clone -q "$TMP/origin.git" "$TMP/seed" 2>/dev/null
   git config user.email test@example.com
   git config user.name test
   git commit -q --allow-empty -m "initial"
+  # .gitignore はメインツリーの ignore 判定に効くため main に置く（現実の構成と同じ）。
+  # .worktreeinclude は create-fallback が checkout 後の内容を使うことの検証のため head branch のみ
+  printf '.env\n' > .gitignore
+  git add .gitignore
+  git commit -q -m "add gitignore"
   git push -q origin main
   git switch -qc "$HEAD_REF"
+  printf '.env\n' > .worktreeinclude
+  git add .worktreeinclude
+  git commit -q -m "add worktreeinclude"
   git commit -q --allow-empty -m "pr work"
   git push -q origin "$HEAD_REF"
   git switch -q main
@@ -267,6 +275,17 @@ out=$(cd "$repo" && bash "$SCRIPT" create-fallback "$WT_NAME" "$HEAD_REF")
 assert_exit 'create-fallback stale-diverged: exit 0' $? 0
 assert_json 'create-fallback stale-diverged: status diverged' "$out" '.status == "diverged"'
 
+# --- ケース13.5: create-fallback — .worktreeinclude コピーの配線（lib への委譲） ---
+# エッジケースは共有 lib の単体テスト（scripts/tests/test-worktreeinclude-lib.sh）が持つ。
+# ここは lib が正しい source-root / worktree-path で呼ばれ、結果が JSON に載ることだけを見る
+repo=$(setup_repo case13b)
+printf 'SECRET=1\n' > "$repo/.env"
+out=$(cd "$repo" && bash "$SCRIPT" create-fallback "$WT_NAME" "$HEAD_REF")
+assert_exit 'create-fallback copy: exit 0' $? 0
+assert_json 'create-fallback copy: copied_files is 1' "$out" '.copied_files == 1'
+assert 'create-fallback copy: .env copied into worktree' \
+  "[ -f '$repo/.claude/worktrees/$WT_NAME/.env' ]"
+
 # --- ケース14: finalize — EnterWorktree(name:) 後の switch + temp branch 削除 ---
 repo=$(setup_repo case14)
 wt="$repo/.claude/worktrees/$WT_NAME"
@@ -275,6 +294,8 @@ git -C "$repo" worktree add -q -b "worktree-$WT_NAME" "$wt" 2>/dev/null
 out=$(cd "$wt" && bash "$SCRIPT" finalize "$WT_NAME" "$HEAD_REF")
 assert_exit 'finalize: exit 0' $? 0
 assert_json 'finalize: status ok' "$out" '.status == "ok"'
+# ネイティブコピー経路のため「非該当」を null で表す（create-fallback のみ件数を返す）
+assert_json 'finalize: copied_files null' "$out" '.copied_files == null'
 wt_branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD)
 assert 'finalize: on head branch' "[ '$wt_branch' = '$HEAD_REF' ]"
 assert 'finalize: temp branch deleted' "! git -C '$repo' show-ref -q --verify 'refs/heads/worktree-$WT_NAME'"
