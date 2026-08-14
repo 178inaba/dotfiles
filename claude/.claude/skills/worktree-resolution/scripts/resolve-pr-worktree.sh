@@ -53,12 +53,8 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$script_dir/sync-lib.sh"
 # skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
 # ~/.claude 側で同一なので相対トラバースで解決する
+. "$script_dir/../../../scripts/warnings-lib.sh"
 . "$script_dir/../../../scripts/worktreeinclude-lib.sh"
-
-fatal() {
-  printf '%s\n' "$1" >&2
-  exit 1
-}
 
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
@@ -67,16 +63,6 @@ subcommand=${1:-}
 [ -n "$subcommand" ] || fatal 'usage: resolve-pr-worktree.sh <resolve|create-fallback|finalize> [args]'
 
 git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not inside a git repository'
-
-warnings=""
-add_warning() {
-  warnings="${warnings}${1}
-"
-}
-
-warnings_json() {
-  printf '%s' "$warnings" | jq -Rs 'split("\n") | map(select(length > 0))'
-}
 
 # ローカル branch と origin/<branch> の乖離を分類し、安全な ff のみ自動同期する。
 # 出力 status: ok（乖離なし）| synced | behind_dirty | diverged

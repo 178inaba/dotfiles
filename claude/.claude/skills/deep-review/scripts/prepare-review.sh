@@ -29,10 +29,9 @@ CHECK_PR_FRESHNESS_BIN=${CHECK_PR_FRESHNESS_BIN:-$HOME/.claude/skills/worktree-r
 
 USAGE='usage: prepare-review.sh <scratchpad-dir> [<pr-number>] [--issue N] [--worktree] [--local-only] [--no-autofix]'
 
-fatal() {
-  printf '%s\n' "$1" >&2
-  exit 1
-}
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
 
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
@@ -76,12 +75,6 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-
-warnings=""
-add_warning() {
-  warnings="${warnings}${1}
-"
-}
 
 # --- PR 存在プローブ（fetch より先に「PR なし」か「取得失敗」かを確定させる） ---
 pr_exists=true
@@ -133,7 +126,7 @@ emit() {
     --argjson modes "$modes" \
     --argjson freshness "$freshness" \
     --argjson issues "$issues" \
-    --argjson warnings "$(printf '%s' "$warnings" | jq -Rs 'split("\n") | map(select(length > 0))')" \
+    --argjson warnings "$(warnings_json)" \
     '{status: $status,
       flags: {pr_number: $pr, issue: $issue, worktree: $worktree, local_only: $local_only, no_autofix: $no_autofix},
       pr_exists: $pr_exists,
