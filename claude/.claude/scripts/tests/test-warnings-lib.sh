@@ -58,11 +58,14 @@ add_warning 'second warning'
 add_warning 'third warning'
 json=$(warnings_json)
 
-assert "add_warning: 3 entries accumulated" \
-  "[ \"\$(printf '%s' \"\$json\" | jq 'length')\" = '3' ]" "$json"
-assert "add_warning: input order preserved" \
+assert "add_warning: entries accumulated in input order" \
   "[ \"\$(printf '%s' \"\$json\" | jq -r '@tsv')\" = \$'first warning\tsecond warning\tthird warning' ]" \
   "$json"
+
+# 再 source が蓄積済みの warning を消さない（呼び出し元と別 lib の両方から読まれる形への備え）
+. "$LIB"
+assert "re-source: accumulated warnings kept" \
+  "[ \"\$(warnings_json | jq 'length')\" = '3' ]" "$(warnings_json)"
 
 # --- ケース4: JSON 特殊文字を含む warning がエスケープされる ---
 # 手書きエスケープを避けて jq -Rs に任せていることの回帰ガード
@@ -80,8 +83,6 @@ assert "to_string_array: empty input is []" \
 
 list=$'alpha\nbravo\n'
 array=$(to_string_array "$list")
-assert "to_string_array: 2 entries" \
-  "[ \"\$(printf '%s' \"\$array\" | jq 'length')\" = '2' ]" "$array"
 assert "to_string_array: entries in order" \
   "[ \"\$(printf '%s' \"\$array\" | jq -r '@tsv')\" = \$'alpha\tbravo' ]" "$array"
 

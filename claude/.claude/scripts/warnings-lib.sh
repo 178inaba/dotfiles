@@ -8,7 +8,8 @@
 #
 # 提供する関数と、蓄積先のグローバル変数:
 #   warnings                 蓄積先。source 時に空で初期化するので、set -u の呼び出し元が
-#                            add_warning を1度も通らない経路でも参照できる
+#                            add_warning を1度も通らない経路でも参照できる（再 source は
+#                            蓄積済みの内容を保つ）
 #   fatal <msg>              英語メッセージを stderr に出して exit 1
 #   add_warning <msg>        非致命の注意を1行ずつ warnings に追記する
 #   to_string_array <list>   改行区切りの文字列リスト → JSON 文字列配列（空行は落とす）
@@ -22,7 +23,9 @@ fatal() {
   exit 1
 }
 
-warnings=""
+# 未設定なら空で初期化する。素の代入にしないのは、呼び出し元と、それが source する別 lib の
+# 両方から読まれる形になったときに、蓄積済みの warning を後勝ちで消さないため
+: "${warnings:=}"
 
 add_warning() {
   warnings="${warnings}${1}
