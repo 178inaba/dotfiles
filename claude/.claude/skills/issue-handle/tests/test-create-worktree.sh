@@ -39,7 +39,7 @@ git clone -q "$TMP/origin.git" "$TMP/seed" 2>/dev/null
   git commit -q -m "add gitignore"
   git push -q origin main
   git switch -qc "$BASE"
-  printf '.env\nconfig/secrets.json\nnot-ignored.txt\n' > .worktreeinclude
+  printf '.env\nconfig/secrets.json\n' > .worktreeinclude
   printf 'tracked\n' > tracked.txt
   git add .worktreeinclude tracked.txt
   git commit -q -m "add worktreeinclude"

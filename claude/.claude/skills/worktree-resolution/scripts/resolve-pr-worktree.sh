@@ -132,8 +132,14 @@ main_worktree_path() {
   git worktree list --porcelain | awk '$1 == "worktree" { print substr($0, 10); exit }'
 }
 
+# メイン worktree のルート（linked worktree の cwd でも共通 .git の親を返す）。
+# main_worktree_path() と同じ値だが worktree 数に依存しないので、列挙が不要な用途はこちらを使う
+main_root() {
+  dirname "$(git rev-parse --path-format=absolute --git-common-dir)"
+}
+
 worktrees_root() {
-  printf '%s/.claude/worktrees' "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+  printf '%s/.claude/worktrees' "$(main_root)"
 }
 
 case "$subcommand" in
@@ -228,7 +234,7 @@ case "$subcommand" in
 
     # 停止 status でも worktree 自体は作成済みで、ユーザーがそのまま使う判断もありうるため
     # status では分岐させない
-    copy_worktreeinclude "$(main_worktree_path)" "$wt_path"
+    copy_worktreeinclude "$(main_root)" "$wt_path"
 
     emit_worktree_result "$wt_path" "$WORKTREEINCLUDE_COPIED"
     ;;
