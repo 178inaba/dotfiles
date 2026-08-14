@@ -23,9 +23,15 @@ fatal() {
   exit 1
 }
 
-# 未設定なら空で初期化する。素の代入にしないのは、呼び出し元と、それが source する別 lib の
-# 両方から読まれる形になったときに、蓄積済みの warning を後勝ちで消さないため
-: "${warnings:=}"
+# 初回 source でのみ空に初期化する。無条件の代入にしないのは、呼び出し元と、それが source する
+# 別 lib の両方から読まれる形になったときに蓄積済みの warning を後勝ちで消さないため。
+# 一方 `: "${warnings:=}"` だと親プロセスが export した warnings を継承してしまい、その値が
+# 出力 JSON に混ざる（しかも改行終端されないので最初の実 warning と結合する）ため、
+# 「同一プロセス内で蓄積済み」と「環境からの継承」を sentinel で区別する
+if [ -z "${__warnings_lib_sourced:-}" ]; then
+  __warnings_lib_sourced=1
+  warnings=""
+fi
 
 add_warning() {
   warnings="${warnings}${1}

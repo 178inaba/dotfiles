@@ -67,6 +67,11 @@ assert "add_warning: entries accumulated in input order" \
 assert "re-source: accumulated warnings kept" \
   "[ \"\$(warnings_json | jq 'length')\" = '3' ]" "$(warnings_json)"
 
+# 親プロセスが export した warnings は継承せずクリアする（環境が出力 JSON に混ざらない）
+inherited=$(warnings='LEAKED FROM ENV' bash -c ". '$LIB'; add_warning 'real warning'; warnings_json")
+assert "env inheritance: exported warnings does not leak" \
+  "[ \"\$(printf '%s' \"\$inherited\" | jq -r '.[0]')\" = 'real warning' ]" "$inherited"
+
 # --- ケース4: JSON 特殊文字を含む warning がエスケープされる ---
 # 手書きエスケープを避けて jq -Rs に任せていることの回帰ガード
 warnings=""
