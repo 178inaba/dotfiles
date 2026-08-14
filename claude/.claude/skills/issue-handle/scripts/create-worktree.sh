@@ -24,10 +24,8 @@
 #     一切触れない。fetch は行わない（事前準備 Step 2 の fetch が前提。失敗していても
 #     ローカル base へフォールバックする）。
 #
-#     作成後、.worktreeinclude（起点 commit に含まれる場合）のネイティブ挙動を再現して
-#     gitignored ファイルをメインツリーからコピーする: パターン一致かつ gitignored の
-#     ファイルのみ対象（tracked・単なる untracked は対象外）、symlink はスキップ、
-#     コピー先が committed symlink 経由で worktree 外へ出る場合もスキップ。
+#     作成後、.worktreeinclude のネイティブ挙動（gitignored ファイルのコピー）を再現する。
+#     詳細は共有 lib scripts/worktreeinclude-lib.sh のヘッダーを参照。
 #     EnterWorktree(name:) 経路と違い WorktreeCreate hook は発火しない。
 #
 # stdout は JSON のみ:
@@ -49,6 +47,10 @@
 # 非ゼロ exit + 英語 stderr。
 
 set -u
+
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/worktreeinclude-lib.sh"
 
 fatal() {
   printf '%s\n' "$1" >&2
@@ -147,39 +149,9 @@ create() {
   git -C "$main_root" worktree add --quiet "$worktree_path" -b "$branch" "$start_ref" \
     || fatal "git worktree add failed for $worktree_path"
 
-  # .worktreeinclude のネイティブ挙動再現（起点 commit に含まれる場合のみ）
-  local copied=0
-  if [ -f "$worktree_path/.worktreeinclude" ] && [ ! -L "$worktree_path/.worktreeinclude" ]; then
-    local worktree_phys
-    worktree_phys=$(cd "$worktree_path" && pwd -P) || fatal "failed to resolve: $worktree_path"
-    # パターン一致の untracked を列挙 → 実際に gitignored のものへ絞る（tracked は --others が除外）
-    local file dest_dir resolved_dir
-    while IFS= read -r -d '' file; do
-      case "$file" in
-        .claude/worktrees/*) continue ;;  # 他 worktree 内のファイルはコピー元にしない
-      esac
-      if [ -L "$main_root/$file" ]; then
-        add_warning "skipped symlink in .worktreeinclude: $file"
-        continue
-      fi
-      dest_dir="$worktree_path/$(dirname "$file")"
-      mkdir -p "$dest_dir" || fatal "failed to create directory: $dest_dir"
-      # コピー先が committed symlink 経由で worktree 外へ出ていないか
-      resolved_dir=$(cd "$dest_dir" && pwd -P) || fatal "failed to resolve: $dest_dir"
-      case "$resolved_dir/" in
-        "$worktree_phys/"*) ;;
-        *)
-          add_warning "skipped .worktreeinclude entry (destination escapes worktree): $file"
-          continue
-          ;;
-      esac
-      cp -p "$main_root/$file" "$worktree_path/$file" || fatal "failed to copy: $file"
-      copied=$((copied + 1))
-    done < <(git -C "$main_root" ls-files -z --others --ignored --exclude-from="$worktree_path/.worktreeinclude" \
-               | git -C "$main_root" check-ignore -z --stdin)
-  fi
+  copy_worktreeinclude "$main_root" "$worktree_path"
 
-  emit ok "$worktree_path" "$start_ref" "$copied"
+  emit ok "$worktree_path" "$start_ref" "$WORKTREEINCLUDE_COPIED"
 }
 
 case "$subcommand" in

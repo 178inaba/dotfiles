@@ -45,21 +45,6 @@ git clone -q "$TMP/origin.git" "$TMP/seed" 2>/dev/null
   git commit -q -m "add worktreeinclude"
   git commit -q --allow-empty -m "base tip"
   git push -q origin "$BASE"
-  # escape ガード検証用: config が worktree 外を指す committed symlink の branch
-  mkdir -p "$TMP/outside"
-  git switch -qc escape main
-  printf 'config/secrets.json\n' > .worktreeinclude
-  ln -s "$TMP/outside" config
-  git add .worktreeinclude config
-  git commit -q -m "escape fixture"
-  git push -q origin escape
-  # .worktreeinclude 自体が committed symlink の branch
-  git switch -qc wtinc-symlink main
-  printf '.env\n' > real-include
-  ln -s real-include .worktreeinclude
-  git add real-include .worktreeinclude
-  git commit -q -m "symlinked worktreeinclude fixture"
-  git push -q origin wtinc-symlink
   git switch -q main
 )
 
@@ -132,50 +117,25 @@ assert_json "case1c: detect 4 not found" "$out" '.found == false'
 out=$(cd "$repo" && bash "$SCRIPT" detect 142)
 assert_json "case1c: detect 142 not found" "$out" '.found == false'
 
-# --- ケース2: .worktreeinclude コピー（gitignored のみ、パターン一致でも非 ignore は対象外） ---
+# --- ケース2: .worktreeinclude コピーの配線（lib への委譲） ---
+# エッジケースは共有 lib の単体テスト（scripts/tests/test-worktreeinclude-lib.sh）が持つ。
+# ここは lib が正しい source-root / worktree-path で呼ばれ、件数と warning が JSON に
+# 載ることだけを見る（実ファイル1件 + symlink 1件で両方を1ケースで確認する）
 repo=$(setup_repo case2)
 (
   cd "$repo"
   printf 'SECRET=1\n' > .env
   mkdir -p config
-  printf '{}\n' > config/secrets.json
-  printf 'plain\n' > not-ignored.txt   # パターン一致するが gitignored でない
+  printf 'real\n' > real-secrets
+  ln -s real-secrets config/secrets.json
 )
 out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$BRANCH" "$BASE")
 wt="$repo/.claude/worktrees/$WT_NAME"
 
-assert_json "case2: copied_files is 2" "$out" '.copied_files == 2'
+assert_json "case2: copied_files is 1" "$out" '.copied_files == 1'
 assert "case2: .env copied" "[ -f '$wt/.env' ]"
-assert "case2: nested file copied" "[ -f '$wt/config/secrets.json' ]"
-assert "case2: non-ignored file not copied" "[ ! -f '$wt/not-ignored.txt' ]"
-
-# --- ケース3: symlink はスキップして warning ---
-repo=$(setup_repo case3)
-(
-  cd "$repo"
-  printf 'real\n' > real-file
-  ln -s real-file .env
-)
-out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$BRANCH" "$BASE")
-wt="$repo/.claude/worktrees/$WT_NAME"
-
-assert "case3: symlink not copied" "[ ! -e '$wt/.env' ]"
-assert_json "case3: warning emitted" "$out" '.warnings | length > 0'
-
-# --- ケース4: 他 worktree 配下のファイルはコピー元にしない ---
-repo=$(setup_repo case4)
-(
-  cd "$repo"
-  printf 'SECRET=1\n' > .env
-  mkdir -p .claude/worktrees/other
-  printf 'LEAK=1\n' > .claude/worktrees/other/.env
-)
-out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$BRANCH" "$BASE")
-wt="$repo/.claude/worktrees/$WT_NAME"
-
-assert_json "case4: copied_files is 1" "$out" '.copied_files == 1'
-assert "case4: other worktree env not nested-copied" \
-  "[ ! -e '$wt/.claude/worktrees/other/.env' ]"
+assert_json "case2: copy warning surfaces in warnings[]" "$out" \
+  '.warnings | any(contains("skipped symlink"))'
 
 # --- ケース5: origin/<base> 不在ならローカル base へフォールバック ---
 repo=$(setup_repo case5)
@@ -218,15 +178,6 @@ assert_json "case8: status path_exists" "$out" '.status == "path_exists"'
 assert "case8: branch not created" \
   "! git -C '$repo' show-ref --verify --quiet 'refs/heads/$BRANCH'"
 
-# --- ケース9: .worktreeinclude が起点 commit に無ければコピーは発生しない ---
-repo=$(setup_repo case9)
-(cd "$repo" && printf 'SECRET=1\n' > .env)
-out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$BRANCH" main)   # main には .worktreeinclude なし
-wt="$repo/.claude/worktrees/$WT_NAME"
-assert_json "case9: status ok" "$out" '.status == "ok"'
-assert_json "case9: copied_files is 0" "$out" '.copied_files == 0'
-assert "case9: .env not copied" "[ ! -e '$wt/.env' ]"
-
 # --- ケース10: detect — 旧命名（worktree- prefix）も見つける ---
 repo=$(setup_repo case10)
 git -C "$repo" worktree add -q "$repo/.claude/worktrees/legacy" \
@@ -259,27 +210,6 @@ out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$BRANCH" "$BASE")
 assert_json "case13: start_ref stays origin" "$out" ".start_ref == \"origin/$BASE\""
 assert_json "case13: ahead warning emitted" "$out" \
   '.warnings | any(contains("not on origin"))'
-
-# --- ケース14: コピー先が committed symlink 経由で worktree 外へ出る場合はスキップ + warning ---
-repo=$(setup_repo case14)
-(
-  cd "$repo"
-  mkdir -p config
-  printf 'SECRET=1\n' > config/secrets.json
-)
-out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$BRANCH" escape)
-assert_json "case14: escape warning emitted" "$out" \
-  '.warnings | any(contains("escapes worktree"))'
-assert_json "case14: nothing copied" "$out" '.copied_files == 0'
-assert "case14: no write outside worktree" "[ ! -e '$TMP/outside/secrets.json' ]"
-
-# --- ケース15: .worktreeinclude 自体が symlink ならコピーは発生しない ---
-repo=$(setup_repo case15)
-(cd "$repo" && printf 'SECRET=1\n' > .env)
-out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$BRANCH" wtinc-symlink)
-wt="$repo/.claude/worktrees/$WT_NAME"
-assert_json "case15: copied_files is 0" "$out" '.copied_files == 0'
-assert "case15: .env not copied" "[ ! -e '$wt/.env' ]"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
