@@ -68,6 +68,16 @@ git clone -q "$TMP/origin.git" "$TMP/seed" 2>/dev/null
   git commit -q -m "escape fixture"
   git push -q origin escape
 
+  # leaf escape 検証用: コピー先そのものが worktree 外を指す committed symlink の branch。
+  # gitignored なパスを追跡させるため add -f を使う（攻撃者が仕込める形の再現）
+  git switch -qc leaf-escape main
+  printf '.env\n' > .worktreeinclude
+  ln -s "$TMP/outside/stolen" .env
+  git add .worktreeinclude
+  git add -f .env
+  git commit -q -m "leaf escape fixture"
+  git push -q origin leaf-escape
+
   # .worktreeinclude 自体が committed symlink の branch
   git switch -qc wtinc-symlink main
   printf '.env\n' > real-include
@@ -166,6 +176,19 @@ assert "case4: copied 0 files" "[ '$WORKTREEINCLUDE_COPIED' -eq 0 ]"
 assert "case4: warning mentions escape" \
   "printf '%s' \"\$warnings\" | grep -q 'escapes worktree'" "$warnings"
 assert "case4: no write outside worktree" "[ ! -e '$TMP/outside/secrets.json' ]"
+
+# --- ケース4b: コピー先そのものが worktree 外を指す committed symlink ならスキップ ---
+# ケース4 は途中のディレクトリの symlink。末端が素通りすると cp が symlink を辿り、
+# 他人の PR branch を checkout する create-fallback 経路で secret が worktree 外へ流出する
+IFS=$'\t' read -r src wt < <(setup_case case4b leaf-escape)
+printf 'SECRET=1\n' > "$src/.env"
+reset_caller_state
+copy_worktreeinclude "$src" "$wt"
+
+assert "case4b: copied 0 files" "[ '$WORKTREEINCLUDE_COPIED' -eq 0 ]"
+assert "case4b: warning mentions committed symlink destination" \
+  "printf '%s' \"\$warnings\" | grep -q 'destination is a committed symlink'" "$warnings"
+assert "case4b: secret did not leak outside worktree" "[ ! -e '$TMP/outside/stolen' ]"
 
 # --- ケース5: .worktreeinclude が checkout に無ければ何もしない ---
 IFS=$'\t' read -r src wt < <(setup_case case5 main)   # main には .worktreeinclude なし

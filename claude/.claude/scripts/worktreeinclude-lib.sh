@@ -15,8 +15,10 @@
 #   <worktree-path>/.worktreeinclude（= 起点/checkout 中の commit に含まれるもの）の
 #   パターンに一致し、かつ <source-root> で gitignored のファイルを worktree へコピーする。
 #   tracked・単なる untracked は対象外。.worktreeinclude が無い、または symlink なら何もしない。
-#   コピー元が symlink、コピー先が committed symlink 経由で worktree 外へ出る場合はスキップ
-#   （いずれも add_warning）。.claude/worktrees/ 配下はコピー元にしない。
+#   コピー元が symlink、コピー先が committed symlink（末端・途中のディレクトリとも）の場合は
+#   スキップ（いずれも add_warning）。.claude/worktrees/ 配下はコピー元にしない。
+#   コピー先の symlink を弾くのは、他人の PR branch を checkout する create-fallback 経路で、
+#   worktree 外を指す committed symlink 経由の書き出し（gitignored な secret の流出）を防ぐため。
 #
 #   コピー数はグローバル WORKTREEINCLUDE_COPIED に返す。stdout を戻り値にしないのは、
 #   command substitution で呼ぶと add_warning の蓄積がサブシェルに閉じて warning が消えるため。
@@ -52,6 +54,12 @@ copy_worktreeinclude() {
         continue
         ;;
     esac
+    # コピー先そのものが committed symlink だと cp が symlink を辿って書き込む（worktree 外への
+    # 流出、または tracked ファイルの上書き）。dest_dir 側の検査は末端を見ないためここで弾く
+    if [ -L "$worktree_path/$file" ]; then
+      add_warning "skipped .worktreeinclude entry (destination is a committed symlink): $file"
+      continue
+    fi
     cp -p "$src_root/$file" "$worktree_path/$file" || fatal "failed to copy: $file"
     WORKTREEINCLUDE_COPIED=$((WORKTREEINCLUDE_COPIED + 1))
   done < <(git -C "$src_root" ls-files -z --others --ignored --exclude-from="$include_file" \
