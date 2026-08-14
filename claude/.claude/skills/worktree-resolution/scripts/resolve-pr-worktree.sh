@@ -18,6 +18,9 @@
 #     EnterWorktree(name:) が使えないサブエージェント用の作成経路。
 #     <メインworktreeルート>/.claude/worktrees/<worktree-name> に detached worktree を作成し、
 #     head branch へ switch + origin へ同期する。resolve の fetch 実施が前提。
+#     同期後、checkout した .worktreeinclude のネイティブ挙動（gitignored ファイルのコピー）を
+#     再現する（詳細は共有 lib scripts/worktreeinclude-lib.sh のヘッダー）。EnterWorktree(name:)
+#     経路と違い WorktreeCreate hook は発火しない。
 #   resolve-pr-worktree.sh finalize <worktree-name> <head-ref>
 #     EnterWorktree(name:) で作成した worktree 内（cwd）で実行。head branch へ switch +
 #     origin へ同期し、temp branch worktree-<worktree-name> を削除する（削除失敗は warning）。
@@ -35,6 +38,8 @@
 #   worktree_path  対象 worktree の絶対パス（resolve は enter_existing 時のみ非 null）
 #   evacuated      メインリポジトリをデフォルト branch へ退避したか（resolve のみ）
 #   synced         origin への ff 同期を実施したか
+#   copied_files   .worktreeinclude によりコピーしたファイル数（create-fallback のみ。
+#                  finalize は EnterWorktree(name:) のネイティブコピー経路のため非該当で null）
 #   warnings[]     非致命の注意（temp branch 削除失敗等）。空でなければ AI が報告に併記する
 #
 # 前提不成立（リポジトリ外・jq/gh 欠如・PR 解決失敗・git 操作の機械的失敗）は非ゼロ exit +
@@ -44,7 +49,11 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
-. "$(cd "$(dirname "$0")" && pwd)/sync-lib.sh"
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/sync-lib.sh"
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$script_dir/../../../scripts/worktreeinclude-lib.sh"
 
 fatal() {
   printf '%s\n' "$1" >&2
@@ -95,15 +104,17 @@ normalize_sync() {
   esac
 }
 
-# create-fallback / finalize 共通の結果出力
+# create-fallback / finalize 共通の結果出力。<copied> 省略時は copied_files: null（非該当）
 emit_worktree_result() {
-  local path=$1
+  local path=$1 copied=${2:-null}
   jq -n \
     --arg status "$status" \
     --arg path "$path" \
     --argjson synced "$synced" \
+    --argjson copied "$copied" \
     --argjson warnings "$(warnings_json)" \
-    '{status: $status, worktree_path: $path, synced: $synced, warnings: $warnings}'
+    '{status: $status, worktree_path: $path, synced: $synced,
+      copied_files: $copied, warnings: $warnings}'
 }
 
 # git worktree list --porcelain から branch <ref> を checkout 中の linked worktree パスを返す。
@@ -121,8 +132,14 @@ main_worktree_path() {
   git worktree list --porcelain | awk '$1 == "worktree" { print substr($0, 10); exit }'
 }
 
+# メイン worktree のルート（linked worktree の cwd でも共通 .git の親を返す）。
+# main_worktree_path() と同じ値だが worktree 数に依存しないので、列挙が不要な用途はこちらを使う
+main_root() {
+  dirname "$(git rev-parse --path-format=absolute --git-common-dir)"
+}
+
 worktrees_root() {
-  printf '%s/.claude/worktrees' "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+  printf '%s/.claude/worktrees' "$(main_root)"
 }
 
 case "$subcommand" in
@@ -214,7 +231,12 @@ case "$subcommand" in
 
     sync_status=$(sync_with_origin "$wt_path" "$head_ref") || exit 1
     normalize_sync "$sync_status"
-    emit_worktree_result "$wt_path"
+
+    # 停止 status でも worktree 自体は作成済みで、ユーザーがそのまま使う判断もありうるため
+    # status では分岐させない
+    copy_worktreeinclude "$(main_root)" "$wt_path"
+
+    emit_worktree_result "$wt_path" "$WORKTREEINCLUDE_COPIED"
     ;;
 
   finalize)
