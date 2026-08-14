@@ -30,6 +30,7 @@ paths:
 - `skills/review-response/SKILL.md`（`<!-- review-response -->` マーカー変更時のみ）: `scripts/tests/test-fetch-pr-context.sh`（マーカー同期テスト）
 - `skills/worktree-resolution/scripts/sync-lib.sh`（source 用の共有関数、単体テストなし）: `skills/worktree-resolution/tests/test-resolve-pr-worktree.sh` と `test-check-pr-freshness.sh` の両方を実行（source 元2スクリプトのテストでカバー）
 - `skills/deep-review/scripts/review-dir-lib.sh`（source 用の共有関数、単体テストなし）: `skills/deep-review/tests/test-prepare-review.sh`・`test-post-review.sh`・`test-respond-threads.sh` の3本を実行（払い出し側と検証側の両方が source しているため）
+- `scripts/worktreeinclude-lib.sh`（source 用の共有関数、単体テストあり）: 規約通りの `scripts/tests/test-worktreeinclude-lib.sh` に**加えて** `skills/issue-handle/tests/test-create-worktree.sh` と `skills/worktree-resolution/tests/test-resolve-pr-worktree.sh` も実行（source 元の wiring テストが lib の warning 文言・挙動に依存しており、lib のみの編集で破損が潜伏するため）
 
 全テストの列挙: `find claude/.claude -path '*/tests/test-*.sh'`
 
