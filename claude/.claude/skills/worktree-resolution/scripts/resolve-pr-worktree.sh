@@ -198,7 +198,7 @@ case "$subcommand" in
       || fatal "origin/$head_ref not found locally; run the resolve subcommand first (it fetches the head branch)"
 
     wt_path="$(worktrees_root)/$worktree_name"
-    git worktree add -q --detach "$wt_path" >/dev/null 2>&1 \
+    git worktree add -q --detach "$wt_path" \
       || fatal "git worktree add failed for $wt_path"
     git -C "$wt_path" switch -q "$head_ref" \
       || fatal "git switch $head_ref failed inside $wt_path"
