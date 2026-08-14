@@ -8,7 +8,7 @@ user-invocable: false
 
 PR・ブランチに対応する worktree を解決（既存検索・切替・新規作成）するための共通規約と手順。`/issue-handle`・`/review-response`・`/deep-review` の `--worktree` から参照される。PR を対象にレビュー・修正を行うスキルが共有する鮮度確認サブ手順もここに置く（こちらは worktree の有無に関わらず参照される）。
 
-決定的な配管（PR 番号確定・worktree 名計算・既存検索・同期・退避・作成後の switch）は `scripts/` の2本が実行し、AI 判断に残るのは作成・切替プリミティブの分岐（session 状態はスクリプトから観測できない）と、停止 status 時のユーザー対応のみ。
+決定的な配管（PR 番号確定・worktree 名計算・既存検索・同期・退避・作成・作成後の switch）は `scripts/` の2本が実行し、AI 判断に残るのは session 切替プリミティブの分岐（session 状態はスクリプトから観測できない）と、停止 status 時のユーザー対応のみ。
 
 ## 共通規約
 
@@ -16,16 +16,14 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 
 - **worktree 名の計算**: branch 名から `/` を `-` に置換する
   - 例: `feature/99-add-oauth` → `feature-99-add-oauth`
-  - **必ず sanitize してから `EnterWorktree(name:)` に渡す**。`/` を含む値を渡すと Claude Code 実装により `+` に置換され、以降の既存 worktree 検索パターンから外れて再開検出に失敗する（2026-07-06 実測、公式未文書挙動）
+  - `-` に揃えるのは、ディレクトリ階層を作らずスキル間で検索パターンを共有するため。参考: `EnterWorktree(name:)` に `/` を含む値を渡すと Claude Code 実装により `+` に置換され、この検索パターンから外れる（2026-07-06 実測、公式未文書挙動）。現在は作成をスクリプトに一本化しているため、この quirk に触れる経路は無い
 - **既存 worktree の検索**: `git worktree list --porcelain` を解析し、`branch refs/heads/<branch>` を checkout 中の linked worktree を探す（メイン worktree は除外 — メインが対象 branch を checkout 中のケースは退避で扱う）。PR worktree 解決では resolve スクリプトが実行する
-- **EnterWorktree を優先する**: `EnterWorktree` は組み込みのライフサイクル統合点（`.worktreeinclude` コピー・終了時の自動クリーンアップ判定・WorktreeCreate hook 発火）であることに加え、session の `workspace.project_dir` を worktree へ切り替える（Bash `cd` はプロセス cwd を変えるだけで、project_dir 起点で解決される機構はそのままになる）。Bash `cd` 代替は以下の構造的に不可能な文脈に限る:
-  - **サブエージェント内では新規作成（`name:`）は一律拒否される**（"EnterWorktree cannot create a worktree from a subagent with a cwd override" エラー。明示的な `isolation`・`cwd` 指定がないサブエージェントでも発生する — 2026-07-07 実測。公式仕様上サブエージェントは `path` 形式のみ・対象は `.claude/worktrees/` 配下限定）→ 作成は `create-fallback` サブコマンドで代替する
-  - **`path:` 切替もエージェント起動時に固定されたプロセス cwd で「現在のリポジトリ」を判定する**（Bash の `cd` では変わらない）。対象リポジトリ外の cwd で起動されたサブエージェント（/review-assigned-prs の clone dir 構成等）では `path:` 切替も "the current directory is not in a git repository" で失敗する（2026-07-07 実測）。該当する場合は EnterWorktree を試行せず Bash `cd` で代替する
-  - **base ref を指定した新規作成は `EnterWorktree(name:)` では不可能**（base を渡すパラメータが無く、旧回避策のメインツリー HEAD 移動は Claude Code 2.1.222 の隔離強化で復元不能になった）→ `git worktree add` 直接作成 + `EnterWorktree(path:)` 切替で代替する（実装例: issue-handle の `scripts/create-worktree.sh`）
-  - **バイパス作成（上記2経路 — `create-fallback` と `git worktree add` 直接作成）で失われるのは WorktreeCreate hook の発火と終了時の自動クリーンアップ判定のみ**。`.worktreeinclude` コピーは共有 lib `~/.claude/scripts/worktreeinclude-lib.sh` が両経路で再現する（経路ごとに実装を持つとネイティブ挙動の変更時にドリフトするため一本化している）
+- **作成はスクリプト、切替は EnterWorktree**: worktree の新規作成に `EnterWorktree(name:)` は使わない。切替（`path:`）だけを EnterWorktree に任せる
+  - **作成が常にスクリプト経由なのは、`name:` が起点 ref を選べないため**。PR worktree は PR head branch、issue-handle はベースブランチが起点で、いずれも `name:` では表現できない（base を渡すパラメータが無く、旧回避策のメインツリー HEAD 移動は Claude Code 2.1.222 の隔離強化で復元不能になった）。起点を合わせるための temp branch 経由の作成→移動は、ハーネスが作った branch を削除することになりオーナーシップが乖離する。加えて**サブエージェント内では `name:` 自体が一律拒否される**（"EnterWorktree cannot create a worktree from a subagent with a cwd override" エラー。明示的な `isolation`・`cwd` 指定がないサブエージェントでも発生する — 2026-07-07 実測。公式仕様上サブエージェントは `path` 形式のみ・対象は `.claude/worktrees/` 配下限定）。実装は PR worktree が `create` サブコマンド、issue-handle が `scripts/create-worktree.sh`
+  - **切替に `EnterWorktree(path:)` を優先する**のは、session の `workspace.project_dir` を worktree へ切り替えるため（Bash `cd` はプロセス cwd を変えるだけで、project_dir 起点で解決される機構はそのままになる）。ただし**`path:` 切替もエージェント起動時に固定されたプロセス cwd で「現在のリポジトリ」を判定する**（Bash の `cd` では変わらない）ため、対象リポジトリ外の cwd で起動されたサブエージェント（/review-assigned-prs の clone dir 構成等）では "the current directory is not in a git repository" で失敗する（2026-07-07 実測）。該当する場合は EnterWorktree を試行せず Bash `cd` で代替する
+  - **スクリプト作成で失われるのは WorktreeCreate hook の発火と終了時の自動クリーンアップ判定のみ**。`.worktreeinclude` コピーは共有 lib `~/.claude/scripts/worktreeinclude-lib.sh` が両スクリプトで再現する（経路ごとに実装を持つとネイティブ挙動の変更時にドリフトするため一本化している）
 - **Bash `cd` 代替は毎回前置する**: 各 Bash 呼び出しに `cd <対象パス> && ...` を前置して作業する（worktree 作成前のリポジトリ操作は対象リポジトリへ、作成後の作業は worktree へ。git 操作は `git -C <対象パス>` でも可、ファイル操作は絶対パスを使用）。毎回前置が必須なのは公式仕様のため: サブエージェントの Bash は cwd を呼び出し間で持ち越さない（許可ディレクトリ内でも起動時 cwd に戻る — 2026-07-24 実測確認）。メインセッションでも project directory / additionalDirectories 外への `cd` は自動リセットされる
 - **EnterWorktree 後の絶対パス**: session cwd は worktree に切り替わるが、Edit/Write に渡す絶対パスは自動変換されない。切替**前**に Read したメインツリー絶対パスを Edit/Write に流用しない（機械的強制: `~/.claude/hooks/worktree-edit-guard.sh` がブロックする）
-- **前提**: `worktree.baseRef: "head"` 設定（`~/.claude/settings.json`、dotfiles では設定済み）
 
 ## PR worktree 解決手順
 
@@ -44,23 +42,21 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
    - メインセッション: `EnterWorktree(path: <worktree_path>)`
    - 対象リポジトリ外 cwd のサブエージェント: 共通規約に従い Bash `cd` で代替
 
-3. **`action: "create"`** → 作成と切替（作成プリミティブは実行文脈で分岐）:
-   - **メインセッション**: `EnterWorktree(name: <worktree_name>)` で作成・切替し、worktree 内で仕上げを実行:
-     ```bash
-     bash ~/.claude/skills/worktree-resolution/scripts/resolve-pr-worktree.sh finalize <worktree_name> <head_ref>
-     ```
-     （PR branch への switch・origin 同期・temp branch `worktree-<worktree_name>` の削除。`status: ok` 以外は停止、`warnings[]` は報告に併記）
-   - **サブエージェント**（`EnterWorktree(name:)` 不可）:
-     ```bash
-     bash ~/.claude/skills/worktree-resolution/scripts/resolve-pr-worktree.sh create-fallback <worktree_name> <head_ref>
-     ```
-     返った `worktree_path` へ切替: 対象リポジトリ内 cwd なら `EnterWorktree(path:)`、対象リポジトリ外 cwd なら Bash `cd` 代替。`status: diverged`（古い同名ローカル branch に独自 commit が残っている残骸）は停止。`.worktreeinclude` コピーの結果は `copied_files`（件数）と `warnings[]`（symlink スキップ等）に載る。この経路では終了時の自動クリーンアップ判定が働かないため、回収は `/cleanup-merged` に委ねる
+3. **`action: "create"`** → 作成と切替（作成は実行文脈に依らず同じ）:
+   ```bash
+   bash ~/.claude/skills/worktree-resolution/scripts/resolve-pr-worktree.sh create <worktree_name> <head_ref>
+   ```
+   - 返った `worktree_path` へ切替: 対象リポジトリ内 cwd なら `EnterWorktree(path:)`、対象リポジトリ外 cwd のサブエージェントなら Bash `cd` 代替
+   - `status: diverged`（古い同名ローカル branch に独自 commit が残っている残骸）は停止
+   - 非ゼロ exit（`origin/<head_ref>` 不在・残骸ディレクトリによる `git worktree add` 失敗等）は stderr を提示して停止する
+   - `.worktreeinclude` コピーの結果は `copied_files`（件数）と `warnings[]`（symlink スキップ等）に載る
+   - この経路では終了時の自動クリーンアップ判定が働かないため、回収は `/cleanup-merged` に委ねる
 
 4. **作業ディレクトリ確認**: `git rev-parse --show-toplevel` が worktree パスを返すことを確認する（Bash `cd` 代替では `cd <worktree-path> && git rev-parse --show-toplevel` に読み替える）
 
 ## 共通サブ手順: origin への同期
 
-ローカル branch を `origin/<branch>` の最新に揃える処理。resolve / create-fallback / finalize が内部で実行するため単独の呼び出しは不要で、ここでは status の解釈だけを定める:
+ローカル branch を `origin/<branch>` の最新に揃える処理。resolve / create が内部で実行するため単独の呼び出しは不要で、ここでは status の解釈だけを定める:
 
 - 安全な fast-forward（behind のみ・clean。untracked のみの変更は無視）だけが自動実行され、`synced: true` で返る
 - `behind_dirty`: 未コミット変更あり → 停止し、コミット/stash をユーザーに促す（未コミット変更を破棄しないため）

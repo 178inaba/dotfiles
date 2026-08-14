@@ -32,7 +32,7 @@ git clone -q "$TMP/origin.git" "$TMP/seed" 2>/dev/null
   git config user.name test
   git commit -q --allow-empty -m "initial"
   # .gitignore はメインツリーの ignore 判定に効くため main に置く（現実の構成と同じ）。
-  # .worktreeinclude は create-fallback が checkout 後の内容を使うことの検証のため head branch のみ
+  # .worktreeinclude は create が checkout 後の内容を使うことの検証のため head branch のみ
   printf '.env\n' > .gitignore
   git add .gitignore
   git commit -q -m "add gitignore"
@@ -239,114 +239,83 @@ out=$(cd "$wt" && bash "$SCRIPT" resolve 42)
 assert_exit 'resolve from inside worktree: exit 0' $? 0
 assert_json 'resolve from inside worktree: finds itself' "$out" ".worktree_path == \"$wt\""
 
-# --- ケース11: create-fallback — detached add + switch + 同期 ---
+# --- ケース11: create — detached add + switch + 同期 ---
 repo=$(setup_repo case11)
-out=$(cd "$repo" && bash "$SCRIPT" create-fallback "$WT_NAME" "$HEAD_REF")
-assert_exit 'create-fallback: exit 0' $? 0
+main_branch_before=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
+main_head_before=$(git -C "$repo" rev-parse HEAD)
+out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$HEAD_REF")
+assert_exit 'create: exit 0' $? 0
 expected_wt="$repo/.claude/worktrees/$WT_NAME"
-assert_json 'create-fallback: worktree_path' "$out" ".worktree_path == \"$expected_wt\""
-assert 'create-fallback: worktree exists' "[ -d '$expected_wt' ]"
+assert_json 'create: worktree_path' "$out" ".worktree_path == \"$expected_wt\""
+assert 'create: worktree exists' "[ -d '$expected_wt' ]"
 wt_branch=$(git -C "$expected_wt" rev-parse --abbrev-ref HEAD)
-assert 'create-fallback: on head branch' "[ '$wt_branch' = '$HEAD_REF' ]"
+assert 'create: on head branch' "[ '$wt_branch' = '$HEAD_REF' ]"
 origin_head=$(git -C "$TMP/seed" rev-parse "$HEAD_REF")
 wt_head=$(git -C "$expected_wt" rev-parse HEAD)
-assert 'create-fallback: head matches origin' "[ '$wt_head' = '$origin_head' ]"
+assert 'create: head matches origin' "[ '$wt_head' = '$origin_head' ]"
+# メインセッションもこの経路を使うため、メイン worktree の cwd から実行してもメインリポジトリの
+# branch・HEAD が動かないことを pin する（切替前の cwd はメインツリーなので、誤って
+# メインリポジトリを PR branch へ switch する事故が最も起きやすい実行形）
+main_branch_after=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
+main_head_after=$(git -C "$repo" rev-parse HEAD)
+assert 'create: main repo branch untouched' "[ '$main_branch_before' = '$main_branch_after' ]"
+assert 'create: main repo HEAD untouched' "[ '$main_head_before' = '$main_head_after' ]"
 
-# --- ケース12: create-fallback — 古い同名ローカル branch（behind）→ origin に ff 同期 ---
+# --- ケース12: create — 古い同名ローカル branch（behind）→ origin に ff 同期 ---
 repo=$(setup_repo case12)
 git -C "$repo" branch -q "$HEAD_REF" "origin/$HEAD_REF"
 push_origin_commit "case12 remote advance"
 git -C "$repo" fetch -q origin "$HEAD_REF"
-out=$(cd "$repo" && bash "$SCRIPT" create-fallback "$WT_NAME" "$HEAD_REF")
-assert_exit 'create-fallback stale-behind: exit 0' $? 0
-assert_json 'create-fallback stale-behind: synced true' "$out" '.synced == true'
+out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$HEAD_REF")
+assert_exit 'create stale-behind: exit 0' $? 0
+assert_json 'create stale-behind: synced true' "$out" '.synced == true'
 origin_head=$(git -C "$TMP/seed" rev-parse "$HEAD_REF")
 wt_head=$(git -C "$repo/.claude/worktrees/$WT_NAME" rev-parse HEAD)
-assert 'create-fallback stale-behind: fast-forwarded to origin' "[ '$wt_head' = '$origin_head' ]"
+assert 'create stale-behind: fast-forwarded to origin' "[ '$wt_head' = '$origin_head' ]"
 
-# --- ケース13: create-fallback — 古い同名ローカル branch（独自 commit あり）→ diverged で停止 ---
+# --- ケース13: create — 古い同名ローカル branch（独自 commit あり）→ diverged で停止 ---
 repo=$(setup_repo case13)
 git -C "$repo" switch -qc "$HEAD_REF" "origin/$HEAD_REF"
 git -C "$repo" commit -q --allow-empty -m "stale local only"
 git -C "$repo" switch -q main
 push_origin_commit "case13 remote advance"
 git -C "$repo" fetch -q origin "$HEAD_REF"
-out=$(cd "$repo" && bash "$SCRIPT" create-fallback "$WT_NAME" "$HEAD_REF")
-assert_exit 'create-fallback stale-diverged: exit 0' $? 0
-assert_json 'create-fallback stale-diverged: status diverged' "$out" '.status == "diverged"'
+out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$HEAD_REF")
+assert_exit 'create stale-diverged: exit 0' $? 0
+assert_json 'create stale-diverged: status diverged' "$out" '.status == "diverged"'
 
-# --- ケース13.5: create-fallback — .worktreeinclude コピーの配線（lib への委譲） ---
+# --- ケース13.5: create — .worktreeinclude コピーの配線（lib への委譲） ---
 # エッジケースは共有 lib の単体テスト（scripts/tests/test-worktreeinclude-lib.sh）が持つ。
 # ここは lib が正しい source-root / worktree-path で呼ばれ、結果が JSON に載ることだけを見る
 repo=$(setup_repo case13b)
 printf 'SECRET=1\n' > "$repo/.env"
-out=$(cd "$repo" && bash "$SCRIPT" create-fallback "$WT_NAME" "$HEAD_REF")
-assert_exit 'create-fallback copy: exit 0' $? 0
-assert_json 'create-fallback copy: copied_files is 1' "$out" '.copied_files == 1'
-assert 'create-fallback copy: .env copied into worktree' \
+out=$(cd "$repo" && bash "$SCRIPT" create "$WT_NAME" "$HEAD_REF")
+assert_exit 'create copy: exit 0' $? 0
+assert_json 'create copy: copied_files is 1' "$out" '.copied_files == 1'
+assert 'create copy: .env copied into worktree' \
   "[ -f '$repo/.claude/worktrees/$WT_NAME/.env' ]"
 
-# --- ケース14: finalize — EnterWorktree(name:) 後の switch + temp branch 削除 ---
+# --- ケース14: 引数不正 → 非ゼロ exit + stderr ---
 repo=$(setup_repo case14)
-wt="$repo/.claude/worktrees/$WT_NAME"
-git -C "$repo" fetch -q origin "$HEAD_REF"
-git -C "$repo" worktree add -q -b "worktree-$WT_NAME" "$wt" 2>/dev/null
-out=$(cd "$wt" && bash "$SCRIPT" finalize "$WT_NAME" "$HEAD_REF")
-assert_exit 'finalize: exit 0' $? 0
-assert_json 'finalize: status ok' "$out" '.status == "ok"'
-# ネイティブコピー経路のため「非該当」を null で表す（create-fallback のみ件数を返す）
-assert_json 'finalize: copied_files null' "$out" '.copied_files == null'
-wt_branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD)
-assert 'finalize: on head branch' "[ '$wt_branch' = '$HEAD_REF' ]"
-assert 'finalize: temp branch deleted' "! git -C '$repo' show-ref -q --verify 'refs/heads/worktree-$WT_NAME'"
-origin_head=$(git -C "$TMP/seed" rev-parse "$HEAD_REF")
-wt_head=$(git -C "$wt" rev-parse HEAD)
-assert 'finalize: head matches origin' "[ '$wt_head' = '$origin_head' ]"
-
-# --- ケース15: finalize — temp branch 不在でも成功（warning 扱い） ---
-repo=$(setup_repo case15)
-wt="$repo/.claude/worktrees/$WT_NAME"
-git -C "$repo" fetch -q origin "$HEAD_REF"
-git -C "$repo" worktree add -q --detach "$wt" 2>/dev/null
-out=$(cd "$wt" && bash "$SCRIPT" finalize "$WT_NAME" "$HEAD_REF")
-assert_exit 'finalize without temp branch: exit 0' $? 0
-assert_json 'finalize without temp branch: status ok' "$out" '.status == "ok"'
-assert_json 'finalize without temp branch: warning recorded' "$out" '.warnings | length >= 1'
-
-# --- ケース15.5: finalize — メイン worktree の cwd で実行 → 非ゼロ exit（誤 switch ガード） ---
-repo=$(setup_repo case15b)
-git -C "$repo" fetch -q origin "$HEAD_REF"
-before=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
-(cd "$repo" && bash "$SCRIPT" finalize "$WT_NAME" "$HEAD_REF" 2>"$TMP/err15b.txt")
-assert_exit 'finalize in main worktree: non-zero exit' $? 1
-assert 'finalize in main worktree: stderr present' "[ -s '$TMP/err15b.txt' ]"
-after=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
-assert 'finalize in main worktree: branch untouched' "[ '$before' = '$after' ]"
-
-# --- ケース16: 引数不正 → 非ゼロ exit + stderr ---
-repo=$(setup_repo case16)
-(cd "$repo" && bash "$SCRIPT" 2>"$TMP/err16a.txt")
+(cd "$repo" && bash "$SCRIPT" 2>"$TMP/err14a.txt")
 assert_exit 'no subcommand: non-zero exit' $? 1
-assert 'no subcommand: stderr present' "[ -s '$TMP/err16a.txt' ]"
+assert 'no subcommand: stderr present' "[ -s '$TMP/err14a.txt' ]"
 
-(cd "$repo" && bash "$SCRIPT" unknown-subcommand 2>"$TMP/err16b.txt")
+(cd "$repo" && bash "$SCRIPT" unknown-subcommand 2>"$TMP/err14b.txt")
 assert_exit 'unknown subcommand: non-zero exit' $? 1
-assert 'unknown subcommand: stderr present' "[ -s '$TMP/err16b.txt' ]"
+assert 'unknown subcommand: stderr present' "[ -s '$TMP/err14b.txt' ]"
 
-(cd "$repo" && bash "$SCRIPT" resolve not-a-number 2>"$TMP/err16c.txt")
+(cd "$repo" && bash "$SCRIPT" resolve not-a-number 2>"$TMP/err14c.txt")
 assert_exit 'non-numeric pr number: non-zero exit' $? 1
 
-(cd "$repo" && bash "$SCRIPT" create-fallback 2>"$TMP/err16d.txt")
-assert_exit 'create-fallback missing args: non-zero exit' $? 1
+(cd "$repo" && bash "$SCRIPT" create 2>"$TMP/err14d.txt")
+assert_exit 'create missing args: non-zero exit' $? 1
 
-(cd "$repo" && bash "$SCRIPT" finalize "$WT_NAME" 2>"$TMP/err16e.txt")
-assert_exit 'finalize missing head-ref: non-zero exit' $? 1
-
-# --- ケース17: リポジトリ外 → 非ゼロ exit ---
+# --- ケース15: リポジトリ外 → 非ゼロ exit ---
 mkdir -p "$TMP/not-a-repo"
-(cd "$TMP/not-a-repo" && bash "$SCRIPT" resolve 42 2>"$TMP/err17.txt")
+(cd "$TMP/not-a-repo" && bash "$SCRIPT" resolve 42 2>"$TMP/err15.txt")
 assert_exit 'outside repo: non-zero exit' $? 1
-assert 'outside repo: stderr present' "[ -s '$TMP/err17.txt' ]"
+assert 'outside repo: stderr present' "[ -s '$TMP/err15.txt' ]"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
