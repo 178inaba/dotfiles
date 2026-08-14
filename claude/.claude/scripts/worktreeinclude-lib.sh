@@ -2,7 +2,7 @@
 #
 # Claude Code は EnterWorktree で worktree を作る際、committed な .worktreeinclude の
 # パターンに一致する gitignored ファイル（.env 等）をコピーする。git worktree add で直接
-# 作る経路（issue-handle の create-worktree.sh、worktree-resolution の create-fallback）は
+# 作る経路（issue-handle の create-worktree.sh、worktree-resolution の create）は
 # このネイティブ挙動を素通りするため、ここで再現する。片方だけが実装を持つとネイティブ挙動の
 # 変更時にドリフトするので、経路ごとではなく「バイパス作成」の性質としてここに一本化する。
 # テストは scripts/tests/test-worktreeinclude-lib.sh。
@@ -19,7 +19,7 @@
 #   tracked・単なる untracked は対象外。.worktreeinclude が無い、または symlink なら何もしない。
 #   コピー元が symlink、コピー先が committed symlink（末端・途中のディレクトリとも）の場合は
 #   スキップ（いずれも add_warning）。.claude/worktrees/ 配下はコピー元にしない。
-#   コピー先の symlink を弾くのは、他人の PR branch を checkout する create-fallback 経路で、
+#   コピー先の symlink を弾くのは、他人の PR branch を checkout する create 経路で、
 #   worktree 外を指す committed symlink 経由の書き出し（gitignored な secret の流出）を防ぐため。
 #
 #   コピー数はグローバル WORKTREEINCLUDE_COPIED に返す。stdout を戻り値にしないのは、

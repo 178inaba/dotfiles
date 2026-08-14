@@ -3,9 +3,9 @@
 # PR worktree 解決の配管スクリプト（worktree-resolution スキル所有。
 # /deep-review・/review-response の --worktree から SKILL.md 経由で使われる）
 #
-# 「PR worktree 解決手順」の決定的処理を3サブコマンドで提供する。worktree 作成プリミティブの
-# 選択（EnterWorktree(name:) / create-fallback）と session 切替は AI 側に残す2フェーズ契約:
-# session の状態（EnterWorktree の可否・cwd）はスクリプトから観測できないため。
+# 「PR worktree 解決手順」の決定的処理を2サブコマンドで提供する。worktree の作成は実行文脈に
+# 依らず create が担い、AI 側に残るのは session 切替プリミティブの選択（EnterWorktree(path:) /
+# Bash cd）だけ: session の状態（cwd・EnterWorktree の可否）はスクリプトから観測できないため。
 #
 # 使用方法:
 #   resolve-pr-worktree.sh resolve [<pr-number>]
@@ -14,16 +14,17 @@
 #     既存あり: origin への同期（安全な ff のみ自動）まで実施。
 #     既存なし: メインリポジトリの退避（カレント branch == head branch かつ clean の場合のみ
 #     デフォルト branch へ switch）と head branch の fetch まで実施。
-#   resolve-pr-worktree.sh create-fallback <worktree-name> <head-ref>
-#     EnterWorktree(name:) が使えないサブエージェント用の作成経路。
+#   resolve-pr-worktree.sh create <worktree-name> <head-ref>
+#     メインセッション・サブエージェント共通の作成経路。対象リポジトリ内の任意の cwd で実行でき、
+#     メインリポジトリの HEAD・working tree には触れない。
 #     <メインworktreeルート>/.claude/worktrees/<worktree-name> に detached worktree を作成し、
 #     head branch へ switch + origin へ同期する。resolve の fetch 実施が前提。
+#     detached add → switch の順にするのは、resolve の fetch が refs/remotes/origin/<head-ref>
+#     しか作らず、git worktree add は git switch と違い remote branch の DWIM をしないため
+#     （初回作成が落ちる）。
 #     同期後、checkout した .worktreeinclude のネイティブ挙動（gitignored ファイルのコピー）を
-#     再現する（詳細は共有 lib scripts/worktreeinclude-lib.sh のヘッダー）。EnterWorktree(name:)
-#     経路と違い WorktreeCreate hook は発火しない。
-#   resolve-pr-worktree.sh finalize <worktree-name> <head-ref>
-#     EnterWorktree(name:) で作成した worktree 内（cwd）で実行。head branch へ switch +
-#     origin へ同期し、temp branch worktree-<worktree-name> を削除する（削除失敗は warning）。
+#     再現する（詳細は共有 lib scripts/worktreeinclude-lib.sh のヘッダー）。EnterWorktree での
+#     作成と違い WorktreeCreate hook は発火せず、終了時の自動クリーンアップ判定も働かない。
 #
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
 #
@@ -38,9 +39,9 @@
 #   worktree_path  対象 worktree の絶対パス（resolve は enter_existing 時のみ非 null）
 #   evacuated      メインリポジトリをデフォルト branch へ退避したか（resolve のみ）
 #   synced         origin への ff 同期を実施したか
-#   copied_files   .worktreeinclude によりコピーしたファイル数（create-fallback のみ。
-#                  finalize は EnterWorktree(name:) のネイティブコピー経路のため非該当で null）
-#   warnings[]     非致命の注意（temp branch 削除失敗等）。空でなければ AI が報告に併記する
+#   copied_files   .worktreeinclude によりコピーしたファイル数（create のみ）
+#   warnings[]     非致命の注意（.worktreeinclude の symlink スキップ等）。空でなければ
+#                  AI が報告に併記する
 #
 # 前提不成立（リポジトリ外・jq/gh 欠如・PR 解決失敗・git 操作の機械的失敗）は非ゼロ exit +
 # 英語 stderr。fork 由来 PR（head branch が origin に無い）は fetch 失敗としてここに含まれる。
@@ -60,7 +61,7 @@ command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
 
 subcommand=${1:-}
-[ -n "$subcommand" ] || fatal 'usage: resolve-pr-worktree.sh <resolve|create-fallback|finalize> [args]'
+[ -n "$subcommand" ] || fatal 'usage: resolve-pr-worktree.sh <resolve|create> [args]'
 
 git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not inside a git repository'
 
@@ -88,19 +89,6 @@ normalize_sync() {
     synced) status=ok; synced=true ;;
     *)      status=$1; synced=false ;;
   esac
-}
-
-# create-fallback / finalize 共通の結果出力。<copied> 省略時は copied_files: null（非該当）
-emit_worktree_result() {
-  local path=$1 copied=${2:-null}
-  jq -n \
-    --arg status "$status" \
-    --arg path "$path" \
-    --argjson synced "$synced" \
-    --argjson copied "$copied" \
-    --argjson warnings "$(warnings_json)" \
-    '{status: $status, worktree_path: $path, synced: $synced,
-      copied_files: $copied, warnings: $warnings}'
 }
 
 # git worktree list --porcelain から branch <ref> を checkout 中の linked worktree パスを返す。
@@ -200,11 +188,11 @@ case "$subcommand" in
     emit_resolve ok create "" "$evacuated" false
     ;;
 
-  create-fallback)
+  create)
     worktree_name=${2:-}
     head_ref=${3:-}
     { [ -n "$worktree_name" ] && [ -n "$head_ref" ]; } \
-      || fatal 'usage: resolve-pr-worktree.sh create-fallback <worktree-name> <head-ref>'
+      || fatal 'usage: resolve-pr-worktree.sh create <worktree-name> <head-ref>'
 
     git rev-parse -q --verify "refs/remotes/origin/$head_ref" >/dev/null \
       || fatal "origin/$head_ref not found locally; run the resolve subcommand first (it fetches the head branch)"
@@ -222,38 +210,17 @@ case "$subcommand" in
     # status では分岐させない
     copy_worktreeinclude "$(main_root)" "$wt_path"
 
-    emit_worktree_result "$wt_path" "$WORKTREEINCLUDE_COPIED"
-    ;;
-
-  finalize)
-    worktree_name=${2:-}
-    head_ref=${3:-}
-    { [ -n "$worktree_name" ] && [ -n "$head_ref" ]; } \
-      || fatal 'usage: resolve-pr-worktree.sh finalize <worktree-name> <head-ref>'
-
-    # EnterWorktree(name:) の失敗を呼び出し側が見逃したままメインリポジトリ cwd で実行されると
-    # メインリポジトリを PR branch へ switch してしまうため、linked worktree 内であることを前置確認する
-    [ "$(git rev-parse --path-format=absolute --git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ] \
-      || fatal 'finalize must run inside a linked worktree (cwd is the main worktree)'
-
-    wt_path=$(git rev-parse --show-toplevel)
-    git switch -q "$head_ref" || fatal "git switch $head_ref failed in $wt_path"
-
-    sync_status=$(sync_with_origin "$wt_path" "$head_ref") || exit 1
-    normalize_sync "$sync_status"
-
-    temp_branch="worktree-$worktree_name"
-    if git show-ref -q --verify "refs/heads/$temp_branch"; then
-      git branch -q -d "$temp_branch" 2>/dev/null \
-        || add_warning "failed to delete temp branch $temp_branch (not fully merged?); delete manually if unneeded"
-    else
-      add_warning "temp branch $temp_branch not found (nothing to delete)"
-    fi
-
-    emit_worktree_result "$wt_path"
+    jq -n \
+      --arg status "$status" \
+      --arg path "$wt_path" \
+      --argjson synced "$synced" \
+      --argjson copied "$WORKTREEINCLUDE_COPIED" \
+      --argjson warnings "$(warnings_json)" \
+      '{status: $status, worktree_path: $path, synced: $synced,
+        copied_files: $copied, warnings: $warnings}'
     ;;
 
   *)
-    fatal "unknown subcommand: $subcommand (expected resolve | create-fallback | finalize)"
+    fatal "unknown subcommand: $subcommand (expected resolve | create)"
     ;;
 esac

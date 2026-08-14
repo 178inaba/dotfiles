@@ -181,7 +181,7 @@ assert "case4: no write outside worktree" "[ ! -e '$TMP/outside/secrets.json' ]"
 
 # --- ケース4b: コピー先そのものが worktree 外を指す committed symlink ならスキップ ---
 # ケース4 は途中のディレクトリの symlink。末端が素通りすると cp が symlink を辿り、
-# 他人の PR branch を checkout する create-fallback 経路で secret が worktree 外へ流出する
+# 他人の PR branch を checkout する create 経路で secret が worktree 外へ流出する
 IFS=$'\t' read -r src wt < <(setup_case case4b leaf-escape)
 printf 'SECRET=1\n' > "$src/.env"
 reset_caller_state
