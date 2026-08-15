@@ -99,7 +99,7 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/warnings-lib.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/warnings-lib.sh"
 
 out_dir=${1:-}
 [ -n "$out_dir" ] || fatal 'usage: fetch-pr-context.sh <out-dir> [<pr-number>]'
@@ -234,10 +234,9 @@ paginate_pr_connection() {
   has_next=$(printf '%s' "$gql" | jq -r "$path.pageInfo.hasNextPage")
   cursor=$(printf '%s' "$gql" | jq -r "$path.pageInfo.endCursor")
   while [ "$has_next" = "true" ] && [ "$count" -lt "$max" ]; do
-    if ! page=$("$GH_BIN" api graphql -f query="$query" \
-      -f owner="$owner" -f name="$name" -F number="$pr_number" -f cursor="$cursor"); then
-      fatal "$err_msg"
-    fi
+    page=$("$GH_BIN" api graphql -f query="$query" \
+      -f owner="$owner" -f name="$name" -F number="$pr_number" -f cursor="$cursor") \
+      || fatal "$err_msg"
     printf '%s' "$page" | jq -c "$path.nodes" >> "$out"
     count=$((count + $(printf '%s' "$page" | jq "$path.nodes | length")))
     has_next=$(printf '%s' "$page" | jq -r "$path.pageInfo.hasNextPage")
