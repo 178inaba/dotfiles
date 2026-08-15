@@ -30,17 +30,17 @@ source 用の共有 lib（`*-lib.sh`。`scripts/` と `skills/<skill>/scripts/` 
 1. その lib の単体テスト（表の場所にあれば。持たない lib もある）
 2. その lib を source している全スクリプトのテスト（下記で source 元を列挙し、各テストの場所を表から導出する）
 
-2 が要るのは、各 source 元の stderr 文言と出力 JSON の `warnings[]` が lib の挙動に依存しており、lib だけを編集すると破損が source 元側に潜伏するため。単体テストの有無に関わらず必要。
+2 が要るのは、lib の挙動が source 元の観測可能な出力（stderr 文言・stdout の JSON・exit code）に直結しており、lib だけを編集すると破損が source 元側に潜伏するため。
 
-source 元の列挙（repo root で実行。`<lib>` は拡張子を除いた lib 名）:
+source 元の列挙（repo root で実行。`<lib>` は `warnings-lib` のような拡張子抜きの lib 名）:
 
 ```bash
-grep -rlE '^(\.|source) .*/<lib>\.sh' claude/.claude --include='*.sh'
+grep -rlE '^(\.|source)[[:space:]]+.*<lib>\.sh' claude/.claude --include='*.sh'
 ```
 
-行頭の source 行だけを拾うのは、lib 名で検索するとヘッダーコメントでの言及まで一致するため（`worktreeinclude-lib.sh`・`sync-lib.sh` は共に `warnings-lib.sh` をコメントで参照している）。この列挙が成立する前提として、**caller の source 行は行頭・非インデントで書き、lib 名はリテラルで書く**（パスの前半が変数なのは可）。`. "$LIB"` のように lib 名まで変数に入れると列挙から silent に漏れる。lib 自身の単体テストはこの制約の対象外で、変数経由のままでよい（caller 列挙に混ざらない分むしろ好ましい）。
+行頭の source 行だけを拾うのは、lib 名で検索するとヘッダーコメントでの言及まで一致するため（`worktreeinclude-lib.sh`・`sync-lib.sh` は共に `warnings-lib.sh` をコメントで参照している）。この列挙が成立する前提として、**caller の source 行は行頭・非インデントで書き、lib 名はリテラルで書く**（パスの前半が変数なのは可）。`. "$LIB"` のように lib 名まで変数に入れると列挙から silent に漏れる。lib 自身の単体テストはこの制約の対象外（変数経由でよい）。
 
-lib は他の lib を source しない（呼び出し元が両方を source する契約。`worktreeinclude-lib.sh`・`sync-lib.sh` の各ヘッダー参照）ので、この1段の grep で列挙は尽きる。推移的に追う必要はない。
+その2ファイルの同じヘッダーが「この lib からは source しない・呼び出し元が両方を source する」契約も定めており、lib が lib を source することはない。したがってこの1段の grep で列挙は尽きる。
 
 規約から導出できない例外:
 - `hooks/start-caffeinate.sh`・`hooks/stop-caffeinate.sh`: ペアで `hooks/tests/test-caffeinate.sh`
