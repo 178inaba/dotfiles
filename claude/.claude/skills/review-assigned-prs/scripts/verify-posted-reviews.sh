@@ -19,30 +19,24 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq is required\n' >&2
-  exit 1
-fi
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
 
-if [ "$#" -eq 0 ]; then
-  printf 'usage: verify-posted-reviews.sh <owner>/<repo>#<number> [...]\n' >&2
-  exit 1
-fi
+command -v jq >/dev/null 2>&1 || fatal 'jq is required'
+
+[ "$#" -gt 0 ] || fatal 'usage: verify-posted-reviews.sh <owner>/<repo>#<number> [...]'
 
 for arg in "$@"; do
-  if ! printf '%s' "$arg" | grep -Eq '^[^/#[:space:]]+/[^/#[:space:]]+#[0-9]+$'; then
-    printf 'invalid PR spec: %s (expected <owner>/<repo>#<number>)\n' "$arg" >&2
-    exit 1
-  fi
+  printf '%s' "$arg" | grep -Eq '^[^/#[:space:]]+/[^/#[:space:]]+#[0-9]+$' \
+    || fatal "invalid PR spec: $arg (expected <owner>/<repo>#<number>)"
 done
 
 if ! login=$("$GH_BIN" api user -q .login 2>/dev/null) || [ -z "$login" ]; then
-  printf 'failed to get authenticated user (gh api user)\n' >&2
-  exit 1
+  fatal 'failed to get authenticated user (gh api user)'
 fi
 
 degraded=false
-warnings=""
 results=""
 
 for arg in "$@"; do
@@ -66,12 +60,12 @@ for arg in "$@"; do
       '{owner: $owner, repo: $repo, number: $number, posted: $posted}')$'\n'
   else
     degraded=true
-    warnings+="failed to fetch reviews for $owner/$repo#$number"$'\n'
+    add_warning "failed to fetch reviews for $owner/$repo#$number"
   fi
 done
 
 jq -n \
   --argjson degraded "$degraded" \
   --argjson results "$(jq -s '.' <<< "$results")" \
-  --argjson warnings "$(jq -Rs 'split("\n") | map(select(length > 0))' <<< "$warnings")" \
+  --argjson warnings "$(warnings_json)" \
   '{results: $results, degraded: $degraded, warnings: $warnings}'
