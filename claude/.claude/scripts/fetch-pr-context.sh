@@ -99,34 +99,23 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/warnings-lib.sh"
+
 out_dir=${1:-}
-if [ -z "$out_dir" ]; then
-  printf 'usage: fetch-pr-context.sh <out-dir> [<pr-number>]\n' >&2
-  exit 1
-fi
-if [ ! -d "$out_dir" ]; then
-  printf 'output directory not found: %s\n' "$out_dir" >&2
-  exit 1
-fi
+[ -n "$out_dir" ] || fatal 'usage: fetch-pr-context.sh <out-dir> [<pr-number>]'
+[ -d "$out_dir" ] || fatal "output directory not found: $out_dir"
 
 pr_number=${2:-}
 if [ -n "$pr_number" ]; then
   case "$pr_number" in
-    *[!0-9]*)
-      printf 'invalid pr number: %s\n' "$pr_number" >&2
-      exit 1
-      ;;
+    *[!0-9]*) fatal "invalid pr number: $pr_number" ;;
   esac
 fi
 
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq is required\n' >&2
-  exit 1
-fi
+command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 
 if ! repo=$("$GH_BIN" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || [ -z "$repo" ]; then
-  printf 'failed to resolve repository (gh repo view)\n' >&2
-  exit 1
+  fatal 'failed to resolve repository (gh repo view)'
 fi
 owner=${repo%%/*}
 name=${repo#*/}
@@ -135,15 +124,12 @@ pr_fields="number,title,body,url,state,author,headRefName,baseRefName,headRefOid
 if [ -z "$pr_number" ]; then
   # カレント branch からの推論と meta 取得を 1 回の呼び出しで済ませる
   if ! pr_meta=$("$GH_BIN" pr view --json "$pr_fields" 2>/dev/null) || [ -z "$pr_meta" ]; then
-    printf 'could not infer PR from current branch; specify <pr-number> explicitly\n' >&2
-    exit 1
+    fatal 'could not infer PR from current branch; specify <pr-number> explicitly'
   fi
   pr_number=$(printf '%s' "$pr_meta" | jq -r '.number')
 else
-  if ! pr_meta=$("$GH_BIN" pr view "$pr_number" --json "$pr_fields" -R "$repo"); then
-    printf 'failed to fetch PR #%s\n' "$pr_number" >&2
-    exit 1
-  fi
+  pr_meta=$("$GH_BIN" pr view "$pr_number" --json "$pr_fields" -R "$repo") \
+    || fatal "failed to fetch PR #$pr_number"
 fi
 
 # owner と repo の区切りは両者の名前に使えない「@」にする（hyphen 区切りだと
@@ -205,8 +191,7 @@ query($owner: String!, $name: String!, $number: Int!, $headOid: GitObjectID!) {
     }
   }
 }' -f owner="$owner" -f name="$name" -F number="$pr_number" -f headOid="$head_oid_for_query"); then
-  printf 'failed to fetch PR comments/reviews/threads (GraphQL)\n' >&2
-  exit 1
+  fatal 'failed to fetch PR comments/reviews/threads (GraphQL)'
 fi
 
 # 異常に大きい PR で取得コスト・出力サイズが際限なく伸びないよう上限で打ち切る
@@ -216,10 +201,7 @@ fi
 # 40 スレッド × 5 コメントで現実的に到達し、以降のスレッドの議論経緯が欠けるため
 require_uint() {
   case "$2" in
-    '' | *[!0-9]*)
-      printf 'invalid %s: %s\n' "$1" "$2" >&2
-      exit 1
-      ;;
+    '' | *[!0-9]*) fatal "invalid $1: $2" ;;
   esac
 }
 MAX_COMMENTS=${MAX_COMMENTS:-500}
@@ -254,8 +236,7 @@ paginate_pr_connection() {
   while [ "$has_next" = "true" ] && [ "$count" -lt "$max" ]; do
     if ! page=$("$GH_BIN" api graphql -f query="$query" \
       -f owner="$owner" -f name="$name" -F number="$pr_number" -f cursor="$cursor"); then
-      printf '%s\n' "$err_msg" >&2
-      exit 1
+      fatal "$err_msg"
     fi
     printf '%s' "$page" | jq -c "$path.nodes" >> "$out"
     count=$((count + $(printf '%s' "$page" | jq "$path.nodes | length")))
@@ -306,8 +287,7 @@ query($threadId: ID!, $cursor: String!) {
     }
   }
 }' -f threadId="$tc_id" -f cursor="$tc_cursor"); then
-      printf 'failed to fetch review thread comments page (GraphQL)\n' >&2
-      exit 1
+      fatal 'failed to fetch review thread comments page (GraphQL)'
     fi
     printf '%s' "$tc_page" | jq -c --arg tid "$tc_id" '{thread_id: $tid, nodes: .data.node.comments.nodes}' >> "$thread_comment_pages"
     tc_count=$((tc_count + $(printf '%s' "$tc_page" | jq '.data.node.comments.nodes | length')))
@@ -421,8 +401,7 @@ if ! jq -n \
                   and $last_comment.created_at < $head_committed_at)))
           }]
     }' > "$tmp_out"; then
-  printf 'failed to build output JSON\n' >&2
-  exit 1
+  fatal 'failed to build output JSON'
 fi
 
 mv "$tmp_out" "$out_file" || exit 1
