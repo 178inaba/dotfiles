@@ -40,7 +40,7 @@ grep -rlE '^(\.|source)[[:space:]]+.*<lib>\.sh' claude/.claude --include='*.sh'
 
 行頭の source 行だけを拾うのは、lib 名で検索するとヘッダーコメントでの言及まで一致するため（`worktreeinclude-lib.sh`・`sync-lib.sh` は共に `warnings-lib.sh` をコメントで参照している）。この列挙が成立する前提として、**caller の source 行は行頭・非インデントで書き、lib 名はリテラルで書く**（パスの前半が変数なのは可）。`. "$LIB"` のように lib 名まで変数に入れると列挙から silent に漏れる。lib 自身の単体テストはこの制約の対象外（変数経由でよい）。
 
-その2ファイルの同じヘッダーが「この lib からは source しない・呼び出し元が両方を source する」契約も定めており、lib が lib を source することはない。したがってこの1段の grep で列挙は尽きる。
+もう1つの前提として、**lib は他の lib を source しない**（必要な関数は呼び出し元が両方を source して渡す）。`worktreeinclude-lib.sh`・`sync-lib.sh` のヘッダーがこの契約を定めており、新しい lib もこれに従う。破ると transitive な caller が1段の grep から漏れるため、この前提が保たれる限り上記の列挙で尽きる。
 
 規約から導出できない例外:
 - `hooks/start-caffeinate.sh`・`hooks/stop-caffeinate.sh`: ペアで `hooks/tests/test-caffeinate.sh`
