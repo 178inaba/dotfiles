@@ -47,10 +47,9 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
-fatal() {
-  printf '%s\n' "$1" >&2
-  exit 1
-}
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
 
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'
