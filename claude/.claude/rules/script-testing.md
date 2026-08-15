@@ -25,13 +25,26 @@ paths:
 | ルート直下のスクリプト（`statusline.sh` 等） | `tests/test-<name>.sh` |
 | テストファイル自体 | 編集したテストを実行 |
 
+source 用の共有 lib（`*-lib.sh`。`scripts/` と `skills/<skill>/scripts/` 配下）を編集したときは、上の表に加えて次の2つを実行する:
+
+1. その lib の単体テスト（表の場所にあれば。持たない lib もある）
+2. その lib を source している全スクリプトのテスト（下記で source 元を列挙し、各テストの場所を表から導出する）
+
+2 が要るのは、lib の挙動が source 元の観測可能な出力（stderr 文言・stdout の JSON・exit code）に直結しており、lib だけを編集すると破損が source 元側に潜伏するため。
+
+source 元の列挙（repo root で実行。`<lib>` は `warnings-lib` のような拡張子抜きの lib 名）:
+
+```bash
+grep -rlE '^(\.|source)[[:space:]]+.*<lib>\.sh' claude/.claude --include='*.sh'
+```
+
+行頭の source 行だけを拾うのは、lib 名で検索するとヘッダーコメントでの言及まで一致するため（`worktreeinclude-lib.sh`・`sync-lib.sh` は共に `warnings-lib.sh` をコメントで参照している）。この列挙が成立する前提として、**caller の source 行は行頭・非インデントで書き、lib 名はリテラルで書く**（パスの前半が変数なのは可）。`. "$LIB"` のように lib 名まで変数に入れると列挙から silent に漏れる。lib 自身の単体テストはこの制約の対象外（変数経由でよい）。
+
+もう1つの前提として、**lib は他の lib を source しない**（必要な関数は呼び出し元が両方を source して渡す）。`worktreeinclude-lib.sh`・`sync-lib.sh` のヘッダーがこの契約を定めており、新しい lib もこれに従う。破ると transitive な caller が1段の grep から漏れるため、この前提が保たれる限り上記の列挙で尽きる。
+
 規約から導出できない例外:
 - `hooks/start-caffeinate.sh`・`hooks/stop-caffeinate.sh`: ペアで `hooks/tests/test-caffeinate.sh`
 - `skills/review-response/SKILL.md`（`<!-- review-response -->` マーカー変更時のみ）: `scripts/tests/test-fetch-pr-context.sh`（マーカー同期テスト）
-- `skills/worktree-resolution/scripts/sync-lib.sh`（source 用の共有関数、単体テストなし）: `skills/worktree-resolution/tests/test-resolve-pr-worktree.sh` と `test-check-pr-freshness.sh` の両方を実行（source 元2スクリプトのテストでカバー）
-- `skills/deep-review/scripts/review-dir-lib.sh`（source 用の共有関数、単体テストなし）: `skills/deep-review/tests/test-prepare-review.sh`・`test-post-review.sh`・`test-respond-threads.sh` の3本を実行（払い出し側と検証側の両方が source しているため）
-- `scripts/worktreeinclude-lib.sh`（source 用の共有関数、単体テストあり）: 規約通りの `scripts/tests/test-worktreeinclude-lib.sh` に**加えて** `skills/issue-handle/tests/test-create-worktree.sh` と `skills/worktree-resolution/tests/test-resolve-pr-worktree.sh` も実行（source 元の wiring テストが lib の warning 文言・挙動に依存しており、lib のみの編集で破損が潜伏するため）
-- `scripts/warnings-lib.sh`（source 用の共有関数、単体テストあり）: 規約通りの `scripts/tests/test-warnings-lib.sh` に**加えて** source 元スクリプトのテスト（`scripts/tests/test-fetch-pr-context.sh`・`skills/issue-handle/tests/test-create-worktree.sh`・`skills/worktree-resolution/tests/test-resolve-pr-worktree.sh`・`skills/worktree-resolution/tests/test-check-pr-freshness.sh`・`skills/deep-review/tests/test-prepare-review.sh`・`skills/deep-review/tests/test-post-review.sh`・`skills/deep-review/tests/test-respond-threads.sh`・`skills/cleanup-merged/tests/test-collect-candidates.sh`・`skills/review-assigned-prs/tests/test-list-pending-reviews.sh`・`skills/review-assigned-prs/tests/test-verify-posted-reviews.sh`・`skills/review-assigned-prs/tests/test-ensure-clone.sh`）も実行（各スクリプトの stderr 文言と出力 JSON の `warnings[]` が lib の `fatal`・蓄積・変換に依存するため）
 
 全テストの列挙: `find claude/.claude -path '*/tests/test-*.sh'`
 
