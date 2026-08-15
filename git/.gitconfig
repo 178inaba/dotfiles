@@ -5,6 +5,11 @@
 	editor = vim
 	pager = diff-so-fancy | less --tabs=4 -RF
 	quotepath = false
+	# core.excludesFile を明示しないと XDG_CONFIG_HOME を設定したマシンで
+	# 参照先が動き、stow の配置先 (~/.config/git/ignore) が読まれなくなる。
+	# ignore が効かなくなってもエラーは出ず status が汚れるだけで気づけない
+	# ため、デフォルトと同値でも明示する。
+	excludesFile = ~/.config/git/ignore
 [interactive]
 	diffFilter = diff-so-fancy --patch
 [color]

@@ -35,6 +35,21 @@ $ go install github.com/178inaba/slio@latest   # Slack (slio skill)
 
 Each requires a one-time `<command> auth login`.
 
+## Update
+
+Applying changes on a machine that is already set up:
+
+```zsh
+$ cd ~/.dotfiles
+$ git pull
+$ stow -R tmux git vim zsh claude ghostty
+```
+
+Always restow. Some pulls need it and some do not, and telling the two apart is
+a judgement that fails silently when it goes wrong — the new files simply never
+appear. `stow -R` is idempotent and takes milliseconds, so there is no reason to
+make that call.
+
 ## Packages
 
 - `claude`: Claude Code configuration
