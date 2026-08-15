@@ -36,12 +36,11 @@
 
 set -u
 
-. "$(cd "$(dirname "$0")" && pwd)/sync-lib.sh"
-
-fatal() {
-  printf '%s\n' "$1" >&2
-  exit 1
-}
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$script_dir/sync-lib.sh"
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$script_dir/../../../scripts/warnings-lib.sh"
 
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 command -v git >/dev/null 2>&1 || fatal 'git is required'

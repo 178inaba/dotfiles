@@ -4,6 +4,11 @@
 # fast-forward のみ自動同期」の定義。停止条件の意味論（何を dirty とみなすか・
 # untracked 衝突時の挙動・status 名）が経路によって割れないよう、ここに一本化する。
 # テストは source 元スクリプトのテスト（tests/test-*.sh）でカバーする。
+#
+# 呼び出し元が定義済みであることを前提とする関数（stderr・exit の配管は持たない）。
+# 実体は warnings-lib.sh が提供するので、呼び出し元は両方を source する（この lib からは
+# source しない — 二重 source による warnings の再初期化と source 順への依存を避けるため）:
+#   fatal <msg>        前提不成立で非ゼロ exit する
 
 # 変更あり（untracked は除く）なら真
 is_dirty() {
@@ -19,9 +24,7 @@ safe_ff_or_dirty() {
     printf 'behind_dirty'
     return
   fi
-  if ! git -C "$dir" merge --ff-only -q "$target" >/dev/null 2>&1; then
-    printf 'fast-forward merge to %s failed (untracked file collision?)\n' "$target" >&2
-    exit 1
-  fi
+  git -C "$dir" merge --ff-only -q "$target" >/dev/null 2>&1 \
+    || fatal "fast-forward merge to $target failed (untracked file collision?)"
   printf 'synced'
 }
