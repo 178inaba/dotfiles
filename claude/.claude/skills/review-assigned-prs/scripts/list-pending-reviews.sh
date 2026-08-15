@@ -30,23 +30,20 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq is required\n' >&2
-  exit 1
-fi
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
+
+command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 
 if ! me=$("$GH_BIN" api user --cache 24h --jq .login 2>/dev/null) || [ -z "$me" ]; then
-  printf 'failed to fetch authenticated user (gh api user)\n' >&2
-  exit 1
+  fatal 'failed to fetch authenticated user (gh api user)'
 fi
 
 degraded=false
-warnings=""
 
-if ! search=$("$GH_BIN" search prs --state=open --draft=false "user-review-requested:@me" --json url,number,repository,author 2>/dev/null); then
-  printf 'failed to search PRs (gh search prs)\n' >&2
-  exit 1
-fi
+search=$("$GH_BIN" search prs --state=open --draft=false "user-review-requested:@me" --json url,number,repository,author 2>/dev/null) \
+  || fatal 'failed to search PRs (gh search prs)'
 
 filtered_items=""
 while IFS=$'\t' read -r owner repo number url author; do
@@ -55,7 +52,7 @@ while IFS=$'\t' read -r owner repo number url author; do
     # author 除外が黙って無効化される事故を防ぐため degraded 経路に落とす（$me の
     # 空チェックと対称に扱う）。実データでは削除ユーザー等で null になり得る想定。
     degraded=true
-    warnings+="missing author for $owner/$repo#$number"$'\n'
+    add_warning "missing author for $owner/$repo#$number"
     continue
   fi
   # --paginate で全ページ集約（30件超のレビューが Bot だけの状況で人間レビューを取りこぼさないため）。
@@ -81,12 +78,12 @@ while IFS=$'\t' read -r owner repo number url author; do
     fi
   else
     degraded=true
-    warnings+="failed to fetch reviews for $owner/$repo#$number"$'\n'
+    add_warning "failed to fetch reviews for $owner/$repo#$number"
   fi
 done < <(jq -r '.[] | [(.repository.nameWithOwner | split("/")[0]), (.repository.nameWithOwner | split("/")[1]), .number, .url, .author.login] | @tsv' <<< "$search")
 
 jq -n \
   --argjson degraded "$degraded" \
   --argjson prs "$(jq -s '.' <<< "$filtered_items")" \
-  --argjson warnings "$(jq -Rs 'split("\n") | map(select(length > 0))' <<< "$warnings")" \
+  --argjson warnings "$(warnings_json)" \
   '{prs: $prs, degraded: $degraded, warnings: $warnings}'

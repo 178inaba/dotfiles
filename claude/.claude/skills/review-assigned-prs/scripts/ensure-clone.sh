@@ -34,25 +34,18 @@ set -u
 
 GH_BIN=${GH_BIN:-gh}
 
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'jq is required\n' >&2
-  exit 1
-fi
-if ! command -v git >/dev/null 2>&1; then
-  printf 'git is required\n' >&2
-  exit 1
-fi
+# skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
+# ~/.claude 側で同一なので相対トラバースで解決する
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
+
+command -v jq >/dev/null 2>&1 || fatal 'jq is required'
+command -v git >/dev/null 2>&1 || fatal 'git is required'
 
 repo_ref=${1:-}
-if [ -z "$repo_ref" ]; then
-  printf 'usage: ensure-clone.sh <owner>/<repo>\n' >&2
-  exit 1
-fi
+[ -n "$repo_ref" ] || fatal 'usage: ensure-clone.sh <owner>/<repo>'
 
-if ! [[ "$repo_ref" =~ ^[^/]+/[^/]+$ ]]; then
-  printf 'invalid repo reference (expected <owner>/<repo>): %s\n' "$repo_ref" >&2
-  exit 1
-fi
+[[ "$repo_ref" =~ ^[^/]+/[^/]+$ ]] \
+  || fatal "invalid repo reference (expected <owner>/<repo>): $repo_ref"
 
 owner=${repo_ref%%/*}
 repo=${repo_ref#*/}
@@ -61,10 +54,7 @@ repo=${repo_ref#*/}
 # 残骸掃除の rm -rf が管理外を削除しうるため拒否する
 for part in "$owner" "$repo"; do
   case "$part" in
-    . | ..)
-      printf 'invalid repo reference (dot components not allowed): %s\n' "$repo_ref" >&2
-      exit 1
-      ;;
+    . | ..) fatal "invalid repo reference (dot components not allowed): $repo_ref" ;;
   esac
 done
 
@@ -72,15 +62,9 @@ base="${XDG_DATA_HOME:-$HOME/.local/share}/claude-review-prs"
 path="$base/$owner/$repo"
 
 if [ -d "$path/.git" ]; then
-  if ! git -C "$path" fetch --prune >/dev/null 2>&1; then
-    printf 'failed to fetch %s\n' "$repo_ref" >&2
-    exit 1
-  fi
+  git -C "$path" fetch --prune >/dev/null 2>&1 || fatal "failed to fetch $repo_ref"
 else
-  if ! mkdir -p "$base/$owner"; then
-    printf 'failed to create parent dir %s\n' "$base/$owner" >&2
-    exit 1
-  fi
+  mkdir -p "$base/$owner" || fatal "failed to create parent dir $base/$owner"
   # .git の無いディレクトリは旧実装（$path へ直接 clone）が中断された残骸。現実装では
   # $path に不完全状態が置かれることはないため、.git の有無だけで残骸と断定して掃除できる。
   # .git があるものは直前に他の並行呼び出しが publish した clone なので消さない（後続の
@@ -98,17 +82,13 @@ else
       jq -n --arg path "$path" '{path: $path}'
       exit 0
     fi
-    printf 'failed to clone %s\n' "$repo_ref" >&2
-    exit 1
+    fatal "failed to clone $repo_ref"
   fi
   # 先に他の並行呼び出しが publish 済みの場合、mv は $path の「中へ」移動する（POSIX mv の
   # 仕様）。その残骸を回収し、成否は .git の有無だけで判定する（tmp 自体の回収は trap が所有）
   mv "$tmp" "$path" 2>/dev/null
   rm -rf "$path/${tmp##*/}"
-  if [ ! -d "$path/.git" ]; then
-    printf 'failed to publish clone for %s\n' "$repo_ref" >&2
-    exit 1
-  fi
+  [ -d "$path/.git" ] || fatal "failed to publish clone for $repo_ref"
 fi
 
 jq -n --arg path "$path" '{path: $path}'
