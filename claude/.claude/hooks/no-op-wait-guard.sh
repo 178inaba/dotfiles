@@ -17,7 +17,7 @@
 #
 # 判定:
 #   コマンド全体の空白（スペース・タブ・改行）を 1 個のスペースに畳んで
-#   前後をトリムし、正規化後の文字列が NO_OP_WAIT_PATTERN に**全体一致**する
+#   前後をトリムし、正規化後の文字列が no_op_wait_pattern に**全体一致**する
 #   場合のみブロックする。対象は以下の形に限る:
 #     - [sleep <duration>;] echo|printf [<token>]
 #     - [sleep <duration>;] true / :
@@ -59,10 +59,12 @@ normalized=${normalized# }
 normalized=${normalized% }
 
 duration='([0-9]+(\.[0-9]+)?|\.[0-9]+)[smh]?'
-token='([A-Za-z0-9_-]{1,24}|'\''[A-Za-z0-9_-]{1,24}'\''|"[A-Za-z0-9_-]{1,24}")'
-no_op_wait_pattern="^((sleep $duration ?; ?)?((echo|printf)( $token)?|true|:)|sleep $duration)\$"
+word='[A-Za-z0-9_-]{1,24}'
+token="($word|'$word'|\"$word\")"
+no_op="((echo|printf)( $token)?|true|:)"
+no_op_wait_pattern="^(sleep $duration( ?; ?$no_op)?|$no_op)\$"
 
-if ! printf '%s' "$normalized" | grep -qE "$no_op_wait_pattern"; then
+if ! [[ $normalized =~ $no_op_wait_pattern ]]; then
   exit 0
 fi
 
