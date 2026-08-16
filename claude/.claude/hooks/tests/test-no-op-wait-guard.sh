@@ -49,6 +49,22 @@ run_stderr_test() {
   fi
 }
 
+# 解析できない入力での fail-open を検証する。exit code の実値は jq に依存する
+# ため、「ブロックしない」＝ exit 2 以外であることだけをアサートする。
+run_non_block_test() {
+  local name=$1 input=$2
+  local got_exit
+  printf '%s' "$input" | "$HOOK" >/dev/null 2>&1
+  got_exit=$?
+  if [ "$got_exit" -ne 2 ]; then
+    pass=$((pass + 1))
+    printf 'PASS  %s\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  %s (blocked with exit 2, want fail-open)\n' "$name"
+  fi
+}
+
 # 通過すべきケース (exit 0)
 run_test 'tool_name=Edit (not Bash)'      '{"tool_name":"Edit","tool_input":{"command":"echo waiting"}}' 0
 run_test 'empty command'                  '{"tool_name":"Bash","tool_input":{"command":""}}' 0
@@ -66,6 +82,10 @@ run_test 'token over the length limit'    '{"tool_name":"Bash","tool_input":{"co
 run_test 'trailing semicolon (other shape)' '{"tool_name":"Bash","tool_input":{"command":"echo idle1;"}}' 0
 run_test 'sleep without duration'         '{"tool_name":"Bash","tool_input":{"command":"sleep"}}' 0
 run_test 'echo with a flag'               '{"tool_name":"Bash","tool_input":{"command":"echo -n ok"}}' 0
+
+# 解析できない入力 (fail-open)
+run_non_block_test 'malformed JSON'       'not json at all'
+run_non_block_test 'JSON without tool_input' '{"tool_name":"Bash"}'
 
 # ブロックされるべきケース (exit 2)
 run_test 'echo idle12'                    '{"tool_name":"Bash","tool_input":{"command":"echo idle12"}}' 2
