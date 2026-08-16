@@ -2,7 +2,6 @@
 name: issue-draft
 description: 壁打ちで固めた内容を、アサインされた人（人間・AIエージェント）が迷わず実装できる GitHub Issue として構造化・作成。--refine で既存 Issue を同じ品質基準へブラッシュアップ
 argument-hint: "[トピック（省略時は直前の会話から抽出）] | --refine <Issue番号>"
-disable-model-invocation: true
 ---
 
 # /issue-draft
