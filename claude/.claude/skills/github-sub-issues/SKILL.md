@@ -18,7 +18,7 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 PARENT_ISSUE_URL=$(gh issue create -R "$REPO" --title "親Issue" --body-file parent-body.md --assignee @me)
 
 # 2. Sub-Issue作成
-SUB_ISSUE_URL=$(gh issue create -R "$REPO" --title "【Sub】タイトル" --body-file sub-body.md --assignee @me)
+SUB_ISSUE_URL=$(gh issue create -R "$REPO" --title "単体で意味が通るタイトル" --body-file sub-body.md --assignee @me)  # 接頭辞（【Sub】・[1/6] 等）は付けない。親子関係は GitHub の Sub-Issues 表示が担い、後から Sub を足すと番号がずれる
 
 # 3. APIでリンク
 SUB_ISSUE_ID=$(gh api ${SUB_ISSUE_URL/github.com/api.github.com/repos} --jq '.id')
@@ -38,6 +38,10 @@ create_sub_issue() {
   echo "Created: $sub_url"
 }
 ```
+
+## 親子関係の読み取り
+
+親の有無・Sub 一覧・完了状態を読むときは共有スクリプト `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number> [-R owner/repo]` を使う（親は専用エンドポイントの 404 が「親なし」、Sub 一覧はページネーション付きで、都度組み立てると扱いがぶれるため。出力契約はスクリプトヘッダー）。
 
 ## リンク後の親Issue本文同期
 
