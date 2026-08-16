@@ -183,7 +183,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
        - [ ] プッシュ・PR作成（Issue番号指定時は `Closes #<issue-number>` を含める）
        - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
    - **計画準拠チェック**: @~/.claude/skills/check-plan-compliance/SKILL.md の Step 2〜4 を実行（Step 1 は本Planモード冒頭で実施済みのためスキップ。`--no-plan-review` 未指定時は後続の計画検証が ExitPlanMode を担うため、Step 4 の ExitPlanMode は呼ばず計画修正までに留める。`--no-plan-review` 指定時は後続の計画検証が無いため、同スキルの原則どおり Step 4 の ExitPlanMode まで実行する）
-   - **計画検証**（`--no-plan-review` 未指定時のみ）: @~/.claude/skills/deep-plan-review/SKILL.md を実行（修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない）
+   - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。`@` 参照で本文を先読みしない — 同スキルが依存する共有プロトコル（fresh-reader-verification）は同スキルの起動時に添付されるもので、起動を経ずに本文だけをなぞると未読のまま検証が回る（規約: skill-authoring「スキル間参照」）。修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない
    - ユーザーの承認を待つ
 
 5. **実装フェーズへ**（承認後）
