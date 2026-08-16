@@ -51,7 +51,7 @@ issue-draft（起票）・issue-handle（実装）・deep-review（レビュー�
 - **仕様の配置（重複禁止）**: 全体に効くもの（横断ルール・エラーコード等の確定値・トランザクション順序・共通の参照文書等）は親にだけ、段階固有のスコープ・受け入れ条件は Sub にだけ書く。Sub の自己完結基準は「**親と合わせて読めば迷わず実装できる**」。したがって**葉を読むスキルは親の本文とコメントも取得**し、親の横断ルール・確定事項を葉の要件と同格に扱う。ただし要件充足の判定対象は葉自身の受け入れ条件のみ（親の受け入れ条件は他の Sub にまたがる）
 - **Sub の必須条件**: 単独でベースブランチにマージしても壊れない（未配線のルート・未スケジュールのバッチ・未参照のテーブル等は可）。リリースを揃える責任は親に置く
 - **親の「リリース時の手動作業」節**（見出し名は固定。issue-draft の親テンプレートが必須節として置く）: 「なし（全 Sub のマージで完了）」またはチェックリスト。「なし」なら最後の Sub の PR で親を閉じてよく、作業ありなら親は作業完了後に手動で閉じる。節が無い親（他の経路で立てられた Issue）は本文・コメントから推定した上でユーザーに確認し、推測で埋めない
-- **PR 本文**: Sub の PR は `Closes #<Sub>` に加えて `Part of #<親>`（closing keyword ではないので親は閉じず、親の Development サイドバーに全 Sub の PR が並ぶ）。PR 作成時点で他の全 Sub が closed（`issue-hierarchy.sh` の `all_siblings_closed: true`）かつ手動作業が「なし」なら `Closes #<親>` も書く。並列で複数の Sub が open のうちはどの PR も親を閉じず、全 Sub 完了後に親を issue-handle に渡して充足検証 → close する
+- **PR 本文**: Sub の PR は `Closes #<Sub>` に加えて `Part of #<親>`（closing keyword ではないので親は閉じず、親の Development サイドバーに全 Sub の PR が並ぶ。親が別リポジトリ — `issue-hierarchy.sh` の `parent.same_repo: false` — なら `Part of owner/repo#N` 形式で書く）。PR 作成時点で他の全 Sub が closed（`issue-hierarchy.sh` の `all_siblings_closed: true`）かつ手動作業が「なし」なら `Closes #<親>` も書く。並列で複数の Sub が open のうちはどの PR も親を閉じず、全 Sub 完了後に親を issue-handle に渡して充足検証 → close する
 - **Sub のタイトル**: 接頭辞（【Sub】・[1/6] 等）を付けず単体で意味が通るものにする。親子関係は GitHub の Sub-Issues 表示が担い、後から Sub を足すと番号がずれる
 
 ## リンク後の親Issue本文同期
