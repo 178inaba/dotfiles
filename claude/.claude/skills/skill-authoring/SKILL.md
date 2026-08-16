@@ -1,6 +1,6 @@
 ---
 name: skill-authoring
-description: ~/.claude/skills/ 配下のスキルを作成・編集する際の規約（frontmatter の要件、スクリプト同梱パターン、配置・命名規則、サイズ上限）。スキルの新規作成・修正・レビューのタスク時に自動ロードされる知識スキル
+description: ~/.claude/skills/ 配下のスキルを作成・編集する際の規約（frontmatter の要件、スクリプト同梱パターン、スキル間参照、配置・命名規則、サイズ上限）。スキルの新規作成・修正・レビューのタスク時に自動ロードされる知識スキル
 ---
 
 # /skill-authoring
@@ -69,6 +69,18 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 - 配置: 対象スクリプトの兄弟 `tests/` ディレクトリ（`skills/<skill>/tests/test-<name>.sh`。配置規約の正は `claude/.claude/rules/script-testing.md`）
 - 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない
 - 既存例は `~/.claude/skills/*/scripts/`（スキル専用）と `~/.claude/scripts/`（スキル横断）を参照
+
+## スキル間参照
+
+SKILL.md 本文の `@~/.claude/skills/<skill>/SKILL.md` は、そのスキルの起動時（slash 起動・Skill ツール起動とも）に参照先ファイルを **1 段だけ添付する @-mention** で、添付されたファイルの中の `@` は再走査されない。再帰的な import ではないため、参照の用途で書き方を分ける:
+
+| 用途 | 書き方 | 条件・理由 |
+|---|---|---|
+| **共有知識を取り込む**（`finding-triage`・`fresh-reader-verification` 等の知識スキル） | `@~/.claude/skills/<skill>/SKILL.md` | 起動時に無条件で必要な知識は passive に添付するのが確実。参照先が持つ `@` は添付されないので、参照先は葉（自身が `@` を持たない）にするか、自スキルもその `@` 先を直接参照して被覆する |
+| **他スキルを手順として実行する**（`issue-handle` → `deep-plan-review` 等） | 「Skill ツールで `<skill>` を起動する」と書く。`@` は付けない | 起動時にそのスキル本文と 1 段の依存が just-in-time で載る。`@` で先読みすると、依存の落ちた本文をなぞる経路が生まれる（issue-handle → deep-plan-review → fresh-reader-verification で収束プロトコル未読のまま検証が回った事故）。二重読込・古い本文への追従も起きない |
+| **言及するだけ**（併用順序・準拠先の案内等） | `/<skill>` または `` `<skill>` `` | 不要な添付とネスト連鎖を作らない。バッククォート内の `@` は言及なのに添付を疑わせるので使わない |
+
+検査: `bash ~/.claude/skills/skill-authoring/scripts/check-skill-refs.sh`（SKILL.md 編集時に実行し、`violations` が空になるまで直す。違反の型と対処はスクリプトのヘッダーコメントが正）。`tests/test-check-skill-refs.sh` は実リポジトリの skills/ の検査を兼ねる。
 
 ## ディレクトリ構造
 ```

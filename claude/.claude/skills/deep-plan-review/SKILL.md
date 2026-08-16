@@ -38,6 +38,6 @@ argument-hint: "[計画ファイルパス]"
 - plan モード外で起動された場合は、レビュー結果と反映内容の報告のみで終了
 
 ## 注意事項
-- @~/.claude/skills/check-plan-compliance/SKILL.md（プロジェクト規約への準拠検証）と併用する場合は **compliance 先 → 本スキル後** の順で実行する（高コストな検証は最終形の計画に 1 回だけ充てるため）。その場合 ExitPlanMode は本スキル側が担い、compliance 側では呼ばない
+- `/check-plan-compliance`（プロジェクト規約への準拠検証）と併用する場合は **compliance 先 → 本スキル後** の順で実行する（高コストな検証は最終形の計画に 1 回だけ充てるため）。その場合 ExitPlanMode は本スキル側が担い、compliance 側では呼ばない
 - **例外**: 設計妥当性の批評を厚くしたい場合のみ、共有プロトコルの起動時に `model: "fable"` を明示指定する（Agent ツールの `model` 指定はエージェント定義より優先される）。既定は fresh-reader 定義の opus で、その選定理由は `~/.claude/agents/fresh-reader.md` を参照
 - 検証サブエージェントは読み取り専用（fresh-reader の tools 設定で Edit/Write 不可を機械的に強制）で、計画の修正は本スキル（親セッション）が行う
