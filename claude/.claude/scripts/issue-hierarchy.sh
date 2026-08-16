@@ -20,15 +20,19 @@
 #                         対象 Issue 自身
 #   kind                  "standalone" | "parent" | "sub" | "parent_and_sub"
 #                         parent 判定は sub_issues_summary.total > 0、sub 判定は parent の有無
-#   parent                {number, title, state, url} | null（親なし、または照会失敗 — 後者は warnings に載る）
+#   parent                {number, title, state, url, repo, same_repo} | null（親なし、または照会失敗 — 後者は warnings に載る）
+#                         repo は親の owner/name。Sub-Issues は同一 owner 内の別リポジトリにも張れるため、
+#                         same_repo: false の親は番号だけでは指せない（本文では owner/repo#N 形式で参照する）
 #   sub_issues[]          対象 Issue の Sub 一覧 {number, title, state, url}（全ページ結合。取得失敗時は [] + warnings）
-#                         --with-prs 時は各要素に prs[] {number, state, base_ref, merged} を追加する
-#                         （closedByPullRequestsReferences で紐づく PR。無ければ []。取得失敗は warnings + prs: null）
+#                         --with-prs 時は各要素に prs[] {number, state, base_ref, merged, url} を追加する
+#                         （closedByPullRequestsReferences で紐づく PR。無ければ []。取得失敗は warnings + prs: null。
+#                         Sub・PR とも URL で引くので別リポジトリでも正しい対象を指す）
 #   sub_issues_summary    {total, completed}（GitHub 側の集計値。sub_issues[] の取得可否によらず得られる）
 #   all_sub_issues_closed sub_issues[] を全件取得できて（summary.total と一致）かつ全て closed のとき true。
 #                         Sub が 0 件・取得失敗・不一致は false（「全 Sub 完了の親」判定に使うため安全側）
-#   siblings[]            親がある場合、親の Sub 一覧から自分を除いたもの {number, title, state, url}。親なしは []
-#   all_siblings_closed   親があり siblings[] が全て closed（0 件を含む）のとき true。親なし・取得失敗は false
+#   siblings[]            親がある場合、親の Sub 一覧から自分を除いたもの {number, title, state, url}。親なしは []。
+#                         親が別リポジトリのときは取得せず [] + warnings（別リポの Sub 一覧まで追わない）
+#   all_siblings_closed   親があり siblings[] が全て closed（0 件を含む）のとき true。親なし・別リポ・取得失敗は false
 #                         （「最後の Sub か」= 自分の PR に親の closing keyword を付けてよいかの判定に使う）
 #   warnings[]            非致命の縮退（親照会の 404 以外の失敗、Sub 一覧の取得失敗・件数不一致）
 # 前提不成立（引数不正・対象 Issue の取得失敗）は英語 stderr + 非ゼロ exit。
@@ -87,7 +91,10 @@ self=$("$GH_BIN" api "$base/$issue_number" 2>/dev/null) && [ -n "$self" ] \
 parent='null'
 parent_err=$(mktemp)
 if parent_raw=$("$GH_BIN" api "$base/$issue_number/parent" 2>"$parent_err"); then
-  parent=$(printf '%s' "$parent_raw" | jq -c '{number, title, state, url: .html_url}')
+  # repository_url の末尾 2 セグメントが owner/name。カレントリポと違えば番号だけでは指せない親
+  parent=$(printf '%s' "$parent_raw" | jq -c --arg repo "$repo" \
+    '(.repository_url | split("/") | .[-2:] | join("/")) as $prepo
+     | {number, title, state, url: .html_url, repo: $prepo, same_repo: ($prepo == $repo)}')
 elif ! grep -q 'HTTP 404' "$parent_err"; then
   add_warning "parent lookup failed for #$issue_number: $(tr '\n' ' ' < "$parent_err" | sed 's/[[:space:]]*$//')"
 fi
@@ -117,7 +124,9 @@ fi
 
 siblings='[]'
 siblings_fetched=false
-if [ "$parent" != 'null' ]; then
+if [ "$parent" != 'null' ] && [ "$(printf '%s' "$parent" | jq -r .same_repo)" != true ]; then
+  add_warning "parent #$(printf '%s' "$parent" | jq -r .number) is in another repository ($(printf '%s' "$parent" | jq -r .repo)); siblings unknown"
+elif [ "$parent" != 'null' ]; then
   parent_number=$(printf '%s' "$parent" | jq -r .number)
   if parent_subs=$(fetch_sub_issues "$parent_number"); then
     siblings=$(printf '%s' "$parent_subs" | jq -c --argjson me "$issue_number" 'map(select(.number != $me))')
@@ -132,14 +141,18 @@ fi
 if [ "$with_prs" = true ]; then
   annotated='[]'
   for sub_number in $(printf '%s' "$sub_issues" | jq -r '.[].number'); do
+    sub_url=$(printf '%s' "$sub_issues" | jq -r --argjson n "$sub_number" '.[] | select(.number == $n) | .url')
     prs='null'
-    if pr_numbers=$("$GH_BIN" issue view "$sub_number" -R "$repo" --json closedByPullRequestsReferences         -q '.closedByPullRequestsReferences[].number' 2>/dev/null); then
+    # Sub も PR も URL で引く（-R "$repo" だと別リポジトリの Sub / PR を同番号の無関係な対象に取り違える）
+    if pr_urls=$("$GH_BIN" issue view "$sub_url" --json closedByPullRequestsReferences \
+        -q '.closedByPullRequestsReferences[].url' 2>/dev/null); then
       prs='[]'
-      for pr_number in $pr_numbers; do
-        if pr_json=$("$GH_BIN" pr view "$pr_number" -R "$repo" --json number,state,baseRefName 2>/dev/null); then
-          prs=$(printf '%s' "$prs" | jq -c --argjson pr "$pr_json"             '. + [{number: $pr.number, state: $pr.state, base_ref: $pr.baseRefName, merged: ($pr.state == "MERGED")}]')
+      for pr_url in $pr_urls; do
+        if pr_json=$("$GH_BIN" pr view "$pr_url" --json number,state,baseRefName,url 2>/dev/null); then
+          prs=$(printf '%s' "$prs" | jq -c --argjson pr "$pr_json" \
+            '. + [{number: $pr.number, state: $pr.state, base_ref: $pr.baseRefName, merged: ($pr.state == "MERGED"), url: $pr.url}]')
         else
-          add_warning "pr lookup failed for #$pr_number (closing Sub #$sub_number)"
+          add_warning "pr lookup failed for $pr_url (closing Sub #$sub_number)"
           prs='null'
           break
         fi
@@ -147,7 +160,8 @@ if [ "$with_prs" = true ]; then
     else
       add_warning "closing PR lookup failed for Sub #$sub_number"
     fi
-    annotated=$(printf '%s' "$annotated" | jq -c --argjson n "$sub_number" --argjson prs "$prs"       --argjson subs "$sub_issues" '. + [($subs[] | select(.number == $n)) + {prs: $prs}]')
+    annotated=$(printf '%s' "$annotated" | jq -c --argjson n "$sub_number" --argjson prs "$prs" \
+      --argjson subs "$sub_issues" '. + [($subs[] | select(.number == $n)) + {prs: $prs}]')
   done
   sub_issues=$annotated
 fi

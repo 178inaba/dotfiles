@@ -47,12 +47,13 @@ cat > "$TMP/stub/gh" <<'EOF'
 case "$1" in
   repo) printf '%s\n' "${GH_STUB_REPO:-owner/repo}" ;;
   issue|pr)
-    # `gh issue view <n> ...` / `gh pr view <n> ...` は <kind>_view_<n>.json を返す（<kind>_view_<n>.fail で失敗）。
-    # --json/-q の整形は模擬せず、フィクスチャに最終出力をそのまま置く
+    # `gh issue view <url> ...` / `gh pr view <url> ...` は URL 末尾の番号で <kind>_view_<n>.json を返す
+    # （<kind>_view_<n>.fail で失敗）。--json/-q の整形は模擬せず、フィクスチャに最終出力をそのまま置く
     printf '%s %s %s\n' "$1" "$2" "$3" >> "$GH_STUB_DATA/.calls"
-    [ -f "$GH_STUB_DATA/${1}_view_$3.fail" ] && exit 1
-    [ -f "$GH_STUB_DATA/${1}_view_$3.json" ] || { printf 'stub: no fixture for %s view %s\n' "$1" "$3" >&2; exit 1; }
-    cat "$GH_STUB_DATA/${1}_view_$3.json"
+    n=${3##*/}
+    [ -f "$GH_STUB_DATA/${1}_view_$n.fail" ] && exit 1
+    [ -f "$GH_STUB_DATA/${1}_view_$n.json" ] || { printf 'stub: no fixture for %s view %s\n' "$1" "$3" >&2; exit 1; }
+    cat "$GH_STUB_DATA/${1}_view_$n.json"
     ;;
   api)
     shift
@@ -97,9 +98,11 @@ reset_data() {
 }
 
 issue_json() {
-  # issue_json <number> <state> <sub_total> <sub_completed>
-  jq -n --argjson n "$1" --arg s "$2" --argjson t "$3" --argjson c "$4" \
-    '{number: $n, title: ("Issue " + ($n|tostring)), state: $s, html_url: ("https://github.com/owner/repo/issues/" + ($n|tostring)),
+  # issue_json <number> <state> <sub_total> <sub_completed> [<owner/repo>]
+  jq -n --argjson n "$1" --arg s "$2" --argjson t "$3" --argjson c "$4" --arg repo "${5:-owner/repo}" \
+    '{number: $n, title: ("Issue " + ($n|tostring)), state: $s,
+      html_url: ("https://github.com/" + $repo + "/issues/" + ($n|tostring)),
+      repository_url: ("https://api.github.com/repos/" + $repo),
       sub_issues_summary: {total: $t, completed: $c, percent_completed: 0}}'
 }
 
@@ -141,10 +144,11 @@ out=$(run 21); status=$?
 assert "sub: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
 assert "sub: kind" "[ \"$(printf '%s' "$out" | jq -r .kind)\" = sub ]" "$out"
 assert "sub: parent number" "[ \"$(printf '%s' "$out" | jq -r .parent.number)\" = 20 ]" "$out"
-assert "sub: parent fields" "printf '%s' \"\$out\" | jq -e '(.parent | keys) == [\"number\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "sub: parent fields" "printf '%s' \"\$out\" | jq -e '(.parent | keys) == [\"number\",\"repo\",\"same_repo\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "sub: parent same_repo" "[ \"$(printf '%s' "$out" | jq -r .parent.same_repo)\" = true ]" "$out"
 assert "sub: siblings exclude self" "[ \"$(printf '%s' "$out" | jq -c '[.siblings[].number]')\" = '[22,23]' ]" "$out"
 assert "sub: all_siblings_closed false" "[ \"$(printf '%s' "$out" | jq -r .all_siblings_closed)\" = false ]" "$out"
-assert "sub: parent's manual close data not fetched" "! grep -q 'issues/20/parent' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+assert "sub: grandparent not fetched" "! grep -q 'issues/20/parent' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
 
 # --- ケース3: Sub Issue（兄弟がすべて closed → 最後の Sub） ---
 reset_data
@@ -233,17 +237,18 @@ reset_data
 issue_json 30 open 3 3 > "$GH_STUB_DATA/repos_owner_repo_issues_30.json"
 touch "$GH_STUB_DATA/repos_owner_repo_issues_30_parent.404"
 sub_list_json 31:closed 32:closed 33:closed > "$GH_STUB_DATA/repos_owner_repo_issues_30_sub_issues.json"
-printf '310\n' > "$GH_STUB_DATA/issue_view_31.json"                       # 1 PR、マージ済み・base main
-printf '320\n321\n' > "$GH_STUB_DATA/issue_view_32.json"                 # 2 PR、片方は別 base で未マージ
-printf '' > "$GH_STUB_DATA/issue_view_33.json"                            # 紐づく PR なし（手動 close 等）
-printf '{"number":310,"state":"MERGED","baseRefName":"main"}' > "$GH_STUB_DATA/pr_view_310.json"
-printf '{"number":320,"state":"MERGED","baseRefName":"main"}' > "$GH_STUB_DATA/pr_view_320.json"
-printf '{"number":321,"state":"OPEN","baseRefName":"develop"}' > "$GH_STUB_DATA/pr_view_321.json"
+printf 'https://github.com/owner/repo/pull/310\n' > "$GH_STUB_DATA/issue_view_31.json"     # 1 PR、マージ済み・base main
+printf 'https://github.com/owner/repo/pull/320\nhttps://github.com/other/repo/pull/321\n' > "$GH_STUB_DATA/issue_view_32.json"  # 2 PR、片方は別リポ・別 base で未マージ
+printf '' > "$GH_STUB_DATA/issue_view_33.json"                                              # 紐づく PR なし（手動 close 等）
+printf '{"number":310,"state":"MERGED","baseRefName":"main","url":"https://github.com/owner/repo/pull/310"}' > "$GH_STUB_DATA/pr_view_310.json"
+printf '{"number":320,"state":"MERGED","baseRefName":"main","url":"https://github.com/owner/repo/pull/320"}' > "$GH_STUB_DATA/pr_view_320.json"
+printf '{"number":321,"state":"OPEN","baseRefName":"develop","url":"https://github.com/other/repo/pull/321"}' > "$GH_STUB_DATA/pr_view_321.json"
 
 out=$(run 30 --with-prs); status=$?
 assert "with-prs: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
 assert "with-prs: prs attached to each sub" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[] | (.prs | length)]')\" = '[1,2,0]' ]" "$out"
-assert "with-prs: pr fields" "printf '%s' \"\$out\" | jq -e '.sub_issues[0].prs[0] == {number: 310, state: \"MERGED\", base_ref: \"main\", merged: true}' >/dev/null" "$out"
+assert "with-prs: pr fields" "printf '%s' \"\$out\" | jq -e '.sub_issues[0].prs[0] == {number: 310, state: \"MERGED\", base_ref: \"main\", merged: true, url: \"https://github.com/owner/repo/pull/310\"}' >/dev/null" "$out"
+assert "with-prs: sub and pr looked up by URL" "grep -q 'issue view https://github.com/owner/repo/issues/31' \"$GH_STUB_DATA/.calls\" && grep -q 'pr view https://github.com/other/repo/pull/321' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
 assert "with-prs: unmerged pr keeps merged false" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[1].prs[] | .merged]')\" = '[true,false]' ]" "$out"
 assert "with-prs: sub without prs has empty array" "[ \"$(printf '%s' "$out" | jq -c '.sub_issues[2].prs')\" = '[]' ]" "$out"
 assert "with-prs: all_sub_issues_closed unaffected" "[ \"$(printf '%s' "$out" | jq -r .all_sub_issues_closed)\" = true ]" "$out"
@@ -264,7 +269,7 @@ issue_json 30 open 2 2 > "$GH_STUB_DATA/repos_owner_repo_issues_30.json"
 touch "$GH_STUB_DATA/repos_owner_repo_issues_30_parent.404"
 sub_list_json 31:closed 32:closed > "$GH_STUB_DATA/repos_owner_repo_issues_30_sub_issues.json"
 touch "$GH_STUB_DATA/issue_view_31.fail"
-printf '320\n' > "$GH_STUB_DATA/issue_view_32.json"
+printf 'https://github.com/owner/repo/pull/320\n' > "$GH_STUB_DATA/issue_view_32.json"
 touch "$GH_STUB_DATA/pr_view_320.fail"
 
 out=$(run 30 --with-prs); status=$?
@@ -272,7 +277,43 @@ assert "with-prs failure: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.tx
 assert "with-prs failure: prs null for both" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[].prs]')\" = '[null,null]' ]" "$out"
 assert "with-prs failure: two warnings" "[ \"$(printf '%s' "$out" | jq '.warnings | length')\" = 2 ]" "$out"
 
-# --- ケース12: 前提不成立は非ゼロ exit + 英語 stderr ---
+# --- ケース12: Sub 一覧の件数が summary と不一致 → warning + all_sub_issues_closed false ---
+reset_data
+issue_json 30 open 3 3 > "$GH_STUB_DATA/repos_owner_repo_issues_30.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_30_parent.404"
+sub_list_json 31:closed 32:closed > "$GH_STUB_DATA/repos_owner_repo_issues_30_sub_issues.json"
+
+out=$(run 30); status=$?
+assert "count mismatch: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "count mismatch: all_sub_issues_closed false" "[ \"$(printf '%s' "$out" | jq -r .all_sub_issues_closed)\" = false ]" "$out"
+assert "count mismatch: warning present" "printf '%s' \"\$out\" | jq -e '.warnings | length == 1 and (.[0] | test(\"mismatch\"))' >/dev/null" "$out"
+
+# --- ケース13: 親の Sub 一覧取得失敗 → warning + siblings [] + all_siblings_closed false ---
+reset_data
+issue_json 21 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_21.json"
+issue_json 20 open 2 1 > "$GH_STUB_DATA/repos_owner_repo_issues_21_parent.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_20_sub_issues.fail"
+
+out=$(run 21); status=$?
+assert "siblings failure: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "siblings failure: siblings empty" "[ \"$(printf '%s' "$out" | jq -c .siblings)\" = '[]' ]" "$out"
+assert "siblings failure: all_siblings_closed false" "[ \"$(printf '%s' "$out" | jq -r .all_siblings_closed)\" = false ]" "$out"
+assert "siblings failure: warning present" "printf '%s' \"\$out\" | jq -e '.warnings | length == 1 and (.[0] | test(\"siblings\"))' >/dev/null" "$out"
+
+# --- ケース14: 親が別リポジトリ → parent は返すが siblings は取らず warning ---
+reset_data
+issue_json 21 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_21.json"
+issue_json 7 open 2 1 owner/other > "$GH_STUB_DATA/repos_owner_repo_issues_21_parent.json"
+
+out=$(run 21); status=$?
+assert "cross-repo parent: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "cross-repo parent: kind sub" "[ \"$(printf '%s' "$out" | jq -r .kind)\" = sub ]" "$out"
+assert "cross-repo parent: parent repo and same_repo" "printf '%s' \"\$out\" | jq -e '.parent.repo == \"owner/other\" and .parent.same_repo == false' >/dev/null" "$out"
+assert "cross-repo parent: siblings not fetched" "! grep -q 'issues/7/sub_issues' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+assert "cross-repo parent: all_siblings_closed false" "[ \"$(printf '%s' "$out" | jq -r .all_siblings_closed)\" = false ]" "$out"
+assert "cross-repo parent: warning present" "printf '%s' \"\$out\" | jq -e '.warnings | length == 1 and (.[0] | test(\"another repository\"))' >/dev/null" "$out"
+
+# --- ケース15: 前提不成立は非ゼロ exit + 英語 stderr ---
 reset_data
 issue_json 10 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_10.json"
 
