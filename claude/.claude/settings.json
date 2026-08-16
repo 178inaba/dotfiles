@@ -65,6 +65,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/gh-write-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/no-op-wait-guard.sh"
           }
         ]
       },
