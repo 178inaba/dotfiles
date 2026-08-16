@@ -47,12 +47,12 @@ disable-model-invocation: true
 
 ### Issue 階層の扱い（Issue番号指定時）
 
-Issue と PR の対応は「葉 Issue = 1 PR、リリース単位は親 Issue が束ねる」（issue-draft の粒度判定と対）。起動時に取得した `issue-hierarchy.sh` の出力（`kind` / `parent` / `sub_issues` / `siblings` / `all_sub_issues_closed` / `all_siblings_closed` / `warnings`。契約の正はスクリプトヘッダー）で分岐する。取得できていなければ `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
+Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、「リリース時の手動作業」節、PR 本文の規則）。起動時に取得した `issue-hierarchy.sh` の出力（`kind` / `parent` / `sub_issues` / `siblings` / `all_sub_issues_closed` / `all_siblings_closed` / `warnings`。契約の正はスクリプトヘッダー）で分岐する。取得できていなければ `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
 
 - **`standalone`**: 従来どおり単独の Issue として進める
 - **`sub`（親あり・Sub なし）**: 実装対象。以下を要件確認に加える
-  - **親の継承**: `gh issue view <parent.number> --comments` で親の本文・コメントを取得し、親の横断ルール・確定事項を本 Issue の要件と同格に扱う（Sub は「親と合わせて読めば迷わない」基準で書かれており、横断ルールは親にしか無い）
-  - **親の close 判定の材料**: 親本文の「リリース時の手動作業」節を読む。「なし」なら最後の Sub の PR で親も閉じてよい。作業ありなら親は作業完了後に手動で閉じる（PR で閉じない）。**節が無い親**（issue-draft 以外で立てられた Issue 等）は本文・コメントから手動作業の有無を推定し、推奨を添えて AskUserQuestion で「最後の Sub の PR に親を閉じる `Closes` を書くか」を確認する（推測で埋めない）。ただしこの時点で `all_siblings_closed: false`（他に open の Sub がある）なら今は聞かず「未確定」とし、PR 作成直前の再判定で最後の Sub と判明したときに確認する（最後にならない Sub で毎回聞かない）。結果は計画ファイルに記録する（下記「計画完了」）
+  - **親の継承**: `gh issue view <parent.number> --comments` で親の本文・コメントを取得し、親の横断ルール・確定事項を本 Issue の要件と同格に扱う（運用規約「仕様の配置」）
+  - **親 close 方針の記録**: 親本文の「リリース時の手動作業」節から `PR で閉じてよい`（「なし」）/ `PR で閉じない`（作業あり）を決めて計画ファイルに記録する（下記「計画完了」）。節が無い親は、この時点で `all_siblings_closed: true` なら推定 + 推奨を添えて AskUserQuestion で確認し、そうでなければ `未確定` と記録して PR 作成時に持ち越す（最後にならない Sub で毎回聞かない）
   - **依存の確認**: 本 Issue の「依存」節（または親の構成一覧）にある先行 Sub が `siblings[]` で open なら、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。意図的な先行着手を妨げないため停止はしない
 - **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない（Sub が実装単位）
   - open の Sub が残る（`all_sub_issues_closed: false`）→ **停止**。Sub 一覧を番号・タイトル・状態で提示し、親本文の構成一覧の依存順に基づき「次に着手できる Sub」（依存先がすべて closed の open Sub）を示して終了する。自動では着手しない（どの Sub をやるか・`--worktree` を使うかはユーザーの判断）
@@ -60,7 +60,7 @@ Issue と PR の対応は「葉 Issue = 1 PR、リリース単位は親 Issue �
 
 **親の充足検証 → close**（全 Sub 完了の親を渡されたとき）:
 1. 事前準備 Step 1〜2 と同じ規則でベースブランチを確定し（`--base` / 現在ブランチ）、`origin/<base>` を fetch する
-2. 各 Sub のマージ先を確認する: `gh issue view <sub> --json closedByPullRequestsReferences -q '.closedByPullRequestsReferences[].number'` で PR 番号を得て `gh pr view <pr> --json state,baseRefName` を見る。未マージの PR がある・base がベースブランチと異なる Sub があれば警告し、続行するか AskUserQuestion で確認する
+2. `bash ~/.claude/scripts/issue-hierarchy.sh <parent> --with-prs` で各 Sub を閉じた PR の状態を取り（`sub_issues[].prs[]` の `merged` / `base_ref`）、未マージ・`base_ref` がベースブランチと異なる・`prs` が空か null の Sub があれば警告し、続行するか AskUserQuestion で確認する
 3. 親本文の受け入れ条件・横断ルール（と Sub の受け入れ条件のうち親に集約されているもの）を項目展開し、`origin/<base>` のコードと突き合わせて **充足 / 未実装 / 逸脱** に分類する（deep-review の「Issue 要件の充足状況」と同じ形式。差分ではなくベースブランチの現状を読む）
 4. 未実装・逸脱が 1 つでもあれば close せず、充足表と未充足の内容を報告して終了する（対応は新しい Sub の起票等、ユーザーの判断）
 5. 全充足なら「リリース時の手動作業」節を確認する。「なし」（または節が無く手動作業も見当たらない）なら充足表を提示して close の承認を得てから閉じる: 充足表を scratchpad に Write して `gh issue comment <parent> -R <repo> --body-file <path>` で投稿（言語は Issue 本文に合わせる）→ `gh issue close <parent> -R <repo>`。手動作業ありなら、作業の完了をユーザーに確認できた場合のみ同じ手順で close し、未完了なら close せず作業一覧を提示して終了する
@@ -315,7 +315,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
      - 計画ファイルに記録したベースブランチを `/git-pr --base <base-branch>` として引き渡す
    - PR説明にIssue/仕様の背景・動機を含める（リンクだけでなく「なぜこの変更が必要か」を本文に書く）
    - Issue番号指定時: `Closes #<issue-number>` を含める
-   - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 加えて `Part of #<parent>` を書く（closing keyword ではないので親は閉じず、親の Development サイドバーに全 Sub の PR が並ぶ）。さらに **PR 作成直前に `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を再実行**し、`all_siblings_closed: true`（他の全 Sub が closed = 本 Issue が最後の Sub）かつ計画の親 close 方針が「PR で閉じてよい」なら `Closes #<parent>` も書く（方針が「未確定」なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める）。他の Sub が open のうちは付けない（並列で複数の Sub が同時に open だとどの PR も親を閉じない — その場合は全 Sub 完了後に `/issue-handle <parent>` の充足検証 → close 経路で回収する）。`warnings[]` が空でなければ判定せず、`Closes #<parent>` は付けずにその旨を報告する
+   - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of #<parent>` を書く。**PR 作成直前に `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を再実行**し、`all_siblings_closed: true` かつ計画の親 close 方針が `PR で閉じてよい` なら `Closes #<parent>` も書く。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
 
 7. **独立セッションでのレビュー → 親での自動修正**
    - **目的（関心の分離）**:

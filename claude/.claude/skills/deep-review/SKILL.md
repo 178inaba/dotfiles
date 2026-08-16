@@ -96,7 +96,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 `issues` の各要素について Issue 内容を取得し、要件・仕様を確認する（空ならスキップ）。同リポ（`repo: null`）は `gh issue view <N>`、クロスリポは `gh issue view -R <owner>/<repo> <N>`。
 
-あわせて各 Issue の親子関係を `bash ~/.claude/scripts/issue-hierarchy.sh <N> [-R <owner>/<repo>]` で確認し（出力 `parent`。契約の正はスクリプトヘッダー）、**親があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。Sub-Issue は「親と合わせて読めば迷わない」基準で書かれ、横断ルール（エラーコード等の確定値・トランザクション順序等）は親にしか無いため、Sub 単体では横断ルール違反を見落とす。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue（Sub）の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。
+あわせて各 Issue の親子関係を `bash ~/.claude/scripts/issue-hierarchy.sh <N> [-R <owner>/<repo>]` で確認し（出力 `parent`。契約の正はスクリプトヘッダー）、**親があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。
 
 ### 5. レビュー実行
 
