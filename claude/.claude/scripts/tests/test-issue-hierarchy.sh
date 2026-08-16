@@ -46,6 +46,14 @@ cat > "$TMP/stub/gh" <<'EOF'
 #!/bin/bash
 case "$1" in
   repo) printf '%s\n' "${GH_STUB_REPO:-owner/repo}" ;;
+  issue|pr)
+    # `gh issue view <n> ...` / `gh pr view <n> ...` は <kind>_view_<n>.json を返す（<kind>_view_<n>.fail で失敗）。
+    # --json/-q の整形は模擬せず、フィクスチャに最終出力をそのまま置く
+    printf '%s %s %s\n' "$1" "$2" "$3" >> "$GH_STUB_DATA/.calls"
+    [ -f "$GH_STUB_DATA/${1}_view_$3.fail" ] && exit 1
+    [ -f "$GH_STUB_DATA/${1}_view_$3.json" ] || { printf 'stub: no fixture for %s view %s\n' "$1" "$3" >&2; exit 1; }
+    cat "$GH_STUB_DATA/${1}_view_$3.json"
+    ;;
   api)
     shift
     endpoint=""
@@ -97,11 +105,8 @@ issue_json() {
 
 sub_list_json() {
   # sub_list_json <number>:<state> ...
-  local items=""
-  for spec in "$@"; do
-    items="$items{\"number\": ${spec%%:*}, \"title\": \"Sub ${spec%%:*}\", \"state\": \"${spec#*:}\", \"html_url\": \"https://github.com/owner/repo/issues/${spec%%:*}\"},"
-  done
-  printf '[%s]' "${items%,}"
+  printf '%s\n' "$@" | jq -Rsc 'split("\n") | map(select(length > 0) | split(":")
+    | {number: (.[0] | tonumber), title: ("Sub " + .[0]), state: .[1], html_url: ("https://github.com/owner/repo/issues/" + .[0])})'
 }
 
 run() { bash "$SCRIPT" "$@" 2>"$TMP/err.txt"; }
@@ -123,6 +128,7 @@ assert "standalone: all_sub_issues_closed false" "[ \"$(printf '%s' "$out" | jq 
 assert "standalone: all_siblings_closed false" "[ \"$(printf '%s' "$out" | jq -r .all_siblings_closed)\" = false ]" "$out"
 assert "standalone: repo from gh repo view" "[ \"$(printf '%s' "$out" | jq -r .repo)\" = owner/repo ]" "$out"
 assert "standalone: no warnings" "[ \"$(printf '%s' "$out" | jq -c .warnings)\" = '[]' ]" "$out"
+assert "standalone: sub_issues not fetched when summary total is 0" "! grep -q 'issues/10/sub_issues' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
 
 # --- ケース2: Sub Issue（親あり、兄弟に open が残る） ---
 reset_data
@@ -222,7 +228,51 @@ assert "sub list failure: kind still parent (summary says total>0)" "[ \"$(print
 assert "sub list failure: all_sub_issues_closed false" "[ \"$(printf '%s' "$out" | jq -r .all_sub_issues_closed)\" = false ]" "$out"
 assert "sub list failure: warning present" "printf '%s' \"\$out\" | jq -e '.warnings | length == 1 and (.[0] | test(\"sub_issues\"))' >/dev/null" "$out"
 
-# --- ケース10: 前提不成立は非ゼロ exit + 英語 stderr ---
+# --- ケース10: --with-prs で各 Sub を閉じる PR の状態を付ける ---
+reset_data
+issue_json 30 open 3 3 > "$GH_STUB_DATA/repos_owner_repo_issues_30.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_30_parent.404"
+sub_list_json 31:closed 32:closed 33:closed > "$GH_STUB_DATA/repos_owner_repo_issues_30_sub_issues.json"
+printf '310\n' > "$GH_STUB_DATA/issue_view_31.json"                       # 1 PR、マージ済み・base main
+printf '320\n321\n' > "$GH_STUB_DATA/issue_view_32.json"                 # 2 PR、片方は別 base で未マージ
+printf '' > "$GH_STUB_DATA/issue_view_33.json"                            # 紐づく PR なし（手動 close 等）
+printf '{"number":310,"state":"MERGED","baseRefName":"main"}' > "$GH_STUB_DATA/pr_view_310.json"
+printf '{"number":320,"state":"MERGED","baseRefName":"main"}' > "$GH_STUB_DATA/pr_view_320.json"
+printf '{"number":321,"state":"OPEN","baseRefName":"develop"}' > "$GH_STUB_DATA/pr_view_321.json"
+
+out=$(run 30 --with-prs); status=$?
+assert "with-prs: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "with-prs: prs attached to each sub" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[] | (.prs | length)]')\" = '[1,2,0]' ]" "$out"
+assert "with-prs: pr fields" "printf '%s' \"\$out\" | jq -e '.sub_issues[0].prs[0] == {number: 310, state: \"MERGED\", base_ref: \"main\", merged: true}' >/dev/null" "$out"
+assert "with-prs: unmerged pr keeps merged false" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[1].prs[] | .merged]')\" = '[true,false]' ]" "$out"
+assert "with-prs: sub without prs has empty array" "[ \"$(printf '%s' "$out" | jq -c '.sub_issues[2].prs')\" = '[]' ]" "$out"
+assert "with-prs: all_sub_issues_closed unaffected" "[ \"$(printf '%s' "$out" | jq -r .all_sub_issues_closed)\" = true ]" "$out"
+assert "with-prs: no warnings" "[ \"$(printf '%s' "$out" | jq -c .warnings)\" = '[]' ]" "$out"
+
+# 既定（--with-prs なし）では PR を引かない
+reset_data
+issue_json 30 open 1 1 > "$GH_STUB_DATA/repos_owner_repo_issues_30.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_30_parent.404"
+sub_list_json 31:closed > "$GH_STUB_DATA/repos_owner_repo_issues_30_sub_issues.json"
+out=$(run 30); status=$?
+assert "without --with-prs: no prs field" "printf '%s' \"\$out\" | jq -e '.sub_issues[0] | has(\"prs\") | not' >/dev/null" "$out"
+assert "without --with-prs: no issue/pr view calls" "! grep -qE '^(issue|pr) view' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+
+# --- ケース11: --with-prs の照会失敗は縮退（prs: null + warnings） ---
+reset_data
+issue_json 30 open 2 2 > "$GH_STUB_DATA/repos_owner_repo_issues_30.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_30_parent.404"
+sub_list_json 31:closed 32:closed > "$GH_STUB_DATA/repos_owner_repo_issues_30_sub_issues.json"
+touch "$GH_STUB_DATA/issue_view_31.fail"
+printf '320\n' > "$GH_STUB_DATA/issue_view_32.json"
+touch "$GH_STUB_DATA/pr_view_320.fail"
+
+out=$(run 30 --with-prs); status=$?
+assert "with-prs failure: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "with-prs failure: prs null for both" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[].prs]')\" = '[null,null]' ]" "$out"
+assert "with-prs failure: two warnings" "[ \"$(printf '%s' "$out" | jq '.warnings | length')\" = 2 ]" "$out"
+
+# --- ケース12: 前提不成立は非ゼロ exit + 英語 stderr ---
 reset_data
 issue_json 10 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_10.json"
 

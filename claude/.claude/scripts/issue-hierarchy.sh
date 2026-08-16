@@ -8,8 +8,10 @@
 # 呼び出し側が毎回組み立てると 404 の扱い・ページ結合・自分自身の除外がぶれるためここへ一本化する。
 # テストは scripts/tests/test-issue-hierarchy.sh。
 #
-# 使用方法: issue-hierarchy.sh <issue-number> [-R owner/repo]
+# 使用方法: issue-hierarchy.sh <issue-number> [-R owner/repo] [--with-prs]
 #   -R 省略時はカレントリポジトリ（gh repo view）を使う
+#   --with-prs は sub_issues[] の各要素に、その Sub を閉じる PR の状態を付ける（親の充足検証 → close で
+#   「全 Sub のマージ先がベースブランチか」を見るため。Sub ごとに 2 往復増えるので既定では付けない）
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
 #
 # stdout は JSON のみ。契約（正はここ。各 SKILL.md には自スキルが使うフィールドの解釈のみ書く）:
@@ -20,6 +22,8 @@
 #                         parent 判定は sub_issues_summary.total > 0、sub 判定は parent の有無
 #   parent                {number, title, state, url} | null（親なし、または照会失敗 — 後者は warnings に載る）
 #   sub_issues[]          対象 Issue の Sub 一覧 {number, title, state, url}（全ページ結合。取得失敗時は [] + warnings）
+#                         --with-prs 時は各要素に prs[] {number, state, base_ref, merged} を追加する
+#                         （closedByPullRequestsReferences で紐づく PR。無ければ []。取得失敗は warnings + prs: null）
 #   sub_issues_summary    {total, completed}（GitHub 側の集計値。sub_issues[] の取得可否によらず得られる）
 #   all_sub_issues_closed sub_issues[] を全件取得できて（summary.total と一致）かつ全て closed のとき true。
 #                         Sub が 0 件・取得失敗・不一致は false（「全 Sub 完了の親」判定に使うため安全側）
@@ -34,15 +38,20 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/warnings-lib.sh"
 
-USAGE='usage: issue-hierarchy.sh <issue-number> [-R owner/repo]'
+USAGE='usage: issue-hierarchy.sh <issue-number> [-R owner/repo] [--with-prs]'
 
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
 GH_BIN=${GH_BIN:-gh}
 
 issue_number=""
 repo=""
+with_prs=false
 while [ $# -gt 0 ]; do
   case "$1" in
+    --with-prs)
+      with_prs=true
+      shift
+      ;;
     -R)
       [ -n "${2:-}" ] || fatal "-R requires owner/repo
 $USAGE"
@@ -93,9 +102,13 @@ fetch_sub_issues() {
   printf '%s' "$raw" | jq -sc 'add // [] | map({number, title, state, url: .html_url})'
 }
 
-sub_issues='[]'
+# 自分の Sub 一覧。summary が 0 件なら往復を省く（standalone / sub が大半で、起動時の自動実行ごとに走るため）
+summary_total=$(printf '%s' "$self" | jq -r '.sub_issues_summary.total // 0')
 sub_issues_fetched=false
-if sub_issues=$(fetch_sub_issues "$issue_number"); then
+if [ "$summary_total" = 0 ]; then
+  sub_issues='[]'
+  sub_issues_fetched=true
+elif sub_issues=$(fetch_sub_issues "$issue_number"); then
   sub_issues_fetched=true
 else
   sub_issues='[]'
@@ -114,7 +127,31 @@ if [ "$parent" != 'null' ]; then
   fi
 fi
 
-summary_total=$(printf '%s' "$self" | jq -r '.sub_issues_summary.total // 0')
+# --with-prs: 各 Sub を閉じる PR の状態を付ける（issue view → pr view の 2 段。数値の突き合わせを
+# 呼び出し側に組み立てさせない）
+if [ "$with_prs" = true ]; then
+  annotated='[]'
+  for sub_number in $(printf '%s' "$sub_issues" | jq -r '.[].number'); do
+    prs='null'
+    if pr_numbers=$("$GH_BIN" issue view "$sub_number" -R "$repo" --json closedByPullRequestsReferences         -q '.closedByPullRequestsReferences[].number' 2>/dev/null); then
+      prs='[]'
+      for pr_number in $pr_numbers; do
+        if pr_json=$("$GH_BIN" pr view "$pr_number" -R "$repo" --json number,state,baseRefName 2>/dev/null); then
+          prs=$(printf '%s' "$prs" | jq -c --argjson pr "$pr_json"             '. + [{number: $pr.number, state: $pr.state, base_ref: $pr.baseRefName, merged: ($pr.state == "MERGED")}]')
+        else
+          add_warning "pr lookup failed for #$pr_number (closing Sub #$sub_number)"
+          prs='null'
+          break
+        fi
+      done
+    else
+      add_warning "closing PR lookup failed for Sub #$sub_number"
+    fi
+    annotated=$(printf '%s' "$annotated" | jq -c --argjson n "$sub_number" --argjson prs "$prs"       --argjson subs "$sub_issues" '. + [($subs[] | select(.number == $n)) + {prs: $prs}]')
+  done
+  sub_issues=$annotated
+fi
+
 fetched_count=$(printf '%s' "$sub_issues" | jq 'length')
 if [ "$sub_issues_fetched" = true ] && [ "$summary_total" != "$fetched_count" ]; then
   add_warning "sub_issues count mismatch for #$issue_number: summary=$summary_total fetched=$fetched_count"
@@ -130,14 +167,16 @@ jq -n \
   --argjson siblings "$siblings" \
   --argjson siblings_fetched "$siblings_fetched" \
   --argjson warnings "$(warnings_json)" \
-  '{
+  '($self.sub_issues_summary.total // 0) as $total
+  | ($self.sub_issues_summary.completed // 0) as $completed
+  | {
     repo: $repo,
     number: $self.number,
     title: $self.title,
     state: $self.state,
     url: $self.html_url,
     kind: (
-      (($self.sub_issues_summary.total // 0) > 0) as $is_parent
+      ($total > 0) as $is_parent
       | ($parent != null) as $is_sub
       | if $is_parent and $is_sub then "parent_and_sub"
         elif $is_parent then "parent"
@@ -146,10 +185,7 @@ jq -n \
     ),
     parent: $parent,
     sub_issues: $sub_issues,
-    sub_issues_summary: {
-      total: ($self.sub_issues_summary.total // 0),
-      completed: ($self.sub_issues_summary.completed // 0)
-    },
+    sub_issues_summary: {total: $total, completed: $completed},
     all_sub_issues_closed: (
       $sub_fetched and ($sub_issues | length) > 0 and ($sub_issues | all(.state == "closed"))
     ),
