@@ -21,6 +21,9 @@ disable-model-invocation: true
 ## Issue情報（自動取得）
 !`gh issue view $0 --json title,body,labels,assignees,comments 2>/dev/null || echo "Issue情報の取得をスキップ（--file指定時）"`
 
+## Issue階層（自動取得）
+!`bash ~/.claude/scripts/issue-hierarchy.sh $0 2>/dev/null || echo "Issue階層の取得をスキップ（--file指定時、または取得失敗 — Issue番号指定時は要件確認で再実行する）"`
+
 ## 引数
 - `<issue-number>`: 対応するIssue番号（`--file`と排他）
 - `--file FILE_PATH`: 仕様ファイルのパス（`<issue-number>`と排他）
@@ -42,6 +45,26 @@ disable-model-invocation: true
 - --file指定時: Readツールで仕様ファイルを読み込み
 - 関連コードを調査し、実装方針を検討
 
+### Issue 階層の扱い（Issue番号指定時）
+
+Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、「リリース時の手動作業」節、PR 本文の規則）。起動時に取得した `issue-hierarchy.sh` の出力（`kind` / `parent` / `sub_issues` / `siblings` / `all_sub_issues_closed` / `all_siblings_closed` / `warnings`。契約の正はスクリプトヘッダー）で分岐する。取得できていなければ `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
+
+- **`standalone`**: 従来どおり単独の Issue として進める
+- **`sub`（親あり・Sub なし）**: 実装対象。以下を要件確認に加える
+  - **親の継承**: `gh issue view <parent.number> --comments` で親の本文・コメントを取得し、親の横断ルール・確定事項を本 Issue の要件と同格に扱う（運用規約「仕様の配置」）
+  - **親 close 方針の記録**: 親本文の「リリース時の手動作業」節から `PR で閉じてよい`（「なし」）/ `PR で閉じない`（作業あり）を決めて計画ファイルに記録する（下記「計画完了」）。節が無い親は、この時点で `all_siblings_closed: true` なら推定 + 推奨を添えて AskUserQuestion で確認し、そうでなければ `未確定` と記録して PR 作成時に持ち越す（最後にならない Sub で毎回聞かない）
+  - **依存の確認**: 本 Issue の「依存」節（または親の構成一覧）にある先行 Sub が `siblings[]` で open なら、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。意図的な先行着手を妨げないため停止はしない
+- **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない（Sub が実装単位）
+  - open の Sub が残る（`all_sub_issues_closed: false`）→ **停止**。Sub 一覧を番号・タイトル・状態で提示し、親本文の構成一覧の依存順に基づき「次に着手できる Sub」（依存先がすべて closed の open Sub）を示して終了する。自動では着手しない（どの Sub をやるか・`--worktree` を使うかはユーザーの判断）
+  - 全 Sub が closed（`all_sub_issues_closed: true`）→ **親の充足検証 → close** を行う（下記）。計画フェーズ・実装フェーズには進まない
+
+**親の充足検証 → close**（全 Sub 完了の親を渡されたとき）:
+1. 事前準備 Step 1〜2 と同じ規則でベースブランチを確定し（`--base` / 現在ブランチ）、`origin/<base>` を fetch する
+2. `bash ~/.claude/scripts/issue-hierarchy.sh <parent> --with-prs` で各 Sub を閉じた PR の状態を取り（`sub_issues[].prs[]` の `merged` / `base_ref`）、未マージ・`base_ref` がベースブランチと異なる・`prs` が空か null の Sub があれば警告し、続行するか AskUserQuestion で確認する
+3. 親本文の受け入れ条件・横断ルール（と Sub の受け入れ条件のうち親に集約されているもの）を項目展開し、`origin/<base>` のコードと突き合わせて **充足 / 未実装 / 逸脱** に分類する（deep-review の「Issue 要件の充足状況」と同じ形式。差分ではなくベースブランチの現状を読む）
+4. 未実装・逸脱が 1 つでもあれば close せず、充足表と未充足の内容を報告して終了する（対応は新しい Sub の起票等、ユーザーの判断）
+5. 全充足なら「リリース時の手動作業」節を確認する。「なし」（または節が無く手動作業も見当たらない）なら充足表を提示して close の承認を得てから閉じる: 充足表を scratchpad に Write して `gh issue comment <parent> -R <repo> --body-file <path>` で投稿（言語は Issue 本文に合わせる）→ `gh issue close <parent> -R <repo>`。手動作業ありなら、作業の完了をユーザーに確認できた場合のみ同じ手順で close し、未完了なら close せず作業一覧を提示して終了する
+
 ### 計画フェーズ
 
 #### 事前準備（Planモード移行前、Bashで実行）
@@ -55,6 +78,7 @@ PlanモードではBashが使えないため、以下を**移行前に**必ず�
   - コメントは時系列で読み、要件に影響する確定事項（スコープ調整・方針変更・仕様追記）は本文と同格の要件として扱う
   - Bot コメントと minimized なコメント（`isMinimized: true`）は読み飛ばす
 - **深追い禁止**: 実装方針の詳細検討・計画起案は Plan モード内で実施（Plan モード内でも Read/Grep は可能、Bash のみ不可）
+- 「### Issue 階層の扱い」の分岐（親なら停止または充足検証、Sub なら親の継承・親 close 方針・依存の確認）は**この Step で済ませる**（親 close 方針は AskUserQuestion を伴いうるため Plan モード前に確定させ、依存の選択は Step 1 のベースブランチに影響する）
 - 参考: 上記「### 要件確認・調査」セクションは Plan モード内での追加調査時にも用いる共通の指針
 
 **Step 1. ベースブランチの確定**
@@ -155,6 +179,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
      - ブランチ名（typeを含む完全な形式）
      - ベースブランチ（取得済みの値）
      - Issue番号（Issue番号指定時。`gh issue comment` や `Closes #N` で使用）
+     - 親 Issue 番号と親 close 方針（Issue が Sub の場合のみ）: `PR で閉じてよい`（手動作業節が「なし」、または節なしでユーザーが可と回答）/ `PR で閉じない`（手動作業あり、またはユーザーが否と回答）/ `未確定`（節なしで他の Sub が open のため未確認）。実装完了処理の PR 本文組み立てで参照する
      - worktree 使用（`--worktree` 指定時 true）
      - 実装委譲（`--delegate-impl` 指定時 true。実装フェーズと Step 7-2 の分岐判定に使う。再開シナリオでも今回の起動引数を正とし、前回計画の値は引き継がない）
      - worktree 名（`--worktree` 指定時のみ。ブランチ名から `/` を `-` に置換した sanitized 名、例: `feature-99-add-oauth`）
@@ -180,7 +205,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
        - [ ] 実装・テスト（想定コミット計画の単位で都度コミット、必要に応じて調整）
        - [ ] Test, Lint成功確認
        - [ ] `/simplify` で品質チェック・修正
-       - [ ] プッシュ・PR作成（Issue番号指定時は `Closes #<issue-number>` を含める）
+       - [ ] プッシュ・PR作成（Issue番号指定時は `Closes #<issue-number>` を含める。Sub の場合は `Part of #<parent>` と、最後の Sub なら親の `Closes` も — 実装完了処理の規則に従う）
        - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
    - **計画準拠チェック**: @~/.claude/skills/check-plan-compliance/SKILL.md の Step 2〜4 を実行（Step 1 は本Planモード冒頭で実施済みのためスキップ。`--no-plan-review` 未指定時は後続の計画検証が ExitPlanMode を担うため、Step 4 の ExitPlanMode は呼ばず計画修正までに留める。`--no-plan-review` 指定時は後続の計画検証が無いため、同スキルの原則どおり Step 4 の ExitPlanMode まで実行する）
    - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。`@` 参照で本文を先読みしない — 同スキルが依存する共有プロトコル（fresh-reader-verification）は同スキルの起動時に添付されるもので、起動を経ずに本文だけをなぞると未読のまま検証が回る（規約: skill-authoring「スキル間参照」）。修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない
@@ -290,6 +315,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
      - 計画ファイルに記録したベースブランチを `/git-pr --base <base-branch>` として引き渡す
    - PR説明にIssue/仕様の背景・動機を含める（リンクだけでなく「なぜこの変更が必要か」を本文に書く）
    - Issue番号指定時: `Closes #<issue-number>` を含める
+   - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of #<parent>` を書く（`parent.same_repo: false` なら `Part of <parent.repo>#<parent>`。別リポの親は兄弟が取れず `all_siblings_closed` が false のままなので `Closes` は付かない）。**PR 作成直前に `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を再実行**し、`all_siblings_closed: true` かつ計画の親 close 方針が `PR で閉じてよい` なら `Closes #<parent>` も書く。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
 
 7. **独立セッションでのレビュー → 親での自動修正**
    - **目的（関心の分離）**:

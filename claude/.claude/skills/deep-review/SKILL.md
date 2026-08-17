@@ -96,6 +96,8 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 `issues` の各要素について Issue 内容を取得し、要件・仕様を確認する（空ならスキップ）。同リポ（`repo: null`）は `gh issue view <N>`、クロスリポは `gh issue view -R <owner>/<repo> <N>`。
 
+あわせて各 Issue の親子関係を `bash ~/.claude/scripts/issue-hierarchy.sh <N> [-R <owner>/<repo>]` で確認し（出力 `parent`。契約の正はスクリプトヘッダー）、**親があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の「リリース時の手動作業」節が「なし」であること。満たさなければ指摘する（親が早期に閉じる）。
+
 ### 5. レビュー実行
 
 #### レビュー scope（指摘の in/out を決める唯一の境界）
@@ -157,6 +159,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 **仕様・説明との整合**:
 - [ ] **PR が存在する** → PR 説明と実際の変更内容が整合しているか確認する
 - [ ] **Issue 情報が取得されている**（`issues` が空でない） → Issue の要件・受け入れ条件を箇条書きに展開し、各項目を「充足（対応する差分箇所を特定）／未実装／逸脱」のいずれかに分類する（結果はセクション7「Issue要件の充足状況」に反映する）
+- [ ] **親 Issue が取得されている**（セクション4で `parent` あり） → 親の横断ルールを箇条書きに展開し、差分がそれに反していないか確認する（違反は通常の指摘として出す。親の受け入れ条件は充足表に載せない — セクション4の役割分担）
 
 #### 既存レビュー考慮
 
