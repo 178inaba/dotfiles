@@ -54,7 +54,7 @@ Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運
   - **親の継承**: `gh issue view <parent.number> --comments` で親の本文・コメントを取得し、親の横断ルール・確定事項を本 Issue の要件と同格に扱う（運用規約「仕様の配置」）
   - **親 close 方針の記録**: 親本文の「リリース時の手動作業」節から `PR で閉じてよい`（「なし」）/ `PR で閉じない`（作業あり）を決めて計画ファイルに記録する（下記「計画完了」）。節が無い親は、この時点で `all_siblings_closed: true` なら推定 + 推奨を添えて AskUserQuestion で確認し、そうでなければ `未確定` と記録して PR 作成時に持ち越す（最後にならない Sub で毎回聞かない）
   - **依存の確認**: 判定の根拠は `blocked_by[]`（運用規約「Sub 間の順序」）。open の blocker があれば、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。意図的な先行着手を妨げないため停止はしない
-    - blocker が兄弟 Sub でなくても扱いは同じ（何が blocking かは GitHub の登録が正）。ただし stacked base に使える head branch が無い blocker — `same_repo: false`、または `gh pr list -R <repo> --search "linked:issue"` 等で PR が見つからない Issue — では選択肢を続行 / 中断のみにする（兄弟でない blocker は PR を持たないことがある）
+    - blocker が兄弟 Sub でなくても扱いは同じ（何が blocking かは GitHub の登録が正）。ただし stacked base に使える head branch が無い blocker では選択肢を続行 / 中断のみにする（兄弟でない blocker は PR を持たないことがある）。判定は `same_repo: false` か、`gh issue view <blocker.url> --json closedByPullRequestsReferences` が空か（`issue-hierarchy.sh` の `--with-prs` が Sub の PR を引くのと同じ機構）
     - `blocked_by` が空 = 依存が 1 件も登録されていない → **散文へフォールバック**する（運用規約の例外）。本 Issue の「依存」節（または親の構成一覧）にある先行 Sub が `siblings[]` で open かを見る、従来どおりの確認
     - `blocked_by: null`（取得失敗）は上記冒頭の `warnings[]` の規定どおり、自動判定に頼らずユーザー確認へ倒す
 - **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない（Sub が実装単位）

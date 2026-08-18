@@ -118,17 +118,19 @@ elif ! grep -q 'HTTP 404' "$parent_err"; then
 fi
 rm -f "$parent_err"
 
-# Sub 一覧を全ページ取得して 1 配列に結合する。--paginate は各ページの JSON 配列をそのまま連結して
-# 出力するため jq -s で読み直して add する（--jq で要素展開すると失敗時の空出力と 0 件が区別できない）
-fetch_sub_issues() {
-  # fetch_sub_issues <issue-number> → stdout に JSON 配列。失敗時は非ゼロ
-  # total_blocked_by は --with-deps が Sub ごとの往復要否を判定するための内部フィールドで、
-  # 出力前に落とす（siblings[] と sub_issues[] の公開形は従来どおり 4 キー）。一覧のレスポンスも
-  # Issue オブジェクトなので issue_dependencies_summary がそのまま載り、追加の往復は要らない
+# Sub 一覧の各要素。total_blocked_by は --with-deps が Sub ごとの往復要否を判定するための内部
+# フィールドで、出力前に落とす（siblings[] と sub_issues[] の公開形は従来どおり 4 キー）。一覧の
+# レスポンスも Issue オブジェクトなので issue_dependencies_summary がそのまま載り、追加の往復は要らない
+SUB_REF_JQ='{number, title, state, url: .html_url,
+  total_blocked_by: (.issue_dependencies_summary.total_blocked_by // 0)}'
+
+fetch_issue_list() {
+  # fetch_issue_list <api-path> <要素の jq 式> → stdout に JSON 配列。失敗時は非ゼロ
+  # 全ページ取得して 1 配列に結合する。--paginate は各ページの JSON 配列をそのまま連結して出力する
+  # ため jq -s で読み直して add する（--jq で要素展開すると失敗時の空出力と 0 件が区別できない）
   local raw
-  raw=$("$GH_BIN" api --paginate "$base/$1/sub_issues?per_page=100" 2>/dev/null) || return 1
-  printf '%s' "$raw" | jq -sc 'add // [] | map({number, title, state, url: .html_url,
-    total_blocked_by: (.issue_dependencies_summary.total_blocked_by // 0)})'
+  raw=$("$GH_BIN" api --paginate "$1?per_page=100" 2>/dev/null) || return 1
+  printf '%s' "$raw" | jq -sc --arg repo "$repo" "add // [] | map($2)"
 }
 
 issue_api_path() {
@@ -138,38 +140,31 @@ issue_api_path() {
   printf '%s' "$1" | sed -E 's#^https?://[^/]+/([^/]+)/([^/]+)/issues/([0-9]+)$#repos/\1/\2/issues/\3#'
 }
 
-fetch_blocked_by() {
-  # fetch_blocked_by <api-path> → stdout に JSON 配列。失敗時は非ゼロ
-  # ページネーションと jq -s で読み直す理由は fetch_sub_issues と同じ
-  local raw
-  raw=$("$GH_BIN" api --paginate "$1/dependencies/blocked_by?per_page=100" 2>/dev/null) || return 1
-  printf '%s' "$raw" | jq -sc --arg repo "$repo" "add // [] | map($ISSUE_REF_JQ)"
-}
-
 resolve_blockers() {
-  # resolve_blockers <api-path> <total_blocked_by> <label> <out-file>
-  # <out-file> に {blocked_by, blockers_closed} を書く。戻り値を $( ) で受けないのは、
-  # サブシェルで実行すると add_warning の追記（warnings-lib.sh のプロセスローカル変数）が消えるため
-  local path=$1 total=$2 label=$3 out=$4 list count
+  # resolve_blockers <api-path> <total_blocked_by> <label>
+  # 結果 {blocked_by, blockers_closed} はグローバル blockers_json に置く。戻り値を $( ) で
+  # 受けないのは、サブシェルで実行すると add_warning の追記（warnings-lib.sh のプロセスローカル
+  # 変数）が消えるため
+  local path=$1 total=$2 label=$3 list count
   # summary が 0 なら往復を省く（依存の無い Issue が大多数で、起動時の自動実行ごとに走るため）。
   # ゲートに total_blocked_by を使うのは、これが closed も含む全 blocker 数だから
   # （summary.blocked_by は open のみで、blocker が全て closed の Issue を 0 件と誤判定する）
   if [ "$total" = 0 ]; then
-    printf '{"blocked_by":[],"blockers_closed":true}' > "$out"
+    blockers_json='{"blocked_by":[],"blockers_closed":true}'
     return
   fi
-  if ! list=$(fetch_blocked_by "$path"); then
+  if ! list=$(fetch_issue_list "$path/dependencies/blocked_by" "$ISSUE_REF_JQ"); then
     add_warning "blocked_by lookup failed for $label"
-    printf '{"blocked_by":null,"blockers_closed":false}' > "$out"
+    blockers_json='{"blocked_by":null,"blockers_closed":false}'
     return
   fi
   count=$(printf '%s' "$list" | jq 'length')
   if [ "$total" != "$count" ]; then
     add_warning "blocked_by count mismatch for $label: summary=$total fetched=$count"
-    printf '%s' "$list" | jq -c '{blocked_by: ., blockers_closed: false}' > "$out"
+    blockers_json=$(printf '%s' "$list" | jq -c '{blocked_by: ., blockers_closed: false}')
     return
   fi
-  printf '%s' "$list" | jq -c '{blocked_by: ., blockers_closed: all(.state == "closed")}' > "$out"
+  blockers_json=$(printf '%s' "$list" | jq -c '{blocked_by: ., blockers_closed: all(.state == "closed")}')
 }
 
 # 自分の Sub 一覧。summary が 0 件なら往復を省く（standalone / sub が大半で、起動時の自動実行ごとに走るため）
@@ -178,7 +173,7 @@ sub_issues_fetched=false
 if [ "$summary_total" = 0 ]; then
   sub_issues='[]'
   sub_issues_fetched=true
-elif sub_issues=$(fetch_sub_issues "$issue_number"); then
+elif sub_issues=$(fetch_issue_list "$base/$issue_number/sub_issues" "$SUB_REF_JQ"); then
   sub_issues_fetched=true
 else
   sub_issues='[]'
@@ -186,11 +181,10 @@ else
 fi
 
 # 対象 Issue 自身の blocker
-blockers_file=$(mktemp)
 resolve_blockers "$base/$issue_number" \
   "$(printf '%s' "$self" | jq -r '.issue_dependencies_summary.total_blocked_by // 0')" \
-  "#$issue_number" "$blockers_file"
-blockers=$(cat "$blockers_file")
+  "#$issue_number"
+blockers=$blockers_json
 
 siblings='[]'
 siblings_fetched=false
@@ -198,7 +192,7 @@ if [ "$parent" != 'null' ] && [ "$(printf '%s' "$parent" | jq -r .same_repo)" !=
   add_warning "parent #$(printf '%s' "$parent" | jq -r .number) is in another repository ($(printf '%s' "$parent" | jq -r .repo)); siblings unknown"
 elif [ "$parent" != 'null' ]; then
   parent_number=$(printf '%s' "$parent" | jq -r .number)
-  if parent_subs=$(fetch_sub_issues "$parent_number"); then
+  if parent_subs=$(fetch_issue_list "$base/$parent_number/sub_issues" "$SUB_REF_JQ"); then
     siblings=$(printf '%s' "$parent_subs" | jq -c --argjson me "$issue_number" \
       'map(select(.number != $me) | del(.total_blocked_by))')
     siblings_fetched=true
@@ -243,13 +237,12 @@ if [ "$with_deps" = true ]; then
   for sub_number in $(printf '%s' "$sub_issues" | jq -r '.[].number'); do
     sub=$(printf '%s' "$sub_issues" | jq -c --argjson n "$sub_number" '.[] | select(.number == $n)')
     resolve_blockers "$(issue_api_path "$(printf '%s' "$sub" | jq -r .url)")" \
-      "$(printf '%s' "$sub" | jq -r .total_blocked_by)" "Sub #$sub_number" "$blockers_file"
+      "$(printf '%s' "$sub" | jq -r .total_blocked_by)" "Sub #$sub_number"
     annotated=$(printf '%s' "$annotated" | jq -c --argjson sub "$sub" \
-      --argjson blockers "$(cat "$blockers_file")" '. + [$sub + $blockers]')
+      --argjson blockers "$blockers_json" '. + [$sub + $blockers]')
   done
   sub_issues=$annotated
 fi
-rm -f "$blockers_file"
 
 fetched_count=$(printf '%s' "$sub_issues" | jq 'length')
 if [ "$sub_issues_fetched" = true ] && [ "$summary_total" != "$fetched_count" ]; then
