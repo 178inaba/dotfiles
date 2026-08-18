@@ -31,6 +31,8 @@ gh api --method POST repos/${REPO}/issues/SUB_NUMBER/dependencies/blocked_by \
   --field issue_id=${PREREQ_ID}
 ```
 
+手順 3 は既に存在する Issue にもそのまま使える（Sub-Issue 化は作成とは独立の操作のため）。作成済みの Issue を親にぶら下げるだけなら手順 1〜2 を飛ばし、下記の `link_sub_issue` を使う。
+
 ### ワンライナー関数
 ```bash
 create_sub_issue() {
@@ -41,6 +43,15 @@ create_sub_issue() {
   gh api --method POST repos/${repo}/issues/$parent/sub_issues \
     --field sub_issue_id=$sub_id
   echo "Created: $sub_url"
+}
+
+link_sub_issue() {
+  # link_sub_issue <親 Issue の番号> <既存 Issue の URL>（作成はせずリンクだけ行う）
+  local parent=$1 sub_url=$2
+  local repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+  local sub_id=$(gh api ${sub_url/github.com/api.github.com/repos} --jq '.id')
+  gh api --method POST repos/${repo}/issues/$parent/sub_issues \
+    --field sub_issue_id=$sub_id
 }
 
 link_blocked_by() {
