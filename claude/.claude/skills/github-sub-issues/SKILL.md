@@ -24,6 +24,11 @@ SUB_ISSUE_URL=$(gh issue create -R "$REPO" --title "単体で意味が通るタ�
 SUB_ISSUE_ID=$(gh api ${SUB_ISSUE_URL/github.com/api.github.com/repos} --jq '.id')
 gh api --method POST repos/${REPO}/issues/PARENT_NUMBER/sub_issues \
   --field sub_issue_id=${SUB_ISSUE_ID}
+
+# 4. 依存のリンク（全 Sub の作成後、先行 Sub のマージが必要な Sub にのみ依存順で登録する）
+PREREQ_ID=$(gh api ${PREREQ_SUB_URL/github.com/api.github.com/repos} --jq '.id')
+gh api --method POST repos/${REPO}/issues/SUB_NUMBER/dependencies/blocked_by \
+  --field issue_id=${PREREQ_ID}
 ```
 
 ### ワンライナー関数
@@ -37,11 +42,20 @@ create_sub_issue() {
     --field sub_issue_id=$sub_id
   echo "Created: $sub_url"
 }
+
+link_blocked_by() {
+  # link_blocked_by <blocked Issue の番号> <先行 Issue の URL>
+  local blocked=$1 prereq_url=$2
+  local repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+  local prereq_id=$(gh api ${prereq_url/github.com/api.github.com/repos} --jq '.id')
+  gh api --method POST repos/${repo}/issues/$blocked/dependencies/blocked_by \
+    --field issue_id=$prereq_id
+}
 ```
 
 ## 親子関係の読み取り
 
-親の有無・Sub 一覧・完了状態を読むときは共有スクリプト `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number> [-R owner/repo] [--with-prs]` を使う（親は専用エンドポイントの 404 が「親なし」、Sub 一覧はページネーション付きで、都度組み立てると扱いがぶれるため。`--with-prs` は各 Sub を閉じた PR の状態・マージ先を付ける。出力契約はスクリプトヘッダー）。
+親の有無・Sub 一覧・完了状態・依存を読むときは共有スクリプト `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number> [-R owner/repo] [--with-prs] [--with-deps]` を使う（親は専用エンドポイントの 404 が「親なし」、Sub 一覧と blocker 一覧はページネーション付きで、都度組み立てると扱いがぶれるため。`--with-prs` は各 Sub を閉じた PR の状態・マージ先を、`--with-deps` は各 Sub の blocker を付ける。出力契約はスクリプトヘッダー）。
 
 ## 運用規約（親子 Issue と PR の対応）
 
@@ -53,6 +67,7 @@ issue-draft（起票）・issue-handle（実装）・deep-review（レビュー�
 - **親の「リリース時の手動作業」節**（見出し名は固定。issue-draft の親テンプレートが必須節として置く）: 「なし（全 Sub のマージで完了）」またはチェックリスト。「なし」なら最後の Sub の PR で親を閉じてよく、作業ありなら親は作業完了後に手動で閉じる。節が無い親（他の経路で立てられた Issue）は本文・コメントから推定した上でユーザーに確認し、推測で埋めない
 - **PR 本文**: Sub の PR は `Closes #<Sub>` に加えて `Part of #<親>`（closing keyword ではないので親は閉じず、親の Development サイドバーに全 Sub の PR が並ぶ。親が別リポジトリ — `issue-hierarchy.sh` の `parent.same_repo: false` — なら `Part of owner/repo#N` 形式で書く）。PR 作成時点で他の全 Sub が closed（`issue-hierarchy.sh` の `all_siblings_closed: true`）かつ手動作業が「なし」なら `Closes #<親>` も書く。並列で複数の Sub が open のうちはどの PR も親を閉じず、全 Sub 完了後に親を issue-handle に渡して充足検証 → close する
 - **Sub のタイトル**: 接頭辞（【Sub】・[1/6] 等）を付けず単体で意味が通るものにする。親子関係は GitHub の Sub-Issues 表示が担い、後から Sub を足すと番号がずれる
+- **Sub 間の順序**: GitHub ネイティブの `blocked_by` リンク（上記「Sub-Issue作成とリンク」手順 4）が正で、`issue-hierarchy.sh` の `blocked_by[]` / `blockers_closed` から読む。散文（親の「構成（Sub-Issues）」一覧・Sub の「依存」節）は人が読むために残すが、判定の根拠にはしない。**例外**は依存が 1 件も登録されていない Issue（本規約より前に立てた Issue・他の経路で立てられた親）で、この場合のみ散文へフォールバックする。散文だけを正にしないのは、文言がぶれる・後から足した Sub が親の一覧から漏れるといった読み取り事故が起きる上、スキルの外（GitHub の UI・Projects）から依存が見えないため
 
 ## リンク後の親Issue本文同期
 
@@ -64,7 +79,7 @@ Sub-Issueのリンク完了後、親Issue本文の子Issueへの言及を新し�
 4. **無ければ**: 本文は変更しない（GitHubがSub-Issuesパネルを標準表示するため本文リストの新設は不要。既存の書き方を尊重する）
 
 ## 注意事項
-- 整数型の`id`を使用（`node_id`ではない）
+- 整数型の`id`を使用（`node_id`ではない）。`sub_issue_id`・`blocked_by` の `issue_id` とも同じ
 - リポジトリ書き込み権限が必要
 - `gh issue create` 等の書き込み系は `-R owner/repo` でリポジトリを明示し、複数行本文は `--body-file` で渡す（グローバル方針・PreToolUseフックで強制。`--body` に `\n` を含む文字列を直渡しすると、bash はリテラルの `\n` として本文に焼き込む）
-- [GitHub REST API Docs](https://docs.github.com/en/rest/issues/sub-issues)
+- [GitHub REST API Docs: Sub-issues](https://docs.github.com/en/rest/issues/sub-issues) / [Issue dependencies](https://docs.github.com/en/rest/issues/dependencies)

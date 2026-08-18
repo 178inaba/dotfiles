@@ -110,7 +110,9 @@ Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運
 - 新規作成: `gh issue create -R <repo> --title "..." --body-file <path> --assignee @me [--label ...]`
 - **`--refine` 時**: `gh issue edit <番号> -R <repo> --body-file <path> [--title "..."] [--add-label ...]`。アサインは変更しない
   - 起案者・コメント参加者に自分以外がいる場合（自分のログイン名は `gh api user -q .login` で確認）は、手順 8 で提示した変更点を本文とする編集通知コメントを提案し、承認を得て投稿する（ファイルに書き出して `--body-file` で渡す。既読者が黙った書き換えに気付けないままになるのを防ぐ）
-- 分割時: 親 Issue を作成（`--refine` 時は更新）後、Sub-Issue ファイル内のプレースホルダー（親番号と、「依存」節が参照する先行 Sub の番号 — Sub は依存順に作成して順次埋める）を Edit で置換し、@~/.claude/skills/github-sub-issues/SKILL.md の手順で Sub-Issues を作成・リンク。全 Sub の作成後、親本文「構成（Sub-Issues）」の番号プレースホルダーを実番号で埋めて `gh issue edit` で更新する（同スキルの「リンク後の親Issue本文同期」）
+- 分割時: 親 Issue を作成（`--refine` 時は更新）後、Sub-Issue ファイル内のプレースホルダー（親番号と、「依存」節が参照する先行 Sub の番号 — Sub は依存順に作成して順次埋める）を Edit で置換し、@~/.claude/skills/github-sub-issues/SKILL.md の手順で Sub-Issues を作成・リンク。全 Sub の作成後:
+  - 各 Sub の先行 Sub を `blocked_by` として依存順に登録する（同スキルの手順 4 / `link_blocked_by`）。運用規約どおりこのリンクが Sub 順序の正で、「依存」節の文面は可読性のためそのまま残す
+  - 親本文「構成（Sub-Issues）」の番号プレースホルダーを実番号で埋めて `gh issue edit` で更新する（同スキルの「リンク後の親Issue本文同期」）
 
 ### 10. 完了報告
 - Issue URL を提示し、次アクションとして `/issue-handle <番号>` を案内する

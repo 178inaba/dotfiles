@@ -98,18 +98,36 @@ reset_data() {
 }
 
 issue_json() {
-  # issue_json <number> <state> <sub_total> <sub_completed> [<owner/repo>]
+  # issue_json <number> <state> <sub_total> <sub_completed> [<owner/repo>] [<total_blocked_by>]
+  # issue_dependencies_summary.blocked_by（open な blocker 数）は本スクリプトが読まないので 0 固定。
+  # 読むのは total_blocked_by（closed も含む全 blocker 数）だけ
   jq -n --argjson n "$1" --arg s "$2" --argjson t "$3" --argjson c "$4" --arg repo "${5:-owner/repo}" \
+    --argjson b "${6:-0}" \
     '{number: $n, title: ("Issue " + ($n|tostring)), state: $s,
       html_url: ("https://github.com/" + $repo + "/issues/" + ($n|tostring)),
       repository_url: ("https://api.github.com/repos/" + $repo),
-      sub_issues_summary: {total: $t, completed: $c, percent_completed: 0}}'
+      sub_issues_summary: {total: $t, completed: $c, percent_completed: 0},
+      issue_dependencies_summary: {blocked_by: 0, blocking: 0, total_blocked_by: $b, total_blocking: 0}}'
 }
 
 sub_list_json() {
-  # sub_list_json <number>:<state> ...
+  # sub_list_json <number>:<state>[:<total_blocked_by>[:<owner/repo>]] ...
   printf '%s\n' "$@" | jq -Rsc 'split("\n") | map(select(length > 0) | split(":")
-    | {number: (.[0] | tonumber), title: ("Sub " + .[0]), state: .[1], html_url: ("https://github.com/owner/repo/issues/" + .[0])})'
+    | (.[3] // "owner/repo") as $repo
+    | {number: (.[0] | tonumber), title: ("Sub " + .[0]), state: .[1],
+       html_url: ("https://github.com/" + $repo + "/issues/" + .[0]),
+       issue_dependencies_summary: {blocked_by: 0, blocking: 0,
+         total_blocked_by: ((.[2] // "0") | tonumber), total_blocking: 0}})'
+}
+
+blocked_by_list_json() {
+  # blocked_by_list_json <number>:<state>[:<owner/repo>] ...
+  # 実 API の blocked_by 一覧は Issue オブジェクトの配列（parent と同じく repository_url を持つ）
+  printf '%s\n' "$@" | jq -Rsc 'split("\n") | map(select(length > 0) | split(":")
+    | (.[2] // "owner/repo") as $repo
+    | {number: (.[0] | tonumber), title: ("Blocker " + .[0]), state: .[1],
+       html_url: ("https://github.com/" + $repo + "/issues/" + .[0]),
+       repository_url: ("https://api.github.com/repos/" + $repo)})'
 }
 
 run() { bash "$SCRIPT" "$@" 2>"$TMP/err.txt"; }
@@ -132,6 +150,9 @@ assert "standalone: all_siblings_closed false" "[ \"$(printf '%s' "$out" | jq -r
 assert "standalone: repo from gh repo view" "[ \"$(printf '%s' "$out" | jq -r .repo)\" = owner/repo ]" "$out"
 assert "standalone: no warnings" "[ \"$(printf '%s' "$out" | jq -c .warnings)\" = '[]' ]" "$out"
 assert "standalone: sub_issues not fetched when summary total is 0" "! grep -q 'issues/10/sub_issues' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+assert "standalone: blocked_by empty" "[ \"$(printf '%s' "$out" | jq -c .blocked_by)\" = '[]' ]" "$out"
+assert "standalone: blockers_closed true" "[ \"$(printf '%s' "$out" | jq -r .blockers_closed)\" = true ]" "$out"
+assert "standalone: blockers not fetched when summary total_blocked_by is 0" "! grep -q 'dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
 
 # --- ケース2: Sub Issue（親あり、兄弟に open が残る） ---
 reset_data
@@ -313,7 +334,128 @@ assert "cross-repo parent: siblings not fetched" "! grep -q 'issues/7/sub_issues
 assert "cross-repo parent: all_siblings_closed false" "[ \"$(printf '%s' "$out" | jq -r .all_siblings_closed)\" = false ]" "$out"
 assert "cross-repo parent: warning present" "printf '%s' \"\$out\" | jq -e '.warnings | length == 1 and (.[0] | test(\"another repository\"))' >/dev/null" "$out"
 
-# --- ケース15: 前提不成立は非ゼロ exit + 英語 stderr ---
+# --- ケース15: blocker に open が残る ---
+reset_data
+issue_json 50 open 0 0 owner/repo 2 > "$GH_STUB_DATA/repos_owner_repo_issues_50.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_50_parent.404"
+blocked_by_list_json 51:closed 52:open > "$GH_STUB_DATA/repos_owner_repo_issues_50_dependencies_blocked_by.json"
+
+out=$(run 50); status=$?
+assert "open blocker: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "open blocker: blocked_by listed" "[ \"$(printf '%s' "$out" | jq -c '[.blocked_by[].number]')\" = '[51,52]' ]" "$out"
+assert "open blocker: blocker fields match parent shape" "printf '%s' \"\$out\" | jq -e '(.blocked_by[0] | keys) == [\"number\",\"repo\",\"same_repo\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "open blocker: blockers_closed false" "[ \"$(printf '%s' "$out" | jq -r .blockers_closed)\" = false ]" "$out"
+assert "open blocker: no warnings" "[ \"$(printf '%s' "$out" | jq -c .warnings)\" = '[]' ]" "$out"
+assert "open blocker: paginate requested" "grep -q 'issues/50/dependencies/blocked_by?per_page=100' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+
+# --- ケース16: blocker がすべて closed（closed の blocker も一覧には残る） ---
+reset_data
+issue_json 50 open 0 0 owner/repo 2 > "$GH_STUB_DATA/repos_owner_repo_issues_50.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_50_parent.404"
+blocked_by_list_json 51:closed 52:closed > "$GH_STUB_DATA/repos_owner_repo_issues_50_dependencies_blocked_by.json"
+
+out=$(run 50); status=$?
+assert "closed blockers: blockers_closed true" "[ \"$(printf '%s' "$out" | jq -r .blockers_closed)\" = true ]" "$out"
+assert "closed blockers: still listed" "[ \"$(printf '%s' "$out" | jq '.blocked_by | length')\" = 2 ]" "$out"
+
+# --- ケース17: blocker 一覧の取得失敗 → warning + null（縮退。安全側で blockers_closed false） ---
+reset_data
+issue_json 50 open 0 0 owner/repo 1 > "$GH_STUB_DATA/repos_owner_repo_issues_50.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_50_parent.404"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_50_dependencies_blocked_by.fail"
+
+out=$(run 50); status=$?
+assert "blocker failure: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "blocker failure: blocked_by null" "[ \"$(printf '%s' "$out" | jq -r .blocked_by)\" = null ]" "$out"
+assert "blocker failure: blockers_closed false" "[ \"$(printf '%s' "$out" | jq -r .blockers_closed)\" = false ]" "$out"
+assert "blocker failure: warning present" "printf '%s' \"\$out\" | jq -e '.warnings | length == 1 and (.[0] | test(\"blocked_by\"))' >/dev/null" "$out"
+
+# --- ケース18: blocker の件数が summary と不一致 → warning + blockers_closed false ---
+reset_data
+issue_json 50 open 0 0 owner/repo 3 > "$GH_STUB_DATA/repos_owner_repo_issues_50.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_50_parent.404"
+blocked_by_list_json 51:closed 52:closed > "$GH_STUB_DATA/repos_owner_repo_issues_50_dependencies_blocked_by.json"
+
+out=$(run 50); status=$?
+assert "blocker mismatch: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "blocker mismatch: fetched blockers kept" "[ \"$(printf '%s' "$out" | jq '.blocked_by | length')\" = 2 ]" "$out"
+assert "blocker mismatch: blockers_closed false despite all closed" "[ \"$(printf '%s' "$out" | jq -r .blockers_closed)\" = false ]" "$out"
+assert "blocker mismatch: warning present" "printf '%s' \"\$out\" | jq -e '.warnings | length == 1 and (.[0] | test(\"blocked_by count mismatch\"))' >/dev/null" "$out"
+
+# --- ケース19: 別リポジトリの blocker（番号だけでは指せないことを呼び出し側へ伝える） ---
+reset_data
+issue_json 50 open 0 0 owner/repo 1 > "$GH_STUB_DATA/repos_owner_repo_issues_50.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_50_parent.404"
+blocked_by_list_json 7:open:owner/other > "$GH_STUB_DATA/repos_owner_repo_issues_50_dependencies_blocked_by.json"
+
+out=$(run 50); status=$?
+assert "cross-repo blocker: repo and same_repo" "printf '%s' \"\$out\" | jq -e '.blocked_by[0].repo == \"owner/other\" and .blocked_by[0].same_repo == false' >/dev/null" "$out"
+assert "cross-repo blocker: blockers_closed false" "[ \"$(printf '%s' "$out" | jq -r .blockers_closed)\" = false ]" "$out"
+
+# --- ケース20: --with-deps で各 Sub の blocker を付ける ---
+reset_data
+issue_json 60 open 3 0 > "$GH_STUB_DATA/repos_owner_repo_issues_60.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_60_parent.404"
+sub_list_json 61:open:0 62:open:1 63:open:2 > "$GH_STUB_DATA/repos_owner_repo_issues_60_sub_issues.json"
+blocked_by_list_json 61:open > "$GH_STUB_DATA/repos_owner_repo_issues_62_dependencies_blocked_by.json"
+blocked_by_list_json 61:closed 64:closed > "$GH_STUB_DATA/repos_owner_repo_issues_63_dependencies_blocked_by.json"
+
+out=$(run 60 --with-deps); status=$?
+assert "with-deps: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "with-deps: blockers attached to each sub" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[] | (.blocked_by | length)]')\" = '[0,1,2]' ]" "$out"
+assert "with-deps: blockers_closed per sub" "[ \"$(printf '%s' "$out" | jq -c '[.sub_issues[].blockers_closed]')\" = '[true,false,true]' ]" "$out"
+assert "with-deps: sub fields" "printf '%s' \"\$out\" | jq -e '(.sub_issues[0] | keys) == [\"blocked_by\",\"blockers_closed\",\"number\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "with-deps: sub with no blockers not fetched" "! grep -q 'issues/61/dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+assert "with-deps: sub with blockers fetched" "grep -q 'issues/62/dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+assert "with-deps: no warnings" "[ \"$(printf '%s' "$out" | jq -c .warnings)\" = '[]' ]" "$out"
+
+# 既定（--with-deps なし）では Sub の blocker を引かない
+reset_data
+issue_json 60 open 1 0 > "$GH_STUB_DATA/repos_owner_repo_issues_60.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_60_parent.404"
+sub_list_json 61:open:2 > "$GH_STUB_DATA/repos_owner_repo_issues_60_sub_issues.json"
+out=$(run 60); status=$?
+assert "without --with-deps: no blocked_by field on subs" "printf '%s' \"\$out\" | jq -e '.sub_issues[0] | has(\"blocked_by\") | not' >/dev/null" "$out"
+assert "without --with-deps: sub keys unchanged" "printf '%s' \"\$out\" | jq -e '(.sub_issues[0] | keys) == [\"number\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "without --with-deps: no dependencies calls for subs" "! grep -q 'issues/61/dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+
+# --- ケース21: --with-deps は別リポジトリの Sub も URL 由来のパスで引く ---
+reset_data
+issue_json 60 open 1 0 > "$GH_STUB_DATA/repos_owner_repo_issues_60.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_60_parent.404"
+sub_list_json 8:open:1:other/repo > "$GH_STUB_DATA/repos_owner_repo_issues_60_sub_issues.json"
+blocked_by_list_json 9:closed:other/repo > "$GH_STUB_DATA/repos_other_repo_issues_8_dependencies_blocked_by.json"
+
+out=$(run 60 --with-deps); status=$?
+assert "with-deps cross-repo sub: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "with-deps cross-repo sub: request goes to the sub's own repo" "grep -q 'repos/other/repo/issues/8/dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+assert "with-deps cross-repo sub: blockers_closed true" "[ \"$(printf '%s' "$out" | jq -r '.sub_issues[0].blockers_closed')\" = true ]" "$out"
+
+# --- ケース22: --with-prs と --with-deps の併用（両方の注釈が同じ要素に載る） ---
+reset_data
+issue_json 60 open 1 1 > "$GH_STUB_DATA/repos_owner_repo_issues_60.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_60_parent.404"
+sub_list_json 61:closed:1 > "$GH_STUB_DATA/repos_owner_repo_issues_60_sub_issues.json"
+printf 'https://github.com/owner/repo/pull/610\n' > "$GH_STUB_DATA/issue_view_61.json"
+printf '{"number":610,"state":"MERGED","baseRefName":"main","url":"https://github.com/owner/repo/pull/610"}' > "$GH_STUB_DATA/pr_view_610.json"
+blocked_by_list_json 62:closed > "$GH_STUB_DATA/repos_owner_repo_issues_61_dependencies_blocked_by.json"
+
+out=$(run 60 --with-prs --with-deps); status=$?
+assert "both flags: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "both flags: sub carries prs and blockers" "printf '%s' \"\$out\" | jq -e '(.sub_issues[0] | keys) == [\"blocked_by\",\"blockers_closed\",\"number\",\"prs\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "both flags: values intact" "printf '%s' \"\$out\" | jq -e '.sub_issues[0].prs[0].number == 610 and .sub_issues[0].blocked_by[0].number == 62 and .sub_issues[0].blockers_closed' >/dev/null" "$out"
+
+# --- ケース23: siblings には内部フィールドが漏れない ---
+reset_data
+issue_json 71 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_71.json"
+issue_json 70 open 2 0 > "$GH_STUB_DATA/repos_owner_repo_issues_71_parent.json"
+sub_list_json 71:open:0 72:open:3 > "$GH_STUB_DATA/repos_owner_repo_issues_70_sub_issues.json"
+
+out=$(run 71); status=$?
+assert "siblings: keys unchanged" "printf '%s' \"\$out\" | jq -e '(.siblings[0] | keys) == [\"number\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "siblings: blockers never fetched" "! grep -q 'issues/72/dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
+
+# --- ケース24: 前提不成立は非ゼロ exit + 英語 stderr ---
 reset_data
 issue_json 10 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_10.json"
 
