@@ -25,7 +25,7 @@ SUB_ISSUE_ID=$(gh api ${SUB_ISSUE_URL/github.com/api.github.com/repos} --jq '.id
 gh api --method POST repos/${REPO}/issues/PARENT_NUMBER/sub_issues \
   --field sub_issue_id=${SUB_ISSUE_ID}
 
-# 4. 依存のリンク（先行 Sub のマージが必要な Sub にのみ。依存順に作成して順次登録する）
+# 4. 依存のリンク（全 Sub の作成後、先行 Sub のマージが必要な Sub にのみ依存順で登録する）
 PREREQ_ID=$(gh api ${PREREQ_SUB_URL/github.com/api.github.com/repos} --jq '.id')
 gh api --method POST repos/${REPO}/issues/SUB_NUMBER/dependencies/blocked_by \
   --field issue_id=${PREREQ_ID}

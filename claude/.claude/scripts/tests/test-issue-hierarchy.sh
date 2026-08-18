@@ -431,7 +431,21 @@ assert "with-deps cross-repo sub: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TM
 assert "with-deps cross-repo sub: request goes to the sub's own repo" "grep -q 'repos/other/repo/issues/8/dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
 assert "with-deps cross-repo sub: blockers_closed true" "[ \"$(printf '%s' "$out" | jq -r '.sub_issues[0].blockers_closed')\" = true ]" "$out"
 
-# --- ケース22: siblings には内部フィールドが漏れない ---
+# --- ケース22: --with-prs と --with-deps の併用（両方の注釈が同じ要素に載る） ---
+reset_data
+issue_json 60 open 1 1 > "$GH_STUB_DATA/repos_owner_repo_issues_60.json"
+touch "$GH_STUB_DATA/repos_owner_repo_issues_60_parent.404"
+sub_list_json 61:closed:1 > "$GH_STUB_DATA/repos_owner_repo_issues_60_sub_issues.json"
+printf 'https://github.com/owner/repo/pull/610\n' > "$GH_STUB_DATA/issue_view_61.json"
+printf '{"number":610,"state":"MERGED","baseRefName":"main","url":"https://github.com/owner/repo/pull/610"}' > "$GH_STUB_DATA/pr_view_610.json"
+blocked_by_list_json 62:closed > "$GH_STUB_DATA/repos_owner_repo_issues_61_dependencies_blocked_by.json"
+
+out=$(run 60 --with-prs --with-deps); status=$?
+assert "both flags: exit 0" "[ $status -eq 0 ]" "stderr=$(cat "$TMP/err.txt")"
+assert "both flags: sub carries prs and blockers" "printf '%s' \"\$out\" | jq -e '(.sub_issues[0] | keys) == [\"blocked_by\",\"blockers_closed\",\"number\",\"prs\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
+assert "both flags: values intact" "printf '%s' \"\$out\" | jq -e '.sub_issues[0].prs[0].number == 610 and .sub_issues[0].blocked_by[0].number == 62 and .sub_issues[0].blockers_closed' >/dev/null" "$out"
+
+# --- ケース23: siblings には内部フィールドが漏れない ---
 reset_data
 issue_json 71 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_71.json"
 issue_json 70 open 2 0 > "$GH_STUB_DATA/repos_owner_repo_issues_71_parent.json"
@@ -441,7 +455,7 @@ out=$(run 71); status=$?
 assert "siblings: keys unchanged" "printf '%s' \"\$out\" | jq -e '(.siblings[0] | keys) == [\"number\",\"state\",\"title\",\"url\"]' >/dev/null" "$out"
 assert "siblings: blockers never fetched" "! grep -q 'issues/72/dependencies/blocked_by' \"$GH_STUB_DATA/.calls\"" "$(cat "$GH_STUB_DATA/.calls")"
 
-# --- ケース23: 前提不成立は非ゼロ exit + 英語 stderr ---
+# --- ケース24: 前提不成立は非ゼロ exit + 英語 stderr ---
 reset_data
 issue_json 10 open 0 0 > "$GH_STUB_DATA/repos_owner_repo_issues_10.json"
 
