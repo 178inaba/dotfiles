@@ -207,5 +207,6 @@
   "preferredNotifChannel": "notifications_disabled",
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "advisorModel": "fable"
+  "advisorModel": "fable",
+  "outputStyle": "Concise"
 }
