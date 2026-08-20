@@ -197,9 +197,35 @@
     "command": "~/.claude/statusline.sh",
     "refreshInterval": 5
   },
+  "extraKnownMarketplaces": {
+    "rdsh": {
+      "source": {
+        "source": "github",
+        "repo": "178inaba/rdsh"
+      },
+      "autoUpdate": true
+    },
+    "slio": {
+      "source": {
+        "source": "github",
+        "repo": "178inaba/slio"
+      },
+      "autoUpdate": true
+    },
+    "cflio": {
+      "source": {
+        "source": "github",
+        "repo": "178inaba/cflio"
+      },
+      "autoUpdate": true
+    }
+  },
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true,
-    "figma@claude-plugins-official": true
+    "figma@claude-plugins-official": true,
+    "rdsh@rdsh": true,
+    "slio@slio": true,
+    "cflio@cflio": true
   },
   "language": "japanese",
   "feedbackSurveyRate": 0,
