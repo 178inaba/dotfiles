@@ -35,6 +35,14 @@ $ go install github.com/178inaba/slio@latest   # Slack (slio skill)
 
 Each requires a one-time `<command> auth login`.
 
+The skills themselves are not copied into this repo. Every one of these CLIs
+ships its own Claude Code plugin, declared in `claude/.claude/settings.json`, so
+Claude Code registers the marketplace, installs the plugin and keeps it current
+by itself — no step beyond the usual `git pull` and `stow -R`. Registration and
+installation run in the background after a session starts, so on a new machine
+the skills appear over the first couple of sessions rather than instantly. They
+are namespaced by their plugin: `/cflio:cflio`, `/rdsh:rdsh`, `/slio:slio`.
+
 ## Update
 
 Applying changes on a machine that is already set up:
