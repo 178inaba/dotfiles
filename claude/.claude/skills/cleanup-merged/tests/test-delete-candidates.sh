@@ -56,6 +56,12 @@ commit_file d.txt d
 git switch -q main
 git merge -q merged-br
 
+# closed-stale: pr_closed だが head_oid が現在の branch head と不一致（照合後に commit が
+# 積まれた想定）→ -D を拒否して failure（TOCTOU ガードの検証）
+git switch -qc closed-stale
+commit_file e.txt e
+git switch -q main
+
 # wt-self: cwd をこの worktree にして実行 → 事前検査で failure、他候補は削除継続
 git worktree add -q "$TMP/wt-self" -b wt-self main
 git merge -q wt-self 2>/dev/null || true
@@ -64,12 +70,12 @@ wt_json() {
   jq -nc --arg p "$1" --arg b "$2" --arg v "$3" '{path: $p, branch: $b, verdict: $v, detail: ""}'
 }
 br_json() {
-  jq -nc --arg b "$1" --arg v "$2" '{branch: $b, verdict: $v, detail: ""}'
+  jq -nc --arg b "$1" --arg v "$2" --arg ho "${3:-}" '{branch: $b, verdict: $v, detail: "", head_oid: $ho}'
 }
 
 input_main=$(jq -nc \
   --argjson wts "[$(wt_json "$TMP/wt-del" wt-del merged_no_pr)]" \
-  --argjson brs "[$(br_json fake-merged merged_no_pr), $(br_json closed-br pr_closed), $(br_json live-br merged_no_pr), $(br_json merged-br merged_no_pr)]" \
+  --argjson brs "[$(br_json fake-merged merged_no_pr), $(br_json closed-br pr_closed "$(git rev-parse refs/heads/closed-br)"), $(br_json closed-stale pr_closed "$(git rev-parse main)"), $(br_json live-br merged_no_pr), $(br_json merged-br merged_no_pr)]" \
   '{candidates: {worktrees: $wts, branches: $brs}}')
 
 out_main=$(printf '%s' "$input_main" | bash "$SCRIPT")
@@ -131,6 +137,9 @@ assert 'merged branch deleted with -d' "$out_main" \
   '.removed.branches | index("merged-br")'
 
 # 失敗の記録と継続
+assert 'stale head_oid refuses -D (TOCTOU guard)' "$out_main" \
+  'any(.failures[]; .type == "branch" and .target == "closed-stale" and (.error | contains("no longer matches")))'
+assert_state 'closed-stale branch survives' "git rev-parse --verify --quiet refs/heads/closed-stale" true
 assert 'unmerged branch with merged verdict fails via -d' "$out_main" \
   'any(.failures[]; .type == "branch" and .target == "fake-merged")'
 assert_state 'fake-merged branch survives' "git rev-parse --verify --quiet fake-merged" true

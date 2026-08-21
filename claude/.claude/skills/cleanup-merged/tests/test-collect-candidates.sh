@@ -99,6 +99,9 @@ git push -q -u origin closedpr 2>/dev/null
 git switch -q main
 printf '[{"number":7,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
   "$(git rev-parse closedpr)" > "$TMP/prdata/closedpr.json"
+# branch と同名のタグ: gitrevisions は tags を heads より先に解決するため、refs/heads/ を
+# 明示しない rev-parse だとタグ OID で照合してしまう（-D 経路のゲート誤判定の回帰検証）
+git tag closedpr main
 
 # closed-local-ahead: CLOSED 未マージ PR + PR head 不一致（PR 後にローカル commit）→ skip
 git switch -qc closed-local-ahead
@@ -149,6 +152,22 @@ printf '[{"number":126,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' >
 
 # wt-detached: detached HEAD の worktree → detached として別枠報告
 git worktree add -q --detach "$TMP/wt-detached" main
+
+# wt-closed-dirty: PR CLOSED（head 一致）だが未コミット変更あり → uncommitted_changes で skip
+# （worktree_skip_reason で uncommitted チェックが pr_closed の early-return より先にある
+#   順序が -D 経路に残る最後の dirty ガードであることの回帰検証）
+git worktree add -q "$TMP/wt-closed-dirty" -b wt-closed-dirty main
+(cd "$TMP/wt-closed-dirty" && commit_file k.txt k)
+printf '[{"number":11,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/wt-closed-dirty)" > "$TMP/prdata/wt-closed-dirty.json"
+printf 'dirty\n' > "$TMP/wt-closed-dirty/x.txt"
+
+# wt-closed-noup: PR CLOSED（head 一致）・clean・upstream なし → 候補
+# （pr_closed が unpushed 系チェックを bypass する worktree 側の回帰検証）
+git worktree add -q "$TMP/wt-closed-noup" -b wt-closed-noup main
+(cd "$TMP/wt-closed-noup" && commit_file l.txt l)
+printf '[{"number":12,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/wt-closed-noup)" > "$TMP/prdata/wt-closed-noup.json"
 
 # --- 実行 ---
 out_normal=$(bash "$SCRIPT")
@@ -224,6 +243,12 @@ assert 'PR head mismatch skipped with reason' "$out_normal" \
   'any(.skipped[]; .target == "closed-local-ahead" and .reason == "local_commits_beyond_pr" and (.detail | contains("9"))) and ([.candidates.branches[].branch] | index("closed-local-ahead") | not)'
 assert 'closed PR without upstream still candidate' "$out_normal" \
   'any(.candidates.branches[]; .branch == "closed-noup" and .verdict == "pr_closed") and ([.skipped[].target] | index("closed-noup") | not)'
+assert 'pr_closed candidate carries verified head_oid' "$out_normal" \
+  'any(.candidates.branches[]; .branch == "closedpr" and .head_oid == "'"$(git rev-parse refs/heads/closedpr)"'")'
+assert 'dirty pr_closed worktree skipped' "$out_normal" \
+  'any(.skipped[]; .type == "worktree" and .branch == "wt-closed-dirty" and .reason == "uncommitted_changes")'
+assert 'clean no-upstream pr_closed worktree is candidate' "$out_normal" \
+  'any(.candidates.worktrees[]; .branch == "wt-closed-noup" and .verdict == "pr_closed")'
 assert_exit '--include-closed flag rejected' "$removed_flag_exit" 1
 
 # カレント worktree / ブランチ

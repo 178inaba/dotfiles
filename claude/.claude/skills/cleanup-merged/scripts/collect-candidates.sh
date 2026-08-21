@@ -43,8 +43,9 @@ if ! git rev-parse --verify --quiet "$merged_base" >/dev/null; then
   add_warning "origin/$default_branch が存在しないためローカル $default_branch で判定"
 fi
 
-# awk '{print $NF}' で先頭マーカー（* カレント / + 他 worktree checked out）を除去
-merged_branches=$(git branch --merged "$merged_base" 2>/dev/null | awk '{print $NF}')
+# --format 指定でマーカー（* カレント / + 他 worktree checked out）は出ない。short ではなく
+# lstrip=2 を使う: 同名タグがあると short は曖昧さ回避で heads/<name> を返し branch 名が壊れる
+merged_branches=$(git branch --merged "$merged_base" --format='%(refname:lstrip=2)' 2>/dev/null)
 
 if ! repo=$("$GH_BIN" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || [ -z "$repo" ]; then
   degraded=true
@@ -64,17 +65,20 @@ contains_line() {
 }
 
 # マージ判定。verdict / detail を設定する（両方空 = in-flight として候補から除外）。
-# judge_skip / judge_skip_detail は判定段階で確定する skip（セーフティ不成立）
+# judge_skip / judge_skip_detail は判定段階で確定する skip（セーフティ不成立）。
+# judge_head_oid は pr_closed のみ非空（照合済み OID。delete スクリプトが -D 直前に再照合する）
 verdict=""
 detail=""
 judge_skip=""
 judge_skip_detail=""
+judge_head_oid=""
 judge_branch() {
   local branch=$1 prs cls num oid local_head
   verdict=""
   detail=""
   judge_skip=""
   judge_skip_detail=""
+  judge_head_oid=""
   if [ "$degraded" = false ]; then
     if prs=$("$GH_BIN" pr list --head "$branch" --state all --json number,state,mergedAt,headRefOid --limit 20 -R "$repo" 2>/dev/null); then
       # 1パスで分類: "open" / "merged <番号>" / "no_pr" / "has_pr <未マージCLOSED番号|空> <head OID|空>"
@@ -110,10 +114,13 @@ judge_branch() {
             # local head == PR head の照合で置き換える。一致すれば GitHub 側に refs/pull/N/head
             # が恒久的に残り `gh pr checkout N` で完全復元できる。不一致 = PR に含まれない
             # ローカル commit があるので削除しない
-            local_head=$(git rev-parse "$branch" 2>/dev/null)
+            # refs/heads/ を明示する: gitrevisions は tags を heads より先に解決するため、
+            # branch と同名のタグがあると裸の rev-parse はタグ OID を返し照合を誤る
+            local_head=$(git rev-parse "refs/heads/$branch" 2>/dev/null)
             if [ -n "$oid" ] && [ "$local_head" = "$oid" ]; then
               verdict="pr_closed"
               detail="PR #$num CLOSED（未マージ・PR head 一致）"
+              judge_head_oid=$local_head
             else
               judge_skip="local_commits_beyond_pr"
               judge_skip_detail="PR #$num CLOSED（未マージ）だが PR head と不一致（ローカル限定 commit あり）"
@@ -219,8 +226,8 @@ while IFS=$'\t' read -r wt_path branch; do
   else
     ic=false
     [ "$wt_path" = "$current_worktree" ] && ic=true
-    wt_candidates+=$(jq -nc --arg p "$wt_path" --arg b "$branch" --arg v "$verdict" --arg d "$detail" --argjson ic "$ic" \
-      '{path: $p, branch: $b, verdict: $v, detail: $d, is_current: $ic}')$'\n'
+    wt_candidates+=$(jq -nc --arg p "$wt_path" --arg b "$branch" --arg v "$verdict" --arg d "$detail" --argjson ic "$ic" --arg ho "$judge_head_oid" \
+      '{path: $p, branch: $b, verdict: $v, detail: $d, is_current: $ic, head_oid: $ho}')$'\n'
   fi
 done <<<"$wt_list"
 
@@ -249,10 +256,10 @@ while IFS= read -r branch; do
   else
     ic=false
     [ "$branch" = "$current_branch" ] && ic=true
-    br_candidates+=$(jq -nc --arg b "$branch" --arg v "$verdict" --arg d "$detail" --argjson ic "$ic" \
-      '{branch: $b, verdict: $v, detail: $d, is_current: $ic}')$'\n'
+    br_candidates+=$(jq -nc --arg b "$branch" --arg v "$verdict" --arg d "$detail" --argjson ic "$ic" --arg ho "$judge_head_oid" \
+      '{branch: $b, verdict: $v, detail: $d, is_current: $ic, head_oid: $ho}')$'\n'
   fi
-done < <(git branch --format='%(refname:short)')
+done < <(git branch --format='%(refname:lstrip=2)')
 
 to_json_array() {
   printf '%s' "$1" | jq -s '.'

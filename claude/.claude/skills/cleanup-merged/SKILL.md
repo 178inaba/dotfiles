@@ -55,6 +55,7 @@ bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh
   - OPEN の PR が併存する branch は判定対象外（in-flight として保持）
   - `detail` はそのまま一覧表示の「判定」欄に使える文字列
   - `is_current: true` はセッションが今いる worktree / チェックアウト中の branch。削除前に手順 3 の「カレント処理」が必要
+  - `head_oid` は `pr_closed` のみ非空（照合済み OID）。delete スクリプトが `-D` 直前に再照合するため、候補を間引く際も落とさず渡すこと
 - **`skipped`**: セーフティチェックで弾かれた対象。`reason` は機械用コード、`detail` はそのまま一覧表示に使える文字列。`branch` フィールドは `type: "worktree"` のみ付与。`local_commits_beyond_pr` は「CLOSED 未マージ PR があるが PR に含まれないローカル commit を持つ」ケース
 - **`detached`**: detached HEAD の worktree（branch が無く削除判定できないため別枠報告）
 - **`degraded: true`**: `gh` 不通でオフライン判定のみ（PR 情報なし。`pr_closed` は PR head 照合ができないため候補に出ない）。一覧のヘッダーに「オフライン判定（PR 情報なし）」と警告を出すこと

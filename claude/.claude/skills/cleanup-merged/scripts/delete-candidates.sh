@@ -46,8 +46,17 @@ add_failure() {
 # verdict に応じた branch 削除。pr_closed のみ -D（PR head 照合済みで gh pr checkout により
 # 復元可能）。それ以外は -d に留め、git 自身のマージ判定を二重セーフティとして残す
 delete_branch() {
-  local branch=$1 verdict=$2 flag=-d err
-  [ "$verdict" = "pr_closed" ] && flag=-D
+  local branch=$1 verdict=$2 head_oid=$3 flag=-d err cur
+  if [ "$verdict" = "pr_closed" ]; then
+    flag=-D
+    # -D は git 自身のマージ判定が効かない唯一の経路。collect の照合時点から branch に
+    # commit が積まれていないか、削除直前に再照合する（照合〜承認〜削除の間の TOCTOU ガード）
+    cur=$(git rev-parse "refs/heads/$branch" 2>/dev/null)
+    if [ -z "$head_oid" ] || [ "$cur" != "$head_oid" ]; then
+      add_failure branch "$branch" "refusing -D: branch head no longer matches verified PR head (expected ${head_oid:-<missing>}, got ${cur:-<unresolved>})"
+      return
+    fi
+  fi
   if err=$(git branch "$flag" "$branch" 2>&1 >/dev/null); then
     removed_brs+="$branch"$'\n'
   else
@@ -55,7 +64,7 @@ delete_branch() {
   fi
 }
 
-while IFS=$'\t' read -r wt_path branch verdict; do
+while IFS=$'\t' read -r wt_path branch verdict head_oid; do
   [ -z "$wt_path" ] && continue
   # 物理パスで比較する。show-toplevel は symlink 解決済みパスを返すため、入力側の表記揺れ
   # （macOS の /var → /private/var 等）で事前検査がすり抜けるとカレント worktree を実削除してしまう
@@ -66,16 +75,16 @@ while IFS=$'\t' read -r wt_path branch verdict; do
   fi
   if err=$(git worktree remove "$wt_path" 2>&1 >/dev/null); then
     removed_wts+="$wt_path"$'\n'
-    delete_branch "$branch" "$verdict"
+    delete_branch "$branch" "$verdict" "$head_oid"
   else
     add_failure worktree "$wt_path" "$err"
   fi
-done < <(printf '%s' "$input" | jq -r '.candidates.worktrees[]? | [.path, .branch, .verdict] | @tsv')
+done < <(printf '%s' "$input" | jq -r '.candidates.worktrees[]? | [.path, .branch, .verdict, .head_oid // ""] | @tsv')
 
-while IFS=$'\t' read -r branch verdict; do
+while IFS=$'\t' read -r branch verdict head_oid; do
   [ -z "$branch" ] && continue
-  delete_branch "$branch" "$verdict"
-done < <(printf '%s' "$input" | jq -r '.candidates.branches[]? | [.branch, .verdict] | @tsv')
+  delete_branch "$branch" "$verdict" "$head_oid"
+done < <(printf '%s' "$input" | jq -r '.candidates.branches[]? | [.branch, .verdict, .head_oid // ""] | @tsv')
 
 jq -n \
   --argjson worktrees "$(to_string_array "$removed_wts")" \
