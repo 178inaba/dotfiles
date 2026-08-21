@@ -42,31 +42,45 @@ check() {
   fi
 }
 
-load_cwd_table
+load_cwd_table || {
+  printf 'FAIL  load_cwd_table succeeds with real lsof\n'
+  exit 1
+}
 
-# lsof は物理パスを返すため、mktemp の symlink 表記（macOS の /var → /private/var）を正規化して渡す
-held_real=$(cd "$TMP/held" && pwd -P)
-free_real=$(cd "$TMP/free" && pwd -P)
+# symlink 表記のパス（macOS の mktemp は /var → /private/var 配下）を生のまま渡しても、
+# lib 側の物理パス解決で lsof の物理パス出力と突合できる
+out_held=$(cwd_holders "$TMP/held")
+check 'holder detected via raw symlinked path' "sleep (PID $HOLDER_PID)" "$out_held"
 
-out_held=$(cwd_holders "$held_real")
-check 'holder detected with comm and pid' "sleep (PID $HOLDER_PID)" "$out_held"
+check 'free directory has no holders' "" "$(cwd_holders "$TMP/free")"
 
-check 'free directory has no holders' "" "$(cwd_holders "$free_real")"
-
-# 配下のサブディレクトリに居るプロセスも親パスの指定で検出される（prefix 判定）
+# 配下のサブディレクトリに居るプロセスも親パスの指定で検出される（prefix 判定）。
+# 複数 holder はカンマ区切りの1行に結合される
 mkdir -p "$TMP/held2/sub"
 (cd "$TMP/held2/sub" && exec sleep 60) &
 HOLDER2=$!
 sleep 1
 load_cwd_table
-held2_real=$(cd "$TMP/held2" && pwd -P)
-out_sub=$(cwd_holders "$held2_real")
+out_multi=$(cwd_holders "$TMP")
 kill "$HOLDER2" 2>/dev/null
-check 'process in subdirectory detected via prefix' "sleep (PID $HOLDER2)" "$out_sub"
+case "$out_multi" in
+  *"sleep (PID $HOLDER_PID)"*", "*"sleep (PID $HOLDER2)"* | *"sleep (PID $HOLDER2)"*", "*"sleep (PID $HOLDER_PID)"*)
+    check 'multiple holders joined with comma' ok ok ;;
+  *)
+    check 'multiple holders joined with comma' "both PIDs comma-joined" "$out_multi" ;;
+esac
 
 # 名前が前方一致するだけの別ディレクトリ（held-sibling）は誤検出しない
 mkdir -p "$TMP/held-sibling"
-check 'prefix does not leak to sibling with shared name prefix' "" "$(cwd_holders "$held_real-sibling")"
+check 'prefix does not leak to sibling with shared name prefix' "" "$(cwd_holders "$TMP/held-sibling")"
+
+# lsof の実行時失敗（バイナリはあるが非ゼロ終了）は非ゼロ return で呼び出し元に伝わる。
+# 空表を「使用中なし」と誤読するとガードが必要な時にだけ silent に無効化されるため
+if LSOF_BIN=/usr/bin/false load_cwd_table; then
+  check 'lsof runtime failure detected' "nonzero return" "returned 0"
+else
+  check 'lsof runtime failure detected' ok ok
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

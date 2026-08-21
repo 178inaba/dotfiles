@@ -36,7 +36,7 @@ printf '%s' "$input" | jq -e '.candidates' >/dev/null 2>&1 || fatal 'stdin JSON 
 # そのプロセスは cwd 消滅で以降の全コマンドが失敗する）。削除直前に cwd 保持プロセスを
 # 検出して拒否する。自セッション（ExitWorktree 漏れ）も他セッション（デプロイ見届け等の
 # 常駐）も同じ「cwd に居るプロセス」なので、この1つの検査で両方を止める
-load_cwd_table
+load_cwd_table || fatal 'lsof failed to enumerate process cwds'
 
 removed_wts=""
 removed_brs=""
@@ -70,12 +70,9 @@ delete_branch() {
 
 while IFS=$'\t' read -r wt_path branch verdict head_oid; do
   [ -z "$wt_path" ] && continue
-  # 物理パスで突合する。lsof は symlink 解決済みパスを返すため、入力側の表記揺れ
-  # （macOS の /var → /private/var 等）で事前検査がすり抜けると使用中 worktree を実削除してしまう
-  wt_real=$(cd "$wt_path" 2>/dev/null && pwd -P) || wt_real=$wt_path
-  holders=$(cwd_holders "$wt_real")
+  holders=$(cwd_holders "$wt_path")
   if [ -n "$holders" ]; then
-    add_failure worktree "$wt_path" "refusing to remove: in use by $(printf '%s' "$holders" | paste -sd ', ' -)"
+    add_failure worktree "$wt_path" "refusing to remove: in use by $holders"
     continue
   fi
   if err=$(git worktree remove "$wt_path" 2>&1 >/dev/null); then

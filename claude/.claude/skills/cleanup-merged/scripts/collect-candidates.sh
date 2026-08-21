@@ -206,7 +206,7 @@ wt_list=$(printf '%s\n' "$wt_porcelain" | awk '
 first_wt=$(printf '%s\n' "$wt_porcelain" | head -n1)
 main_worktree=${first_wt#worktree }
 
-load_cwd_table
+load_cwd_table || fatal 'lsof failed to enumerate process cwds'
 
 while IFS=$'\t' read -r wt_path branch; do
   [ -z "$wt_path" ] && continue
@@ -226,17 +226,18 @@ while IFS=$'\t' read -r wt_path branch; do
   ic=false
   [ "$wt_path" = "$current_worktree" ] && ic=true
   reason=$(worktree_skip_reason "$wt_path")
-  reason_detail=$(skip_detail "$reason")
+  reason_detail=""
   # カレント worktree は自セッション自身が cwd 保持者なので in-use 検査を免除する
   # （手順としては ExitWorktree で抜けてから削除し、delete スクリプトが直前に再検査する）
   if [ -z "$reason" ] && [ "$ic" = false ]; then
     holders=$(cwd_holders "$wt_path")
     if [ -n "$holders" ]; then
       reason="in_use_by_process"
-      reason_detail="使用中のプロセスあり: $(printf '%s' "$holders" | paste -sd ', ' -)"
+      reason_detail="使用中のプロセスあり: $holders"
     fi
   fi
   if [ -n "$reason" ]; then
+    [ -z "$reason_detail" ] && reason_detail=$(skip_detail "$reason")
     skipped+=$(jq -nc --arg target "$wt_path" --arg b "$branch" --arg r "$reason" --arg d "$reason_detail" \
       '{type: "worktree", target: $target, branch: $b, reason: $r, detail: $d}')$'\n'
   else
