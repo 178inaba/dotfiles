@@ -156,6 +156,12 @@ normal_exit=$?
 bash "$SCRIPT" --include-closed >/dev/null 2>&1
 removed_flag_exit=$?
 out_degraded=$(GH_STUB_FAIL=1 bash "$SCRIPT")
+# カレント worktree からの実行 → その worktree 自身が is_current 付き候補になる
+out_current=$(cd "$TMP/wt-merged" && bash "$SCRIPT")
+# main worktree でマージ済みブランチをチェックアウトした状態 → branch 候補に is_current が付く
+git switch -q merged-nopr
+out_curbr=$(bash "$SCRIPT")
+git switch -q main
 
 pass=0
 fail=0
@@ -214,6 +220,18 @@ assert 'PR head mismatch skipped with reason' "$out_normal" \
 assert 'closed PR without upstream still candidate' "$out_normal" \
   'any(.candidates.branches[]; .branch == "closed-noup" and .verdict == "pr_closed") and ([.skipped[].target] | index("closed-noup") | not)'
 assert_exit '--include-closed flag rejected' "$removed_flag_exit" 1
+
+# カレント worktree / ブランチ
+assert 'non-current worktree has is_current false' "$out_normal" \
+  'any(.candidates.worktrees[]; .branch == "wt-merged" and .is_current == false)'
+assert 'current worktree becomes candidate with is_current' "$out_current" \
+  'any(.candidates.worktrees[]; .branch == "wt-merged" and .is_current == true)'
+assert 'current_session skip reason removed' "$out_current" \
+  '[.skipped[].reason] | index("current_session") | not'
+assert 'current branch on main worktree becomes candidate' "$out_curbr" \
+  'any(.candidates.branches[]; .branch == "merged-nopr" and .is_current == true)'
+assert 'current branch of linked worktree not in branch candidates' "$out_current" \
+  '[.candidates.branches[].branch] | index("wt-merged") | not'
 
 # degraded（gh 不通）
 assert 'degraded flag set on gh failure' "$out_degraded" \

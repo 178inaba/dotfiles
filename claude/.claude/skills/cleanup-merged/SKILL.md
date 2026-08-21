@@ -41,8 +41,8 @@ bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh
   "default_branch": "main",
   "current_worktree": "/path/to/current",
   "candidates": {
-    "worktrees": [{"path": "...", "branch": "...", "verdict": "...", "detail": "PR #123 MERGED"}],
-    "branches": [{"branch": "...", "verdict": "...", "detail": "..."}]
+    "worktrees": [{"path": "...", "branch": "...", "verdict": "...", "detail": "PR #123 MERGED", "is_current": false}],
+    "branches": [{"branch": "...", "verdict": "...", "detail": "...", "is_current": false}]
   },
   "skipped": [{"type": "worktree|branch", "target": "...", "branch": "...", "reason": "...", "detail": "..."}],
   "detached": ["/path/to/detached-worktree"],
@@ -56,6 +56,7 @@ bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh
   - `pr_closed`: PR が CLOSED 未マージ、かつ local head == PR head の照合済み（削除しても `gh pr checkout N` で完全復元できる）
   - OPEN の PR が併存する branch は判定対象外（in-flight として保持）
   - `detail` はそのまま一覧表示の「判定」欄に使える文字列
+  - `is_current: true` はセッションが今いる worktree / チェックアウト中の branch。削除前に手順 3 の「カレント処理」が必要
 - **`skipped`**: セーフティチェックで弾かれた対象。`reason` は機械用コード、`detail` はそのまま一覧表示に使える文字列。`branch` フィールドは `type: "worktree"` のみ付与。`local_commits_beyond_pr` は「CLOSED 未マージ PR があるが PR に含まれないローカル commit を持つ」ケース
 - **`detached`**: detached HEAD の worktree（branch が無く削除判定できないため別枠報告）
 - **`degraded: true`**: `gh` 不通でオフライン判定のみ（PR 情報なし。`pr_closed` は PR head 照合ができないため候補に出ない）。一覧のヘッダーに「オフライン判定（PR 情報なし）」と警告を出すこと
@@ -91,6 +92,13 @@ JSON の内容を以下のフォーマットで報告:
 
 #### `--yes` 指定なし
 ユーザーに「上記の削除を実行しますか？」と確認。承認後に削除を実行。
+
+#### カレント処理（`is_current: true` の候補がある場合のみ、削除実行の前に）
+
+- **worktree 候補**: `ExitWorktree(action: "keep")` を呼んでセッションを worktree から抜く
+  - 抜けられたら、その候補もそのまま削除実行に含める（セッションは起動元ディレクトリに戻っている）
+  - no-op（EnterWorktree セッションでない）なら、その候補を削除セットから外し「この worktree はセッションのカレントのため削除できません。メインツリーで再実行してください」と案内（スクリプト側にも同趣旨の事前検査があり、外し忘れは failures に出る）
+- **branch 候補**: `git switch <default_branch>` でカレントブランチを切り替える。失敗（未コミット変更等）したらその候補を削除セットから外して報告
 
 #### 削除実行（スクリプト実行）
 

@@ -137,18 +137,16 @@ judge_branch() {
 # judge_branch の PR head 照合が直接検証済みで、かつ CLOSED PR はリモート branch 削除済みの
 # ことが多く no_upstream_with_commits が誤爆して常時対象化が機能しなくなるため
 worktree_skip_reason() {
-  local path=$1 verdict=$2
-  if [ "$path" = "$current_worktree" ]; then
-    printf 'current_session'
-  elif [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
+  local wt_path=$1 verdict=$2
+  if [ -n "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]; then
     printf 'uncommitted_changes'
   elif [ "$verdict" = "pr_closed" ]; then
     return
-  elif [ -n "$(git -C "$path" log @{u}..HEAD --oneline 2>/dev/null)" ]; then
+  elif [ -n "$(git -C "$wt_path" log @{u}..HEAD --oneline 2>/dev/null)" ]; then
     printf 'unpushed_commits'
   # upstream 未設定 & 自前 commit あり: branch 側と同じ保険（@{u} が無いと上の判定が silent に素通りするため）
-  elif ! git -C "$path" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 &&
-    [ -n "$(git -C "$path" log "$default_branch..HEAD" --oneline 2>/dev/null)" ]; then
+  elif ! git -C "$wt_path" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 &&
+    [ -n "$(git -C "$wt_path" log "$default_branch..HEAD" --oneline 2>/dev/null)" ]; then
     printf 'no_upstream_with_commits'
   fi
 }
@@ -172,7 +170,6 @@ skip_detail() {
   case "$1" in
     uncommitted_changes) printf '未コミット変更あり' ;;
     unpushed_commits) printf '未 push commit あり' ;;
-    current_session) printf 'カレント session の worktree' ;;
     no_upstream_with_commits) printf 'upstream 未設定 & 自前 commit あり' ;;
   esac
 }
@@ -185,43 +182,58 @@ wt_branches=""
 
 # porcelain 出力を「path<TAB>branch」（detached は branch 空）に整形。
 # パスに空白が含まれても壊れないよう $2 ではなく substr で切り出す
-wt_list=$(git worktree list --porcelain | awk '
+wt_porcelain=$(git worktree list --porcelain)
+wt_list=$(printf '%s\n' "$wt_porcelain" | awk '
   /^worktree / { path = substr($0, 10) }
   /^branch /   { print path "\t" substr($0, 19) }
   /^detached$/ { print path "\t" }
 ')
 main_worktree=$(printf '%s\n' "$wt_list" | head -n1 | cut -f1)
 
-while IFS=$'\t' read -r path branch; do
-  [ -z "$path" ] && continue
+# bare リポジトリ + worktree 構成の検出。bare な main は wt_list（branch/detached 行のみ抽出）に
+# 現れず main_worktree が最初の linked worktree を指してしまうため、porcelain の先頭エントリで判定する
+first_wt=$(printf '%s\n' "$wt_porcelain" | head -n1)
+main_is_bare=$(git -C "${first_wt#worktree }" rev-parse --is-bare-repository 2>/dev/null)
+
+while IFS=$'\t' read -r wt_path branch; do
+  [ -z "$wt_path" ] && continue
   [ -n "$branch" ] && wt_branches+="$branch"$'\n'
-  [ "$path" = "$main_worktree" ] && continue
+  [ "$wt_path" = "$main_worktree" ] && continue
   if [ -z "$branch" ]; then
-    detached+="$path"$'\n'
+    detached+="$wt_path"$'\n'
     continue
   fi
   judge_branch "$branch"
   if [ -n "$judge_skip" ]; then
-    skipped+=$(jq -nc --arg target "$path" --arg b "$branch" --arg r "$judge_skip" --arg d "$judge_skip_detail" \
+    skipped+=$(jq -nc --arg target "$wt_path" --arg b "$branch" --arg r "$judge_skip" --arg d "$judge_skip_detail" \
       '{type: "worktree", target: $target, branch: $b, reason: $r, detail: $d}')$'\n'
     continue
   fi
   [ -z "$verdict" ] && continue
-  reason=$(worktree_skip_reason "$path" "$verdict")
+  reason=$(worktree_skip_reason "$wt_path" "$verdict")
   if [ -n "$reason" ]; then
-    skipped+=$(jq -nc --arg target "$path" --arg b "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
+    skipped+=$(jq -nc --arg target "$wt_path" --arg b "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
       '{type: "worktree", target: $target, branch: $b, reason: $r, detail: $d}')$'\n'
   else
-    wt_candidates+=$(jq -nc --arg p "$path" --arg b "$branch" --arg v "$verdict" --arg d "$detail" \
-      '{path: $p, branch: $b, verdict: $v, detail: $d}')$'\n'
+    ic=false
+    [ "$wt_path" = "$current_worktree" ] && ic=true
+    wt_candidates+=$(jq -nc --arg p "$wt_path" --arg b "$branch" --arg v "$verdict" --arg d "$detail" --argjson ic "$ic" \
+      '{path: $p, branch: $b, verdict: $v, detail: $d, is_current: $ic}')$'\n'
   fi
 done <<<"$wt_list"
 
 while IFS= read -r branch; do
   [ -z "$branch" ] && continue
   is_protected "$branch" && continue
-  contains_line "$wt_branches" "$branch" && continue
-  [ "$branch" = "$current_branch" ] && continue
+  if contains_line "$wt_branches" "$branch"; then
+    # どこかの worktree でチェックアウト中の branch は原則対象外（linked worktree のものは
+    # worktree 候補側で扱い、他ツリーのものは git branch -d が拒否する）。例外として
+    # main worktree でチェックアウト中のカレントブランチのみ通過させる（git switch 後に削除可能）。
+    # bare + worktree 構成では main_worktree 検出が最初の linked worktree を指すため通過させない
+    if [ "$branch" != "$current_branch" ] || [ "$current_worktree" != "$main_worktree" ] || [ "$main_is_bare" = true ]; then
+      continue
+    fi
+  fi
   judge_branch "$branch"
   if [ -n "$judge_skip" ]; then
     skipped+=$(jq -nc --arg target "$branch" --arg r "$judge_skip" --arg d "$judge_skip_detail" \
@@ -234,8 +246,10 @@ while IFS= read -r branch; do
     skipped+=$(jq -nc --arg target "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
       '{type: "branch", target: $target, reason: $r, detail: $d}')$'\n'
   else
-    br_candidates+=$(jq -nc --arg b "$branch" --arg v "$verdict" --arg d "$detail" \
-      '{branch: $b, verdict: $v, detail: $d}')$'\n'
+    ic=false
+    [ "$branch" = "$current_branch" ] && ic=true
+    br_candidates+=$(jq -nc --arg b "$branch" --arg v "$verdict" --arg d "$detail" --argjson ic "$ic" \
+      '{branch: $b, verdict: $v, detail: $d, is_current: $ic}')$'\n'
   fi
 done < <(git branch --format='%(refname:short)')
 
