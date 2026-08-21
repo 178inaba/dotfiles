@@ -92,21 +92,39 @@ printf '[{"number":124,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' >
 # develop: main にマージ済みでも保護 branch として常に除外
 git branch -q develop main
 
-# closedpr: PR が CLOSED（未マージ）→ --include-closed 時のみ pr_closed 候補
+# closedpr: PR が CLOSED（未マージ）・local head == PR head → 常に pr_closed 候補
 git switch -qc closedpr
 commit_file e.txt e
 git push -q -u origin closedpr 2>/dev/null
 git switch -q main
-printf '[{"number":7,"state":"CLOSED","mergedAt":null}]\n' > "$TMP/prdata/closedpr.json"
+printf '[{"number":7,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
+  "$(git rev-parse closedpr)" > "$TMP/prdata/closedpr.json"
 
-# closedmerged: CLOSED だが mergedAt 非 null → --include-closed でも除外（絞り込みの検証）
+# closed-local-ahead: CLOSED 未マージ PR + PR head 不一致（PR 後にローカル commit）→ skip
+git switch -qc closed-local-ahead
+commit_file i.txt i
+git push -q -u origin closed-local-ahead 2>/dev/null
+printf '[{"number":9,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
+  "$(git rev-parse closed-local-ahead)" > "$TMP/prdata/closed-local-ahead.json"
+commit_file i2.txt i2
+git switch -q main
+
+# closed-noup: CLOSED 未マージ PR + upstream なし + PR head 一致 → 候補
+# （pr_closed に unpushed 系チェックを適用すると no_upstream_with_commits で誤爆する回帰の検証）
+git switch -qc closed-noup
+commit_file j.txt j
+git switch -q main
+printf '[{"number":10,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
+  "$(git rev-parse closed-noup)" > "$TMP/prdata/closed-noup.json"
+
+# closedmerged: CLOSED だが mergedAt 非 null → 除外（未マージ CLOSED への絞り込みの検証）
 git switch -qc closedmerged
 commit_file f.txt f
 git push -q -u origin closedmerged 2>/dev/null
 git switch -q main
 printf '[{"number":8,"state":"CLOSED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/closedmerged.json"
 
-# reopened: CLOSED 未マージ PR と OPEN PR が併存 → --include-closed でも in-flight として保持
+# reopened: CLOSED 未マージ PR と OPEN PR が併存 → in-flight として保持
 git switch -qc reopened
 commit_file r.txt r
 git push -q -u origin reopened 2>/dev/null
@@ -135,7 +153,8 @@ git worktree add -q --detach "$TMP/wt-detached" main
 # --- 実行 ---
 out_normal=$(bash "$SCRIPT")
 normal_exit=$?
-out_closed=$(bash "$SCRIPT" --include-closed)
+bash "$SCRIPT" --include-closed >/dev/null 2>&1
+removed_flag_exit=$?
 out_degraded=$(GH_STUB_FAIL=1 bash "$SCRIPT")
 
 pass=0
@@ -184,16 +203,17 @@ assert 'no-upstream worktree with own commits skipped' "$out_normal" \
   'any(.skipped[]; .type == "worktree" and .branch == "wt-noupstream" and .reason == "no_upstream_with_commits")'
 assert 'detached worktree reported separately' "$out_normal" \
   'any(.detached[]; endswith("wt-detached"))'
-assert 'closed PR excluded without flag' "$out_normal" \
-  '([.candidates.branches[].branch] | index("closedpr") | not) and .degraded == false'
-
-# --include-closed
-assert 'closed-unmerged PR included with flag' "$out_closed" \
+assert 'closed-unmerged PR always included' "$out_normal" \
   'any(.candidates.branches[]; .branch == "closedpr" and .verdict == "pr_closed" and (.detail | contains("7")))'
-assert 'closed-but-merged (mergedAt != null) still excluded' "$out_closed" \
+assert 'closed-but-merged (mergedAt != null) excluded' "$out_normal" \
   '[.candidates.branches[].branch] | index("closedmerged") | not'
-assert 'open PR coexisting with closed PR kept in-flight' "$out_closed" \
+assert 'open PR coexisting with closed PR kept in-flight' "$out_normal" \
   '([.candidates.branches[].branch] | index("reopened") | not) and ([.skipped[].target] | index("reopened") | not)'
+assert 'PR head mismatch skipped with reason' "$out_normal" \
+  'any(.skipped[]; .target == "closed-local-ahead" and .reason == "local_commits_beyond_pr" and (.detail | contains("9"))) and ([.candidates.branches[].branch] | index("closed-local-ahead") | not)'
+assert 'closed PR without upstream still candidate' "$out_normal" \
+  'any(.candidates.branches[]; .branch == "closed-noup" and .verdict == "pr_closed") and ([.skipped[].target] | index("closed-noup") | not)'
+assert_exit '--include-closed flag rejected' "$removed_flag_exit" 1
 
 # degraded（gh 不通）
 assert 'degraded flag set on gh failure' "$out_degraded" \

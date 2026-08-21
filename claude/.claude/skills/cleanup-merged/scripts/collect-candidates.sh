@@ -5,7 +5,7 @@
 # worktree/branch の収集・マージ判定・セーフティチェック（決定的処理）を一括実行し、
 # 結果を JSON で stdout に出力する。削除の実行は行わない（AI 側が承認フローを経て実行する）。
 #
-# 使用方法: collect-candidates.sh [--include-closed]
+# 使用方法: collect-candidates.sh
 # 出力契約: SKILL.md の「出力 JSON の契約」を参照
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
 
@@ -17,12 +17,8 @@ GH_BIN=${GH_BIN:-gh}
 # ~/.claude 側で同一なので相対トラバースで解決する
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
 
-include_closed=false
 for arg in "$@"; do
-  case "$arg" in
-    --include-closed) include_closed=true ;;
-    *) fatal "unknown argument: $arg" ;;
-  esac
+  fatal "unknown argument: $arg"
 done
 
 git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not a git repository'
@@ -67,16 +63,21 @@ contains_line() {
   [[ $'\n'"$1"$'\n' == *$'\n'"$2"$'\n'* ]]
 }
 
-# マージ判定。verdict / detail を設定する（両方空 = in-flight として候補から除外）
+# マージ判定。verdict / detail を設定する（両方空 = in-flight として候補から除外）。
+# judge_skip / judge_skip_detail は判定段階で確定する skip（セーフティ不成立）
 verdict=""
 detail=""
+judge_skip=""
+judge_skip_detail=""
 judge_branch() {
-  local branch=$1 prs cls num
+  local branch=$1 prs cls num oid local_head
   verdict=""
   detail=""
+  judge_skip=""
+  judge_skip_detail=""
   if [ "$degraded" = false ]; then
-    if prs=$("$GH_BIN" pr list --head "$branch" --state all --json number,state,mergedAt --limit 20 -R "$repo" 2>/dev/null); then
-      # 1パスで分類: "open" / "merged <番号>" / "no_pr" / "has_pr <未マージCLOSED番号|空>"
+    if prs=$("$GH_BIN" pr list --head "$branch" --state all --json number,state,mergedAt,headRefOid --limit 20 -R "$repo" 2>/dev/null); then
+      # 1パスで分類: "open" / "merged <番号>" / "no_pr" / "has_pr <未マージCLOSED番号|空> <head OID|空>"
       # - OPEN の PR がある branch は他の判定より優先して in-flight 扱い
       #   （MERGED/CLOSED な旧 PR が併存していても、進行中の作業を削除候補にしない）
       # - gh の CLOSED には MERGED も含まれるため mergedAt == null で未マージのみに絞る
@@ -88,7 +89,8 @@ judge_branch() {
         elif length == 0 then
           "no_pr"
         else
-          "has_pr \([.[] | select(.state == "CLOSED" and .mergedAt == null)][0].number // "")"
+          [.[] | select(.state == "CLOSED" and .mergedAt == null)][0] as $c
+            | "has_pr \($c.number // "") \($c.headRefOid // "")"
         end' 2>/dev/null)
       case "$cls" in
         merged\ *)
@@ -102,10 +104,20 @@ judge_branch() {
           fi
           ;;
         has_pr\ *)
-          num=${cls#has_pr }
-          if [ "$include_closed" = true ] && [ -n "$num" ]; then
-            verdict="pr_closed"
-            detail="PR #$num CLOSED（未マージ）"
+          read -r num oid <<<"${cls#has_pr }"
+          if [ -n "$num" ]; then
+            # 未マージ CLOSED は git branch -D が必要（-d の二重セーフティが効かない）ため、
+            # local head == PR head の照合で置き換える。一致すれば GitHub 側に refs/pull/N/head
+            # が恒久的に残り `gh pr checkout N` で完全復元できる。不一致 = PR に含まれない
+            # ローカル commit があるので削除しない
+            local_head=$(git rev-parse "$branch" 2>/dev/null)
+            if [ -n "$oid" ] && [ "$local_head" = "$oid" ]; then
+              verdict="pr_closed"
+              detail="PR #$num CLOSED（未マージ・PR head 一致）"
+            else
+              judge_skip="local_commits_beyond_pr"
+              judge_skip_detail="PR #$num CLOSED（未マージ）だが PR head と不一致（ローカル限定 commit あり）"
+            fi
           fi
           ;;
       esac
@@ -120,13 +132,18 @@ judge_branch() {
   fi
 }
 
-# セーフティチェック。skip 理由を出力する（安全なら空）
+# セーフティチェック。skip 理由を出力する（安全なら空）。
+# pr_closed では unpushed 系チェックを適用しない: 同じ懸念（PR に含まれない commit）を
+# judge_branch の PR head 照合が直接検証済みで、かつ CLOSED PR はリモート branch 削除済みの
+# ことが多く no_upstream_with_commits が誤爆して常時対象化が機能しなくなるため
 worktree_skip_reason() {
-  local path=$1
+  local path=$1 verdict=$2
   if [ "$path" = "$current_worktree" ]; then
     printf 'current_session'
   elif [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
     printf 'uncommitted_changes'
+  elif [ "$verdict" = "pr_closed" ]; then
+    return
   elif [ -n "$(git -C "$path" log @{u}..HEAD --oneline 2>/dev/null)" ]; then
     printf 'unpushed_commits'
   # upstream 未設定 & 自前 commit あり: branch 側と同じ保険（@{u} が無いと上の判定が silent に素通りするため）
@@ -137,7 +154,8 @@ worktree_skip_reason() {
 }
 
 branch_skip_reason() {
-  local branch=$1
+  local branch=$1 verdict=$2
+  [ "$verdict" = "pr_closed" ] && return
   if [ -n "$(git log "$branch@{u}..$branch" --oneline 2>/dev/null)" ]; then
     printf 'unpushed_commits'
     return
@@ -183,8 +201,13 @@ while IFS=$'\t' read -r path branch; do
     continue
   fi
   judge_branch "$branch"
+  if [ -n "$judge_skip" ]; then
+    skipped+=$(jq -nc --arg target "$path" --arg b "$branch" --arg r "$judge_skip" --arg d "$judge_skip_detail" \
+      '{type: "worktree", target: $target, branch: $b, reason: $r, detail: $d}')$'\n'
+    continue
+  fi
   [ -z "$verdict" ] && continue
-  reason=$(worktree_skip_reason "$path")
+  reason=$(worktree_skip_reason "$path" "$verdict")
   if [ -n "$reason" ]; then
     skipped+=$(jq -nc --arg target "$path" --arg b "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
       '{type: "worktree", target: $target, branch: $b, reason: $r, detail: $d}')$'\n'
@@ -200,8 +223,13 @@ while IFS= read -r branch; do
   contains_line "$wt_branches" "$branch" && continue
   [ "$branch" = "$current_branch" ] && continue
   judge_branch "$branch"
+  if [ -n "$judge_skip" ]; then
+    skipped+=$(jq -nc --arg target "$branch" --arg r "$judge_skip" --arg d "$judge_skip_detail" \
+      '{type: "branch", target: $target, reason: $r, detail: $d}')$'\n'
+    continue
+  fi
   [ -z "$verdict" ] && continue
-  reason=$(branch_skip_reason "$branch")
+  reason=$(branch_skip_reason "$branch" "$verdict")
   if [ -n "$reason" ]; then
     skipped+=$(jq -nc --arg target "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
       '{type: "branch", target: $target, reason: $r, detail: $d}')$'\n'
