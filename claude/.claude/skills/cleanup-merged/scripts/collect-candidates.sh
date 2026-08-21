@@ -8,6 +8,7 @@
 # 使用方法: collect-candidates.sh
 # 出力契約: SKILL.md の「出力 JSON の契約」を参照
 # 環境変数: GH_BIN — gh コマンドの差し替え（テスト用スタブ）
+#           LSOF_BIN — lsof コマンドの差し替え（inuse-lib.sh 経由）
 
 set -u
 

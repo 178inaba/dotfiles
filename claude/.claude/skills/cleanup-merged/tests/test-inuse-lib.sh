@@ -19,7 +19,8 @@ fi
 
 TMP=$(mktemp -d)
 HOLDER_PID=""
-trap '[ -n "$HOLDER_PID" ] && kill "$HOLDER_PID" 2>/dev/null; rm -rf "$TMP"' EXIT
+HOLDER_SIBLING=""
+trap 'kill $HOLDER_PID $HOLDER_SIBLING 2>/dev/null; rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/held" "$TMP/free"
 (cd "$TMP/held" && exec sleep 60) &
@@ -70,9 +71,16 @@ case "$out_multi" in
     check 'multiple holders joined with comma' "both PIDs comma-joined" "$out_multi" ;;
 esac
 
-# 名前が前方一致するだけの別ディレクトリ（held-sibling）は誤検出しない
+# 名前が前方一致するだけの兄弟ディレクトリ（held-sibling）の holder を、held への
+# クエリで誤検出しない（`p "/"` サフィックスガードの回帰検証。held の holder だけが
+# exact match で返ることを見るため、この向き — sibling 側に holder を置く — でないと
+# ガードを除去してもテストが red にならない）
 mkdir -p "$TMP/held-sibling"
-check 'prefix does not leak to sibling with shared name prefix' "" "$(cwd_holders "$TMP/held-sibling")"
+(cd "$TMP/held-sibling" && exec sleep 60) &
+HOLDER_SIBLING=$!
+sleep 1
+load_cwd_table
+check 'sibling holder does not leak into prefix match' "sleep (PID $HOLDER_PID)" "$(cwd_holders "$TMP/held")"
 
 # lsof の実行時失敗（バイナリはあるが非ゼロ終了）は非ゼロ return で呼び出し元に伝わる。
 # 空表を「使用中なし」と誤読するとガードが必要な時にだけ silent に無効化されるため

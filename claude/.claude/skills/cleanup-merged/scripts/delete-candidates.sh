@@ -12,6 +12,7 @@
 # - verdict による -d / -D の分岐をテストで担保できる場所に集約する
 #
 # 使用方法: delete-candidates.sh < candidates.json
+# 環境変数: LSOF_BIN — lsof コマンドの差し替え（inuse-lib.sh 経由）
 # 入力契約: {"candidates": {"worktrees": [{"path","branch","verdict",...}], "branches": [{"branch","verdict",...}]}}
 # 出力契約: {"removed": {"worktrees": [...], "branches": [...]}, "failures": [{"type","target","error"}]}
 #   個別の削除失敗は failures に記録して処理を継続し、exit 0 で返す
