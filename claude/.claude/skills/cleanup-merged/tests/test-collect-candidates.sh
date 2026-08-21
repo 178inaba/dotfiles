@@ -17,7 +17,8 @@ if [ ! -f "$SCRIPT" ]; then
 fi
 
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+HOLDER_PID=""
+trap '[ -n "$HOLDER_PID" ] && kill "$HOLDER_PID" 2>/dev/null; rm -rf "$TMP"' EXIT
 
 # --- gh スタブ ---
 # pr list は GH_STUB_DATA/<branch の / を - に置換>.json があればその内容、無ければ [] を返す
@@ -162,6 +163,14 @@ printf '[{"number":11,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
   "$(git rev-parse refs/heads/wt-closed-dirty)" > "$TMP/prdata/wt-closed-dirty.json"
 printf 'dirty\n' > "$TMP/wt-closed-dirty/x.txt"
 
+# wt-inuse: マージ済みだが別プロセス（他セッション相当の sleep）が cwd に居る →
+# in_use_by_process で skip（is_current でない worktree のみが対象）
+git worktree add -q "$TMP/wt-inuse" -b wt-inuse main
+git merge -q wt-inuse 2>/dev/null || true
+(cd "$TMP/wt-inuse" && exec sleep 120) &
+HOLDER_PID=$!
+sleep 1
+
 # wt-closed-noup: PR CLOSED（head 一致）・clean・upstream なし → 候補
 # （pr_closed が unpushed 系チェックを bypass する worktree 側の回帰検証）
 git worktree add -q "$TMP/wt-closed-noup" -b wt-closed-noup main
@@ -250,6 +259,12 @@ assert 'dirty pr_closed worktree skipped' "$out_normal" \
 assert 'clean no-upstream pr_closed worktree is candidate' "$out_normal" \
   'any(.candidates.worktrees[]; .branch == "wt-closed-noup" and .verdict == "pr_closed")'
 assert_exit '--include-closed flag rejected' "$removed_flag_exit" 1
+
+# 使用中 worktree
+assert 'in-use worktree skipped with holder process' "$out_normal" \
+  'any(.skipped[]; .type == "worktree" and .branch == "wt-inuse" and .reason == "in_use_by_process" and (.detail | contains("sleep (PID '"$HOLDER_PID"')")))'
+assert 'in-use worktree not in candidates' "$out_normal" \
+  '[.candidates.worktrees[].branch] | index("wt-inuse") | not'
 
 # カレント worktree / ブランチ
 assert 'non-current worktree has is_current false' "$out_normal" \

@@ -22,17 +22,21 @@ set -u
 # skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
 # ~/.claude 側で同一なので相対トラバースで解決する
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/inuse-lib.sh"
 
 git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not a git repository'
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
+command -v "$LSOF_BIN" >/dev/null 2>&1 || fatal 'lsof is required'
 
 input=$(cat)
 printf '%s' "$input" | jq -e . >/dev/null 2>&1 || fatal 'invalid JSON on stdin'
 printf '%s' "$input" | jq -e '.candidates' >/dev/null 2>&1 || fatal 'stdin JSON missing .candidates'
 
-# git はカレント worktree の remove を拒否せず、cwd 消滅で以降の git が全滅する。
-# ExitWorktree 漏れをここで止め、failure として顕在化させる
-current_toplevel=$(git rev-parse --show-toplevel)
+# git は誰かのプロセスが cwd にしている worktree の remove を拒否しない（clean なら成功し、
+# そのプロセスは cwd 消滅で以降の全コマンドが失敗する）。削除直前に cwd 保持プロセスを
+# 検出して拒否する。自セッション（ExitWorktree 漏れ）も他セッション（デプロイ見届け等の
+# 常駐）も同じ「cwd に居るプロセス」なので、この1つの検査で両方を止める
+load_cwd_table
 
 removed_wts=""
 removed_brs=""
@@ -66,11 +70,12 @@ delete_branch() {
 
 while IFS=$'\t' read -r wt_path branch verdict head_oid; do
   [ -z "$wt_path" ] && continue
-  # 物理パスで比較する。show-toplevel は symlink 解決済みパスを返すため、入力側の表記揺れ
-  # （macOS の /var → /private/var 等）で事前検査がすり抜けるとカレント worktree を実削除してしまう
+  # 物理パスで突合する。lsof は symlink 解決済みパスを返すため、入力側の表記揺れ
+  # （macOS の /var → /private/var 等）で事前検査がすり抜けると使用中 worktree を実削除してしまう
   wt_real=$(cd "$wt_path" 2>/dev/null && pwd -P) || wt_real=$wt_path
-  if [ "$wt_real" = "$current_toplevel" ]; then
-    add_failure worktree "$wt_path" 'refusing to remove current worktree (ExitWorktree first)'
+  holders=$(cwd_holders "$wt_real")
+  if [ -n "$holders" ]; then
+    add_failure worktree "$wt_path" "refusing to remove: in use by $(printf '%s' "$holders" | paste -sd ', ' -)"
     continue
   fi
   if err=$(git worktree remove "$wt_path" 2>&1 >/dev/null); then

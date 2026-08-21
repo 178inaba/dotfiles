@@ -20,6 +20,7 @@ argument-hint: [--yes]
 ## 前提条件
 - Git リポジトリ内で実行すること
 - `gh` CLI がインストール・認証済みであること（PR 判定に使用。不通時はオフライン判定にフォールバック）
+- `lsof` がインストール済みであること（使用中 worktree の検出に使用。macOS は標準搭載）
 
 ## 実行内容
 
@@ -56,7 +57,7 @@ bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh
   - `detail` はそのまま一覧表示の「判定」欄に使える文字列
   - `is_current: true` はセッションが今いる worktree / チェックアウト中の branch。削除前に手順 3 の「カレント処理」が必要
   - `head_oid` は `pr_closed` のみ非空（照合済み OID）。delete スクリプトが `-D` 直前に再照合するため、候補を間引く際も落とさず渡すこと
-- **`skipped`**: セーフティチェックで弾かれた対象。`reason` は機械用コード、`detail` はそのまま一覧表示に使える文字列。`branch` フィールドは `type: "worktree"` のみ付与。`local_commits_beyond_pr` は「CLOSED 未マージ PR があるが PR に含まれないローカル commit を持つ」ケース
+- **`skipped`**: セーフティチェックで弾かれた対象。`reason` は機械用コード、`detail` はそのまま一覧表示に使える文字列。`branch` フィールドは `type: "worktree"` のみ付与。`local_commits_beyond_pr` は「CLOSED 未マージ PR があるが PR に含まれないローカル commit を持つ」ケース。`in_use_by_process` は「別プロセス（他の Claude Code セッション・シェル等）が cwd にしている worktree」で、detail のプロセス名と PID を見て手動で判断する（カレント worktree 自身はこの検査を免除され `is_current` 候補になる）
 - **`detached`**: detached HEAD の worktree（branch が無く削除判定できないため別枠報告）
 - **`degraded: true`**: `gh` 不通でオフライン判定のみ（PR 情報なし。`pr_closed` は PR head 照合ができないため候補に出ない）。一覧のヘッダーに「オフライン判定（PR 情報なし）」と警告を出すこと
 - **`warnings`**: fetch 失敗等の注記。空でなければ一覧に併記する
@@ -93,7 +94,7 @@ JSON の内容を以下のフォーマットで報告:
 
 - **worktree 候補**: `ExitWorktree(action: "keep")` を呼んでセッションを worktree から抜く
   - 抜けられたら、その候補もそのまま削除実行に含める（セッションは起動元ディレクトリに戻っている）
-  - no-op（EnterWorktree セッションでない）なら、その候補を削除セットから外し「この worktree はセッションのカレントのため削除できません。メインツリーで再実行してください」と案内（スクリプト側にも同趣旨の事前検査があり、外し忘れは failures に出る）
+  - no-op（EnterWorktree セッションでない）なら、その候補を削除セットから外し「この worktree はセッションのカレントのため削除できません。メインツリーで再実行してください」と案内（delete スクリプトは cwd 保持プロセスの居る worktree を拒否するため、外し忘れも failures に出る）
 - **branch 候補**: `git switch <default_branch>` でカレントブランチを切り替える。失敗（未コミット変更等）したらその候補を削除セットから外して報告
 
 #### 削除実行（スクリプト実行）
@@ -114,7 +115,7 @@ bash ~/.claude/skills/cleanup-merged/scripts/delete-candidates.sh < <(承認済�
 ```
 
 - 個別の削除失敗は `failures` に記録され処理は継続する（exit 0）。失敗があれば個別に報告する
-- 削除の分岐（`-d`/`-D`・`--force` 不使用・カレント worktree の拒否）はスクリプト内に集約されている。詳細はスクリプトのヘッダーコメントを参照
+- 削除の分岐（`-d`/`-D`・`--force` 不使用・使用中 worktree の拒否）はスクリプト内に集約されている。削除直前にも cwd 保持プロセスを再検査するため、収集〜承認の間に誰かが worktree に入っても削除されない。詳細はスクリプトのヘッダーコメントを参照
 
 `WorktreeRemove` hook がプロジェクトに設定されていれば、`git worktree remove` の発火に合わせて実行される（per-worktree DB のクリーンアップ等）。
 

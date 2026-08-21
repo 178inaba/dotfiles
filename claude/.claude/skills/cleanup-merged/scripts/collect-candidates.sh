@@ -16,6 +16,7 @@ GH_BIN=${GH_BIN:-gh}
 # skills/<skill>/scripts/ → .claude/scripts/ の相対深さは、リポジトリ側と stow 済みの
 # ~/.claude 側で同一なので相対トラバースで解決する
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/warnings-lib.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/inuse-lib.sh"
 
 for arg in "$@"; do
   fatal "unknown argument: $arg"
@@ -23,6 +24,7 @@ done
 
 git rev-parse --git-dir >/dev/null 2>&1 || fatal 'not a git repository'
 command -v jq >/dev/null 2>&1 || fatal 'jq is required'
+command -v "$LSOF_BIN" >/dev/null 2>&1 || fatal 'lsof is required'
 
 degraded=false
 
@@ -204,6 +206,8 @@ wt_list=$(printf '%s\n' "$wt_porcelain" | awk '
 first_wt=$(printf '%s\n' "$wt_porcelain" | head -n1)
 main_worktree=${first_wt#worktree }
 
+load_cwd_table
+
 while IFS=$'\t' read -r wt_path branch; do
   [ -z "$wt_path" ] && continue
   [ -n "$branch" ] && wt_branches+="$branch"$'\n'
@@ -219,13 +223,23 @@ while IFS=$'\t' read -r wt_path branch; do
     continue
   fi
   [ -z "$verdict" ] && continue
+  ic=false
+  [ "$wt_path" = "$current_worktree" ] && ic=true
   reason=$(worktree_skip_reason "$wt_path")
+  reason_detail=$(skip_detail "$reason")
+  # カレント worktree は自セッション自身が cwd 保持者なので in-use 検査を免除する
+  # （手順としては ExitWorktree で抜けてから削除し、delete スクリプトが直前に再検査する）
+  if [ -z "$reason" ] && [ "$ic" = false ]; then
+    holders=$(cwd_holders "$wt_path")
+    if [ -n "$holders" ]; then
+      reason="in_use_by_process"
+      reason_detail="使用中のプロセスあり: $(printf '%s' "$holders" | paste -sd ', ' -)"
+    fi
+  fi
   if [ -n "$reason" ]; then
-    skipped+=$(jq -nc --arg target "$wt_path" --arg b "$branch" --arg r "$reason" --arg d "$(skip_detail "$reason")" \
+    skipped+=$(jq -nc --arg target "$wt_path" --arg b "$branch" --arg r "$reason" --arg d "$reason_detail" \
       '{type: "worktree", target: $target, branch: $b, reason: $r, detail: $d}')$'\n'
   else
-    ic=false
-    [ "$wt_path" = "$current_worktree" ] && ic=true
     wt_candidates+=$(jq -nc --arg p "$wt_path" --arg b "$branch" --arg v "$verdict" --arg d "$detail" --argjson ic "$ic" --arg ho "$judge_head_oid" \
       '{path: $p, branch: $b, verdict: $v, detail: $d, is_current: $ic, head_oid: $ho}')$'\n'
   fi

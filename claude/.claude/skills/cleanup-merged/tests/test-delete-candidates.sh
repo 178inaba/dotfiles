@@ -17,7 +17,8 @@ if [ ! -f "$SCRIPT" ]; then
 fi
 
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+HOLDER_PID=""
+trap '[ -n "$HOLDER_PID" ] && kill "$HOLDER_PID" 2>/dev/null; rm -rf "$TMP"' EXIT
 
 # --- リポジトリフィクスチャ ---
 git init -q -b main "$TMP/repo"
@@ -66,6 +67,14 @@ git switch -q main
 git worktree add -q "$TMP/wt-self" -b wt-self main
 git merge -q wt-self 2>/dev/null || true
 
+# wt-busy: 別プロセス（他セッション相当の sleep）が cwd に居る clean worktree →
+# git worktree remove 自体は通ってしまうため、in-use 事前検査だけが防波堤（回帰検証）
+git worktree add -q "$TMP/wt-busy" -b wt-busy main
+git merge -q wt-busy 2>/dev/null || true
+(cd "$TMP/wt-busy" && exec sleep 120) &
+HOLDER_PID=$!
+sleep 1
+
 wt_json() {
   jq -nc --arg p "$1" --arg b "$2" --arg v "$3" '{path: $p, branch: $b, verdict: $v, detail: ""}'
 }
@@ -74,7 +83,7 @@ br_json() {
 }
 
 input_main=$(jq -nc \
-  --argjson wts "[$(wt_json "$TMP/wt-del" wt-del merged_no_pr)]" \
+  --argjson wts "[$(wt_json "$TMP/wt-busy" wt-busy merged_no_pr), $(wt_json "$TMP/wt-del" wt-del merged_no_pr)]" \
   --argjson brs "[$(br_json fake-merged merged_no_pr), $(br_json closed-br pr_closed "$(git rev-parse refs/heads/closed-br)"), $(br_json closed-stale pr_closed "$(git rev-parse main)"), $(br_json live-br merged_no_pr), $(br_json merged-br merged_no_pr)]" \
   '{candidates: {worktrees: $wts, branches: $brs}}')
 
@@ -137,6 +146,11 @@ assert 'merged branch deleted with -d' "$out_main" \
   '.removed.branches | index("merged-br")'
 
 # 失敗の記録と継続
+assert 'in-use worktree refused with holder process' "$out_main" \
+  'any(.failures[]; .type == "worktree" and .target == "'"$TMP"'/wt-busy" and (.error | contains("in use by sleep (PID '"$HOLDER_PID"')")))'
+assert_state 'wt-busy directory survives' "[ -d '$TMP/wt-busy' ]" true
+assert 'candidates after in-use refusal still processed' "$out_main" \
+  '.removed.worktrees == ["'"$TMP"'/wt-del"]'
 assert 'stale head_oid refuses -D (TOCTOU guard)' "$out_main" \
   'any(.failures[]; .type == "branch" and .target == "closed-stale" and (.error | contains("no longer matches")))'
 assert_state 'closed-stale branch survives' "git rev-parse --verify --quiet refs/heads/closed-stale" true
@@ -160,8 +174,8 @@ out_self=$(cd "$TMP/wt-self" && printf '%s' "$input_self" | bash "$SCRIPT")
 self_exit=$?
 
 assert_exit 'exit 0 with current-worktree failure' "$self_exit" 0
-assert 'current worktree refused with guidance' "$out_self" \
-  'any(.failures[]; .type == "worktree" and .target == "'"$TMP"'/wt-self" and (.error | contains("ExitWorktree")))'
+assert 'current worktree refused as in-use (own shell is a holder)' "$out_self" \
+  'any(.failures[]; .type == "worktree" and .target == "'"$TMP"'/wt-self" and (.error | contains("in use by")))'
 assert_state 'wt-self directory survives' "[ -d '$TMP/wt-self' ]" true
 assert 'other candidates still processed' "$out_self" \
   '.removed.branches == ["merged-br-2"]'
