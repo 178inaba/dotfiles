@@ -158,6 +158,11 @@ removed_flag_exit=$?
 out_degraded=$(GH_STUB_FAIL=1 bash "$SCRIPT")
 # カレント worktree からの実行 → その worktree 自身が is_current 付き候補になる
 out_current=$(cd "$TMP/wt-merged" && bash "$SCRIPT")
+# bare リポジトリ + worktree 構成: bare な main は wt_list に現れないため、main_worktree の
+# 検出を誤ると最初の linked worktree が main 扱いで候補から silent に消える（回帰検証）
+git clone -q --bare "$TMP/origin.git" "$TMP/bare.git" 2>/dev/null
+git -C "$TMP/bare.git" worktree add -q "$TMP/bare-wt" -b bare-feat main
+out_bare=$(cd "$TMP/bare-wt" && bash "$SCRIPT")
 # main worktree でマージ済みブランチをチェックアウトした状態 → branch 候補に is_current が付く
 git switch -q merged-nopr
 out_curbr=$(bash "$SCRIPT")
@@ -232,6 +237,12 @@ assert 'current branch on main worktree becomes candidate' "$out_curbr" \
   'any(.candidates.branches[]; .branch == "merged-nopr" and .is_current == true)'
 assert 'current branch of linked worktree not in branch candidates' "$out_current" \
   '[.candidates.branches[].branch] | index("wt-merged") | not'
+
+# bare リポジトリ + worktree 構成
+assert 'linked worktree of bare main is a candidate' "$out_bare" \
+  'any(.candidates.worktrees[]; .branch == "bare-feat" and .is_current == true)'
+assert 'current branch passthrough blocked under bare main' "$out_bare" \
+  '[.candidates.branches[].branch] | index("bare-feat") | not'
 
 # degraded（gh 不通）
 assert 'degraded flag set on gh failure' "$out_degraded" \
