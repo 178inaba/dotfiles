@@ -1,7 +1,7 @@
 ---
 name: cleanup-merged
 description: マージ済みのworktreeとlocal branchをまとめてクリーンアップ。ユーザーがマージ済みブランチ・worktreeの掃除・片付けを求めたときに使用（既定で一覧提示→承認後に削除）
-argument-hint: [--yes] [--dry-run]
+argument-hint: [--yes]
 ---
 
 # /cleanup-merged
@@ -10,14 +10,12 @@ argument-hint: [--yes] [--dry-run]
 
 ## 使用方法
 ```
-/cleanup-merged                   # 一覧表示 → 承認 → 削除
-/cleanup-merged --yes             # 確認スキップで一括削除
-/cleanup-merged --dry-run         # 削除候補を表示するのみ
+/cleanup-merged        # 一覧表示 → 承認 → 削除
+/cleanup-merged --yes  # 確認スキップで一括削除
 ```
 
 ## 引数
-- `--yes`: 削除前の確認プロンプトをスキップ
-- `--dry-run`: 削除候補の一覧表示のみ、実際の削除は行わない
+- `--yes`: 削除前の確認プロンプトをスキップ（削除候補の確認だけしたい場合は、フラグなしで実行して確認プロンプトを拒否すればよい）
 
 ## 前提条件
 - Git リポジトリ内で実行すること
@@ -86,9 +84,6 @@ JSON の内容を以下のフォーマットで報告:
 削除候補が 0 件の場合はその旨を報告して終了。
 
 ### 3. 確認・削除
-
-#### `--dry-run` 指定時
-ここで終了。何も削除しない。
 
 #### `--yes` 指定なし
 ユーザーに「上記の削除を実行しますか？」と確認。承認後に削除を実行。
