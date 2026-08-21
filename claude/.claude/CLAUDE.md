@@ -9,6 +9,7 @@
   - コード内（コメント・ログ/エラー文字列）: 既存コードの言語（英語/日本語）を踏襲し、コードベース全体で一貫性を保つ
   - GitHub 投稿（Issue/PR の本文・コメント）: 対象スレッド・リポジトリの既存言語に合わせる
   - コミット / PR / ドキュメント: 各既存慣例に従う（`git log`・既存 PR・既存文書）
+- **シェル変数名に `path` を使わない**: Bash ツールの実行シェルは zsh で、`path` は PATH に連動する特殊配列のため代入した瞬間に PATH が破壊される（以降の全コマンドが command not found になる）。`wt_path` 等の名前を使う
 - **ブランチ操作**: `git checkout` ではなく `git switch` / `git restore` を使用する
   - ブランチ作成: `git switch -c branch-name`
   - ブランチ切り替え: `git switch branch-name`
