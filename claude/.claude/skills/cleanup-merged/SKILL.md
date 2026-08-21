@@ -95,20 +95,25 @@ JSON の内容を以下のフォーマットで報告:
 #### `--yes` 指定なし
 ユーザーに「上記の削除を実行しますか？」と確認。承認後に削除を実行。
 
-#### 削除実行
+#### 削除実行（スクリプト実行）
 
-**Worktree**:
 ```bash
-git worktree remove "<path>"      # --force は使わない（セーフティで未保存変更は弾いている）
-git branch -d "<branch>"          # -D は使わない（マージ判定の二重チェック）
+bash ~/.claude/skills/cleanup-merged/scripts/delete-candidates.sh < <(承認済み候補の JSON)
 ```
 
-**Branch**（非 worktree）:
-```bash
-git branch -d "<branch>"
+手順 1 の出力 JSON をそのまま stdin に渡す。ユーザーが一部のみ承認した場合は jq で `candidates` を間引いて渡す（**アドホックなシェルループで削除を再実装しない**。zsh の `path` 特殊変数事故の再発防止としてスクリプトに固定している）。
+
+出力 JSON の契約:
+
+```json
+{
+  "removed": {"worktrees": ["..."], "branches": ["..."]},
+  "failures": [{"type": "worktree|branch", "target": "...", "error": "..."}]
+}
 ```
 
-各削除コマンドの結果を確認し、失敗があれば個別に報告（処理は継続）。
+- 個別の削除失敗は `failures` に記録され処理は継続する（exit 0）。失敗があれば個別に報告する
+- 削除の分岐（`-d`/`-D`・`--force` 不使用・カレント worktree の拒否）はスクリプト内に集約されている。詳細はスクリプトのヘッダーコメントを参照
 
 `WorktreeRemove` hook がプロジェクトに設定されていれば、`git worktree remove` の発火に合わせて実行される（per-worktree DB のクリーンアップ等）。
 
@@ -124,7 +129,7 @@ git branch -d "<branch>"
 
 ## 注意事項
 
-1. **`git branch -d` のみ使用**: `-D` は使わない。マージ済み判定は git 自身も行うため、未マージ branch は git が拒否する二重セーフティとして機能する
+1. **原則 `git branch -d`**: マージ済み判定は git 自身も行うため、未マージ branch は git が拒否する二重セーフティとして機能する。`-D` は `pr_closed`（未マージクローズ）のみ（分岐はスクリプトに集約済み）
 2. **保護 branch は常に除外**: `main`, `master`, `develop`, リモートのデフォルトブランチ（スクリプトが除外済み）
 3. **メイン worktree（リポジトリ root）は対象外**: 構造上削除できない（スクリプトが除外済み）
 4. **PR 判定にはネットワーク必要**: `gh` が失敗する場合、スクリプトが `degraded: true` でオフライン判定（`git branch --merged` のみ）にフォールバックする。警告表示を忘れないこと
