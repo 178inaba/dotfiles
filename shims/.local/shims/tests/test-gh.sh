@@ -276,12 +276,8 @@ assert_runs 'GH_BIN pointing at the shim falls back to PATH' \
   env GH_BIN="$SHIM" PATH="$STUB_DIR:$PATH" "$SHIM" pr view 1
 
 # real gh がどこにも無ければ write は実行しない
-invoke env -u GH_BIN PATH="$TMP/empty-path" "$SHIM" issue create -R foo/bar --title x
-if [ ! -f "$ARGV_LOG" ] && [ "$code" -ne 0 ]; then
-  ok 'a missing real gh does not silently succeed'
-else
-  ng 'a missing real gh does not silently succeed' "(exit=$code)"
-fi
+assert_blocked 'a missing real gh does not silently succeed' \
+  env -u GH_BIN PATH="$TMP/empty-path" "$SHIM" issue create -R foo/bar --title x
 
 # ---- ブロックメッセージが noun/verb に応じた復旧手順を示す ----
 
