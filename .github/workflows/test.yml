@@ -1,0 +1,29 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shell-tests:
+    name: shell-tests
+    runs-on: ubuntu-latest
+    # ハング時に必須チェックが既定の6時間張り付くのを防ぐ
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # ランナーイメージの内容は変わるため、preinstall されている前提を信頼せず検証する
+      - name: Verify preinstalled tools
+        run: command -v jq
+
+      # lsof は ubuntu-latest のツールマニフェストに無い（inuse-lib.sh が要求する）
+      - name: Install lsof
+        run: command -v lsof || { sudo apt-get update && sudo apt-get install -y lsof; }
+
+      - name: Run shell test suites
+        run: bash claude/.claude/tests/run-all.sh
