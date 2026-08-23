@@ -59,7 +59,18 @@ EOF
 }
 trap on_unexpected_exit EXIT
 
-self_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+# パスのディレクトリ部分を取り出す。外部 dirname を fork しないのは、この経路が
+# read サブコマンドを含む全 gh 呼び出しで通るため（結果は dir_part へ格納する）。
+dir_part=''
+set_dir_part() {
+  case $1 in
+    */*) dir_part=${1%/*} ;;
+    *) dir_part='.' ;;
+  esac
+}
+
+set_dir_part "${BASH_SOURCE[0]}"
+self_dir=$(cd -P "$dir_part" && pwd -P)
 
 # 実体の gh を探す。GH_BIN はこのリポジトリ既存のスタブ差し替え規約
 # （statusline.sh・issue-hierarchy.sh 等）で、テストが実 gh に触れずに済むのはこれのため。
@@ -68,12 +79,12 @@ self_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 # リポジトリ内の実体パスから起動された場合に論理パスが一致しないため。
 real_gh=''
 resolve_real_gh() {
-  local resolved dir entry i
-  local entries=()
+  local resolved candidate dir
 
   if [ -n "${GH_BIN:-}" ]; then
     if resolved=$(command -v -- "$GH_BIN" 2>/dev/null) && [ -n "$resolved" ]; then
-      dir=$(cd -P "$(dirname "$resolved")" 2>/dev/null && pwd -P) || dir=''
+      set_dir_part "$resolved"
+      dir=$(cd -P "$dir_part" 2>/dev/null && pwd -P) || dir=''
       if [ "$dir" != "$self_dir" ]; then
         real_gh=$resolved
         return 0
@@ -81,26 +92,20 @@ resolve_real_gh() {
     fi
   fi
 
-  IFS=: read -r -a entries <<< "$PATH"
-  i=0
-  while [ "$i" -lt "${#entries[@]}" ]; do
-    entry=${entries[$i]}
-    i=$((i + 1))
-    if [ -z "$entry" ]; then
-      entry=.
-    fi
-    if [ ! -d "$entry" ]; then
+  # type -aP は組み込みで PATH 上の gh を前から順に列挙する。PATH の全エントリを
+  # 物理パス化してから gh の有無を見るより、実際に gh がある候補（通常は自分と実体の
+  # 2 件）だけを物理パス化する方がサブシェルの数が少なくて済む
+  while IFS= read -r candidate; do
+    if [ -z "$candidate" ]; then
       continue
     fi
-    dir=$(cd -P "$entry" 2>/dev/null && pwd -P) || dir=''
-    if [ -z "$dir" ] || [ "$dir" = "$self_dir" ]; then
-      continue
-    fi
-    if [ -f "$dir/gh" ] && [ -x "$dir/gh" ]; then
-      real_gh="$dir/gh"
+    set_dir_part "$candidate"
+    dir=$(cd -P "$dir_part" 2>/dev/null && pwd -P) || dir=''
+    if [ -n "$dir" ] && [ "$dir" != "$self_dir" ]; then
+      real_gh=$candidate
       return 0
     fi
-  done
+  done < <(type -aP gh 2>/dev/null)
   return 1
 }
 
