@@ -160,6 +160,9 @@ run_message_test 'message: repo edit shows positional form' \
 run_message_test 'message: pr comment shows -R form' \
   '{"tool_name":"Bash","tool_input":{"command":"gh pr comment 55 --body x"}}' \
   '-R owner/repo'
+run_message_test 'message: issue create omits URL form' \
+  '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title x --body y"}}' \
+  '-R owner/repo' 'https://'
 
 run_test 'gh issue create (no -R)'                  '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title T --body B"}}' 2
 run_test 'gh pr create (no -R)'                     '{"tool_name":"Bash","tool_input":{"command":"gh pr create --title T --body B"}}' 2
