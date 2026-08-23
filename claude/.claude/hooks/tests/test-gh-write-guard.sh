@@ -2,6 +2,9 @@
 
 # gh-write-guard.sh のリグレッションテスト
 #
+# 対象はルール2〜4（本文の検査）。対象リポジトリの明示は ~/.local/shims/gh の担当で、
+# そのテストは shims/.local/shims/tests/test-gh.sh にある。
+#
 # 実行: bash claude/.claude/hooks/tests/test-gh-write-guard.sh
 # 失敗したケースがあれば exit 1 で終了する。
 
@@ -54,39 +57,6 @@ run_test() {
   fi
 }
 
-# ブロックメッセージの内容を検証する。復旧手順が noun/verb に合っていないと、
-# exit code だけのテストでは「ブロックはされるが直し方が分からない」状態を見逃す。
-# want_absent は、そのコマンド文字列自体に現れない語にのみ使うこと
-# （メッセージは「実行しようとしたコマンド」をエコーするため）。
-run_message_test() {
-  local name=$1 input=$2 want_present=$3 want_absent=${4:-}
-  local stderr_out got_exit
-  stderr_out=$(printf '%s' "$input" | "$HOOK" 2>&1 >/dev/null)
-  got_exit=$?
-  if [ "$got_exit" -ne 2 ]; then
-    fail=$((fail + 1))
-    printf 'FAIL  %s (got exit %d, want 2)\n' "$name" "$got_exit"
-    return
-  fi
-  case $stderr_out in
-    *"$want_present"*) ;;
-    *)
-      fail=$((fail + 1))
-      printf 'FAIL  %s (stderr missing %s)\n' "$name" "$want_present"
-      return ;;
-  esac
-  if [ -n "$want_absent" ]; then
-    case $stderr_out in
-      *"$want_absent"*)
-        fail=$((fail + 1))
-        printf 'FAIL  %s (stderr unexpectedly contains %s)\n' "$name" "$want_absent"
-        return ;;
-    esac
-  fi
-  pass=$((pass + 1))
-  printf 'PASS  %s\n' "$name"
-}
-
 # 通過すべきケース (exit 0)
 run_test 'non-gh command'                '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' 0
 run_test 'gh read: issue list'           '{"tool_name":"Bash","tool_input":{"command":"gh issue list"}}' 0
@@ -94,10 +64,6 @@ run_test 'gh read: pr view'              '{"tool_name":"Bash","tool_input":{"com
 run_test 'gh read: repo clone'           '{"tool_name":"Bash","tool_input":{"command":"gh repo clone foo/bar"}}' 0
 run_test 'gh repo create (excluded)'     '{"tool_name":"Bash","tool_input":{"command":"gh repo create foo/bar --public"}}' 0
 run_test 'gh repo fork (excluded)'       '{"tool_name":"Bash","tool_input":{"command":"gh repo fork foo/bar"}}' 0
-run_test 'gh write with -R'              '{"tool_name":"Bash","tool_input":{"command":"gh issue create -R foo/bar --title T --body B"}}' 0
-run_test 'gh write with --repo'          '{"tool_name":"Bash","tool_input":{"command":"gh pr create --repo foo/bar --title T"}}' 0
-run_test 'gh write with --repo='         '{"tool_name":"Bash","tool_input":{"command":"gh pr comment --repo=foo/bar 1 --body x"}}' 0
-run_test 'GH_REPO env prefix'            '{"tool_name":"Bash","tool_input":{"command":"GH_REPO=foo/bar gh issue create --title T --body B"}}' 0
 run_test 'tool_name=Edit (not Bash)'     '{"tool_name":"Edit","tool_input":{"command":"gh issue create --title T"}}' 0
 run_test 'empty command'                 '{"tool_name":"Bash","tool_input":{"command":""}}' 0
 run_test 'chained: cd && gh read'        '{"tool_name":"Bash","tool_input":{"command":"cd /tmp/foo && gh issue list"}}' 0
@@ -118,79 +84,14 @@ run_test 'pr body: quoted discloses (word bound)'  "{\"tool_name\":\"Bash\",\"to
 run_test 'issue body: quoted Closes #N (scope out)' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh issue create -R foo/bar --title T --body-file $tmpdir/quoted-closes.md\"}}" 0
 run_test 'pr comment: quoted Closes #N (scope out)' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh pr comment -R foo/bar 1 --body-file $tmpdir/quoted-closes.md\"}}" 0
 
-# リポジトリを位置引数で受ける gh repo サブコマンド (exit 0)
-run_test 'gh repo edit OWNER/REPO'       '{"tool_name":"Bash","tool_input":{"command":"gh repo edit 178inaba/dotfiles --description x"}}' 0
-run_test 'gh repo edit HOST/OWNER/REPO'  '{"tool_name":"Bash","tool_input":{"command":"gh repo edit github.com/178inaba/dotfiles --description x"}}' 0
-run_test 'gh repo edit repo URL'         '{"tool_name":"Bash","tool_input":{"command":"gh repo edit https://github.com/178inaba/dotfiles --description x"}}' 0
-run_test 'gh repo edit quoted OWNER/REPO' '{"tool_name":"Bash","tool_input":{"command":"gh repo edit \"178inaba/dotfiles\" --description x"}}' 0
-run_test 'gh repo delete OWNER/REPO'     '{"tool_name":"Bash","tool_input":{"command":"gh repo delete 178inaba/dotfiles --yes"}}' 0
-run_test 'gh repo archive OWNER/REPO'    '{"tool_name":"Bash","tool_input":{"command":"gh repo archive 178inaba/dotfiles --yes"}}' 0
-run_test 'gh repo unarchive OWNER/REPO'  '{"tool_name":"Bash","tool_input":{"command":"gh repo unarchive 178inaba/dotfiles --yes"}}' 0
-run_test 'gh repo sync OWNER/REPO'       '{"tool_name":"Bash","tool_input":{"command":"gh repo sync 178inaba/dotfiles"}}' 0
-
-# gh repo rename の位置引数は新リポジトリ名なので -R / GH_REPO= のまま (exit 0)
-run_test 'gh repo rename with -R'        '{"tool_name":"Bash","tool_input":{"command":"gh repo rename new-name -R 178inaba/dotfiles"}}' 0
-run_test 'gh repo rename with GH_REPO'   '{"tool_name":"Bash","tool_input":{"command":"GH_REPO=178inaba/dotfiles gh repo rename new-name"}}' 0
-
-# Issue/PR の selector が完全 URL ならリポジトリが明示されている (exit 0)
-run_test 'gh pr comment with PR URL'     '{"tool_name":"Bash","tool_input":{"command":"gh pr comment https://github.com/178inaba/dotfiles/pull/55 --body x"}}' 0
-run_test 'gh issue close with issue URL' '{"tool_name":"Bash","tool_input":{"command":"gh issue close https://github.com/178inaba/dotfiles/issues/59"}}' 0
-
-# verb 直後の --help / -h は write ではない (exit 0)
-run_test 'gh repo edit --help'           '{"tool_name":"Bash","tool_input":{"command":"gh repo edit --help"}}' 0
-run_test 'gh pr create -h'               '{"tool_name":"Bash","tool_input":{"command":"gh pr create -h"}}' 0
-run_test 'compound: grep then --help'    '{"tool_name":"Bash","tool_input":{"command":"grep repo hook.sh; gh repo edit --help"}}' 0
+# リポジトリの明示はフックの担当ではなくなった（~/.local/shims/gh が argv で判定する）。
+# フック側に判定が残っていないことを固定する
+run_test 'repo explicitness is not judged: issue create' '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title T --body B"}}' 0
+run_test 'repo explicitness is not judged: repo rename'  '{"tool_name":"Bash","tool_input":{"command":"gh repo rename new-name"}}' 0
+# gh を実行せず本文中にリテラルを含むだけのコマンドも素通りする（旧ルール1の過剰ブロック）
+run_test 'literal-only gh text in a commit message'      '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"document gh issue create usage\""}}' 0
 
 # ブロックされるべきケース (exit 2)
-run_test 'gh repo edit bare REPO'                   '{"tool_name":"Bash","tool_input":{"command":"gh repo edit dotfiles --description x"}}' 2
-run_test 'gh repo edit with GH_REPO (ignored by gh)' '{"tool_name":"Bash","tool_input":{"command":"GH_REPO=178inaba/dotfiles gh repo edit --description x"}}' 2
-run_test 'gh repo rename (no -R)'                   '{"tool_name":"Bash","tool_input":{"command":"gh repo rename new-name"}}' 2
-run_test 'gh repo rename OWNER/REPO as new name'    '{"tool_name":"Bash","tool_input":{"command":"gh repo rename 178inaba/dotfiles"}}' 2
-run_test 'gh pr edit with branch selector'          '{"tool_name":"Bash","tool_input":{"command":"gh pr edit feature/54-add-eli5-mode --body x"}}' 2
-run_test 'gh pr comment with bare number'           '{"tool_name":"Bash","tool_input":{"command":"gh pr comment 55 --body x"}}' 2
-run_test 'gh pr merge: --help inside body'          '{"tool_name":"Bash","tool_input":{"command":"gh pr merge 55 --body \"see --help\""}}' 2
-run_test 'help exempts only that occurrence'        '{"tool_name":"Bash","tool_input":{"command":"gh repo edit --help && gh pr comment 55 --body x"}}' 2
-run_test 'per-occurrence: URL then bare repo edit'  '{"tool_name":"Bash","tool_input":{"command":"gh issue close https://github.com/178inaba/dotfiles/issues/59 && gh repo edit --description x"}}' 2
-run_test 'per-occurrence: -R does not cover repo edit' '{"tool_name":"Bash","tool_input":{"command":"gh issue comment -R 178inaba/dotfiles 1 --body x && gh repo edit --description x"}}' 2
-
-# 区切り文字がトークンに密着している形。走査が区切りごと次の gh を飲み込むと、
-# 後続の write が無検査で素通りする（見逃し方向）。
-run_test 'separator-adjacent: read then write'      '{"tool_name":"Bash","tool_input":{"command":"gh pr view 1;gh pr merge 5"}}' 2
-run_test 'separator-adjacent: passing then write'   '{"tool_name":"Bash","tool_input":{"command":"gh repo edit https://github.com/178inaba/dotfiles&&gh pr comment 55 --body x"}}' 2
-
-# ヘッダーに記録したブロック過剰側の限界（フラグ先行形）を固定する。
-run_test 'known limitation: flag before positional' '{"tool_name":"Bash","tool_input":{"command":"gh repo delete --yes 178inaba/dotfiles"}}' 2
-
-# ブロックメッセージが noun/verb に応じた復旧手順を示すこと
-run_message_test 'message: repo edit shows positional form' \
-  '{"tool_name":"Bash","tool_input":{"command":"gh repo edit --description x"}}' \
-  'gh repo edit owner/repo' 'GH_REPO'
-run_message_test 'message: pr comment shows -R form' \
-  '{"tool_name":"Bash","tool_input":{"command":"gh pr comment 55 --body x"}}' \
-  '-R owner/repo'
-run_message_test 'message: repo rename shows -R form' \
-  '{"tool_name":"Bash","tool_input":{"command":"gh repo rename new-name"}}' \
-  '-R owner/repo'
-# 不在判定はプレースホルダの URL 例を狙う。素の `https://` だと、メッセージが常に出す
-# 「現在の origin remote」に一致してしまう（origin が HTTPS の環境 — CI の
-# actions/checkout 等 — で誤検出する。SSH remote のローカルでは表面化しない）
-run_message_test 'message: issue create omits URL form' \
-  '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title x --body y"}}' \
-  '-R owner/repo' 'https://github.com/owner/repo'
-# 誤検知（gh を実行しないコマンドが本文中のリテラルで掛かる形）では -R の追加が
-# 復旧手順にならないため、その旨の注記が出ること。
-run_message_test 'message: notes the literal-only case' \
-  '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"document gh issue create usage\""}}' \
-  '-R を足しても解消しません'
-
-run_test 'gh issue create (no -R)'                  '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title T --body B"}}' 2
-run_test 'gh pr create (no -R)'                     '{"tool_name":"Bash","tool_input":{"command":"gh pr create --title T --body B"}}' 2
-run_test 'gh issue comment (no -R)'                 '{"tool_name":"Bash","tool_input":{"command":"gh issue comment 1 --body x"}}' 2
-run_test 'gh release create (no -R)'                '{"tool_name":"Bash","tool_input":{"command":"gh release create v1 --title v1"}}' 2
-run_test 'gh repo edit (no -R)'                     '{"tool_name":"Bash","tool_input":{"command":"gh repo edit --description x"}}' 2
-run_test 'gh label create (no -R)'                  '{"tool_name":"Bash","tool_input":{"command":"gh label create bug --color FF0000"}}' 2
-run_test 'gh pr merge (no -R)'                      '{"tool_name":"Bash","tool_input":{"command":"gh pr merge 5 --squash"}}' 2
-run_test 'chained: cd && gh issue create (no -R)'   '{"tool_name":"Bash","tool_input":{"command":"cd /tmp/foo && gh issue create --title T"}}' 2
 run_test 'multiline --body (with -R)'               '{"tool_name":"Bash","tool_input":{"command":"gh pr edit -R foo/bar 1 --body \"line1\nline2\""}}' 2
 run_test 'multiline --body heredoc (with -R)'       '{"tool_name":"Bash","tool_input":{"command":"gh issue comment -R foo/bar 1 --body \"$(cat <<EOF\nline1\nEOF\n)\""}}' 2
 run_test 'multiline -b (with -R)'                   '{"tool_name":"Bash","tool_input":{"command":"gh pr create -R foo/bar --title T -b \"line1\nline2\""}}' 2

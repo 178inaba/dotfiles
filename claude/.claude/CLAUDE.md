@@ -14,12 +14,13 @@
   - ブランチ作成: `git switch -c branch-name`
   - ブランチ切り替え: `git switch branch-name`
   - ファイル復元: `git restore file`
-- **ghコマンド（書き込み系）**: 以下は `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `exit 2` でブロックする。ブロック時は stderr の理由・復旧手順に従って再実行する
-  - 対象リポジトリをコマンド上で明示しないこと（`gh issue` / `gh pr` / `gh release` / `gh repo` / `gh label` の create / comment / edit / close / merge / review 等。`gh repo create` / `gh repo fork` と read 系、`--help` / `-h` を verb の直後に置いたヘルプ参照は対象外）。明示の形は noun ごとに異なる
-    - `gh repo edit` / `delete` / `archive` / `unarchive` / `sync`: verb の**直後の位置引数**に `owner/repo`（`host/owner/repo`・リポジトリ URL も可）を書く。これらに `-R` は無く、環境変数によるリポジトリ指定も効かない。フラグより前に置くこと（`gh repo delete --yes owner/repo` の順序は通らない）
+- **ghコマンド（書き込み系）**: 対象リポジトリの明示は `~/.local/shims/gh`（PATH 上の shim）が `exit 78` で、それ以外は `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `exit 2` でブロックする。ブロック時は stderr の理由・復旧手順に従って再実行する
+  - 対象リポジトリをコマンド上で明示しないこと（`gh issue` / `gh pr` / `gh release` / `gh repo` / `gh label` の create / comment / edit / close / merge / review 等。`gh repo create` / `gh repo fork` と read 系、verb の直後に置いた `--help` は対象外）。明示の形は noun ごとに異なる
+    - `gh repo edit` / `delete` / `archive` / `unarchive` / `sync`: **最初の位置引数**に `owner/repo`（`host/owner/repo`・リポジトリ URL も可）を書く。フラグより前でも後ろでもよい。これらに `-R` は無く、環境変数によるリポジトリ指定も効かない
     - `gh repo rename`: 位置引数は新しいリポジトリ名なので `-R owner/repo` を付ける
     - `gh issue` / `gh pr` の selector を取る verb: `-R owner/repo` を付けるか、対象を完全な URL（`https://github.com/owner/repo/issues/1`・`.../pull/1`）で指定する。番号のみ・ブランチ名は明示にならない
     - 上記以外（`gh issue create` / `gh pr create` / `gh release` / `gh label`）: `-R owner/repo` を付ける
+    - `-h` がヘルプになるかは verb 次第（`gh repo edit` の `-h` は `--homepage`）。ヘルプ参照は `--help` を使う
   - 複数行の本文を `--body`/`-b` で渡すこと（scratchpad 等へ Write して `--body-file <path>` を使う。単行の短い本文は `--body` で可）
   - 後述「マークダウン記法」の項番・closing keyword 規約への違反
 - **PR/Issue 作成時は自分をアサイン**: `gh pr create` / `gh issue create` では `--assignee @me` を付けて作成者自身をアサインする（担当者が明示されないと後追いしにくいため）
