@@ -1,16 +1,21 @@
-name: test
+name: CI
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  shell-tests:
-    name: shell-tests
+  test:
+    name: Test
     runs-on: ubuntu-latest
     # ハング時に必須チェックが既定の6時間張り付くのを防ぐ
     timeout-minutes: 10
