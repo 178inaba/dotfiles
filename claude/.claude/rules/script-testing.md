@@ -23,6 +23,7 @@ paths:
 | `scripts/<name>.sh`（スキル横断の共有スクリプト） | `scripts/tests/test-<name>.sh` |
 | `skills/<skill>/scripts/<name>.sh` | `skills/<skill>/tests/test-<name>.sh` |
 | ルート直下のスクリプト（`statusline.sh` 等） | `tests/test-<name>.sh` |
+| `tests/<name>.sh`（`run-all.sh` 等のランナー） | `tests/test-<name>.sh`（同一ディレクトリ） |
 | テストファイル自体 | 編集したテストを実行 |
 
 source 用の共有 lib（`*-lib.sh`。`scripts/` と `skills/<skill>/scripts/` 配下）を編集したときは、上の表に加えて次の2つを実行する:
@@ -47,6 +48,8 @@ grep -rlE '^(\.|source)[[:space:]]+.*<lib>\.sh' claude/.claude --include='*.sh'
 - `skills/review-response/SKILL.md`（`<!-- review-response -->` マーカー変更時のみ）: `scripts/tests/test-fetch-pr-context.sh`（マーカー同期テスト）
 
 全テストの列挙: `find claude/.claude -path '*/tests/test-*.sh'`
+
+全テストの一括実行: `bash claude/.claude/tests/run-all.sh`（同じパターンで発見して逐次実行し、1つでも失敗したら非ゼロ exit する）。共有 lib のように影響範囲が広い編集では、上の表から個別に導出するより先にこれを回す方が速い。**CI（`.github/workflows/test.yml`）も同じスクリプトを実行する**ので、CI の失敗はこのコマンドでそのまま再現できる。
 
 `statusline.sh` は `claude/.claude/rules/statusline.md` を参照（テスト + 実画面確認が必要なため別ルール）。
 
