@@ -91,18 +91,15 @@ make_suite "$ROOT_FAIL/a/tests/test-one.sh" 'exit 0'
 make_suite "$ROOT_FAIL/b/tests/test-two.sh" 'exit 0'
 make_suite "$ROOT_FAIL/c/tests/test-fail.sh" \
   'printf "marker-on-stdout\n"; printf "marker-on-stderr\n" >&2; exit 1'
+# 出力するが成功するスイート。同じ実行で「成功時は静か」も検証する
+make_suite "$ROOT_FAIL/d/tests/test-noisy-pass.sh" 'printf "should-not-appear\n"; exit 0'
 
 run_runner bash "$RUNNER" "$ROOT_FAIL"
 assert 'one fail: nonzero exit' '[ "$code" -ne 0 ]' "(exit=$code)"
 assert 'one fail: FAIL line for test-fail' 'printf "%s" "$out" | grep -q "^FAIL .*c/tests/test-fail\.sh$"' "(out=$out)"
-assert 'one fail: summary counts 3/2/1' 'printf "%s" "$out" | grep -q "^3 suites: 2 passed, 1 failed$"' "(out=$out)"
+assert 'one fail: summary counts 4/3/1' 'printf "%s" "$out" | grep -q "^4 suites: 3 passed, 1 failed$"' "(out=$out)"
 assert 'one fail: failing stdout shown' 'printf "%s" "$out" | grep -q "marker-on-stdout"' "(out=$out)"
 assert 'one fail: failing stderr shown' 'printf "%s" "$out" | grep -q "marker-on-stderr"' "(out=$out)"
-
-# 成功したスイートの出力は出さない（成功時は静か、失敗時だけ診断可能にする）
-ROOT_QUIET="$TMP/quiet"
-make_suite "$ROOT_QUIET/a/tests/test-noisy.sh" 'printf "should-not-appear\n"; exit 0'
-run_runner bash "$RUNNER" "$ROOT_QUIET"
 assert 'passing suite output suppressed' '! printf "%s" "$out" | grep -q "should-not-appear"' "(out=$out)"
 
 # ---- ケース5: stdin を読むスイートが後続を食い潰さない ----
@@ -121,12 +118,15 @@ assert 'stdin-reading suite does not swallow the rest' 'printf "%s" "$out" | gre
 # test-inuse-lib.sh のように sleep を残すスイートでハングしうる
 
 ROOT_BG="$TMP/bg"
-make_suite "$ROOT_BG/a/tests/test-bg.sh" '(exec sleep 30) & exit 0'
+# しきい値は sleep の秒数より小さくしないとテストが空振りする（ブロックする実装でも
+# elapsed がしきい値を下回って PASS してしまう）。ランナー本来の所要は1秒未満なので
+# 6 秒 sleep / 3 秒しきい値なら両側に十分な余裕がある
+make_suite "$ROOT_BG/a/tests/test-bg.sh" '(exec sleep 6) & exit 0'
 
 start=$(date +%s)
 run_runner bash "$RUNNER" "$ROOT_BG"
 elapsed=$(( $(date +%s) - start ))
-assert 'background process does not block the runner' '[ "$elapsed" -lt 10 ]' "(elapsed=${elapsed}s)"
+assert 'background process does not block the runner' '[ "$elapsed" -lt 3 ]' "(elapsed=${elapsed}s)"
 assert 'background process: exit 0' '[ "$code" -eq 0 ]' "(exit=$code)"
 
 # ---- ケース7: 発見件数 0 → 非ゼロ exit ----

@@ -38,7 +38,6 @@ root=$(cd "$root" && pwd -P)
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
-total=0
 passed=0
 failed=0
 failed_suites=""
@@ -47,7 +46,6 @@ failed_suites=""
 # 残りのスイートが silent にスキップされるため（発見件数 0 のガードでは検出できない
 # 別系統の失敗モード）。パイプではなくリダイレクトなのでカウンタもサブシェル化しない
 while IFS= read -r suite; do
-  total=$((total + 1))
   out_file="$tmp_dir/out"
   # </dev/null: スイートが stdin を読んでも上流を食い潰さないようにする
   # 出力をファイルへ逃がすのは、$( ) キャプチャがパイプの書き込み端を持つ全プロセスの
@@ -63,6 +61,8 @@ while IFS= read -r suite; do
     sed 's/^/      /' "$out_file"
   fi
 done < <(find "$root" -path '*/tests/test-*.sh' | sort)
+
+total=$((passed + failed))
 
 # 0 件を成功扱いにすると、tests/ の移動やパターン破損で CI が silent に緑になる
 if [ "$total" -eq 0 ]; then
