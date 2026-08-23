@@ -171,9 +171,12 @@ run_message_test 'message: pr comment shows -R form' \
 run_message_test 'message: repo rename shows -R form' \
   '{"tool_name":"Bash","tool_input":{"command":"gh repo rename new-name"}}' \
   '-R owner/repo'
+# 不在判定はプレースホルダの URL 例を狙う。素の `https://` だと、メッセージが常に出す
+# 「現在の origin remote」に一致してしまう（origin が HTTPS の環境 — CI の
+# actions/checkout 等 — で誤検出する。SSH remote のローカルでは表面化しない）
 run_message_test 'message: issue create omits URL form' \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title x --body y"}}' \
-  '-R owner/repo' 'https://'
+  '-R owner/repo' 'https://github.com/owner/repo'
 # 誤検知（gh を実行しないコマンドが本文中のリテラルで掛かる形）では -R の追加が
 # 復旧手順にならないため、その旨の注記が出ること。
 run_message_test 'message: notes the literal-only case' \
