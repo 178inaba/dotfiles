@@ -153,12 +153,23 @@ run_test 'help exempts only that occurrence'        '{"tool_name":"Bash","tool_i
 run_test 'per-occurrence: URL then bare repo edit'  '{"tool_name":"Bash","tool_input":{"command":"gh issue close https://github.com/178inaba/dotfiles/issues/59 && gh repo edit --description x"}}' 2
 run_test 'per-occurrence: -R does not cover repo edit' '{"tool_name":"Bash","tool_input":{"command":"gh issue comment -R 178inaba/dotfiles 1 --body x && gh repo edit --description x"}}' 2
 
+# 区切り文字がトークンに密着している形。走査が区切りごと次の gh を飲み込むと、
+# 後続の write が無検査で素通りする（見逃し方向）。
+run_test 'separator-adjacent: read then write'      '{"tool_name":"Bash","tool_input":{"command":"gh pr view 1;gh pr merge 5"}}' 2
+run_test 'separator-adjacent: passing then write'   '{"tool_name":"Bash","tool_input":{"command":"gh repo edit https://github.com/178inaba/dotfiles&&gh pr comment 55 --body x"}}' 2
+
+# ヘッダーに記録したブロック過剰側の限界（フラグ先行形）を固定する。
+run_test 'known limitation: flag before positional' '{"tool_name":"Bash","tool_input":{"command":"gh repo delete --yes 178inaba/dotfiles"}}' 2
+
 # ブロックメッセージが noun/verb に応じた復旧手順を示すこと
 run_message_test 'message: repo edit shows positional form' \
   '{"tool_name":"Bash","tool_input":{"command":"gh repo edit --description x"}}' \
   'gh repo edit owner/repo' 'GH_REPO'
 run_message_test 'message: pr comment shows -R form' \
   '{"tool_name":"Bash","tool_input":{"command":"gh pr comment 55 --body x"}}' \
+  '-R owner/repo'
+run_message_test 'message: repo rename shows -R form' \
+  '{"tool_name":"Bash","tool_input":{"command":"gh repo rename new-name"}}' \
   '-R owner/repo'
 run_message_test 'message: issue create omits URL form' \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title x --body y"}}' \

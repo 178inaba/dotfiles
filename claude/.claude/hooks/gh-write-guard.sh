@@ -22,8 +22,9 @@
 #   その出現のみで、同じコマンド行の後続の write は個別に判定する）。
 #   -R / GH_REPO= の有無だけは全文字列を1回だけ判定して全出現で共有する（出現ごとの
 #   引数解析はしない）。このため 1 行に write が複数並ぶと、どれか1つに -R があれば
-#   他の issue/pr/release/label の出現も明示済みとみなされる（見逃し側の既知の限界。
-#   gh repo の write は -R をそもそも参照しないため影響を受けない）。
+#   他の出現も明示済みとみなされる（見逃し側の既知の限界。位置引数だけで判定する
+#   gh repo edit/delete/archive/unarchive/sync は影響を受けないが、-R を参照する
+#   gh repo rename は影響を受ける）。
 #   既知の限界（いずれもブロック過剰側）: 出現走査は引用符を解析しないため、
 #   inline --body 内のリテラル「gh <noun> <verb>」も出現として数える。
 #   verb 直後の1トークンしか見ないため、gh が受理するフラグ先行形
@@ -95,7 +96,10 @@ strip_outer_quotes() {
 
 # 「gh <noun> <verb> [直後の1トークン]」を出現ごとに取り出す。位置引数の判定に
 # 使うため verb 直後のトークンまで拾い、フラグは読み飛ばさない（ヘッダーのルール1）。
-occurrence_pattern='(^|[^A-Za-z0-9_])gh[[:space:]]+(issue|pr|release|repo|label)[[:space:]]+([A-Za-z][A-Za-z-]*)([[:space:]]+([^[:space:]]+))?'
+# トークンからシェル区切り（; & |）を除くのは、密着した区切り（gh pr view 1;gh pr
+# merge 5）でトークンが後続の gh ごと飲み込み、その write が走査されないまま
+# 素通りするのを防ぐため。区切りが残れば次の周回で先頭境界として機能する。
+occurrence_pattern='(^|[^A-Za-z0-9_])gh[[:space:]]+(issue|pr|release|repo|label)[[:space:]]+([A-Za-z][A-Za-z-]*)([[:space:]]+([^[:space:];&|]+))?'
 
 occ_nouns=()
 occ_verbs=()
