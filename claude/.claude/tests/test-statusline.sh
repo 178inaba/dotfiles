@@ -184,7 +184,11 @@ git init -q -b main "$REPO_C"
   git switch -q main
   echo main > conflict.txt
   $GIT commit -qam main
-  git merge -q side >/dev/null 2>&1 || true
+  # $GIT で identity を渡すのは、コンフリクトで終わる merge でも必要なため。
+  # git 2.43 は worktree に触れる前に committer identity を検証して中断するので、
+  # bare な git だとコンフリクトが作られず fixture が空振りする（identity を持たない
+  # 環境 — CI 等 — でのみ表面化する。git 2.54 は検証が後段なので気付けない）
+  $GIT merge -q side >/dev/null 2>&1 || true
 )
 run_git_test 'git: unmerged conflict' "$REPO_C" '(main +1 ~1)'
 
