@@ -60,7 +60,7 @@ while IFS= read -r suite; do
     # 失敗時のみ出力を見せる（成功時は静かに、失敗時は診断可能に）
     sed 's/^/      /' "$out_file"
   fi
-done < <(find "$root" -path '*/tests/test-*.sh' | sort)
+done < <(find "$root" -type f -path '*/tests/test-*.sh' | sort)
 
 total=$((passed + failed))
 
