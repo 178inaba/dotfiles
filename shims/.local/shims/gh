@@ -1,0 +1,406 @@
+#!/bin/bash
+
+# gh の書き込み系サブコマンドの事故防止ラッパー（PATH 上の shim）
+#
+# ルール1: 対象リポジトリがコマンド上で明示されていることを必須化する
+#   別リポジトリへ調査目的で cd した状態で、cwd の git remote が
+#   暗黙参照されることによる「意図しないリポジトリへの Issue/PR 作成」
+#   事故を防ぐ。守るべき不変条件は「対象リポジトリが明示されていること」で、
+#   -R はその十分条件の1つに過ぎない。gh が受け付けるリポジトリ指定の形は
+#   noun ごとに異なるため、判定も noun ごとに分ける:
+#     - gh repo edit/delete/archive/unarchive/sync: 最初の位置引数が
+#       OWNER/REPO・HOST/OWNER/REPO・リポジトリ URL であること。これらは -R を
+#       持たず、-R を持たないサブコマンドでは GH_REPO も効かない（gh は GH_REPO を
+#       -R の既定値として解決するため）。bare な REPO は gh が認証ユーザーを
+#       補完するので、cwd 解決と同じく暗黙とみなして許可しない
+#     - gh repo rename: 位置引数は新しいリポジトリ名なので -R または GH_REPO
+#     - gh issue/pr の selector を取る verb: -R / GH_REPO に加え、位置引数が
+#       Issue/PR の完全 URL でもよい。ブランチ名にもスラッシュが含まれるため
+#       「スラッシュを含むか」ではなく URL の形そのものを判定する
+#     - gh issue create / gh pr create / gh release / gh label: -R または GH_REPO
+#   verb 直後の --help はヘルプ表示で write ではないため免除する。-h は verb に
+#   よって値取りフラグ（gh repo edit の --homepage 等）なので、その場合は免除しない。
+#
+#   本ルールは元々 PreToolUse フック (claude/.claude/hooks/gh-write-guard.sh) が
+#   コマンド文字列へのパターンマッチで判定していたが、文字列からは「実際に何が実行
+#   されるか」を決められず、見逃し（1つの -R が同じ行の全 write を覆う）と過剰ブロック
+#   （引用符・heredoc 内のリテラルを write とみなす）の両方が出ていた。shim は
+#   シェルが渡す argv を直接読むため、どちらも成立しなくなる。
+#
+# 仕様:
+#   - 入力: 実行された gh の argv と、環境変数 GH_REPO / CLAUDECODE / GH_BIN
+#   - read サブコマンドは判定より前に exec する（調査・レビューに負荷を足さない）
+#   - CLAUDECODE 未設定なら判定せず exec する（対話シェルの挙動は変えない）
+#   - 違反していれば実体の gh を実行せず exit 78
+#   - それ以外は exec するので、exit status・stdin/stdout/stderr・シグナルは素通しになる
+#   - fail closed: 判定を終える前に抜けた場合（内部エラー）も exec しない
+
+set -eEuo pipefail
+
+# gh が文書化している exit status（0 成功 / 1 エラー / 2 中断 / 4 要認証）とも、
+# シェル予約の 126・127 とも衝突しない値。呼び出し側がブロックと gh 自身の失敗を
+# 区別できるように、1つに固定する
+block_exit=78
+
+# exec に成功するとプロセスが置き換わるのでこのトラップは走らない。走ったということは
+# 判定を終える前に抜けた = 書き込みは実行されていないので、終了状態をブロックに揃える
+on_unexpected_exit() {
+  local status=$?
+  if [ "$status" -eq "$block_exit" ]; then
+    exit "$status"
+  fi
+  cat >&2 <<EOF
+gh shim: 判定中に内部エラーが発生したため、gh を実行しませんでした（内部 exit status: ${status}）。
+
+これは shim (~/.local/shims/gh) 側の不具合です。
+緊急の回避策: PATH から ~/.local/shims を外すか、実体の gh を絶対パスで呼んでください。
+EOF
+  exit "$block_exit"
+}
+trap on_unexpected_exit EXIT
+
+self_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+
+# 実体の gh を探す。GH_BIN はこのリポジトリ既存のスタブ差し替え規約
+# （statusline.sh・issue-hierarchy.sh 等）で、テストが実 gh に触れずに済むのはこれのため。
+# 自分自身を指す GH_BIN（export された GH_BIN=gh 等）は無限再帰になるので無視する。
+# 比較を物理パスで行うのは、stow 後の ~/.local/shims がリポジトリへの symlink で、
+# リポジトリ内の実体パスから起動された場合に論理パスが一致しないため。
+real_gh=''
+resolve_real_gh() {
+  local resolved dir entry i
+  local entries=()
+
+  if [ -n "${GH_BIN:-}" ]; then
+    if resolved=$(command -v -- "$GH_BIN" 2>/dev/null) && [ -n "$resolved" ]; then
+      dir=$(cd -P "$(dirname "$resolved")" 2>/dev/null && pwd -P) || dir=''
+      if [ "$dir" != "$self_dir" ]; then
+        real_gh=$resolved
+        return 0
+      fi
+    fi
+  fi
+
+  IFS=: read -r -a entries <<< "$PATH"
+  i=0
+  while [ "$i" -lt "${#entries[@]}" ]; do
+    entry=${entries[$i]}
+    i=$((i + 1))
+    if [ -z "$entry" ]; then
+      entry=.
+    fi
+    if [ ! -d "$entry" ]; then
+      continue
+    fi
+    dir=$(cd -P "$entry" 2>/dev/null && pwd -P) || dir=''
+    if [ -z "$dir" ] || [ "$dir" = "$self_dir" ]; then
+      continue
+    fi
+    if [ -f "$dir/gh" ] && [ -x "$dir/gh" ]; then
+      real_gh="$dir/gh"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! resolve_real_gh; then
+  printf 'gh shim: 実体の gh が見つかりません（GH_BIN と PATH を確認してください）。\n' >&2
+  exit "$block_exit"
+fi
+
+# 書き込み系とみなす verb の一覧（noun ごと）。リポジトリ指定が文脈上意味を持たない
+# もの（gh repo create / fork / set-default、gh repo clone 等）は対象外とする。
+# read fast-path もこのリストで判定するので、「書き込みか」の定義はファイル内で1つ
+issue_write_verbs='create|comment|edit|close|reopen|delete|develop|lock|unlock|pin|unpin|transfer'
+pr_write_verbs='create|comment|edit|close|reopen|lock|unlock|merge|ready|revert|review|update-branch|checkout'
+release_write_verbs='create|edit|delete|upload|delete-asset'
+repo_write_verbs='edit|delete|archive|unarchive|rename|sync'
+label_write_verbs='create|edit|delete|clone'
+
+argv_all=("$@")
+noun=${1:-}
+verb=${2:-}
+
+case $noun in
+  issue) write_verbs=$issue_write_verbs ;;
+  pr) write_verbs=$pr_write_verbs ;;
+  release) write_verbs=$release_write_verbs ;;
+  repo) write_verbs=$repo_write_verbs ;;
+  label) write_verbs=$label_write_verbs ;;
+  *) write_verbs='' ;;
+esac
+
+if [ -z "$write_verbs" ] || ! [[ $verb =~ ^($write_verbs)$ ]]; then
+  exec "$real_gh" "$@"
+fi
+
+# 値取りフラグの一覧（gh <noun> <verb> --help から起こしたもの）。フラグの読み飛ばしで
+# 値取りを boolean と取り違えると、フラグの値を位置引数と誤認して write が素通りする
+# （gh repo sync --source owner/repo が典型）ため、推測せず help の記述をそのまま写す。
+# issue/pr/release/label は継承フラグの -R/--repo を持つが、
+# gh repo edit/delete/archive/unarchive/sync は持たない。
+# vf_long は | 区切りの long 名、vf_short は値取り short オプション文字の並び。
+vf_long=''
+vf_short=''
+set_value_flags() {
+  case "$1:$2" in
+    issue:create)
+      vf_long='assignee|body|body-file|label|milestone|project|recover|template|title|repo'
+      vf_short='abFlmpTtR' ;;
+    issue:comment|pr:comment|pr:review)
+      vf_long='body|body-file|repo'
+      vf_short='bFR' ;;
+    issue:edit)
+      vf_long='add-assignee|add-label|add-project|body|body-file|milestone|remove-assignee|remove-label|remove-project|title|repo'
+      vf_short='bFmtR' ;;
+    issue:close)
+      vf_long='comment|reason|repo'
+      vf_short='crR' ;;
+    issue:reopen|pr:close|pr:reopen)
+      vf_long='comment|repo'
+      vf_short='cR' ;;
+    issue:develop)
+      vf_long='base|branch-repo|name|repo'
+      vf_short='bnR' ;;
+    issue:lock|pr:lock)
+      vf_long='reason|repo'
+      vf_short='rR' ;;
+    pr:create)
+      vf_long='assignee|base|body|body-file|head|label|milestone|project|recover|reviewer|template|title|repo'
+      vf_short='aBbFHlmprTtR' ;;
+    pr:edit)
+      vf_long='add-assignee|add-label|add-project|add-reviewer|base|body|body-file|milestone|remove-assignee|remove-label|remove-project|remove-reviewer|title|repo'
+      vf_short='BbFmtR' ;;
+    pr:merge)
+      vf_long='author-email|body|body-file|match-head-commit|subject|repo'
+      vf_short='AbFtR' ;;
+    pr:revert)
+      vf_long='body|body-file|title|repo'
+      vf_short='bFtR' ;;
+    pr:checkout)
+      vf_long='branch|repo'
+      vf_short='bR' ;;
+    release:create)
+      vf_long='discussion-category|notes|notes-file|notes-start-tag|target|title|repo'
+      vf_short='nFtR' ;;
+    release:edit)
+      vf_long='discussion-category|notes|notes-file|tag|target|title|repo'
+      vf_short='nFtR' ;;
+    label:create)
+      vf_long='color|description|repo'
+      vf_short='cdR' ;;
+    label:edit)
+      vf_long='color|description|name|repo'
+      vf_short='cdnR' ;;
+    repo:edit)
+      vf_long='add-topic|default-branch|description|homepage|remove-topic|visibility'
+      vf_short='dh' ;;
+    repo:sync)
+      vf_long='branch|source'
+      vf_short='bs' ;;
+    repo:rename)
+      vf_long='repo'
+      vf_short='R' ;;
+    repo:*)
+      # gh repo delete/archive/unarchive は boolean の --yes だけを持つ
+      vf_long=''
+      vf_short='' ;;
+    *)
+      # 残り（issue の unlock/pin/unpin/transfer/delete、pr の unlock/ready/update-branch、
+      # release の delete/upload/delete-asset、label の delete/clone）は
+      # 継承フラグの -R/--repo だけが値を取る
+      vf_long='repo'
+      vf_short='R' ;;
+  esac
+}
+
+takes_value_long() {
+  case "|$vf_long|" in
+    *"|$1|"*) return 0 ;;
+  esac
+  return 1
+}
+
+takes_value_short() {
+  case $vf_short in
+    *"$1"*) return 0 ;;
+  esac
+  return 1
+}
+
+set_value_flags "$noun" "$verb"
+
+# verb 直後の --help / -h はヘルプ参照で write ではない
+next=${3:-}
+if [ "$next" = '--help' ]; then
+  exec "$real_gh" "$@"
+fi
+if [ "$next" = '-h' ] && ! takes_value_short h; then
+  exec "$real_gh" "$@"
+fi
+
+# 判定は Claude Code のセッション内でのみ行う。事故の実例はエージェントが調査目的で
+# cd したリポジトリへ書き込む形に限られ、日々のコストを足すガードは無効化されるため
+if [ -z "${CLAUDECODE:-}" ]; then
+  exec "$real_gh" "$@"
+fi
+
+# argv を1回走査して、リポジトリ指定フラグの有無と最初の位置引数を同時に求める。
+# GH_REPO はシェルが環境変数割り当てとして消費するため argv には現れない。よって
+# コマンド前置か ambient な export かは区別できないが、いずれの場合も gh が解決する
+# リポジトリはその値になり cwd 由来の暗黙解決ではないので、明示として扱ってよい
+has_repo=0
+positional=''
+scan_args() {
+  local tok rest ch end_of_flags=0
+
+  if [ -n "${GH_REPO:-}" ]; then
+    has_repo=1
+  fi
+
+  while [ "$#" -gt 0 ]; do
+    tok=$1
+    shift
+    if [ "$end_of_flags" -eq 1 ]; then
+      if [ -z "$positional" ]; then
+        positional=$tok
+      fi
+      continue
+    fi
+    case $tok in
+      --)
+        end_of_flags=1 ;;
+      --*=*)
+        if [ "${tok%%=*}" = '--repo' ]; then
+          has_repo=1
+        fi ;;
+      --*)
+        if [ "$tok" = '--repo' ]; then
+          has_repo=1
+        fi
+        if takes_value_long "${tok#--}" && [ "$#" -gt 0 ]; then
+          shift
+        fi ;;
+      -?*)
+        # 密着した短オプションの塊（-yd・-Rowner/repo 等）を1文字ずつ解く
+        rest=${tok#-}
+        while [ -n "$rest" ]; do
+          ch=${rest:0:1}
+          rest=${rest:1}
+          if [ "$ch" = 'R' ]; then
+            has_repo=1
+          fi
+          if takes_value_short "$ch"; then
+            # 残りがあれば密着した値、無ければ次のトークンが値
+            if [ -z "$rest" ] && [ "$#" -gt 0 ]; then
+              shift
+            fi
+            break
+          fi
+        done ;;
+      *)
+        if [ -z "$positional" ]; then
+          positional=$tok
+        fi ;;
+    esac
+  done
+}
+
+shift 2
+scan_args "$@"
+
+# 位置引数がリポジトリを指しているか。OWNER/REPO・HOST/OWNER/REPO はスラッシュの
+# 個数（1〜2）で bare REPO と区別する。
+repo_positional_pattern='^(https?://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+(\.git)?/?|[A-Za-z0-9_.][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?)$'
+issue_url_pattern='^https?://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/(issues|pull)/[0-9]+/?$'
+
+is_explicit() {
+  case "$noun:$verb" in
+    repo:rename)
+      # 位置引数は新しいリポジトリ名なのでリポジトリの明示には使えない
+      [ "$has_repo" -eq 1 ] ;;
+    repo:*)
+      # -R を持たないため、位置引数だけがリポジトリ明示の手段になる
+      [[ $positional =~ $repo_positional_pattern ]] ;;
+    issue:create|pr:create)
+      # selector を取らないため URL で示す余地がない
+      [ "$has_repo" -eq 1 ] ;;
+    issue:*|pr:*)
+      [ "$has_repo" -eq 1 ] || [[ $positional =~ $issue_url_pattern ]] ;;
+    *)
+      # release / label の位置引数はタグ名・ラベル名でリポジトリではない
+      [ "$has_repo" -eq 1 ] ;;
+  esac
+}
+
+if is_explicit; then
+  exec "$real_gh" "${argv_all[@]}"
+fi
+
+# 復旧手順は、通過条件が noun ごとに違うため出現に合わせて出し分ける
+# （固定の -R 例だけを出すと、-R を持たない gh repo で「満たせない」と誤解される）
+repo_flag_hint='  ※ 現在のディレクトリの remote が正しいと確信できる場合も、
+       gh repo view --json nameWithOwner -q .nameWithOwner
+     で取得した値を -R に渡して明示する'
+case "$noun:$verb" in
+  repo:rename)
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh repo rename new-name -R owner/repo
+     gh repo rename の位置引数は新しいリポジトリ名で、リポジトリの明示にはなりません。
+$repo_flag_hint" ;;
+  repo:*)
+    recovery="  1. 対象リポジトリを位置引数で明示して再実行する
+       例: gh repo $verb owner/repo ...
+     形式は OWNER/REPO・HOST/OWNER/REPO・リポジトリ URL のいずれかです。
+     bare な REPO は gh が認証ユーザーで補完するため明示になりません。
+  2. gh repo $verb に -R/--repo はなく、環境変数によるリポジトリ指定も効きません。
+     位置引数はフラグより前でも後ろでも構いません。" ;;
+  issue:create|pr:create)
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh $noun create -R owner/repo ...
+     create は selector を取らないため、URL でリポジトリを示す形はありません。
+$repo_flag_hint" ;;
+  issue:*|pr:*)
+    # selector を取る verb だけが URL 形を使えるので、create とは別に扱う
+    # （create に URL 例を出すと、通らない復旧手順を提示することになる）
+    if [ "$noun" = pr ]; then
+      url_example='https://github.com/owner/repo/pull/123'
+    else
+      url_example='https://github.com/owner/repo/issues/123'
+    fi
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh $noun $verb -R owner/repo ...
+  2. 対象を完全な URL で指定する（URL にリポジトリが含まれます）
+       例: gh $noun $verb $url_example ...
+     番号のみ・ブランチ名は cwd の remote で解決されるため明示になりません。
+$repo_flag_hint" ;;
+  *)
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh $noun $verb -R owner/repo ...
+$repo_flag_hint" ;;
+esac
+
+# %q でクォートするのは、空白を含む引数がそのまま並ぶと再実行できない形になるため
+attempted=$(printf 'gh'; printf ' %q' "${argv_all[@]}")
+current_dir=$(pwd)
+current_remote=$(git remote get-url origin 2>/dev/null || printf '(取得不可: git リポジトリ外、または origin が未設定)')
+
+cat >&2 <<EOF
+gh の書き込み系サブコマンドは、対象リポジトリをコマンド上で明示することを必須としています。
+
+実行しようとしたコマンド:
+  $attempted
+
+明示が確認できなかった箇所: gh $noun $verb
+現在の作業ディレクトリ: $current_dir
+現在の origin remote: $current_remote
+
+このまま実行すると、上記の origin (もしくは gh が解決する remote) が対象になります。
+別リポジトリの調査中などに cwd を取り違えると、意図しないリポジトリに書き込みが行われます。
+
+対処:
+$recovery
+EOF
+
+exit "$block_exit"

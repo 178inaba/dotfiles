@@ -5,20 +5,22 @@ paths:
   - "**/.claude/skills/**/scripts/**"
   - "**/.claude/skills/review-response/SKILL.md"
   - "**/.claude/tests/**"
+  - "**/.local/shims/**"
 ---
 
 # フック・スクリプト編集時のテスト実行
 
-`~/.claude/` 配下のフック・スクリプト（ソース: `claude/.claude/`）を編集したら、対応するリグレッションテストを必ず実行する。
+stow 管理下のフック・スクリプト（`~/.claude/` 配下と `~/.local/shims/` 配下。ソースはそれぞれ `claude/.claude/`・`shims/.local/shims/`）を編集したら、対応するリグレッションテストを必ず実行する。
 
 理由: フック・スキルスクリプトの失敗モードは silent（見逃し時、実際に事故が起きるまで気付けない）。regression は手動デモでは踏みにくいため、テストでの担保が必須。
 
 ## 配置規約と実行
 
-テストは**対象コンポーネントの隣**の `tests/` ディレクトリに置き、テストの場所は規約から導出する（実行はすべて `bash <テストパス>`）。対象と同一ディレクトリに混ぜないのは、`hooks/`・`scripts/` を「全ファイルがランタイム実行対象」に保つため（Go のコロケーションの bash 等価物として兄弟ディレクトリを使う）:
+テストは**対象コンポーネントの隣**の `tests/` ディレクトリに置き、テストの場所は規約から導出する（実行はすべて `bash <テストパス>`）。表の「編集対象」は最初の行だけ repo ルート相対で、残りは `claude/.claude/` 相対。対象と同一ディレクトリに混ぜないのは、`hooks/`・`scripts/` を「全ファイルがランタイム実行対象」に保つため（Go のコロケーションの bash 等価物として兄弟ディレクトリを使う）:
 
 | 編集対象 | テストの場所 |
 |---|---|
+| `shims/.local/shims/<name>` | `shims/.local/shims/tests/test-<name>.sh` |
 | `hooks/<name>.sh` | `hooks/tests/test-<name>.sh` |
 | `scripts/<name>.sh`（スキル横断の共有スクリプト） | `scripts/tests/test-<name>.sh` |
 | `skills/<skill>/scripts/<name>.sh` | `skills/<skill>/tests/test-<name>.sh` |
@@ -47,9 +49,9 @@ grep -rlE '^(\.|source)[[:space:]]+.*<lib>\.sh' claude/.claude --include='*.sh'
 - `hooks/start-caffeinate.sh`・`hooks/stop-caffeinate.sh`: ペアで `hooks/tests/test-caffeinate.sh`
 - `skills/review-response/SKILL.md`（`<!-- review-response -->` マーカー変更時のみ）: `scripts/tests/test-fetch-pr-context.sh`（マーカー同期テスト）
 
-全テストの列挙: `find claude/.claude -path '*/tests/test-*.sh'`
+全テストの列挙: `find claude/.claude shims -path '*/tests/test-*.sh'`
 
-全テストの一括実行: `bash claude/.claude/tests/run-all.sh`（同じパターンで発見して逐次実行し、1つでも失敗したら非ゼロ exit する）。共有 lib のように影響範囲が広い編集では、上の表から個別に導出するより先にこれを回す方が速い。**CI（`.github/workflows/test.yml`）も同じスクリプトを実行する**ので、CI の失敗はこのコマンドでそのまま再現できる。
+全テストの一括実行: `bash claude/.claude/tests/run-all.sh claude/.claude shims`（同じパターンで発見して逐次実行し、1つでも失敗したら非ゼロ exit する）。走査ルートを明示するのは、引数を省くとランナーの既定ルート `claude/.claude/` だけになり、`shims/` 側のスイートが silent に漏れるため。共有 lib のように影響範囲が広い編集では、上の表から個別に導出するより先にこれを回す方が速い。**CI（`.github/workflows/ci.yml`）も同じコマンドを実行する**ので、CI の失敗はこのコマンドでそのまま再現できる。
 
 `statusline.sh` は `claude/.claude/rules/statusline.md` を参照（テスト + 実画面確認が必要なため別ルール）。
 
