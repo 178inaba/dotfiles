@@ -2,10 +2,35 @@
 
 # PreToolUse フック: gh の書き込み系サブコマンドの事故防止ガード
 #
-# ルール1: -R/--repo の指定を必須化する
+# ルール1: 対象リポジトリがコマンド上で明示されていることを必須化する
 #   別リポジトリへ調査目的で cd した状態で、cwd の git remote が
 #   暗黙参照されることによる「意図しないリポジトリへの Issue/PR 作成」
-#   事故を防ぐ。
+#   事故を防ぐ。守るべき不変条件は「対象リポジトリが明示されていること」で、
+#   -R はその十分条件の1つに過ぎない。gh が受け付けるリポジトリ指定の形は
+#   noun ごとに異なるため、判定も noun ごとに分ける:
+#     - gh repo edit/delete/archive/unarchive/sync: verb 直後の位置引数が
+#       OWNER/REPO・HOST/OWNER/REPO・リポジトリ URL であること。これらは -R を
+#       持たず、-R を持たないサブコマンドでは GH_REPO も効かない（gh は GH_REPO を
+#       -R の既定値として解決するため）。bare な REPO は gh が認証ユーザーを
+#       補完するので、cwd 解決と同じく暗黙とみなして許可しない
+#     - gh repo rename: 位置引数は新しいリポジトリ名なので -R または GH_REPO=
+#     - gh issue/pr の selector を取る verb: -R / GH_REPO= に加え、位置引数が
+#       Issue/PR の完全 URL でもよい。ブランチ名にもスラッシュが含まれるため
+#       「スラッシュを含むか」ではなく URL の形そのものを判定する
+#     - gh issue create / gh pr create / gh release / gh label: -R または GH_REPO=
+#   verb 直後が --help / -h の出現は write ではないとみなして免除する（免除は
+#   その出現のみで、同じコマンド行の後続の write は個別に判定する）。
+#   -R / GH_REPO= の有無だけは全文字列を1回だけ判定して全出現で共有する（出現ごとの
+#   引数解析はしない）。このため 1 行に write が複数並ぶと、どれか1つに -R があれば
+#   他の出現も明示済みとみなされる（見逃し側の既知の限界。位置引数だけで判定する
+#   gh repo edit/delete/archive/unarchive/sync は影響を受けないが、-R を参照する
+#   gh repo rename は影響を受ける）。
+#   既知の限界（いずれもブロック過剰側）: 出現走査は引用符を解析しないため、
+#   inline --body 内のリテラル「gh <noun> <verb>」も出現として数える。
+#   verb 直後の1トークンしか見ないため、gh が受理するフラグ先行形
+#   （gh repo delete --yes owner/repo 等）もブロックされる（フラグを読み飛ばすと
+#   --homepage https://github.com/o/r のようなフラグ値をリポジトリ指定と
+#   誤認するため、読み飛ばさないことを選んだ意図的なトレードオフ）。
 #
 # ルール2: 複数行の本文を --body/-b で渡すことを禁止する（--body-file へ誘導）
 #   --body "$(cat <<'EOF' ... EOF)" のような引用符レイヤの重なりが
@@ -50,12 +75,67 @@ tool_name=$(printf '%s' "$input" | jq -r '.tool_name // empty')
 command=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 [ -n "$command" ] || exit 0
 
-# gh の書き込み系サブコマンドにマッチするか判定。
-# noun ごとに verb を限定し、-R が文脈上意味を持たないもの（gh repo create / fork /
-# set-default、gh repo clone 等）は対象外とする。
-write_pattern='(^|[^A-Za-z0-9_])gh[[:space:]]+(issue[[:space:]]+(create|comment|edit|close|reopen|delete|develop|lock|unlock|pin|unpin|transfer)|pr[[:space:]]+(create|comment|edit|close|reopen|lock|unlock|merge|ready|revert|review|update-branch|checkout)|release[[:space:]]+(create|edit|delete|upload|delete-asset)|repo[[:space:]]+(edit|delete|archive|unarchive|rename|sync)|label[[:space:]]+(create|edit|delete|clone))([[:space:]]|$)'
+# 書き込み系とみなす verb の一覧（noun ごと）。リポジトリ指定が文脈上意味を持たない
+# もの（gh repo create / fork / set-default、gh repo clone 等）は対象外とする。
+issue_write_verbs='create|comment|edit|close|reopen|delete|develop|lock|unlock|pin|unpin|transfer'
+pr_write_verbs='create|comment|edit|close|reopen|lock|unlock|merge|ready|revert|review|update-branch|checkout'
+release_write_verbs='create|edit|delete|upload|delete-asset'
+repo_write_verbs='edit|delete|archive|unarchive|rename|sync'
+label_write_verbs='create|edit|delete|clone'
 
-if ! printf '%s' "$command" | grep -qE "$write_pattern"; then
+# コマンド文字列をそのまま受け取るため、値には引用符が付いたまま現れる。
+# サブシェルを挟まないよう戻り値ではなく unquoted へ格納する（毎回の Bash 呼び出しで
+# 走るフックなので fork を増やさない）。
+unquoted=''
+strip_outer_quotes() {
+  unquoted=$1
+  if [[ $unquoted == \"*\" || $unquoted == \'*\' ]]; then
+    unquoted=${unquoted:1:${#unquoted}-2}
+  fi
+}
+
+# 「gh <noun> <verb> [直後の1トークン]」を出現ごとに取り出す。位置引数の判定に
+# 使うため verb 直後のトークンまで拾い、フラグは読み飛ばさない（ヘッダーのルール1）。
+# トークンからシェル区切り（; & |）を除くのは、密着した区切り（gh pr view 1;gh pr
+# merge 5）でトークンが後続の gh ごと飲み込み、その write が走査されないまま
+# 素通りするのを防ぐため。区切りが残れば次の周回で先頭境界として機能する。
+occurrence_pattern='(^|[^A-Za-z0-9_])gh[[:space:]]+(issue|pr|release|repo|label)[[:space:]]+([A-Za-z][A-Za-z-]*)([[:space:]]+([^[:space:];&|]+))?'
+
+occ_nouns=()
+occ_verbs=()
+occ_tokens=()
+rest=$command
+while [[ $rest =~ $occurrence_pattern ]]; do
+  matched=${BASH_REMATCH[0]}
+  noun=${BASH_REMATCH[2]}
+  verb=${BASH_REMATCH[3]}
+  token=${BASH_REMATCH[5]:-}
+  rest=${rest#*"$matched"}
+
+  case $noun in
+    issue) allowed_verbs=$issue_write_verbs ;;
+    pr) allowed_verbs=$pr_write_verbs ;;
+    release) allowed_verbs=$release_write_verbs ;;
+    repo) allowed_verbs=$repo_write_verbs ;;
+    label) allowed_verbs=$label_write_verbs ;;
+  esac
+  [[ $verb =~ ^($allowed_verbs)$ ]] || continue
+
+  # gh repo edit "owner/repo" を弾かないため引用符を剥ぐ。
+  strip_outer_quotes "$token"
+  token=$unquoted
+
+  # verb 直後の --help / -h は write ではない。この出現のみ免除する。
+  if [ "$token" = "--help" ] || [ "$token" = "-h" ]; then
+    continue
+  fi
+
+  occ_nouns+=("$noun")
+  occ_verbs+=("$verb")
+  occ_tokens+=("$token")
+done
+
+if [ ${#occ_nouns[@]} -eq 0 ]; then
   exit 0
 fi
 
@@ -115,10 +195,8 @@ body_source=''
 body_content=''
 body_file_pattern='(^|[[:space:]])(--body-file|-F)([[:space:]]+|=)("[^"]*"|'\''[^'\'']*'\''|[^[:space:]]+)'
 if [[ $command =~ $body_file_pattern ]]; then
-  body_path=${BASH_REMATCH[4]}
-  if [[ $body_path == \"*\" || $body_path == \'*\' ]]; then
-    body_path=${body_path:1:${#body_path}-2}
-  fi
+  strip_outer_quotes "${BASH_REMATCH[4]}"
+  body_path=$unquoted
   if [ "$body_path" != "-" ] && [ -r "$body_path" ] && [ -f "$body_path" ]; then
     body_content=$(cat "$body_path")
     body_source="--body-file $body_path"
@@ -197,27 +275,108 @@ EOF
   exit 2
 fi
 
-# -R <value> / --repo <value> / --repo=<value> のいずれかがあれば許可。
-repo_flag_pattern='(^|[[:space:]])(-R|--repo)([[:space:]=])'
-if printf '%s' "$command" | grep -qE "$repo_flag_pattern"; then
+# ルール1: 対象リポジトリの明示を判定する。
+# -R <value> / --repo <value> / --repo=<value> と GH_REPO= のコマンド前置は、gh が
+# GH_REPO を -R の既定値として解決するため通過条件としては同じもの。1つの真偽値に
+# まとめ、全文字列で1回だけ求める（採否は出現ごとに noun で決める）。
+repo_flag_or_env_pattern='(^|[[:space:]])((-R|--repo)[[:space:]=]|GH_REPO=)'
+has_repo_flag_or_env=0
+if [[ $command =~ $repo_flag_or_env_pattern ]]; then
+  has_repo_flag_or_env=1
+fi
+
+# 位置引数がリポジトリを指しているか。OWNER/REPO・HOST/OWNER/REPO はスラッシュの
+# 個数（1〜2）で bare REPO と区別する。
+repo_positional_pattern='^(https?://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+(\.git)?/?|[A-Za-z0-9_.][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?)$'
+issue_url_pattern='^https?://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/(issues|pull)/[0-9]+/?$'
+
+occurrence_is_explicit() {
+  local noun=$1 verb=$2 token=$3
+  case "$noun:$verb" in
+    repo:rename)
+      # 位置引数は新しいリポジトリ名なのでリポジトリの明示には使えない。
+      [ "$has_repo_flag_or_env" = 1 ] ;;
+    repo:*)
+      # -R を持たないため、位置引数だけがリポジトリ明示の手段になる。
+      [[ $token =~ $repo_positional_pattern ]] ;;
+    issue:create|pr:create)
+      # selector を取らないため URL で示す余地がない。
+      [ "$has_repo_flag_or_env" = 1 ] ;;
+    issue:*|pr:*)
+      [ "$has_repo_flag_or_env" = 1 ] || [[ $token =~ $issue_url_pattern ]] ;;
+    *)
+      # release / label の位置引数はタグ名・ラベル名でリポジトリではない。
+      [ "$has_repo_flag_or_env" = 1 ] ;;
+  esac
+}
+
+fail_noun=''
+fail_verb=''
+for ((i = 0; i < ${#occ_nouns[@]}; i++)); do
+  if ! occurrence_is_explicit "${occ_nouns[$i]}" "${occ_verbs[$i]}" "${occ_tokens[$i]}"; then
+    fail_noun=${occ_nouns[$i]}
+    fail_verb=${occ_verbs[$i]}
+    break
+  fi
+done
+
+if [ -z "$fail_noun" ]; then
   exit 0
 fi
 
-# GH_REPO 環境変数がコマンド前置で明示されている場合も許可。
-# 例: GH_REPO=owner/repo gh issue create ...
-if printf '%s' "$command" | grep -qE '(^|[[:space:]])GH_REPO='; then
-  exit 0
-fi
+# 復旧手順は、通過条件が noun ごとに違うため出現に合わせて出し分ける
+# （固定の -R 例だけを出すと、-R を持たない gh repo で「満たせない」と誤解される）。
+repo_flag_hint='  ※ 現在のディレクトリの remote が正しいと確信できる場合も、
+       gh repo view --json nameWithOwner -q .nameWithOwner
+     で取得した値を -R に渡して明示する'
+case "$fail_noun:$fail_verb" in
+  repo:rename)
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh repo rename new-name -R owner/repo
+     gh repo rename の位置引数は新しいリポジトリ名で、リポジトリの明示にはなりません。
+$repo_flag_hint" ;;
+  repo:*)
+    recovery="  1. 対象リポジトリを verb 直後の位置引数で明示して再実行する
+       例: gh repo $fail_verb owner/repo ...
+     形式は OWNER/REPO・HOST/OWNER/REPO・リポジトリ URL のいずれかです。
+     bare な REPO は gh が認証ユーザーで補完するため明示になりません。
+  2. gh repo $fail_verb に -R/--repo はなく、環境変数によるリポジトリ指定も効きません。
+     位置引数はフラグより前（verb の直後）に置いてください。" ;;
+  issue:create|pr:create)
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh $fail_noun create -R owner/repo ...
+     create は selector を取らないため、URL でリポジトリを示す形はありません。
+$repo_flag_hint" ;;
+  issue:*|pr:*)
+    # selector を取る verb だけが URL 形を使えるので、create とは別に扱う
+    # （create に URL 例を出すと、通らない復旧手順を提示することになる）。
+    if [ "$fail_noun" = pr ]; then
+      url_example='https://github.com/owner/repo/pull/123'
+    else
+      url_example='https://github.com/owner/repo/issues/123'
+    fi
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh $fail_noun $fail_verb -R owner/repo ...
+  2. 対象を完全な URL で指定する（URL にリポジトリが含まれます）
+       例: gh $fail_noun $fail_verb $url_example ...
+     番号のみ・ブランチ名は cwd の remote で解決されるため明示になりません。
+$repo_flag_hint" ;;
+  *)
+    recovery="  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh $fail_noun $fail_verb -R owner/repo ...
+$repo_flag_hint" ;;
+esac
 
 current_dir=$(pwd)
 current_remote=$(git remote get-url origin 2>/dev/null || printf '(取得不可: git リポジトリ外、または origin が未設定)')
 
 cat >&2 <<EOF
-gh の書き込み系サブコマンドは -R/--repo によるリポジトリ明示を必須としています。
+gh の書き込み系サブコマンドは、対象リポジトリをコマンド上で明示することを必須としています。
 
 実行しようとしたコマンド:
   $command
 
+明示が確認できなかった箇所: gh $fail_noun $fail_verb
 現在の作業ディレクトリ: $current_dir
 現在の origin remote: $current_remote
 
@@ -225,11 +384,7 @@ gh の書き込み系サブコマンドは -R/--repo によるリポジトリ明
 別リポジトリの調査中などに cwd を取り違えると、意図しないリポジトリに書き込みが行われます。
 
 対処:
-  1. 対象リポジトリを -R owner/repo で明示して再実行する
-       例: gh issue create -R 178inaba/dotfiles --title "..." --body "..."
-  2. 現在のディレクトリの remote が正しいと確信できる場合も、
-       gh repo view --json nameWithOwner -q .nameWithOwner
-     で取得した値を -R に渡して明示する
+$recovery
 EOF
 
 exit 2
