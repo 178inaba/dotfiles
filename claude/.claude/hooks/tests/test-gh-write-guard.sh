@@ -174,6 +174,11 @@ run_message_test 'message: repo rename shows -R form' \
 run_message_test 'message: issue create omits URL form' \
   '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title x --body y"}}' \
   '-R owner/repo' 'https://'
+# 誤検知（gh を実行しないコマンドが本文中のリテラルで掛かる形）では -R の追加が
+# 復旧手順にならないため、その旨の注記が出ること。
+run_message_test 'message: notes the literal-only case' \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"document gh issue create usage\""}}' \
+  '-R を足しても解消しません'
 
 run_test 'gh issue create (no -R)'                  '{"tool_name":"Bash","tool_input":{"command":"gh issue create --title T --body B"}}' 2
 run_test 'gh pr create (no -R)'                     '{"tool_name":"Bash","tool_input":{"command":"gh pr create --title T --body B"}}' 2
