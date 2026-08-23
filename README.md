@@ -14,7 +14,7 @@ $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
 $ eval "$(/opt/homebrew/bin/brew shellenv)"
 $ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq
-$ stow tmux git vim zsh claude ghostty
+$ stow tmux git vim zsh claude ghostty shims
 $ zsh -l
 $ gh auth login
 ```
@@ -50,7 +50,7 @@ Applying changes on a machine that is already set up:
 ```zsh
 $ cd ~/.dotfiles
 $ git pull
-$ stow -R tmux git vim zsh claude ghostty
+$ stow -R tmux git vim zsh claude ghostty shims
 ```
 
 Always restow. Some pulls need it and some do not, and telling the two apart is
@@ -63,6 +63,7 @@ make that call.
 - `claude`: Claude Code configuration
 - `ghostty`: Ghostty terminal configuration
 - `git`: Git configuration
+- `shims`: PATH shims that wrap installed commands (currently `gh`)
 - `tmux`: tmux configuration
 - `vim`: Vim configuration
 - `zsh`: Zsh configuration

@@ -142,7 +142,45 @@ assert 'no suites found: nonzero exit' '[ "$code" -ne 0 ]' "(exit=$code)"
 run_runner bash "$RUNNER" "$TMP/does-not-exist"
 assert 'missing root: nonzero exit' '[ "$code" -ne 0 ]' "(exit=$code)"
 
-# ---- ケース9: 引数省略時のデフォルトルート解決 ----
+# ---- ケース9: 複数ルート ----
+# CI は claude/.claude と shims の2ルートを渡す。片方だけ走って緑になると、
+# もう片方のスイートが存在しないのと同じ（発見漏れは silent な失敗モード）
+
+ROOT_M1="$TMP/multi/one"
+ROOT_M2="$TMP/multi/two"
+make_suite "$ROOT_M1/a/tests/test-first.sh" 'exit 0'
+make_suite "$ROOT_M2/b/tests/test-second.sh" 'exit 0'
+
+run_runner bash "$RUNNER" "$ROOT_M1" "$ROOT_M2"
+assert 'multi root: exit 0' '[ "$code" -eq 0 ]' "(exit=$code)"
+assert 'multi root: first root suite runs' 'printf "%s" "$out" | grep -q "^PASS .*a/tests/test-first\.sh$"' "(out=$out)"
+assert 'multi root: second root suite runs' 'printf "%s" "$out" | grep -q "^PASS .*b/tests/test-second\.sh$"' "(out=$out)"
+assert 'multi root: counts are aggregated' 'printf "%s" "$out" | grep -q "^2 suites: 2 passed, 0 failed$"' "(out=$out)"
+
+# 失敗は全ルートを横断して集計される
+make_suite "$ROOT_M2/c/tests/test-broken.sh" 'exit 1'
+run_runner bash "$RUNNER" "$ROOT_M1" "$ROOT_M2"
+assert 'multi root: failure in a later root fails the run' '[ "$code" -ne 0 ]' "(exit=$code)"
+assert 'multi root: failure counted across roots' 'printf "%s" "$out" | grep -q "^3 suites: 2 passed, 1 failed$"' "(out=$out)"
+
+# 1 ルートでも欠けていれば止まる（タイポしたルートが silent に無視されない）
+run_runner bash "$RUNNER" "$ROOT_M1" "$TMP/does-not-exist"
+assert 'multi root: missing root among valid ones fails' '[ "$code" -ne 0 ]' "(exit=$code)"
+
+# 全ルート合計が 0 件なら失敗（ケース7 の複数ルート版）
+ROOT_M_EMPTY1="$TMP/multi-empty/one"
+ROOT_M_EMPTY2="$TMP/multi-empty/two"
+mkdir -p "$ROOT_M_EMPTY1" "$ROOT_M_EMPTY2"
+run_runner bash "$RUNNER" "$ROOT_M_EMPTY1" "$ROOT_M_EMPTY2"
+assert 'multi root: zero suites across all roots fails' '[ "$code" -ne 0 ]' "(exit=$code)"
+
+# 同じスイートが複数ルートから見えても二重に実行しない
+# （CI が claude/.claude と shims を渡す構成では起きないが、ルートが入れ子で渡された
+#   ときに件数が水増しされると「全部通った」の意味が変わる）
+run_runner bash "$RUNNER" "$ROOT_M1" "$ROOT_M1"
+assert 'multi root: duplicated root is not run twice' 'printf "%s" "$out" | grep -q "^1 suites: 1 passed, 0 failed$"' "(out=$out)"
+
+# ---- ケース10: 引数省略時のデフォルトルート解決 ----
 # フィクスチャ側に claude/.claude/tests/ の階層を組んで runner を置き、引数なしで実行する。
 # デフォルトは「自スクリプトの親ディレクトリ」なので、走るのはフィクスチャの 1 件だけになる
 

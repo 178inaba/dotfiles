@@ -40,5 +40,7 @@ jobs:
               || { sudo apt-get update && sudo apt-get install -y $missing; }
           fi
 
+      # スイートは claude/.claude/ の外（stow パッケージ shims/）にもあるため、
+      # ランナーの既定ルートに任せず全ルートを明示する
       - name: Run shell test suites
-        run: bash claude/.claude/tests/run-all.sh
+        run: bash claude/.claude/tests/run-all.sh claude/.claude shims
