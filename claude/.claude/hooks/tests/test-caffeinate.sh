@@ -56,6 +56,9 @@ DEFAULT_DIR_PF="/tmp/claude-caffeinate-${DEFAULT_DIR_SID}.pid"
 # 既定パスを使う case21 の 1 本だけは WORK_DIR の外にあるので個別に消す
 cleanup() {
   pkill -f "$STUB" 2>/dev/null || true
+  # ゾンビの親を殺すと、ゾンビは init に reparent されて回収される。
+  # :- 付きなのは、ケース到達前の異常終了でも EXIT trap が走るため（set -u）
+  [ -n "${ZOMBIE_PARENT:-}" ] && kill "$ZOMBIE_PARENT" 2>/dev/null
   rm -rf "$WORK_DIR"
   rm -f "$DEFAULT_DIR_PF"
 }
@@ -121,12 +124,58 @@ setup_reap_fixture() {
   call_agent_done "$sid" "finished"
 }
 
+# プロセスの状態を答える唯一のヘルパー。「消えた」「生きている」の両方をこれで表現し、
+# スイート内で同じ問いに 2 つの答えが出ないようにする。
+# kill -0 は「PID が存在するか」しか答えず、終了済み・未回収（state Z）にも成功する。
+# スタブは nohup でデタッチ起動され、回収するのは init / subreaper でテストの制御外の
+# ため、正しく終了したスタブが任意の時間 Z に留まりうる。
+# 空出力 = プロセス不在。macOS の ps は state に修飾子を付ける（Z+ 等）ので前方一致で見る
+proc_state() {
+  local s
+  s=$(ps -o state= -p "$1" 2>/dev/null)
+  printf '%s' "${s// /}"
+}
+
+proc_gone() {
+  case "$(proc_state "$1")" in
+    '' | Z*) return 0 ;;
+  esac
+  return 1
+}
+
+proc_alive() {
+  ! proc_gone "$1"
+}
+
+# ゾンビ（終了済み・未回収）のフィクスチャを作り、ZOMBIE_PID に設定する。
+# bash は SIGCHLD で背景ジョブを自動回収するため、親を exec で sleep に置き換えて
+# wait() を呼ばない親にする（perl 等の追加依存を避けるための pure bash 実装）。
+# 親は生存し続けるので init への reparent も起きず、子は kill 後 Z に留まる
+ZOMBIE_PARENT=''
+ZOMBIE_PID=''
+make_zombie() {
+  local pid_file="$WORK_DIR/zombie.pid" i
+  rm -f "$pid_file"
+  bash -c 'sleep 100 & printf "%s" "$!" > "$1"; exec sleep 30' _ "$pid_file" &
+  ZOMBIE_PARENT=$!
+  wait_file "$pid_file" || return 1
+  ZOMBIE_PID=$(cat "$pid_file")
+  kill -TERM "$ZOMBIE_PID" 2>/dev/null || return 1
+  for i in $(seq 1 50); do
+    case "$(proc_state "$ZOMBIE_PID")" in
+      Z*) return 0 ;;
+    esac
+    sleep 0.01
+  done
+  return 1
+}
+
 # 固定 sleep での消滅待ちはテスト実行時間を無駄に延ばすため、ポーリングで待つ
 # （SIGTERM の消滅は通常数 ms。上限 200ms 待っても生きていれば失敗を返す）
 wait_dead() {
   local pid=$1 i
   for i in $(seq 1 20); do
-    kill -0 "$pid" 2>/dev/null || return 0
+    proc_gone "$pid" && return 0
     sleep 0.01
   done
   return 1
@@ -149,7 +198,7 @@ rm -f "$PF"
 call_start "$SID"
 assert 'case1: PID file created'        "[ -f '$PF' ]"
 PID=$(cat "$PF")
-assert 'case1: process alive'           "kill -0 $PID 2>/dev/null"
+assert 'case1: process alive'           "proc_alive $PID"
 
 # Case 2: start when process alive → lease renewal (old killed, new spawned)
 SID="test-case2-$$"
@@ -161,7 +210,7 @@ call_start "$SID"
 PID2=$(cat "$PF")
 assert 'case2: PID renewed'             "[ '$PID1' != '$PID2' ]"
 assert 'case2: old process killed'      "wait_dead $PID1"
-assert 'case2: new process alive'       "kill -0 $PID2 2>/dev/null"
+assert 'case2: new process alive'       "proc_alive $PID2"
 
 # Case 3: start with stale PID file (process dead) → respawns
 # （999999 は macOS の PID 上限 99999 を超え、実プロセスと衝突しない stale 値）
@@ -171,7 +220,7 @@ echo 999999 > "$PF"
 call_start "$SID"
 NEW_PID=$(cat "$PF")
 assert 'case3: PID changed from stale'  "[ '$NEW_PID' != '999999' ]"
-assert 'case3: new process alive'       "kill -0 $NEW_PID 2>/dev/null"
+assert 'case3: new process alive'       "proc_alive $NEW_PID"
 
 # Case 4: stop with PID file & alive → kills process and removes file
 SID="test-case4-$$"
@@ -225,7 +274,7 @@ DONE_PID=$(cat "$APF_DONE")
 call_agent_done "$SID" "agent8done"
 CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop "$SID"
 assert 'case8: PID file kept'           "[ -f '$PF' ]"
-assert 'case8: process still alive'     "kill -0 $PID 2>/dev/null"
+assert 'case8: process still alive'     "proc_alive $PID"
 assert 'case8: done agent reaped'       "wait_dead $DONE_PID"
 assert 'case8: done file removed'       "[ ! -f '${APF_DONE%.pid}.done' ]"
 
@@ -275,7 +324,7 @@ ARGS_FILE="$WORK_DIR/args-agent"
 STUB_ARGS_FILE="$ARGS_FILE" CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_start_agent "$SID" "$AID"
 assert 'case13: agent PID file created' "[ -f '$APF' ]"
 APID=$(cat "$APF")
-assert 'case13: agent process alive'    "kill -0 $APID 2>/dev/null"
+assert 'case13: agent process alive'    "proc_alive $APID"
 assert 'case13: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case13: -t even while bridge'   "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
 
@@ -298,7 +347,7 @@ APID=$(cat "$APF")
 call_agent_done "$SID" "$AID"
 assert 'case15: .pid removed'           "[ ! -f '$APF' ]"
 assert 'case15: .done created'          "[ -f '${APF%.pid}.done' ]"
-assert 'case15: process still alive'    "kill -0 $APID 2>/dev/null"
+assert 'case15: process still alive'    "proc_alive $APID"
 if call_agent_done "$SID" "no-such-agent"; then
   pass=$((pass + 1)); printf 'PASS  %s\n' 'case15: agent-done no-file exits 0'
 else
@@ -313,7 +362,7 @@ assert 'case16: session killed'         "wait_dead $SPID"
 assert 'case16: session file removed'   "[ ! -f '$PF' ]"
 assert 'case16: done agent reaped'      "wait_dead $DONE_PID"
 assert 'case16: done file removed'      "[ ! -f '${APF_DONE%.pid}.done' ]"
-assert 'case16: live agent survives'    "kill -0 $LIVE_PID 2>/dev/null"
+assert 'case16: live agent survives'    "proc_alive $LIVE_PID"
 assert 'case16: live file kept'         "[ -f '$APF_LIVE' ]"
 
 # Case 17: stop --force kills everything including running agents
@@ -324,6 +373,18 @@ assert 'case17: session killed'         "wait_dead $SPID"
 assert 'case17: live agent killed'      "wait_dead $LIVE_PID"
 assert 'case17: done agent killed'      "wait_dead $DONE_PID"
 assert 'case17: all files removed'      "[ ! -f '$PF' ] && [ ! -f '$APF_LIVE' ] && [ ! -f '${APF_DONE%.pid}.done' ]"
+
+# Case 18: a terminated-but-unreaped process (state Z) counts as gone, not alive
+if make_zombie; then
+  # kill -0 がゾンビに成功することの確認。これは liveness 判定ではなく、
+  # フィクスチャが本当に「kill -0 が誤答する窓」を再現できている健全性確認
+  assert 'case18: kill -0 still succeeds on the zombie' "kill -0 $ZOMBIE_PID 2>/dev/null"
+  assert 'case18: wait_dead treats the zombie as gone'  "wait_dead $ZOMBIE_PID"
+  assert 'case18: proc_alive rejects the zombie'        "! proc_alive $ZOMBIE_PID"
+else
+  fail=$((fail + 1))
+  printf 'FAIL  %s\n' 'case18: zombie fixture did not reach state Z'
+fi
 
 # Case 21: CAFFEINATE_PID_DIR unset → hooks still use their default location
 # （テスト外の挙動が変わっていないことの担保。この 1 ケースだけ WORK_DIR の外へ
