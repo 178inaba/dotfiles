@@ -61,8 +61,12 @@
 #   - 違反していれば実体の gh を実行せず exit 78
 #   - それ以外は exec するので、exit status・stdin/stdout/stderr・シグナルは素通しになる
 #   - fail closed: 判定を終える前に抜けた場合（内部エラー）も exec しない
-#   - 唯一の例外として、本文ファイルが読めない場合はルール3・4 を fail open で
-#     スキップする（ファイルはこれから書かれることがあり、読めない本文は走査できない）
+#   - 本文ファイルの fail open は stdin 綴り（--body-file -）だけに限る。shim が stdin を
+#     読むと gh が読むはずの分を消費してしまい、走査と両立しないため。名前付きパスが
+#     読めない場合（欠落・通常ファイルでない・権限なし）はブロックする。gh 自身も本文
+#     ファイルを API に触れる前に読む（--web でも同じ）ので、ブロックによって成功した
+#     はずのコマンドが失われることはない。帰結として、gh は読めるが通常ファイルでない
+#     本文（プロセス置換・パイプされた /dev/stdin）も止まる
 
 set -eEuo pipefail
 
@@ -378,7 +382,8 @@ scan_args() {
             # 残りがあれば密着した値、無ければ次のトークンが値。
             # 密着形の先頭 = を1つ落とすのは pflag に合わせるため（-F=x の値は x、
             # -F==x の値は =x）。落とさないと本文ファイルのパスが "=path" になり、
-            # 読めない本文として fail open で素通りする
+            # 実在しないパスとして無関係にブロックされる（かつては fail open だったため、
+            # 本文検査が無警告でスキップされていた）
             val=''
             if [ -n "$rest" ]; then
               val=${rest#=}
@@ -477,7 +482,7 @@ attempted_command() {
 # 本文系ルール（2〜4）。違反していればメッセージを出して exit し、無ければ return する。
 # ルール1 のようにフラットに書けないのは、通過後に exec へ抜ける必要があるため
 check_body_rules() {
-  local body_source='' body_content='' distinct_refs
+  local body_source='' body_content='' distinct_refs unreadable_reason=''
 
   # ルール2: 複数行の本文を --body/-b で渡すことを禁止する
   if [[ $inline_body == *$'\n'* ]]; then
@@ -500,13 +505,50 @@ EOF
     exit "$block_exit"
   fi
 
-  # ルール3・4 が読む本文。本文ファイルが読めない場合は fail open にする
-  # （ファイルはこれから書かれることがあり、読めない本文は走査できない）
+  # ルール3・4 が読む本文。本文ファイルが読めない場合の唯一の fail open は stdin 綴り
+  # （-）で、shim が読むと gh が読むはずの stdin を消費してしまい走査と両立しないため。
+  # 名前付きパスが読めない場合は fail closed にする。gh は本文ファイルを API に触れる前に
+  # 読む（--web でも同じ）ので、ここでブロックしても成功したはずのコマンドは失われない。
+  # 帰結として、gh は読めるが通常ファイルでない本文（プロセス置換 --body-file <(...)、
+  # パイプされた /dev/stdin）もブロックされる。-f が false になるためで、これは no-op では
+  # なく実際の挙動変更だが、どちらの綴りも本リポジトリの利用に現れないので許容している
   if [ -n "$body_file" ]; then
-    if [ "$body_file" != '-' ] && [ -r "$body_file" ] && [ -f "$body_file" ]; then
-      body_content=$(<"$body_file")
-      body_source="--$body_file_long $body_file"
+    if [ "$body_file" = '-' ]; then
+      return 0
     fi
+    # 直し方が分かれる（まだ書いていない / パスが違う / 権限が無い）ので理由を区別する
+    if [ ! -e "$body_file" ]; then
+      unreadable_reason='ファイルが存在しません（本文をまだ書き出していない可能性があります）'
+    elif [ ! -f "$body_file" ]; then
+      unreadable_reason='通常ファイルではありません（ディレクトリ・プロセス置換・パイプ等）'
+    elif [ ! -r "$body_file" ]; then
+      unreadable_reason='読み取り権限がありません'
+    fi
+    if [ -n "$unreadable_reason" ]; then
+      cat >&2 <<EOF
+gh の書き込み系サブコマンドの本文ファイルを読めなかったため、gh を実行しませんでした。
+
+実行しようとしたコマンド:
+  $(attempted_command)
+
+読めなかった本文ファイル: --$body_file_long $body_file
+理由: $unreadable_reason
+
+理由の詳細:
+  本文を読めないと、素の #N の項番・引用された closing keyword を走査できません。
+  gh 自身も本文ファイルを読めなければ API に触れる前にエラー終了するため、ここで
+  ブロックしても、成功したはずのコマンドが失われることはありません。
+
+対処:
+  1. 本文をまだ書いていない場合: 先にファイルへ Write してから再実行する
+  2. パスが違う場合: パスを確認して再実行する（相対パスは現在の作業ディレクトリ基準）
+  3. 標準入力から本文を渡す場合: --$body_file_long - を使う
+     （stdin は shim が読むと gh の分を消費するため、走査を諦めて素通しします）
+EOF
+      exit "$block_exit"
+    fi
+    body_content=$(<"$body_file")
+    body_source="--$body_file_long $body_file"
   elif [ -n "$inline_body" ]; then
     body_content=$inline_body
     body_source="--$body_long の本文"

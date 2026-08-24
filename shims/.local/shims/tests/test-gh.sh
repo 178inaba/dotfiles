@@ -354,8 +354,9 @@ assert_blocked 'body-file: -F short flag, bare #N' \
 assert_blocked 'inline --body: bare #N' \
   "$SHIM" issue comment -R foo/bar 1 --body 'fix #1, #2, #3'
 # フラグと値の綴りは 4 通りあり、本文ファイルではどれで書かれても同じパスを指す
-# 必要がある。特に -F=path は、値の先頭に = が残るとパスが読めなくなり、本文検査が
-# fail open で素通りする（旧フックは走査していた形なので parity が落ちる）
+# 必要がある。特に -F=path は、値の先頭に = が残るとパスが読めなくなり、本文検査に届かない
+# （旧フックは走査していた形なので parity が落ちる。この綴りは fail open だった頃に実際に
+# 素通りしていた形で、今は無関係なパスとしてブロックされる別の壊れ方になる）
 assert_blocked 'body-file: --body-file= form' \
   "$SHIM" pr comment -R foo/bar 1 --body-file="$BODY_DIR/hash-numbering.md"
 assert_blocked 'body-file: -F= form' \
@@ -379,9 +380,41 @@ assert_runs 'body-file: multi-digit #N only' \
 assert_runs 'body-file: hex color / ordinal #N' \
   "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/alnum-suffix-refs.md"
 
-# 本文が読めなければ走査できないので fail open（ファイルはこれから書かれることがある）
-assert_runs 'body-file: nonexistent path' \
+# 名前付きパスが読めなければ fail closed。gh 自身も本文ファイルを読めなければ API に触れる
+# 前にエラー終了するので、ブロックしても成功したはずのコマンドは失われない。fail open が残る
+# のは stdin 綴り（--body-file -）だけで、そちらは上の stdin パススルーケースが固定している
+assert_blocked 'body-file: nonexistent path' \
   "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+# フラグとパスの両方を名指さないと、パスが違うのか本文をまだ書いていないのか判別できない。
+# assert_block_message はメッセージ冒頭がエコーする argv にも一致しうるので、専用行ごと固定する
+assert_block_message 'message: an unreadable body file names the flag and the path' \
+  "読めなかった本文ファイル: --body-file $BODY_DIR/missing.md" '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+assert_block_message 'message: a missing body file says it may not be written yet' \
+  '理由: ファイルが存在しません' '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+
+# 通常ファイルでない本文（ディレクトリ・プロセス置換・パイプされた /dev/stdin）もブロックする。
+# gh 側は読めるので挙動変更にあたるが、-f が false な綴りは本リポジトリの利用に現れない。
+# ディレクトリを使うのは、権限に依らず判定が決定的になるため
+assert_blocked 'body-file: a directory is not a regular file' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR"
+assert_block_message 'message: a non-regular body file gets its own reason' \
+  '理由: 通常ファイルではありません' '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR"
+
+# 読み取り権限が無い本文もブロックする。root は chmod 000 でも読めてしまうため非 root 限定
+# （CI の ubuntu ランナー・ローカルの macOS はいずれも非 root なので通常は実行される）
+UNREADABLE="$BODY_DIR/unreadable.md"
+printf -- 'body\n' > "$UNREADABLE"
+chmod 000 "$UNREADABLE"
+if [ "$(id -u)" -ne 0 ]; then
+  assert_blocked 'body-file: no read permission' \
+    "$SHIM" pr comment -R foo/bar 1 --body-file "$UNREADABLE"
+  assert_block_message 'message: an unreadable body file points at permissions' \
+    '理由: 読み取り権限がありません' '' \
+    "$SHIM" pr comment -R foo/bar 1 --body-file "$UNREADABLE"
+fi
 
 # release notes も GitHub でレンダリングされるので素の #N は autolink する。
 # gh release の -F は --notes-file で、両方の綴りが同じ本文フラグを指す
@@ -455,6 +488,8 @@ assert_runs 'no CLAUDECODE: bare #N numbering' \
   env -u CLAUDECODE "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
 assert_runs 'no CLAUDECODE: quoted Closes #N' \
   env -u CLAUDECODE "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/quoted-closes.md"
+assert_runs 'no CLAUDECODE: unreadable body file' \
+  env -u CLAUDECODE "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
 
 # ---- 本文ルールのブロックメッセージが直し方を示す ----
 
