@@ -22,7 +22,7 @@
     - 上記以外（`gh issue create` / `gh pr create` / `gh release` / `gh label`）: `-R owner/repo` を付ける
     - `-h` がヘルプになるかは verb 次第（`gh repo edit` の `-h` は `--homepage`）。ヘルプ参照は `--help` を使う
   - 複数行の本文をインラインの本文フラグで渡すこと（scratchpad 等へ Write してファイル代替を使う。単行の短い本文はインラインで可）。対象は GitHub が markdown としてレンダリングする本文で、誘導先は verb ごとに違う
-    - `--body`/`-b`（`gh issue`・`gh pr` の create / comment / edit / merge / review / revert）→ `--body-file <path>`
+    - `--body`/`-b`（`gh issue` の create / comment / edit、`gh pr` の create / comment / edit / merge / review / revert）→ `--body-file <path>`
     - `--notes`/`-n`（`gh release create` / `edit`）→ `--notes-file <path>`
     - `--comment`/`-c`（`gh issue close` / `reopen`、`gh pr close` / `reopen`）→ **ファイル代替が無い**ので、本文は `gh <noun> comment -R owner/repo N --body-file <path>` で別途投稿し、close / reopen は `-c` なしで実行する
     - `gh label create`/`edit` と `gh repo edit` の `--description` は対象外（プレーンテキストで、素の `#数字` が自動リンクにならないため）
