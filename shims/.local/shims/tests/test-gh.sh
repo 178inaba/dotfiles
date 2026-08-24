@@ -332,6 +332,12 @@ assert_block_message 'message: shows the command that was blocked' \
 assert_blocked 'multiline --body='           "$SHIM" pr edit -R foo/bar 1 --body="$MULTILINE"
 assert_blocked 'multiline -b'                "$SHIM" pr create -R foo/bar --title x -b "$MULTILINE"
 assert_blocked 'multiline -b attached'       "$SHIM" issue comment -R foo/bar 1 "-b$MULTILINE"
+# pflag は短フラグの密着 = も受理する
+assert_blocked 'multiline -b='               "$SHIM" issue comment -R foo/bar 1 "-b=$MULTILINE"
+# ルール1 とルール2 の両方に違反する場合はルール1 が先に出る（判定順の帰結）
+assert_block_message 'rule 1 wins over rule 2' \
+  '対象リポジトリをコマンド上で明示' '' \
+  "$SHIM" pr edit 1 --body "$MULTILINE"
 assert_runs 'single-line --body'             "$SHIM" pr edit -R foo/bar 1 --body line1
 
 # 本文以外の引数の複数行値は撃たない。コマンド文字列を見ていたフックは --body 以降の
@@ -347,6 +353,15 @@ assert_blocked 'body-file: -F short flag, bare #N' \
   "$SHIM" issue create -R foo/bar --title x -F "$BODY_DIR/hash-numbering.md"
 assert_blocked 'inline --body: bare #N' \
   "$SHIM" issue comment -R foo/bar 1 --body 'fix #1, #2, #3'
+# フラグと値の綴りは 4 通りあり、本文ファイルではどれで書かれても同じパスを指す
+# 必要がある。特に -F=path は、値の先頭に = が残るとパスが読めなくなり、本文検査が
+# fail open で素通りする（旧フックは走査していた形なので parity が落ちる）
+assert_blocked 'body-file: --body-file= form' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file="$BODY_DIR/hash-numbering.md"
+assert_blocked 'body-file: -F= form' \
+  "$SHIM" pr comment -R foo/bar 1 "-F=$BODY_DIR/hash-numbering.md"
+assert_blocked 'body-file: -F attached form' \
+  "$SHIM" pr comment -R foo/bar 1 "-F$BODY_DIR/hash-numbering.md"
 
 # GitHub がリンク化しない形・実参照とみられる形は項番ではない
 assert_runs 'body-file: ordered list numbering' \

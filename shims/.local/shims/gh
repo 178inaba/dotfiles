@@ -375,10 +375,13 @@ scan_args() {
             has_repo=1
           fi
           if takes_value_short "$ch"; then
-            # 残りがあれば密着した値、無ければ次のトークンが値
+            # 残りがあれば密着した値、無ければ次のトークンが値。
+            # 密着形の先頭 = を1つ落とすのは pflag に合わせるため（-F=x の値は x、
+            # -F==x の値は =x）。落とさないと本文ファイルのパスが "=path" になり、
+            # 読めない本文として fail open で素通りする
             val=''
             if [ -n "$rest" ]; then
-              val=$rest
+              val=${rest#=}
             elif [ "$#" -gt 0 ]; then
               val=$1
               shift
