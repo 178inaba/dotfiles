@@ -21,10 +21,14 @@
 #   verb 直後の --help はヘルプ表示で write ではないため免除する。-h は verb に
 #   よって値取りフラグ（gh repo edit の --homepage 等）なので、その場合は免除しない。
 #
-# ルール2: 複数行の本文を --body/-b で渡すことを禁止する（--body-file へ誘導）
+# ルール2: 複数行の本文をインラインの本文フラグ（--body/-b・--notes/-n・--comment/-c）で
+#   渡すことを禁止する（ファイル代替へ誘導）
 #   --body "$(cat <<'EOF' ... EOF)" のような引用符レイヤの重なりが誤エスケープを
-#   誘発し、本文にリテラルの \ が残る事故を防ぐ。判定は --body の値そのものに
+#   誘発し、本文にリテラルの \ が残る事故を防ぐ。判定はインライン本文フラグの値そのものに
 #   改行が含まれるかで、他の引数の複数行値は撃たない。
+#   誘導先は verb ごとに違うため復旧手順も出し分ける: ファイル代替を持つ verb は
+#   --body-file / --notes-file、持たない close・reopen（-c/--comment が唯一の本文フラグ）は
+#   gh <noun> comment での別途投稿。
 #   「壊れた本文の検出」ではなく「禁止」なのは、shim が見るのはシェルが処理し終えた
 #   後の文字列で誤エスケープを事後にしか検出できず、かつコードの話題では \n という
 #   リテラルが正当に現れるため。引用符レイヤを組ませない側が強い。
@@ -32,7 +36,9 @@
 # ルール3: 本文中の項番目的とみられる素の #N を検出してブロックする
 #   素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
 #   番号付け（指摘 #1, #2, ...）に使うと無関係な Issue/PR へ参照通知が
-#   飛ぶ事故が起きる。#1〜#9 が3種類以上あれば項番とみなす。
+#   飛ぶ事故が起きる。#1〜#9 が3種類以上あれば項番とみなす。対象は本文フラグ表に載る
+#   本文すべて（GitHub が markdown としてレンダリングするもの。表の作り方は
+#   set_body_flags のコメント参照）。
 #   GitHub がリンク化しない形は除外する: コードスパン・fenced code block 内、
 #   数字の直後に英数字が続く形（#12 等の複数桁は実参照の可能性が高く、
 #   #1a2b3c 等の hex カラー・#1st 等の序数はそもそも参照でない）。
@@ -274,10 +280,17 @@ set_value_flags "$noun" "$verb"
 # （gh issue develop の -b は --base、gh pr checkout / gh repo sync の -b は --branch、
 # gh release の -F は --notes-file）ため、「-b が来たら本文」とは判定できない。
 # ここに登録した verb の、登録した綴りだけを本文として読む。
-# gh release がインライン本文（--notes/-n）を持たない行になっているのは意図的で、
-# 移設元のフックが --notes を走査しておらず、足すとルール2・3 が禁じる範囲の拡張に
-# なるため。本文ファイル側（--notes-file/-F）は移設元も走査していたので登録する
-# （release notes も GitHub でレンダリングされ、素の #N は autolink する）。
+#
+# 表に載せるかは綴りではなく「GitHub が markdown としてレンダリングする本文を運ぶか」で
+# 決める。ルール2〜4 が防ぐ事故（誤エスケープ・素の #N の autolink・無効な closing
+# keyword）はいずれもレンダリングされる本文でしか起きないため。この軸で見ると
+# release の --notes/-n と、close/reopen の --comment/-c も本文であり、綴りで定義して
+# いた頃は表から漏れていた。
+# 意図的に表外にしているもの:
+#   - gh label create/edit --description、gh repo edit --description
+#     プレーンテキストとしてレンダリングされ、素の #N は autolink しない
+#   - gh pr merge --subject
+#     単一行なのでルール2 は発火せず、3種類の #N が並ぶことも考えにくい
 body_long=''
 body_short=''
 body_file_long=''
@@ -290,8 +303,14 @@ set_body_flags() {
       body_file_long='body-file'
       body_file_short='F' ;;
     release:create|release:edit)
+      body_long='notes'
+      body_short='n'
       body_file_long='notes-file'
       body_file_short='F' ;;
+    issue:close|issue:reopen|pr:close|pr:reopen)
+      # -c/--comment が唯一の本文フラグで、ファイル代替を持たない
+      body_long='comment'
+      body_short='c' ;;
   esac
 }
 
@@ -482,25 +501,36 @@ attempted_command() {
 # 本文系ルール（2〜4）。違反していればメッセージを出して exit し、無ければ return する。
 # ルール1 のようにフラットに書けないのは、通過後に exec へ抜ける必要があるため
 check_body_rules() {
-  local body_source='' body_content='' distinct_refs unreadable_reason=''
+  local body_source='' body_content='' distinct_refs unreadable_reason='' body_recovery=''
 
-  # ルール2: 複数行の本文を --body/-b で渡すことを禁止する
+  # ルール2: 複数行の本文をインラインの本文フラグで渡すことを禁止する。
+  # 復旧手順は verb 自身のファイル代替から導く（固定の --body-file 例を出すと、
+  # --notes-file しか持たない release や、ファイル代替を持たない close/reopen で
+  # 通らない手順を提示することになる）
   if [[ $inline_body == *$'\n'* ]]; then
+    if [ -n "$body_file_long" ]; then
+      body_recovery="  2. --$body_long の代わりに --$body_file_long <path> を指定して再実行する
+       例: gh $noun $verb -R owner/repo ... --$body_file_long /path/to/body.md"
+    else
+      # -c/--comment が唯一の本文フラグなので、本文の投稿自体を別コマンドへ寄せる
+      body_recovery="  2. 本文は gh $noun comment --body-file で別途投稿し、$verb は -$body_short なしで実行する
+       例: gh $noun comment -R owner/repo 123 --body-file /path/to/body.md
+           gh $noun $verb -R owner/repo 123"
+    fi
     cat >&2 <<EOF
-gh の書き込み系サブコマンドで複数行の本文を --body/-b で渡すことは禁止しています。
+gh の書き込み系サブコマンドで複数行の本文を --$body_long/-$body_short で渡すことは禁止しています。
 
 実行しようとしたコマンド:
   $(attempted_command)
 
 理由:
-  --body "\$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
+  --$body_long "\$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
   誤ったエスケープ（バッククォート前の不要なバックスラッシュ等）が
   そのまま本文に残る事故が起きます。
 
 対処:
   1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
-  2. --body の代わりに --body-file <path> を指定して再実行する
-       例: gh pr edit -R owner/repo 123 --body-file /path/to/body.md
+$body_recovery
 EOF
     exit "$block_exit"
   fi

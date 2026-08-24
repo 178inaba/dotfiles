@@ -21,7 +21,12 @@
     - `gh issue` / `gh pr` の selector を取る verb: `-R owner/repo` を付けるか、対象を完全な URL（`https://github.com/owner/repo/issues/1`・`.../pull/1`）で指定する。番号のみ・ブランチ名は明示にならない
     - 上記以外（`gh issue create` / `gh pr create` / `gh release` / `gh label`）: `-R owner/repo` を付ける
     - `-h` がヘルプになるかは verb 次第（`gh repo edit` の `-h` は `--homepage`）。ヘルプ参照は `--help` を使う
-  - 複数行の本文を `--body`/`-b` で渡すこと（scratchpad 等へ Write して `--body-file <path>` を使う。単行の短い本文は `--body` で可）
+  - 複数行の本文をインラインの本文フラグで渡すこと（scratchpad 等へ Write してファイル代替を使う。単行の短い本文はインラインで可）。対象は GitHub が markdown としてレンダリングする本文で、誘導先は verb ごとに違う
+    - `--body`/`-b`（`gh issue`・`gh pr` の create / comment / edit / merge / review / revert）→ `--body-file <path>`
+    - `--notes`/`-n`（`gh release create` / `edit`）→ `--notes-file <path>`
+    - `--comment`/`-c`（`gh issue close` / `reopen`、`gh pr close` / `reopen`）→ **ファイル代替が無い**ので、本文は `gh <noun> comment -R owner/repo N --body-file <path>` で別途投稿し、close / reopen は `-c` なしで実行する
+    - `gh label create`/`edit` と `gh repo edit` の `--description` は対象外（プレーンテキストで、素の `#数字` が自動リンクにならないため）
+  - 本文ファイル（`--body-file` / `--notes-file`）に、存在しない・読めない・通常ファイルでないパスを渡すこと（`gh` 自身も API に触れる前に読み込みで失敗するため、先にファイルを Write してから実行する。`-` で標準入力から渡す形のみ対象外）
   - 後述「マークダウン記法」の項番・closing keyword 規約への違反
 - **PR/Issue 作成時は自分をアサイン**: `gh pr create` / `gh issue create` では `--assignee @me` を付けて作成者自身をアサインする（担当者が明示されないと後追いしにくいため）
 - **エラーハンドリング**: 戻り値を使わないエラーは条件文内で処理する（Go: `if _, err := f(); err != nil`）、エラーオブジェクトを使わない場合は parameterless catch を使う（TypeScript）
