@@ -7,7 +7,10 @@
 # 設計判断:
 #   - 実機の caffeinate を起動するとマシン全体のスリープ動作に副作用が出るため、
 #     CAFFEINATE_BIN 環境変数経由でスタブ（sleep するだけのプロセス）に差し替える
-#   - session_id をテストケースごとにユニークにして並列実行・前回残骸の干渉を避ける
+#   - session_id をテストケースごとにユニークにし、フィクスチャ（PID file・引数記録）は
+#     run ごとの作業ディレクトリに隔離して、並列実行・前回残骸の干渉を避ける。
+#     PID file の置き場所は CAFFEINATE_PID_DIR で差し替える（空 session_id の
+#     フォールバック名はフック側で固定されており、テスト側では分離できないため）
 #   - スタブは -t を解釈しない（リースの自己失効は引数検証のみで担保し、
 #     実 caffeinate の -t 動作は OS 保証とする）
 
@@ -24,7 +27,10 @@ for h in "$START_HOOK" "$STOP_HOOK"; do
   fi
 done
 
-STUB=$(mktemp -t caffeinate-stub.XXXXXX)
+WORK_DIR=$(mktemp -d -t claude-caffeinate-test.XXXXXX)
+export CAFFEINATE_PID_DIR="$WORK_DIR"
+
+STUB="$WORK_DIR/caffeinate-stub"
 cat >"$STUB" <<'EOF'
 #!/bin/bash
 if [ -n "${STUB_ARGS_FILE:-}" ]; then
@@ -42,12 +48,16 @@ export CAFFEINATE_BIN="$STUB"
 # （該当ケースでは明示的に付与する）
 unset CLAUDE_CODE_BRIDGE_SESSION_ID CAFFEINATE_WATCH_PID CAFFEINATE_LEASE_SECONDS
 
+DEFAULT_DIR_SID="test-defaultdir-$$"
+DEFAULT_DIR_PF="/tmp/claude-caffeinate-${DEFAULT_DIR_SID}.pid"
+
+# フィクスチャは WORK_DIR に隔離されているため、ディレクトリごと消せば足りる
+# （グロブでの一括削除は他プロセスの実行中フィクスチャまで巻き込む）。
+# 既定パスを使う case21 の 1 本だけは WORK_DIR の外にあるので個別に消す
 cleanup() {
   pkill -f "$STUB" 2>/dev/null || true
-  rm -f "$STUB"
-  rm -f /tmp/claude-caffeinate-test-*.pid /tmp/claude-caffeinate-test-*.done
-  rm -f /tmp/claude-caffeinate-unknown.pid
-  rm -f /tmp/claude-caffeinate-test-args-*
+  rm -rf "$WORK_DIR"
+  rm -f "$DEFAULT_DIR_PF"
 }
 trap cleanup EXIT
 
@@ -87,11 +97,11 @@ call_agent_done() {
 }
 
 pid_file_for() {
-  printf '/tmp/claude-caffeinate-%s.pid' "$1"
+  printf '%s/claude-caffeinate-%s.pid' "$CAFFEINATE_PID_DIR" "$1"
 }
 
 agent_pid_file_for() {
-  printf '/tmp/claude-caffeinate-%s-agent-%s.pid' "$1" "$2"
+  printf '%s/claude-caffeinate-%s-agent-%s.pid' "$CAFFEINATE_PID_DIR" "$1" "$2"
 }
 
 # case16/17 共有フィクスチャ: セッション + 稼働中エージェント + 完了済み（.done）
@@ -233,7 +243,7 @@ assert 'case9: process killed'          "wait_dead $PID"
 SID="test-case10-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-watch-$$"
+ARGS_FILE="$WORK_DIR/args-watch"
 STUB_ARGS_FILE="$ARGS_FILE" CAFFEINATE_WATCH_PID=$$ call_start "$SID"
 assert 'case10: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case10: -w with watch pid + -t' "grep -qx -- '-di -w $$ -t 1800' '$ARGS_FILE'"
@@ -242,7 +252,7 @@ assert 'case10: -w with watch pid + -t' "grep -qx -- '-di -w $$ -t 1800' '$ARGS_
 SID="test-case11-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-plain-$$"
+ARGS_FILE="$WORK_DIR/args-plain"
 STUB_ARGS_FILE="$ARGS_FILE" call_start "$SID"
 assert 'case11: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case11: -di with -t 1800'       "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
@@ -251,7 +261,7 @@ assert 'case11: -di with -t 1800'       "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
 SID="test-case12-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-bridge-$$"
+ARGS_FILE="$WORK_DIR/args-bridge"
 STUB_ARGS_FILE="$ARGS_FILE" CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_start "$SID"
 assert 'case12: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case12: no -t while bridge'     "grep -qx -- '-di' '$ARGS_FILE'"
@@ -261,7 +271,7 @@ SID="test-case13-$$"
 AID="agent13a"
 APF=$(agent_pid_file_for "$SID" "$AID")
 rm -f "$APF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-agent-$$"
+ARGS_FILE="$WORK_DIR/args-agent"
 STUB_ARGS_FILE="$ARGS_FILE" CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_start_agent "$SID" "$AID"
 assert 'case13: agent PID file created' "[ -f '$APF' ]"
 APID=$(cat "$APF")
@@ -273,7 +283,7 @@ assert 'case13: -t even while bridge'   "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
 SID="test-case14-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-lease-$$"
+ARGS_FILE="$WORK_DIR/args-lease"
 STUB_ARGS_FILE="$ARGS_FILE" CAFFEINATE_LEASE_SECONDS=5 call_start "$SID"
 assert 'case14: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case14: -t override'            "grep -qx -- '-di -t 5' '$ARGS_FILE'"
@@ -314,6 +324,17 @@ assert 'case17: session killed'         "wait_dead $SPID"
 assert 'case17: live agent killed'      "wait_dead $LIVE_PID"
 assert 'case17: done agent killed'      "wait_dead $DONE_PID"
 assert 'case17: all files removed'      "[ ! -f '$PF' ] && [ ! -f '$APF_LIVE' ] && [ ! -f '${APF_DONE%.pid}.done' ]"
+
+# Case 21: CAFFEINATE_PID_DIR unset → hooks still use their default location
+# （テスト外の挙動が変わっていないことの担保。この 1 ケースだけ WORK_DIR の外へ
+#   書くため session_id を $$ スコープにして並行 run と衝突させない）
+rm -f "$DEFAULT_DIR_PF"
+( unset CAFFEINATE_PID_DIR; call_start "$DEFAULT_DIR_SID" )
+assert 'case21: default dir PID file created' "[ -f '$DEFAULT_DIR_PF' ]"
+DEFAULT_DIR_PID=$(cat "$DEFAULT_DIR_PF" 2>/dev/null || echo 0)
+( unset CAFFEINATE_PID_DIR; call_stop "$DEFAULT_DIR_SID" )
+assert 'case21: default dir PID file removed' "[ ! -f '$DEFAULT_DIR_PF' ]"
+assert 'case21: default dir process killed'   "wait_dead $DEFAULT_DIR_PID"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -gt 0 ] && exit 1
