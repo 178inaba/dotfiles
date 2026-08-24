@@ -7,7 +7,10 @@
 # 設計判断:
 #   - 実機の caffeinate を起動するとマシン全体のスリープ動作に副作用が出るため、
 #     CAFFEINATE_BIN 環境変数経由でスタブ（sleep するだけのプロセス）に差し替える
-#   - session_id をテストケースごとにユニークにして並列実行・前回残骸の干渉を避ける
+#   - session_id をテストケースごとにユニークにし、フィクスチャ（PID file・引数記録）は
+#     run ごとの作業ディレクトリに隔離して、並列実行・前回残骸の干渉を避ける。
+#     PID file の置き場所は CAFFEINATE_PID_DIR で差し替える（空 session_id の
+#     フォールバック名はフック側で固定されており、テスト側では分離できないため）
 #   - スタブは -t を解釈しない（リースの自己失効は引数検証のみで担保し、
 #     実 caffeinate の -t 動作は OS 保証とする）
 
@@ -24,16 +27,22 @@ for h in "$START_HOOK" "$STOP_HOOK"; do
   fi
 done
 
-STUB=$(mktemp -t caffeinate-stub.XXXXXX)
+WORK_DIR=$(mktemp -d -t claude-caffeinate-test.XXXXXX)
+export CAFFEINATE_PID_DIR="$WORK_DIR"
+
+STUB="$WORK_DIR/caffeinate-stub"
 cat >"$STUB" <<'EOF'
 #!/bin/bash
 if [ -n "${STUB_ARGS_FILE:-}" ]; then
   printf '%s\n' "$*" > "$STUB_ARGS_FILE"
 fi
 # exec sleep に置き換えると argv から stub パスが消え、フック側の kill 前
-# コマンドライン確認（PID 再利用の誤 kill 防止）に一致しなくなるため常駐で待つ
+# コマンドライン確認（PID 再利用の誤 kill 防止）に一致しなくなるため常駐で待つ。
+# sleep を背景に回して wait で受けるのは、bash が前景の子の実行中は trap を保留する
+# ため（man bash）。前景のままだと TERM から exit まで in-flight な sleep の残り
+# （最大 50ms）待たされ、SIGTERM で即死する実 caffeinate の代役として不忠実になる
 trap 'exit 0' TERM
-while :; do sleep 0.05; done
+while :; do sleep 0.05 & wait $!; done
 EOF
 chmod +x "$STUB"
 export CAFFEINATE_BIN="$STUB"
@@ -42,12 +51,28 @@ export CAFFEINATE_BIN="$STUB"
 # （該当ケースでは明示的に付与する）
 unset CLAUDE_CODE_BRIDGE_SESSION_ID CAFFEINATE_WATCH_PID CAFFEINATE_LEASE_SECONDS
 
+pid_file_for() {
+  printf '%s/claude-caffeinate-%s.pid' "$CAFFEINATE_PID_DIR" "$1"
+}
+
+agent_pid_file_for() {
+  printf '%s/claude-caffeinate-%s-agent-%s.pid' "$CAFFEINATE_PID_DIR" "$1" "$2"
+}
+
+# case21（既定パス）用。PID file 名の綴りは pid_file_for に一本化する
+DEFAULT_DIR_SID="test-defaultdir-$$"
+DEFAULT_DIR_PF=$(CAFFEINATE_PID_DIR=/tmp pid_file_for "$DEFAULT_DIR_SID")
+
+# フィクスチャは WORK_DIR に隔離されているため、ディレクトリごと消せば足りる
+# （グロブでの一括削除は他プロセスの実行中フィクスチャまで巻き込む）。
+# 既定パスを使う case21 の 1 本だけは WORK_DIR の外にあるので個別に消す
 cleanup() {
   pkill -f "$STUB" 2>/dev/null || true
-  rm -f "$STUB"
-  rm -f /tmp/claude-caffeinate-test-*.pid /tmp/claude-caffeinate-test-*.done
-  rm -f /tmp/claude-caffeinate-unknown.pid
-  rm -f /tmp/claude-caffeinate-test-args-*
+  # ゾンビの親を殺すと、ゾンビは init に reparent されて回収される。
+  # :- 付きなのは、ケース到達前の異常終了でも EXIT trap が走るため（set -u）
+  [ -n "${ZOMBIE_PARENT:-}" ] && kill "$ZOMBIE_PARENT" 2>/dev/null
+  rm -rf "$WORK_DIR"
+  rm -f "$DEFAULT_DIR_PF"
 }
 trap cleanup EXIT
 
@@ -86,14 +111,6 @@ call_agent_done() {
   printf '{"session_id":"%s","agent_id":"%s"}' "$sid" "$aid" | "$STOP_HOOK" --agent-done
 }
 
-pid_file_for() {
-  printf '/tmp/claude-caffeinate-%s.pid' "$1"
-}
-
-agent_pid_file_for() {
-  printf '/tmp/claude-caffeinate-%s-agent-%s.pid' "$1" "$2"
-}
-
 # case16/17 共有フィクスチャ: セッション + 稼働中エージェント + 完了済み（.done）
 # エージェントを起動し、PF/APF_LIVE/APF_DONE/SPID/LIVE_PID/DONE_PID を設定する
 setup_reap_fixture() {
@@ -111,24 +128,107 @@ setup_reap_fixture() {
   call_agent_done "$sid" "finished"
 }
 
-# 固定 sleep での消滅待ちはテスト実行時間を無駄に延ばすため、ポーリングで待つ
-# （SIGTERM の消滅は通常数 ms。上限 200ms 待っても生きていれば失敗を返す）
-wait_dead() {
-  local pid=$1 i
+# プロセスの状態を答える唯一のヘルパー。「消えた」「生きている」の両方をこれで表現し、
+# スイート内で同じ問いに 2 つの答えが出ないようにする。
+# kill -0 は「PID が存在するか」しか答えず、終了済み・未回収（state Z）にも成功する。
+# スタブは nohup でデタッチ起動され、回収するのは init / subreaper でテストの制御外の
+# ため、正しく終了したスタブが任意の時間 Z に留まりうる。
+# 空出力 = プロセス不在。macOS の ps は state に修飾子を付ける（Z+ 等）ので前方一致で見る
+proc_state() {
+  local s
+  s=$(ps -o state= -p "$1" 2>/dev/null)
+  printf '%s' "${s// /}"
+}
+
+proc_gone() {
+  case "$(proc_state "$1")" in
+    '' | Z*) return 0 ;;
+  esac
+  return 1
+}
+
+proc_alive() {
+  ! proc_gone "$1"
+}
+
+# ゾンビ（終了済み・未回収）のフィクスチャを作り、ZOMBIE_PID に設定する。
+# bash は SIGCHLD で背景ジョブを自動回収するため、親を exec で sleep に置き換えて
+# wait() を呼ばない親にする（perl 等の追加依存を避けるための pure bash 実装）。
+# 親は生存し続けるので init への reparent も起きず、子は kill 後 Z に留まる。
+# ZOMBIE_PID（ゾンビ本体）と ZOMBIE_PARENT（cleanup で殺す親）を設定する
+make_zombie() {
+  local pid_file="$WORK_DIR/zombie.pid" i
+  rm -f "$pid_file"
+  bash -c 'sleep 100 & printf "%s" "$!" > "$1"; exec sleep 30' _ "$pid_file" &
+  ZOMBIE_PARENT=$!
+  # cleanup での kill をシェルが "Terminated: 15" と報告するのを抑える（bash 3.2 で顕著）
+  disown "$ZOMBIE_PARENT" 2>/dev/null || true
+  wait_file "$pid_file" || return 1
+  ZOMBIE_PID=$(cat "$pid_file")
+  kill -TERM "$ZOMBIE_PID" 2>/dev/null || return 1
   for i in $(seq 1 20); do
-    kill -0 "$pid" 2>/dev/null || return 0
+    case "$(proc_state "$ZOMBIE_PID")" in
+      Z*) return 0 ;;
+    esac
     sleep 0.01
   done
   return 1
 }
 
+# ミリ秒精度の現在時刻。待ち予算（200ms）の超過を診断するには秒精度では粗すぎる。
+# EPOCHREALTIME は bash 5+ 専用なので、無い環境では date の秒精度にフォールバックする。
+# フォールバック側では経過時間が 1000ms 刻みに退化し、この診断の主目的（予算超過の
+# 判別）は果たせない。それでも分岐を置くのは、素の $EPOCHREALTIME 参照が set -u 下の
+# macOS 既定 /bin/bash 3.2 でスイート全体を即死させるため。CI（bash 5）では実測値が出る
+now_ms() {
+  local t=${EPOCHREALTIME:-}
+  if [ -n "$t" ]; then
+    t=${t/,/.} # 小数点はロケール依存（LC_NUMERIC）
+    printf '%s' "$(( ${t%%.*} * 1000 + 10#${t#*.} / 1000 ))"
+  else
+    printf '%s' "$(( $(date +%s) * 1000 ))"
+  fi
+}
+
+# 診断を assert の失敗経路ではなく各待ちヘルパーに置くのは、assert が任意の条件文字列を
+# 取る汎用ヘルパーで、条件ごとの診断を持たせると分岐が入り込むため。
+# wait_dead の分だけ関数に切り出しているのは、「既に消えていた」分岐を単体で検証できる
+# ようにするため（本物のタイムアウトからその状態を決定的に作り出せない）
+report_wait_dead_timeout() {
+  local pid=$1 start_ms=$2 state
+  state=$(proc_state "$pid")
+  {
+    printf 'wait_dead: timed out on pid %s (elapsed %sms)\n' "$pid" "$(( $(now_ms) - start_ms ))"
+    if [ -z "$state" ]; then
+      printf '  the process is already gone (no ps entry)\n'
+    else
+      printf '  state=%s\n  command=%s\n' "$state" "$(ps -o command= -p "$pid" 2>/dev/null)"
+    fi
+  } >&2
+}
+
+# 固定 sleep での消滅待ちはテスト実行時間を無駄に延ばすため、ポーリングで待つ
+# （SIGTERM の消滅は通常数 ms。上限 20 反復待っても生きていれば診断を出して失敗を返す）
+wait_dead() {
+  local pid=$1 i start_ms
+  start_ms=$(now_ms)
+  for i in $(seq 1 20); do
+    proc_gone "$pid" && return 0
+    sleep 0.01
+  done
+  report_wait_dead_timeout "$pid" "$start_ms"
+  return 1
+}
+
 # スタブは nohup でデタッチ起動されるため、引数記録の書き込み完了をポーリングで待つ
 wait_file() {
-  local f=$1 i
+  local f=$1 i start_ms
+  start_ms=$(now_ms)
   for i in $(seq 1 20); do
     [ -s "$f" ] && return 0
     sleep 0.01
   done
+  printf 'wait_file: timed out on %s (elapsed %sms)\n' "$f" "$(( $(now_ms) - start_ms ))" >&2
   return 1
 }
 
@@ -139,7 +239,7 @@ rm -f "$PF"
 call_start "$SID"
 assert 'case1: PID file created'        "[ -f '$PF' ]"
 PID=$(cat "$PF")
-assert 'case1: process alive'           "kill -0 $PID 2>/dev/null"
+assert 'case1: process alive'           "proc_alive $PID"
 
 # Case 2: start when process alive → lease renewal (old killed, new spawned)
 SID="test-case2-$$"
@@ -151,7 +251,7 @@ call_start "$SID"
 PID2=$(cat "$PF")
 assert 'case2: PID renewed'             "[ '$PID1' != '$PID2' ]"
 assert 'case2: old process killed'      "wait_dead $PID1"
-assert 'case2: new process alive'       "kill -0 $PID2 2>/dev/null"
+assert 'case2: new process alive'       "proc_alive $PID2"
 
 # Case 3: start with stale PID file (process dead) → respawns
 # （999999 は macOS の PID 上限 99999 を超え、実プロセスと衝突しない stale 値）
@@ -161,7 +261,7 @@ echo 999999 > "$PF"
 call_start "$SID"
 NEW_PID=$(cat "$PF")
 assert 'case3: PID changed from stale'  "[ '$NEW_PID' != '999999' ]"
-assert 'case3: new process alive'       "kill -0 $NEW_PID 2>/dev/null"
+assert 'case3: new process alive'       "proc_alive $NEW_PID"
 
 # Case 4: stop with PID file & alive → kills process and removes file
 SID="test-case4-$$"
@@ -215,7 +315,7 @@ DONE_PID=$(cat "$APF_DONE")
 call_agent_done "$SID" "agent8done"
 CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_stop "$SID"
 assert 'case8: PID file kept'           "[ -f '$PF' ]"
-assert 'case8: process still alive'     "kill -0 $PID 2>/dev/null"
+assert 'case8: process still alive'     "proc_alive $PID"
 assert 'case8: done agent reaped'       "wait_dead $DONE_PID"
 assert 'case8: done file removed'       "[ ! -f '${APF_DONE%.pid}.done' ]"
 
@@ -233,7 +333,7 @@ assert 'case9: process killed'          "wait_dead $PID"
 SID="test-case10-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-watch-$$"
+ARGS_FILE="$WORK_DIR/args-watch"
 STUB_ARGS_FILE="$ARGS_FILE" CAFFEINATE_WATCH_PID=$$ call_start "$SID"
 assert 'case10: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case10: -w with watch pid + -t' "grep -qx -- '-di -w $$ -t 1800' '$ARGS_FILE'"
@@ -242,7 +342,7 @@ assert 'case10: -w with watch pid + -t' "grep -qx -- '-di -w $$ -t 1800' '$ARGS_
 SID="test-case11-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-plain-$$"
+ARGS_FILE="$WORK_DIR/args-plain"
 STUB_ARGS_FILE="$ARGS_FILE" call_start "$SID"
 assert 'case11: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case11: -di with -t 1800'       "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
@@ -251,7 +351,7 @@ assert 'case11: -di with -t 1800'       "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
 SID="test-case12-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-bridge-$$"
+ARGS_FILE="$WORK_DIR/args-bridge"
 STUB_ARGS_FILE="$ARGS_FILE" CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_start "$SID"
 assert 'case12: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case12: no -t while bridge'     "grep -qx -- '-di' '$ARGS_FILE'"
@@ -261,11 +361,11 @@ SID="test-case13-$$"
 AID="agent13a"
 APF=$(agent_pid_file_for "$SID" "$AID")
 rm -f "$APF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-agent-$$"
+ARGS_FILE="$WORK_DIR/args-agent"
 STUB_ARGS_FILE="$ARGS_FILE" CLAUDE_CODE_BRIDGE_SESSION_ID="rc-$$" call_start_agent "$SID" "$AID"
 assert 'case13: agent PID file created' "[ -f '$APF' ]"
 APID=$(cat "$APF")
-assert 'case13: agent process alive'    "kill -0 $APID 2>/dev/null"
+assert 'case13: agent process alive'    "proc_alive $APID"
 assert 'case13: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case13: -t even while bridge'   "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
 
@@ -273,7 +373,7 @@ assert 'case13: -t even while bridge'   "grep -qx -- '-di -t 1800' '$ARGS_FILE'"
 SID="test-case14-$$"
 PF=$(pid_file_for "$SID")
 rm -f "$PF"
-ARGS_FILE="/tmp/claude-caffeinate-test-args-lease-$$"
+ARGS_FILE="$WORK_DIR/args-lease"
 STUB_ARGS_FILE="$ARGS_FILE" CAFFEINATE_LEASE_SECONDS=5 call_start "$SID"
 assert 'case14: args recorded'          "wait_file '$ARGS_FILE'"
 assert 'case14: -t override'            "grep -qx -- '-di -t 5' '$ARGS_FILE'"
@@ -288,7 +388,7 @@ APID=$(cat "$APF")
 call_agent_done "$SID" "$AID"
 assert 'case15: .pid removed'           "[ ! -f '$APF' ]"
 assert 'case15: .done created'          "[ -f '${APF%.pid}.done' ]"
-assert 'case15: process still alive'    "kill -0 $APID 2>/dev/null"
+assert 'case15: process still alive'    "proc_alive $APID"
 if call_agent_done "$SID" "no-such-agent"; then
   pass=$((pass + 1)); printf 'PASS  %s\n' 'case15: agent-done no-file exits 0'
 else
@@ -303,7 +403,7 @@ assert 'case16: session killed'         "wait_dead $SPID"
 assert 'case16: session file removed'   "[ ! -f '$PF' ]"
 assert 'case16: done agent reaped'      "wait_dead $DONE_PID"
 assert 'case16: done file removed'      "[ ! -f '${APF_DONE%.pid}.done' ]"
-assert 'case16: live agent survives'    "kill -0 $LIVE_PID 2>/dev/null"
+assert 'case16: live agent survives'    "proc_alive $LIVE_PID"
 assert 'case16: live file kept'         "[ -f '$APF_LIVE' ]"
 
 # Case 17: stop --force kills everything including running agents
@@ -314,6 +414,52 @@ assert 'case17: session killed'         "wait_dead $SPID"
 assert 'case17: live agent killed'      "wait_dead $LIVE_PID"
 assert 'case17: done agent killed'      "wait_dead $DONE_PID"
 assert 'case17: all files removed'      "[ ! -f '$PF' ] && [ ! -f '$APF_LIVE' ] && [ ! -f '${APF_DONE%.pid}.done' ]"
+
+# Case 18: a terminated-but-unreaped process (state Z) counts as gone, not alive
+if make_zombie; then
+  # kill -0 がゾンビに成功することの確認。これは liveness 判定ではなく、
+  # フィクスチャが本当に「kill -0 が誤答する窓」を再現できている健全性確認
+  assert 'case18: kill -0 still succeeds on the zombie' "kill -0 $ZOMBIE_PID 2>/dev/null"
+  assert 'case18: wait_dead treats the zombie as gone'  "wait_dead $ZOMBIE_PID"
+  assert 'case18: proc_alive rejects the zombie'        "! proc_alive $ZOMBIE_PID"
+else
+  fail=$((fail + 1))
+  printf 'FAIL  %s\n' 'case18: zombie fixture did not reach state Z'
+fi
+
+# Case 19: wait_dead's timeout says why it timed out
+# （失敗ログに残るのが PID だけだと、読む頃にはプロセスが消えていて何も分からない）
+SID="test-case19-$$"
+PF=$(pid_file_for "$SID")
+rm -f "$PF"
+call_start "$SID"
+PID=$(cat "$PF")
+DIAG="$WORK_DIR/wait-dead-timeout.log"
+wait_dead "$PID" 2>"$DIAG"
+assert 'case19: timeout reports the state'    "grep -q 'state=' '$DIAG'"
+assert 'case19: timeout reports the command'  "grep -q 'caffeinate-stub' '$DIAG'"
+assert 'case19: timeout reports the elapsed'  "grep -q 'elapsed' '$DIAG'"
+# 「タイムアウトしたが読み取り時には既に消えていた」分岐（999999 は case3 と同じ stale 値）
+DIAG_GONE="$WORK_DIR/wait-dead-gone.log"
+report_wait_dead_timeout 999999 "$(now_ms)" 2>"$DIAG_GONE"
+assert 'case19: timeout notes an absent process' "grep -q 'already gone' '$DIAG_GONE'"
+
+# Case 20: wait_file's timeout names the path it waited on
+DIAG_FILE="$WORK_DIR/wait-file-timeout.log"
+wait_file "$WORK_DIR/no-such-file" 2>"$DIAG_FILE"
+assert 'case20: timeout reports the path'     "grep -q 'no-such-file' '$DIAG_FILE'"
+assert 'case20: timeout reports the elapsed'  "grep -q 'elapsed' '$DIAG_FILE'"
+
+# Case 21: CAFFEINATE_PID_DIR unset → hooks still use their default location
+# （テスト外の挙動が変わっていないことの担保。この 1 ケースだけ WORK_DIR の外へ
+#   書くため session_id を $$ スコープにして並行 run と衝突させない）
+rm -f "$DEFAULT_DIR_PF"
+( unset CAFFEINATE_PID_DIR; call_start "$DEFAULT_DIR_SID" )
+assert 'case21: default dir PID file created' "[ -f '$DEFAULT_DIR_PF' ]"
+DEFAULT_DIR_PID=$(cat "$DEFAULT_DIR_PF" 2>/dev/null || echo 0)
+( unset CAFFEINATE_PID_DIR; call_stop "$DEFAULT_DIR_SID" )
+assert 'case21: default dir PID file removed' "[ ! -f '$DEFAULT_DIR_PF' ]"
+assert 'case21: default dir process killed'   "wait_dead $DEFAULT_DIR_PID"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -gt 0 ] && exit 1

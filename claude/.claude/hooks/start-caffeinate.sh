@@ -16,9 +16,10 @@
 #
 # 仕様:
 #   - 入力: stdin に hook JSON（session_id / agent_id を使用）
-#   - PID file: セッションは /tmp/claude-caffeinate-${session_id}.pid、
+#   - PID file: セッションは ${pid_dir}/claude-caffeinate-${session_id}.pid、
 #     サブエージェント（agent_id あり）は
-#     /tmp/claude-caffeinate-${session_id}-agent-${agent_id}.pid
+#     ${pid_dir}/claude-caffeinate-${session_id}-agent-${agent_id}.pid
+#     （pid_dir の既定は /tmp）
 #     （サブエージェントはバックグラウンド実行され、親ターン終了の Stop で
 #     セッションの caffeinate が消えても稼働し続けるため、独立した
 #     per-agent caffeinate で抑止を維持する）
@@ -30,8 +31,10 @@
 #     SIGKILL 等フックを経由しない終了でも caffeinate が残留しないようにする。
 #     親を Claude 本体と確認できない場合に -w を使うと、短命な親の終了と同時に
 #     caffeinate が消えて抑止自体が壊れるため、その場合は -w なしで起動する
-#   - CAFFEINATE_BIN / CAFFEINATE_WATCH_PID / CAFFEINATE_LEASE_SECONDS 環境変数で
-#     差し替え可（テスト用）
+#   - CAFFEINATE_BIN / CAFFEINATE_WATCH_PID / CAFFEINATE_LEASE_SECONDS /
+#     CAFFEINATE_PID_DIR 環境変数で差し替え可（テスト用）。CAFFEINATE_PID_DIR は
+#     PID file の置き場所だけを変え、既存のディレクトリを指すことを呼び出し側の
+#     責任とする（フック側で mkdir はしない）
 #   - 常に exit 0（フックでブロックしない）
 
 set -euo pipefail
@@ -45,11 +48,12 @@ IFS=$'\t' read -r session_id agent_id < <(
 
 caffeinate_bin="${CAFFEINATE_BIN:-/usr/bin/caffeinate}"
 lease_seconds="${CAFFEINATE_LEASE_SECONDS:-1800}"
+pid_dir="${CAFFEINATE_PID_DIR:-/tmp}"
 
 if [ -n "$agent_id" ]; then
-  pid_file="/tmp/claude-caffeinate-${session_id}-agent-${agent_id}.pid"
+  pid_file="${pid_dir}/claude-caffeinate-${session_id}-agent-${agent_id}.pid"
 else
-  pid_file="/tmp/claude-caffeinate-${session_id}.pid"
+  pid_file="${pid_dir}/claude-caffeinate-${session_id}.pid"
 fi
 
 # リース更新: 旧プロセスを殺し、残り時間をリセットした新プロセスに置き換える。

@@ -39,7 +39,8 @@ IFS=$'\t' read -r session_id agent_id < <(
     jq -r '[.session_id // "", .agent_id // ""] | map(gsub("[^A-Za-z0-9-]"; "")) | @tsv'
 )
 : "${session_id:=unknown}"
-agent_prefix="/tmp/claude-caffeinate-${session_id}-agent-"
+pid_dir="${CAFFEINATE_PID_DIR:-/tmp}"
+agent_prefix="${pid_dir}/claude-caffeinate-${session_id}-agent-"
 caffeinate_bin="${CAFFEINATE_BIN:-/usr/bin/caffeinate}"
 
 kill_pid_file() {
@@ -64,7 +65,7 @@ if [ "$mode" = "--agent-done" ]; then
 fi
 
 if [ "$mode" = "--force" ] || [ -z "${CLAUDE_CODE_BRIDGE_SESSION_ID:-}" ]; then
-  kill_pid_file "/tmp/claude-caffeinate-${session_id}.pid"
+  kill_pid_file "${pid_dir}/claude-caffeinate-${session_id}.pid"
 fi
 
 for f in "${agent_prefix}"*.done; do
