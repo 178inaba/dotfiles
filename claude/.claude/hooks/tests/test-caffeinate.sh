@@ -51,8 +51,17 @@ export CAFFEINATE_BIN="$STUB"
 # （該当ケースでは明示的に付与する）
 unset CLAUDE_CODE_BRIDGE_SESSION_ID CAFFEINATE_WATCH_PID CAFFEINATE_LEASE_SECONDS
 
+pid_file_for() {
+  printf '%s/claude-caffeinate-%s.pid' "$CAFFEINATE_PID_DIR" "$1"
+}
+
+agent_pid_file_for() {
+  printf '%s/claude-caffeinate-%s-agent-%s.pid' "$CAFFEINATE_PID_DIR" "$1" "$2"
+}
+
+# case21（既定パス）用。PID file 名の綴りは pid_file_for に一本化する
 DEFAULT_DIR_SID="test-defaultdir-$$"
-DEFAULT_DIR_PF="/tmp/claude-caffeinate-${DEFAULT_DIR_SID}.pid"
+DEFAULT_DIR_PF=$(CAFFEINATE_PID_DIR=/tmp pid_file_for "$DEFAULT_DIR_SID")
 
 # フィクスチャは WORK_DIR に隔離されているため、ディレクトリごと消せば足りる
 # （グロブでの一括削除は他プロセスの実行中フィクスチャまで巻き込む）。
@@ -102,14 +111,6 @@ call_agent_done() {
   printf '{"session_id":"%s","agent_id":"%s"}' "$sid" "$aid" | "$STOP_HOOK" --agent-done
 }
 
-pid_file_for() {
-  printf '%s/claude-caffeinate-%s.pid' "$CAFFEINATE_PID_DIR" "$1"
-}
-
-agent_pid_file_for() {
-  printf '%s/claude-caffeinate-%s-agent-%s.pid' "$CAFFEINATE_PID_DIR" "$1" "$2"
-}
-
 # case16/17 共有フィクスチャ: セッション + 稼働中エージェント + 完了済み（.done）
 # エージェントを起動し、PF/APF_LIVE/APF_DONE/SPID/LIVE_PID/DONE_PID を設定する
 setup_reap_fixture() {
@@ -153,9 +154,8 @@ proc_alive() {
 # ゾンビ（終了済み・未回収）のフィクスチャを作り、ZOMBIE_PID に設定する。
 # bash は SIGCHLD で背景ジョブを自動回収するため、親を exec で sleep に置き換えて
 # wait() を呼ばない親にする（perl 等の追加依存を避けるための pure bash 実装）。
-# 親は生存し続けるので init への reparent も起きず、子は kill 後 Z に留まる
-ZOMBIE_PARENT=''
-ZOMBIE_PID=''
+# 親は生存し続けるので init への reparent も起きず、子は kill 後 Z に留まる。
+# ZOMBIE_PID（ゾンビ本体）と ZOMBIE_PARENT（cleanup で殺す親）を設定する
 make_zombie() {
   local pid_file="$WORK_DIR/zombie.pid" i
   rm -f "$pid_file"
@@ -166,7 +166,7 @@ make_zombie() {
   wait_file "$pid_file" || return 1
   ZOMBIE_PID=$(cat "$pid_file")
   kill -TERM "$ZOMBIE_PID" 2>/dev/null || return 1
-  for i in $(seq 1 50); do
+  for i in $(seq 1 20); do
     case "$(proc_state "$ZOMBIE_PID")" in
       Z*) return 0 ;;
     esac
@@ -176,8 +176,10 @@ make_zombie() {
 }
 
 # ミリ秒精度の現在時刻。待ち予算（200ms）の超過を診断するには秒精度では粗すぎる。
-# EPOCHREALTIME は bash 5+ 専用（macOS 既定の /bin/bash 3.2 には無い）なので、
-# 無い環境では date の秒精度にフォールバックする
+# EPOCHREALTIME は bash 5+ 専用なので、無い環境では date の秒精度にフォールバックする。
+# フォールバック側では経過時間が 1000ms 刻みに退化し、この診断の主目的（予算超過の
+# 判別）は果たせない。それでも分岐を置くのは、素の $EPOCHREALTIME 参照が set -u 下の
+# macOS 既定 /bin/bash 3.2 でスイート全体を即死させるため。CI（bash 5）では実測値が出る
 now_ms() {
   local t=${EPOCHREALTIME:-}
   if [ -n "$t" ]; then
