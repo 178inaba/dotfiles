@@ -329,7 +329,6 @@ assert_block_message 'message: shows the command that was blocked' \
 # ---- ルール2: 複数行のインライン本文は --body-file へ誘導される ----
 # 以降は全ケースがリポジトリを明示する。ルール1 を満たした上で本文ルールを観測するため
 
-assert_blocked 'multiline --body'            "$SHIM" pr edit -R foo/bar 1 --body "$MULTILINE"
 assert_blocked 'multiline --body='           "$SHIM" pr edit -R foo/bar 1 --body="$MULTILINE"
 assert_blocked 'multiline -b'                "$SHIM" pr create -R foo/bar --title x -b "$MULTILINE"
 assert_blocked 'multiline -b attached'       "$SHIM" issue comment -R foo/bar 1 "-b$MULTILINE"
@@ -344,8 +343,6 @@ assert_runs 'issue develop: -b is --base, not --body' \
 
 # ---- ルール3: 本文中の項番とみられる素の #N ----
 
-assert_blocked 'body-file: bare #N numbering' \
-  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
 assert_blocked 'body-file: -F short flag, bare #N' \
   "$SHIM" issue create -R foo/bar --title x -F "$BODY_DIR/hash-numbering.md"
 assert_blocked 'inline --body: bare #N' \
@@ -380,6 +377,34 @@ assert_blocked 'release: --notes-file is scanned' \
 # インラインの --notes は本文フラグに登録していない（ルール2 の範囲は広げない）
 assert_runs 'release: multiline --notes is not a body flag' \
   "$SHIM" release create v1 -R foo/bar --title v1 --notes "$MULTILINE"
+
+# ---- 本文フラグ表と値取りフラグ表のドリフト検出 ----
+# 本文フラグは、set_body_flags に登録するだけでは効かない。scan_args が値を拾うのは
+# set_value_flags 側にも同じ綴りが値取りとして載っている場合だけなので、片方の更新を
+# 忘れるとその verb の本文検査が無警告で素通りする（fail open 方向に壊れる）。
+# 登録済みの noun:verb をすべて 1 度ずつ通して、本文が実際に読まれることを固定する
+assert_body_is_scanned() {
+  local name=$1
+  shift
+  assert_blocked "body reaches rule 3: $name" "$@" --body-file "$BODY_DIR/hash-numbering.md"
+  assert_blocked "body reaches rule 2: $name" "$@" --body "$MULTILINE"
+}
+
+assert_body_is_scanned 'issue create'  "$SHIM" issue create -R foo/bar --title x
+assert_body_is_scanned 'issue comment' "$SHIM" issue comment -R foo/bar 1
+assert_body_is_scanned 'issue edit'    "$SHIM" issue edit -R foo/bar 1
+assert_body_is_scanned 'pr create'     "$SHIM" pr create -R foo/bar --title x
+assert_body_is_scanned 'pr comment'    "$SHIM" pr comment -R foo/bar 1
+assert_body_is_scanned 'pr edit'       "$SHIM" pr edit -R foo/bar 1
+assert_body_is_scanned 'pr merge'      "$SHIM" pr merge -R foo/bar 1
+assert_body_is_scanned 'pr review'     "$SHIM" pr review -R foo/bar 1
+assert_body_is_scanned 'pr revert'     "$SHIM" pr revert -R foo/bar 1
+
+# release は本文ファイルだけを登録しているので、そちらだけ確認する
+assert_blocked 'body reaches rule 3: release create' \
+  "$SHIM" release create v1 -R foo/bar --notes-file "$BODY_DIR/hash-numbering.md"
+assert_blocked 'body reaches rule 3: release edit' \
+  "$SHIM" release edit v1 -R foo/bar --notes-file "$BODY_DIR/hash-numbering.md"
 
 # ---- ルール4: PR 本文のバッククォート付き closing keyword ----
 

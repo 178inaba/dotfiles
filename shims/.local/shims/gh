@@ -317,21 +317,17 @@ positional=''
 inline_body=''
 body_file=''
 
-# 本文フラグの値を控える。set_body_flags が登録した綴りとだけ照合する
+# 本文フラグの値を控える。set_body_flags が登録した綴りとだけ照合する。
+# 照合先を引数で受けるのは、long 名と short 1 文字で参照する登録名が違うため
 record_body_value() {
-  local name=$1 value=$2
-  if [ -n "$name" ] && [ "$name" = "$body_long" ]; then
-    inline_body=$value
-  elif [ -n "$name" ] && [ "$name" = "$body_file_long" ]; then
-    body_file=$value
-  fi
-}
+  local name=$1 value=$2 body_name=$3 body_file_name=$4
 
-record_body_value_short() {
-  local ch=$1 value=$2
-  if [ -n "$body_short" ] && [ "$ch" = "$body_short" ]; then
+  if [ -z "$name" ]; then
+    return 0
+  fi
+  if [ "$name" = "$body_name" ]; then
     inline_body=$value
-  elif [ -n "$body_file_short" ] && [ "$ch" = "$body_file_short" ]; then
+  elif [ "$name" = "$body_file_name" ]; then
     body_file=$value
   fi
 }
@@ -360,13 +356,13 @@ scan_args() {
         if [ "$name" = '--repo' ]; then
           has_repo=1
         fi
-        record_body_value "${name#--}" "${tok#*=}" ;;
+        record_body_value "${name#--}" "${tok#*=}" "$body_long" "$body_file_long" ;;
       --*)
         if [ "$tok" = '--repo' ]; then
           has_repo=1
         fi
         if takes_value_long "${tok#--}" && [ "$#" -gt 0 ]; then
-          record_body_value "${tok#--}" "$1"
+          record_body_value "${tok#--}" "$1" "$body_long" "$body_file_long"
           shift
         fi ;;
       -?*)
@@ -387,7 +383,7 @@ scan_args() {
               val=$1
               shift
             fi
-            record_body_value_short "$ch" "$val"
+            record_body_value "$ch" "$val" "$body_short" "$body_file_short"
             break
           fi
         done ;;
@@ -467,6 +463,14 @@ has_quoted_closing_keyword() {
   '
 }
 
+# %q でクォートするのは、空白を含む引数がそのまま並ぶと再実行できない形になるため。
+# 関数なのは、ブロックするときにしか要らない fork を通常経路に足さないため
+# （ルール1・ルール2 のメッセージが呼ぶ）
+attempted_command() {
+  printf 'gh'
+  printf ' %q' "${argv_all[@]}"
+}
+
 # 本文系ルール（2〜4）。違反していればメッセージを出して exit し、無ければ return する。
 # ルール1 のようにフラットに書けないのは、通過後に exec へ抜ける必要があるため
 check_body_rules() {
@@ -478,7 +482,7 @@ check_body_rules() {
 gh の書き込み系サブコマンドで複数行の本文を --body/-b で渡すことは禁止しています。
 
 実行しようとしたコマンド:
-  $attempted
+  $(attempted_command)
 
 理由:
   --body "\$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
@@ -497,7 +501,7 @@ EOF
   # （ファイルはこれから書かれることがあり、読めない本文は走査できない）
   if [ -n "$body_file" ]; then
     if [ "$body_file" != '-' ] && [ -r "$body_file" ] && [ -f "$body_file" ]; then
-      body_content=$(cat "$body_file")
+      body_content=$(<"$body_file")
       body_source="--$body_file_long $body_file"
     fi
   elif [ -n "$inline_body" ]; then
@@ -510,7 +514,7 @@ EOF
   fi
 
   # ルール3: 本文中の項番目的とみられる素の #N
-  distinct_refs=$(printf '%s\n' "$body_content" | count_bare_hash_refs)
+  distinct_refs=$(count_bare_hash_refs <<<"$body_content")
   if [ "$distinct_refs" -ge 3 ]; then
     cat >&2 <<EOF
 gh の書き込み系サブコマンドの本文に、項番とみられる素の #N を検出しました
@@ -538,7 +542,7 @@ EOF
     *) return 0 ;;
   esac
 
-  if printf '%s\n' "$body_content" | has_quoted_closing_keyword; then
+  if has_quoted_closing_keyword <<<"$body_content"; then
     cat >&2 <<EOF
 PR 本文中に、バッククォート（コードスパン/コードブロック）で囲まれた
 GitHub closing keyword（Closes/Fixes/Resolves #N）を検出しました。
@@ -558,10 +562,6 @@ EOF
     exit "$block_exit"
   fi
 }
-
-# %q でクォートするのは、空白を含む引数がそのまま並ぶと再実行できない形になるため。
-# ルール1・ルール2 のメッセージで共用する
-attempted=$(printf 'gh'; printf ' %q' "${argv_all[@]}")
 
 if is_explicit; then
   check_body_rules
@@ -618,7 +618,7 @@ cat >&2 <<EOF
 gh の書き込み系サブコマンドは、対象リポジトリをコマンド上で明示することを必須としています。
 
 実行しようとしたコマンド:
-  $attempted
+  $(attempted_command)
 
 明示が確認できなかった箇所: gh $noun $verb
 現在の作業ディレクトリ: $current_dir
