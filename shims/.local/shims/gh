@@ -21,10 +21,14 @@
 #   verb 直後の --help はヘルプ表示で write ではないため免除する。-h は verb に
 #   よって値取りフラグ（gh repo edit の --homepage 等）なので、その場合は免除しない。
 #
-# ルール2: 複数行の本文を --body/-b で渡すことを禁止する（--body-file へ誘導）
+# ルール2: 複数行の本文をインラインの本文フラグ（--body/-b・--notes/-n・--comment/-c）で
+#   渡すことを禁止する（ファイル代替へ誘導）
 #   --body "$(cat <<'EOF' ... EOF)" のような引用符レイヤの重なりが誤エスケープを
-#   誘発し、本文にリテラルの \ が残る事故を防ぐ。判定は --body の値そのものに
+#   誘発し、本文にリテラルの \ が残る事故を防ぐ。判定はインライン本文フラグの値そのものに
 #   改行が含まれるかで、他の引数の複数行値は撃たない。
+#   誘導先は verb ごとに違うため復旧手順も出し分ける: ファイル代替を持つ verb は
+#   --body-file / --notes-file、持たない close・reopen（-c/--comment が唯一の本文フラグ）は
+#   gh <noun> comment での別途投稿。
 #   「壊れた本文の検出」ではなく「禁止」なのは、shim が見るのはシェルが処理し終えた
 #   後の文字列で誤エスケープを事後にしか検出できず、かつコードの話題では \n という
 #   リテラルが正当に現れるため。引用符レイヤを組ませない側が強い。
@@ -32,7 +36,9 @@
 # ルール3: 本文中の項番目的とみられる素の #N を検出してブロックする
 #   素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
 #   番号付け（指摘 #1, #2, ...）に使うと無関係な Issue/PR へ参照通知が
-#   飛ぶ事故が起きる。#1〜#9 が3種類以上あれば項番とみなす。
+#   飛ぶ事故が起きる。#1〜#9 が3種類以上あれば項番とみなす。対象は本文フラグ表に載る
+#   本文すべて（GitHub が markdown としてレンダリングするもの。表の作り方は
+#   set_body_flags のコメント参照）。
 #   GitHub がリンク化しない形は除外する: コードスパン・fenced code block 内、
 #   数字の直後に英数字が続く形（#12 等の複数桁は実参照の可能性が高く、
 #   #1a2b3c 等の hex カラー・#1st 等の序数はそもそも参照でない）。
@@ -61,8 +67,12 @@
 #   - 違反していれば実体の gh を実行せず exit 78
 #   - それ以外は exec するので、exit status・stdin/stdout/stderr・シグナルは素通しになる
 #   - fail closed: 判定を終える前に抜けた場合（内部エラー）も exec しない
-#   - 唯一の例外として、本文ファイルが読めない場合はルール3・4 を fail open で
-#     スキップする（ファイルはこれから書かれることがあり、読めない本文は走査できない）
+#   - 本文ファイルの fail open は stdin 綴り（--body-file -）だけに限る。shim が stdin を
+#     読むと gh が読むはずの分を消費してしまい、走査と両立しないため。名前付きパスが
+#     読めない場合（欠落・通常ファイルでない・権限なし）はブロックする。gh 自身も本文
+#     ファイルを API に触れる前に読む（--web でも同じ）ので、ブロックによって成功した
+#     はずのコマンドが失われることはない。帰結として、gh は読めるが通常ファイルでない
+#     本文（プロセス置換・パイプされた /dev/stdin）も止まる
 
 set -eEuo pipefail
 
@@ -270,10 +280,17 @@ set_value_flags "$noun" "$verb"
 # （gh issue develop の -b は --base、gh pr checkout / gh repo sync の -b は --branch、
 # gh release の -F は --notes-file）ため、「-b が来たら本文」とは判定できない。
 # ここに登録した verb の、登録した綴りだけを本文として読む。
-# gh release がインライン本文（--notes/-n）を持たない行になっているのは意図的で、
-# 移設元のフックが --notes を走査しておらず、足すとルール2・3 が禁じる範囲の拡張に
-# なるため。本文ファイル側（--notes-file/-F）は移設元も走査していたので登録する
-# （release notes も GitHub でレンダリングされ、素の #N は autolink する）。
+#
+# 表に載せるかは綴りではなく「GitHub が markdown としてレンダリングする本文を運ぶか」で
+# 決める。ルール2〜4 が防ぐ事故（誤エスケープ・素の #N の autolink・無効な closing
+# keyword）はいずれもレンダリングされる本文でしか起きないため。この軸で見ると
+# release の --notes/-n と、close/reopen の --comment/-c も本文であり、綴りで定義して
+# いた頃は表から漏れていた。
+# 意図的に表外にしているもの:
+#   - gh label create/edit --description、gh repo edit --description
+#     プレーンテキストとしてレンダリングされ、素の #N は autolink しない
+#   - gh pr merge --subject
+#     単一行なのでルール2 は発火せず、3種類の #N が並ぶことも考えにくい
 body_long=''
 body_short=''
 body_file_long=''
@@ -286,8 +303,14 @@ set_body_flags() {
       body_file_long='body-file'
       body_file_short='F' ;;
     release:create|release:edit)
+      body_long='notes'
+      body_short='n'
       body_file_long='notes-file'
       body_file_short='F' ;;
+    issue:close|issue:reopen|pr:close|pr:reopen)
+      # -c/--comment が唯一の本文フラグで、ファイル代替を持たない
+      body_long='comment'
+      body_short='c' ;;
   esac
 }
 
@@ -378,7 +401,8 @@ scan_args() {
             # 残りがあれば密着した値、無ければ次のトークンが値。
             # 密着形の先頭 = を1つ落とすのは pflag に合わせるため（-F=x の値は x、
             # -F==x の値は =x）。落とさないと本文ファイルのパスが "=path" になり、
-            # 読めない本文として fail open で素通りする
+            # 実在しないパスとして無関係にブロックされる（かつては fail open だったため、
+            # 本文検査が無警告でスキップされていた）
             val=''
             if [ -n "$rest" ]; then
               val=${rest#=}
@@ -468,45 +492,95 @@ has_quoted_closing_keyword() {
 
 # %q でクォートするのは、空白を含む引数がそのまま並ぶと再実行できない形になるため。
 # 関数なのは、ブロックするときにしか要らない fork を通常経路に足さないため
-# （ルール1・ルール2 のメッセージが呼ぶ）
+# （ルール1・ルール2・本文ファイルを読めなかったときのメッセージが呼ぶ）
 attempted_command() {
   printf 'gh'
   printf ' %q' "${argv_all[@]}"
 }
 
-# 本文系ルール（2〜4）。違反していればメッセージを出して exit し、無ければ return する。
+# 本文系ルール（2〜4）と、その前提になる本文ファイルの読み取り可否。
+# 違反していればメッセージを出して exit し、無ければ return する。
 # ルール1 のようにフラットに書けないのは、通過後に exec へ抜ける必要があるため
 check_body_rules() {
-  local body_source='' body_content='' distinct_refs
+  local body_source='' body_content='' distinct_refs unreadable_reason='' body_recovery=''
 
-  # ルール2: 複数行の本文を --body/-b で渡すことを禁止する
+  # ルール2（詳細はヘッダーのルール2）。復旧手順を verb 自身のファイル代替から導くのは、
+  # 固定の --body-file 例だと --notes-file しか持たない release や、ファイル代替を
+  # 持たない close/reopen で「満たせない手順」を提示することになるため
   if [[ $inline_body == *$'\n'* ]]; then
+    if [ -n "$body_file_long" ]; then
+      body_recovery="  2. --$body_long の代わりに --$body_file_long <path> を指定して再実行する
+       例: gh $noun $verb -R owner/repo ... --$body_file_long /path/to/body.md"
+    elif [ "$noun" = issue ] || [ "$noun" = pr ]; then
+      # 本文の投稿自体を別コマンドへ寄せる。noun を確かめるのは、gh <noun> comment が
+      # あるのが issue/pr だけで、「ファイル代替が無い」からは導けないため
+      body_recovery="  2. 本文は gh $noun comment --body-file で別途投稿し、$verb は -$body_short なしで実行する
+       例: gh $noun comment -R owner/repo 123 --body-file /path/to/body.md
+           gh $noun $verb -R owner/repo 123"
+    else
+      # ファイル代替も comment verb も無い本文フラグを表に足したとき用の受け皿。
+      # 実在しないコマンドを復旧手順として出さないためにあり、今は到達しない
+      body_recovery="  2. 本文を単一行に収めて再実行する（この verb には本文ファイルの代替がありません）"
+    fi
     cat >&2 <<EOF
-gh の書き込み系サブコマンドで複数行の本文を --body/-b で渡すことは禁止しています。
+gh の書き込み系サブコマンドで複数行の本文を --$body_long/-$body_short で渡すことは禁止しています。
 
 実行しようとしたコマンド:
   $(attempted_command)
 
 理由:
-  --body "\$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
+  --$body_long "\$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
   誤ったエスケープ（バッククォート前の不要なバックスラッシュ等）が
   そのまま本文に残る事故が起きます。
 
 対処:
   1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
-  2. --body の代わりに --body-file <path> を指定して再実行する
-       例: gh pr edit -R owner/repo 123 --body-file /path/to/body.md
+$body_recovery
 EOF
     exit "$block_exit"
   fi
 
-  # ルール3・4 が読む本文。本文ファイルが読めない場合は fail open にする
-  # （ファイルはこれから書かれることがあり、読めない本文は走査できない）
+  # ルール3・4 が読む本文（fail open を stdin 綴りだけに限る理由はヘッダーの「仕様」）。
+  # -f を条件に含めた帰結として、gh は読めるが通常ファイルでない本文（プロセス置換
+  # --body-file <(...)、パイプされた /dev/stdin）もブロックされる。これは no-op ではなく
+  # 実際の挙動変更だが、どちらの綴りも本リポジトリの利用に現れないので許容している
   if [ -n "$body_file" ]; then
-    if [ "$body_file" != '-' ] && [ -r "$body_file" ] && [ -f "$body_file" ]; then
-      body_content=$(<"$body_file")
-      body_source="--$body_file_long $body_file"
+    if [ "$body_file" = '-' ]; then
+      return 0
     fi
+    # 直し方が分かれる（まだ書いていない / パスが違う / 権限が無い）ので理由を区別する
+    if [ ! -e "$body_file" ]; then
+      unreadable_reason='ファイルが存在しません（本文をまだ書き出していない可能性があります）'
+    elif [ ! -f "$body_file" ]; then
+      unreadable_reason='通常ファイルではありません（ディレクトリ・プロセス置換・パイプ等）'
+    elif [ ! -r "$body_file" ]; then
+      unreadable_reason='読み取り権限がありません'
+    fi
+    if [ -n "$unreadable_reason" ]; then
+      cat >&2 <<EOF
+gh の書き込み系サブコマンドの本文ファイルを読めなかったため、gh を実行しませんでした。
+
+実行しようとしたコマンド:
+  $(attempted_command)
+
+読めなかった本文ファイル: --$body_file_long $body_file
+理由: $unreadable_reason
+
+理由の詳細:
+  本文を読めないと、素の #N の項番・引用された closing keyword を走査できません。
+  gh 自身も本文ファイルを読めなければ API に触れる前にエラー終了するため、ここで
+  ブロックしても、成功したはずのコマンドが失われることはありません。
+
+対処:
+  1. 本文をまだ書いていない場合: 先にファイルへ Write してから再実行する
+  2. パスが違う場合: パスを確認して再実行する（相対パスは現在の作業ディレクトリ基準）
+  3. 標準入力から本文を渡す場合: --$body_file_long - を使う
+     （stdin は shim が読むと gh の分を消費するため、走査を諦めて素通しします）
+EOF
+      exit "$block_exit"
+    fi
+    body_content=$(<"$body_file")
+    body_source="--$body_file_long $body_file"
   elif [ -n "$inline_body" ]; then
     body_content=$inline_body
     body_source="--$body_long の本文"

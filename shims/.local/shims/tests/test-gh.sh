@@ -354,8 +354,9 @@ assert_blocked 'body-file: -F short flag, bare #N' \
 assert_blocked 'inline --body: bare #N' \
   "$SHIM" issue comment -R foo/bar 1 --body 'fix #1, #2, #3'
 # フラグと値の綴りは 4 通りあり、本文ファイルではどれで書かれても同じパスを指す
-# 必要がある。特に -F=path は、値の先頭に = が残るとパスが読めなくなり、本文検査が
-# fail open で素通りする（旧フックは走査していた形なので parity が落ちる）
+# 必要がある。特に -F=path は、値の先頭に = が残るとパスが読めなくなり、本文検査に届かない
+# （旧フックは走査していた形なので parity が落ちる。この綴りは fail open だった頃に実際に
+# 素通りしていた形で、今は無関係なパスとしてブロックされる別の壊れ方になる）
 assert_blocked 'body-file: --body-file= form' \
   "$SHIM" pr comment -R foo/bar 1 --body-file="$BODY_DIR/hash-numbering.md"
 assert_blocked 'body-file: -F= form' \
@@ -379,47 +380,106 @@ assert_runs 'body-file: multi-digit #N only' \
 assert_runs 'body-file: hex color / ordinal #N' \
   "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/alnum-suffix-refs.md"
 
-# 本文が読めなければ走査できないので fail open（ファイルはこれから書かれることがある）
-assert_runs 'body-file: nonexistent path' \
+# 名前付きパスが読めなければ fail closed。gh 自身も本文ファイルを読めなければ API に触れる
+# 前にエラー終了するので、ブロックしても成功したはずのコマンドは失われない。fail open が残る
+# のは stdin 綴り（--body-file -）だけで、そちらは上の stdin パススルーケースが固定している
+assert_blocked 'body-file: nonexistent path' \
   "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+# フラグとパスの両方を名指さないと、パスが違うのか本文をまだ書いていないのか判別できない。
+# assert_block_message はメッセージ冒頭がエコーする argv にも一致しうるので、専用行ごと固定する
+assert_block_message 'message: an unreadable body file names the flag and the path' \
+  "読めなかった本文ファイル: --body-file $BODY_DIR/missing.md" '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+assert_block_message 'message: a missing body file says it may not be written yet' \
+  '理由: ファイルが存在しません' '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+
+# 通常ファイルでない本文（ディレクトリ・プロセス置換・パイプされた /dev/stdin）もブロックする。
+# gh 側は読めるので挙動変更にあたるが、-f が false な綴りは本リポジトリの利用に現れない。
+# ディレクトリを使うのは、権限に依らず判定が決定的になるため
+assert_blocked 'body-file: a directory is not a regular file' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR"
+assert_block_message 'message: a non-regular body file gets its own reason' \
+  '理由: 通常ファイルではありません' '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR"
+
+# 読み取り権限が無い本文もブロックする。root は chmod 000 でも読めてしまうため非 root 限定
+# （CI の ubuntu ランナー・ローカルの macOS はいずれも非 root なので通常は実行される）
+UNREADABLE="$BODY_DIR/unreadable.md"
+printf -- 'body\n' > "$UNREADABLE"
+chmod 000 "$UNREADABLE"
+if [ "$(id -u)" -ne 0 ]; then
+  assert_blocked 'body-file: no read permission' \
+    "$SHIM" pr comment -R foo/bar 1 --body-file "$UNREADABLE"
+  assert_block_message 'message: an unreadable body file points at permissions' \
+    '理由: 読み取り権限がありません' '' \
+    "$SHIM" pr comment -R foo/bar 1 --body-file "$UNREADABLE"
+fi
 
 # release notes も GitHub でレンダリングされるので素の #N は autolink する。
 # gh release の -F は --notes-file で、両方の綴りが同じ本文フラグを指す
 assert_blocked 'release: -F is --notes-file, and is scanned' \
   "$SHIM" release create v1 -R foo/bar --title v1 -F "$BODY_DIR/hash-numbering.md"
-assert_blocked 'release: --notes-file is scanned' \
-  "$SHIM" release create v1 -R foo/bar --title v1 --notes-file "$BODY_DIR/hash-numbering.md"
-# インラインの --notes は本文フラグに登録していない（ルール2 の範囲は広げない）
-assert_runs 'release: multiline --notes is not a body flag' \
-  "$SHIM" release create v1 -R foo/bar --title v1 --notes "$MULTILINE"
+# インラインの --notes/-n も同じ本文を運ぶので、ルール2・3 の対象になる
+# （long 綴りの --notes は下のドリフト検出が通すので、ここでは short 綴りだけ見る）
+assert_blocked 'release: multiline -n' \
+  "$SHIM" release create v1 -R foo/bar --title v1 -n "$MULTILINE"
+assert_blocked 'release: bare #N in --notes' \
+  "$SHIM" release create v1 -R foo/bar --title v1 --notes 'fix #1, #2, #3'
+# --notes は本文フラグになったので、順序リストで書いた対の本文はルール2 に触れないよう
+# ファイル側で渡す（実改行のインライン本文はルール3 に届く前にルール2 が撃つ）
+assert_runs 'release: ordered list numbering in --notes-file' \
+  "$SHIM" release create v1 -R foo/bar --title v1 --notes-file "$BODY_DIR/ordered-list.md"
+
+# 本文がプレーンテキストとしてレンダリングされるフラグは表外（素の #N が autolink しない）
+assert_runs 'label create: --description is not a rendered body' \
+  "$SHIM" label create bug -R foo/bar --color FF0000 --description 'fix #1, #2, #3'
+assert_runs 'repo edit: --description is not a rendered body' \
+  "$SHIM" repo edit foo/bar --description 'fix #1, #2, #3'
+
+# ---- ルール2: ファイル代替を持たない本文フラグ（close/reopen の -c/--comment）----
+# -c が唯一の本文フラグなので、--body-file 相当への誘導ができない。復旧手順は
+# 「本文は gh <noun> comment で別途投稿し、close/reopen は -c なしで実行する」になる
+
+assert_blocked 'issue close: multiline -c'  "$SHIM" issue close -R foo/bar 1 -c "$MULTILINE"
+assert_blocked 'pr close: multiline -c'     "$SHIM" pr close -R foo/bar 1 -c "$MULTILINE"
+assert_blocked 'issue reopen: bare #N in --comment' \
+  "$SHIM" issue reopen -R foo/bar 1 --comment 'fix #1, #2, #3'
 
 # ---- 本文フラグ表と値取りフラグ表のドリフト検出 ----
 # 本文フラグは、set_body_flags に登録するだけでは効かない。scan_args が値を拾うのは
 # set_value_flags 側にも同じ綴りが値取りとして載っている場合だけなので、片方の更新を
-# 忘れるとその verb の本文検査が無警告で素通りする（fail open 方向に壊れる）。
-# 登録済みの noun:verb をすべて 1 度ずつ通して、本文が実際に読まれることを固定する
+# 忘れるとその verb の本文検査が無警告で素通りする（登録漏れは今も fail open 方向に壊れる）。
+# 登録済みの noun:verb をすべて 1 度ずつ通して、本文が実際に読まれることを固定する。
+# インライン・本文ファイルの綴りは verb ごとに違い、片方しか持たない verb もある
+# （close/reopen は -c/--comment のみ、release は --body を持たない）ので引数で受け、
+# 空文字列を「この verb にはその種のフラグが無い」とみなす
 assert_body_is_scanned() {
-  local name=$1
-  shift
-  assert_blocked "body reaches rule 3: $name" "$@" --body-file "$BODY_DIR/hash-numbering.md"
-  assert_blocked "body reaches rule 2: $name" "$@" --body "$MULTILINE"
+  local name=$1 inline_flag=$2 file_flag=$3
+  shift 3
+  if [ -n "$inline_flag" ]; then
+    assert_blocked "body reaches rule 2: $name" "$@" "$inline_flag" "$MULTILINE"
+  fi
+  if [ -n "$file_flag" ]; then
+    assert_blocked "body reaches rule 3: $name" "$@" "$file_flag" "$BODY_DIR/hash-numbering.md"
+  fi
 }
 
-assert_body_is_scanned 'issue create'  "$SHIM" issue create -R foo/bar --title x
-assert_body_is_scanned 'issue comment' "$SHIM" issue comment -R foo/bar 1
-assert_body_is_scanned 'issue edit'    "$SHIM" issue edit -R foo/bar 1
-assert_body_is_scanned 'pr create'     "$SHIM" pr create -R foo/bar --title x
-assert_body_is_scanned 'pr comment'    "$SHIM" pr comment -R foo/bar 1
-assert_body_is_scanned 'pr edit'       "$SHIM" pr edit -R foo/bar 1
-assert_body_is_scanned 'pr merge'      "$SHIM" pr merge -R foo/bar 1
-assert_body_is_scanned 'pr review'     "$SHIM" pr review -R foo/bar 1
-assert_body_is_scanned 'pr revert'     "$SHIM" pr revert -R foo/bar 1
-
-# release は本文ファイルだけを登録しているので、そちらだけ確認する
-assert_blocked 'body reaches rule 3: release create' \
-  "$SHIM" release create v1 -R foo/bar --notes-file "$BODY_DIR/hash-numbering.md"
-assert_blocked 'body reaches rule 3: release edit' \
-  "$SHIM" release edit v1 -R foo/bar --notes-file "$BODY_DIR/hash-numbering.md"
+assert_body_is_scanned 'issue create'   --body    --body-file  "$SHIM" issue create -R foo/bar --title x
+assert_body_is_scanned 'issue comment'  --body    --body-file  "$SHIM" issue comment -R foo/bar 1
+assert_body_is_scanned 'issue edit'     --body    --body-file  "$SHIM" issue edit -R foo/bar 1
+assert_body_is_scanned 'issue close'    --comment ''           "$SHIM" issue close -R foo/bar 1
+assert_body_is_scanned 'issue reopen'   --comment ''           "$SHIM" issue reopen -R foo/bar 1
+assert_body_is_scanned 'pr create'      --body    --body-file  "$SHIM" pr create -R foo/bar --title x
+assert_body_is_scanned 'pr comment'     --body    --body-file  "$SHIM" pr comment -R foo/bar 1
+assert_body_is_scanned 'pr edit'        --body    --body-file  "$SHIM" pr edit -R foo/bar 1
+assert_body_is_scanned 'pr close'       --comment ''           "$SHIM" pr close -R foo/bar 1
+assert_body_is_scanned 'pr reopen'      --comment ''           "$SHIM" pr reopen -R foo/bar 1
+assert_body_is_scanned 'pr merge'       --body    --body-file  "$SHIM" pr merge -R foo/bar 1
+assert_body_is_scanned 'pr review'      --body    --body-file  "$SHIM" pr review -R foo/bar 1
+assert_body_is_scanned 'pr revert'      --body    --body-file  "$SHIM" pr revert -R foo/bar 1
+assert_body_is_scanned 'release create' --notes   --notes-file "$SHIM" release create v1 -R foo/bar
+assert_body_is_scanned 'release edit'   --notes   --notes-file "$SHIM" release edit v1 -R foo/bar
 
 # ---- ルール4: PR 本文のバッククォート付き closing keyword ----
 
@@ -455,12 +515,29 @@ assert_runs 'no CLAUDECODE: bare #N numbering' \
   env -u CLAUDECODE "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
 assert_runs 'no CLAUDECODE: quoted Closes #N' \
   env -u CLAUDECODE "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/quoted-closes.md"
+assert_runs 'no CLAUDECODE: unreadable body file' \
+  env -u CLAUDECODE "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+assert_runs 'no CLAUDECODE: multiline -c' \
+  env -u CLAUDECODE "$SHIM" issue close -R foo/bar 1 -c "$MULTILINE"
+assert_runs 'no CLAUDECODE: bare #N in --notes' \
+  env -u CLAUDECODE "$SHIM" release create v1 -R foo/bar --title v1 --notes 'fix #1, #2, #3'
 
 # ---- 本文ルールのブロックメッセージが直し方を示す ----
 
 assert_block_message 'message: rule 2 points at --body-file' \
   '--body-file' '' \
   "$SHIM" pr edit -R foo/bar 1 --body "$MULTILINE"
+# 復旧手順は verb 自身のファイル代替から導く。release に --body-file を出すと通らない手順になる
+assert_block_message 'message: rule 2 points release at --notes-file' \
+  '--notes-file' '--body-file' \
+  "$SHIM" release create v1 -R foo/bar --title v1 --notes "$MULTILINE"
+# close/reopen にはファイル代替が無いので、本文を別コメントで投稿する形へ誘導する
+assert_block_message 'message: rule 2 points close at a separate comment' \
+  'gh issue comment --body-file' '' \
+  "$SHIM" issue close -R foo/bar 1 -c "$MULTILINE"
+assert_block_message 'message: rule 2 names the flag that was blocked' \
+  '--comment/-c' '' \
+  "$SHIM" pr close -R foo/bar 1 -c "$MULTILINE"
 assert_block_message 'message: rule 3 reports the distinct count' \
   '3 種類' '' \
   "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
