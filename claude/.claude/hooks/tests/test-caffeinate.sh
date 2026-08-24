@@ -37,9 +37,12 @@ if [ -n "${STUB_ARGS_FILE:-}" ]; then
   printf '%s\n' "$*" > "$STUB_ARGS_FILE"
 fi
 # exec sleep に置き換えると argv から stub パスが消え、フック側の kill 前
-# コマンドライン確認（PID 再利用の誤 kill 防止）に一致しなくなるため常駐で待つ
+# コマンドライン確認（PID 再利用の誤 kill 防止）に一致しなくなるため常駐で待つ。
+# sleep を背景に回して wait で受けるのは、bash が前景の子の実行中は trap を保留する
+# ため（man bash）。前景のままだと TERM から exit まで in-flight な sleep の残り
+# （最大 50ms）待たされ、SIGTERM で即死する実 caffeinate の代役として不忠実になる
 trap 'exit 0' TERM
-while :; do sleep 0.05; done
+while :; do sleep 0.05 & wait $!; done
 EOF
 chmod +x "$STUB"
 export CAFFEINATE_BIN="$STUB"
