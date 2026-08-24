@@ -158,6 +158,8 @@ make_zombie() {
   rm -f "$pid_file"
   bash -c 'sleep 100 & printf "%s" "$!" > "$1"; exec sleep 30' _ "$pid_file" &
   ZOMBIE_PARENT=$!
+  # cleanup での kill をシェルが "Terminated: 15" と報告するのを抑える（bash 3.2 で顕著）
+  disown "$ZOMBIE_PARENT" 2>/dev/null || true
   wait_file "$pid_file" || return 1
   ZOMBIE_PID=$(cat "$pid_file")
   kill -TERM "$ZOMBIE_PID" 2>/dev/null || return 1
@@ -170,24 +172,58 @@ make_zombie() {
   return 1
 }
 
+# ミリ秒精度の現在時刻。待ち予算（200ms）の超過を診断するには秒精度では粗すぎる。
+# EPOCHREALTIME は bash 5+ 専用（macOS 既定の /bin/bash 3.2 には無い）なので、
+# 無い環境では date の秒精度にフォールバックする
+now_ms() {
+  local t=${EPOCHREALTIME:-}
+  if [ -n "$t" ]; then
+    t=${t/,/.} # 小数点はロケール依存（LC_NUMERIC）
+    printf '%s' "$(( ${t%%.*} * 1000 + 10#${t#*.} / 1000 ))"
+  else
+    printf '%s' "$(( $(date +%s) * 1000 ))"
+  fi
+}
+
+# 診断を assert の失敗経路ではなく各待ちヘルパーに置くのは、assert が任意の条件文字列を
+# 取る汎用ヘルパーで、条件ごとの診断を持たせると分岐が入り込むため。
+# wait_dead の分だけ関数に切り出しているのは、「既に消えていた」分岐を単体で検証できる
+# ようにするため（本物のタイムアウトからその状態を決定的に作り出せない）
+report_wait_dead_timeout() {
+  local pid=$1 start_ms=$2 state
+  state=$(proc_state "$pid")
+  {
+    printf 'wait_dead: timed out on pid %s (elapsed %sms)\n' "$pid" "$(( $(now_ms) - start_ms ))"
+    if [ -z "$state" ]; then
+      printf '  the process is already gone (no ps entry)\n'
+    else
+      printf '  state=%s\n  command=%s\n' "$state" "$(ps -o command= -p "$pid" 2>/dev/null)"
+    fi
+  } >&2
+}
+
 # 固定 sleep での消滅待ちはテスト実行時間を無駄に延ばすため、ポーリングで待つ
-# （SIGTERM の消滅は通常数 ms。上限 200ms 待っても生きていれば失敗を返す）
+# （SIGTERM の消滅は通常数 ms。上限 20 反復待っても生きていれば診断を出して失敗を返す）
 wait_dead() {
-  local pid=$1 i
+  local pid=$1 i start_ms
+  start_ms=$(now_ms)
   for i in $(seq 1 20); do
     proc_gone "$pid" && return 0
     sleep 0.01
   done
+  report_wait_dead_timeout "$pid" "$start_ms"
   return 1
 }
 
 # スタブは nohup でデタッチ起動されるため、引数記録の書き込み完了をポーリングで待つ
 wait_file() {
-  local f=$1 i
+  local f=$1 i start_ms
+  start_ms=$(now_ms)
   for i in $(seq 1 20); do
     [ -s "$f" ] && return 0
     sleep 0.01
   done
+  printf 'wait_file: timed out on %s (elapsed %sms)\n' "$f" "$(( $(now_ms) - start_ms ))" >&2
   return 1
 }
 
@@ -385,6 +421,29 @@ else
   fail=$((fail + 1))
   printf 'FAIL  %s\n' 'case18: zombie fixture did not reach state Z'
 fi
+
+# Case 19: wait_dead's timeout says why it timed out
+# （失敗ログに残るのが PID だけだと、読む頃にはプロセスが消えていて何も分からない）
+SID="test-case19-$$"
+PF=$(pid_file_for "$SID")
+rm -f "$PF"
+call_start "$SID"
+PID=$(cat "$PF")
+DIAG="$WORK_DIR/wait-dead-timeout.log"
+wait_dead "$PID" 2>"$DIAG"
+assert 'case19: timeout reports the state'    "grep -q 'state=' '$DIAG'"
+assert 'case19: timeout reports the command'  "grep -q 'caffeinate-stub' '$DIAG'"
+assert 'case19: timeout reports the elapsed'  "grep -q 'elapsed' '$DIAG'"
+# 「タイムアウトしたが読み取り時には既に消えていた」分岐（999999 は case3 と同じ stale 値）
+DIAG_GONE="$WORK_DIR/wait-dead-gone.log"
+report_wait_dead_timeout 999999 "$(now_ms)" 2>"$DIAG_GONE"
+assert 'case19: timeout notes an absent process' "grep -q 'already gone' '$DIAG_GONE'"
+
+# Case 20: wait_file's timeout names the path it waited on
+DIAG_FILE="$WORK_DIR/wait-file-timeout.log"
+wait_file "$WORK_DIR/no-such-file" 2>"$DIAG_FILE"
+assert 'case20: timeout reports the path'     "grep -q 'no-such-file' '$DIAG_FILE'"
+assert 'case20: timeout reports the elapsed'  "grep -q 'elapsed' '$DIAG_FILE'"
 
 # Case 21: CAFFEINATE_PID_DIR unset → hooks still use their default location
 # （テスト外の挙動が変わっていないことの担保。この 1 ケースだけ WORK_DIR の外へ
