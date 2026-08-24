@@ -21,11 +21,38 @@
 #   verb 直後の --help はヘルプ表示で write ではないため免除する。-h は verb に
 #   よって値取りフラグ（gh repo edit の --homepage 等）なので、その場合は免除しない。
 #
-#   本ルールは元々 PreToolUse フック (claude/.claude/hooks/gh-write-guard.sh) が
-#   コマンド文字列へのパターンマッチで判定していたが、文字列からは「実際に何が実行
-#   されるか」を決められず、見逃し（1つの -R が同じ行の全 write を覆う）と過剰ブロック
-#   （引用符・heredoc 内のリテラルを write とみなす）の両方が出ていた。shim は
-#   シェルが渡す argv を直接読むため、どちらも成立しなくなる。
+# ルール2: 複数行の本文を --body/-b で渡すことを禁止する（--body-file へ誘導）
+#   --body "$(cat <<'EOF' ... EOF)" のような引用符レイヤの重なりが誤エスケープを
+#   誘発し、本文にリテラルの \ が残る事故を防ぐ。判定は --body の値そのものに
+#   改行が含まれるかで、他の引数の複数行値は撃たない。
+#   「壊れた本文の検出」ではなく「禁止」なのは、shim が見るのはシェルが処理し終えた
+#   後の文字列で誤エスケープを事後にしか検出できず、かつコードの話題では \n という
+#   リテラルが正当に現れるため。引用符レイヤを組ませない側が強い。
+#
+# ルール3: 本文中の項番目的とみられる素の #N を検出してブロックする
+#   素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
+#   番号付け（指摘 #1, #2, ...）に使うと無関係な Issue/PR へ参照通知が
+#   飛ぶ事故が起きる。#1〜#9 が3種類以上あれば項番とみなす。
+#   GitHub がリンク化しない形は除外する: コードスパン・fenced code block 内、
+#   数字の直後に英数字が続く形（#12 等の複数桁は実参照の可能性が高く、
+#   #1a2b3c 等の hex カラー・#1st 等の序数はそもそも参照でない）。
+#   OWNER/REPO#N 形式（直前が英数字）も意図的な参照とみなして除外する。
+#   既知の限界: 未クローズの fence 以降は検出されない（fail-open 側）。
+#
+# ルール4: PR 本文中のバッククォート付き closing keyword を検出してブロックする
+#   コードスパン・fenced code block 内の Closes/Fixes/Resolves #N は GitHub が
+#   closing keyword として解釈せず、PR をマージしても Issue が自動 close されない
+#   （open のまま残る事故）。対象は gh pr create / gh pr edit のみ
+#   （closing keyword が効くのは PR 本文だけで、Issue 本文・コメントでは
+#   単なるリンクにしかならないため）。キーワードは大文字小文字不問、
+#   OWNER/REPO#N 形式も対象。番号なしのプレースホルダ（`Closes #N` 等）は
+#   引用・文書化用途として許容する。
+#
+#   これらのルールは元々 PreToolUse フックがコマンド文字列へのパターンマッチで
+#   判定していたが、文字列からは「実際に何が実行されるか」を決められず、見逃し
+#   （1つの -R が同じ行の全 write を覆う）と過剰ブロック（引用符・heredoc 内の
+#   リテラルを write とみなす、本文と無関係な heredoc の改行をルール2 が拾う）の
+#   両方が出ていた。shim はシェルが渡す argv を直接読むため、どちらも成立しない。
 #
 # 仕様:
 #   - 入力: 実行された gh の argv と、環境変数 GH_REPO / CLAUDECODE / GH_BIN
@@ -34,6 +61,8 @@
 #   - 違反していれば実体の gh を実行せず exit 78
 #   - それ以外は exec するので、exit status・stdin/stdout/stderr・シグナルは素通しになる
 #   - fail closed: 判定を終える前に抜けた場合（内部エラー）も exec しない
+#   - 唯一の例外として、本文ファイルが読めない場合はルール3・4 を fail open で
+#     スキップする（ファイルはこれから書かれることがあり、読めない本文は走査できない）
 
 set -eEuo pipefail
 
@@ -236,6 +265,34 @@ takes_value_short() {
 
 set_value_flags "$noun" "$verb"
 
+# 本文を運ぶフラグの一覧（noun:verb ごと）。値取りフラグ表と同じく
+# gh <noun> <verb> --help から起こす。short 名は同じ文字でも verb ごとに意味が違う
+# （gh issue develop の -b は --base、gh pr checkout / gh repo sync の -b は --branch、
+# gh release の -F は --notes-file）ため、「-b が来たら本文」とは判定できない。
+# ここに登録した verb の、登録した綴りだけを本文として読む。
+# gh release がインライン本文（--notes/-n）を持たない行になっているのは意図的で、
+# 移設元のフックが --notes を走査しておらず、足すとルール2・3 が禁じる範囲の拡張に
+# なるため。本文ファイル側（--notes-file/-F）は移設元も走査していたので登録する
+# （release notes も GitHub でレンダリングされ、素の #N は autolink する）。
+body_long=''
+body_short=''
+body_file_long=''
+body_file_short=''
+set_body_flags() {
+  case "$1:$2" in
+    issue:create|issue:comment|issue:edit|pr:create|pr:comment|pr:edit|pr:merge|pr:review|pr:revert)
+      body_long='body'
+      body_short='b'
+      body_file_long='body-file'
+      body_file_short='F' ;;
+    release:create|release:edit)
+      body_file_long='notes-file'
+      body_file_short='F' ;;
+  esac
+}
+
+set_body_flags "$noun" "$verb"
+
 # verb 直後の --help / -h はヘルプ参照で write ではない
 next=${3:-}
 if [ "$next" = '--help' ]; then
@@ -257,8 +314,26 @@ fi
 # リポジトリはその値になり cwd 由来の暗黙解決ではないので、明示として扱ってよい
 has_repo=0
 positional=''
+inline_body=''
+body_file=''
+
+# 本文フラグの値を控える。set_body_flags が登録した綴りとだけ照合する。
+# 照合先を引数で受けるのは、long 名と short 1 文字で参照する登録名が違うため
+record_body_value() {
+  local name=$1 value=$2 body_name=$3 body_file_name=$4
+
+  if [ -z "$name" ]; then
+    return 0
+  fi
+  if [ "$name" = "$body_name" ]; then
+    inline_body=$value
+  elif [ "$name" = "$body_file_name" ]; then
+    body_file=$value
+  fi
+}
+
 scan_args() {
-  local tok rest ch end_of_flags=0
+  local tok name val rest ch end_of_flags=0
 
   if [ -n "${GH_REPO:-}" ]; then
     has_repo=1
@@ -277,14 +352,17 @@ scan_args() {
       --)
         end_of_flags=1 ;;
       --*=*)
-        if [ "${tok%%=*}" = '--repo' ]; then
+        name=${tok%%=*}
+        if [ "$name" = '--repo' ]; then
           has_repo=1
-        fi ;;
+        fi
+        record_body_value "${name#--}" "${tok#*=}" "$body_long" "$body_file_long" ;;
       --*)
         if [ "$tok" = '--repo' ]; then
           has_repo=1
         fi
         if takes_value_long "${tok#--}" && [ "$#" -gt 0 ]; then
+          record_body_value "${tok#--}" "$1" "$body_long" "$body_file_long"
           shift
         fi ;;
       -?*)
@@ -297,10 +375,18 @@ scan_args() {
             has_repo=1
           fi
           if takes_value_short "$ch"; then
-            # 残りがあれば密着した値、無ければ次のトークンが値
-            if [ -z "$rest" ] && [ "$#" -gt 0 ]; then
+            # 残りがあれば密着した値、無ければ次のトークンが値。
+            # 密着形の先頭 = を1つ落とすのは pflag に合わせるため（-F=x の値は x、
+            # -F==x の値は =x）。落とさないと本文ファイルのパスが "=path" になり、
+            # 読めない本文として fail open で素通りする
+            val=''
+            if [ -n "$rest" ]; then
+              val=${rest#=}
+            elif [ "$#" -gt 0 ]; then
+              val=$1
               shift
             fi
+            record_body_value "$ch" "$val" "$body_short" "$body_file_short"
             break
           fi
         done ;;
@@ -339,7 +425,149 @@ is_explicit() {
   esac
 }
 
+# 本文中の項番目的とみられる素の #N を数える。GitHub がリンク化しない箇所
+# （fenced code block・インラインコード）を除去した上で、単語頭の #1〜#9 の異なり数を返す
+count_bare_hash_refs() {
+  awk '
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+    fence { next }
+    {
+      gsub(/`[^`]*`/, "")
+      for (i = 1; i <= NF; i++) {
+        t = $i
+        if (t !~ /^[^[:alnum:]#]*#[1-9]([^[:alnum:]]|$)/) continue
+        sub(/^[^#]*#/, "", t)
+        d = substr(t, 1, 1)
+        if (!(d in seen)) { seen[d] = 1; n++ }
+      }
+    }
+    END { print n + 0 }
+  '
+}
+
+# バッククォート付き closing keyword を検出する。fenced code block 内は行全体を、
+# それ以外の行はコードスパン内のみを走査する。GitHub は「keyword（+ 任意の :）+ 空白
+# + 参照」の直接隣接のみ解釈するため、検出も同じ隣接形に限定する
+has_quoted_closing_keyword() {
+  awk '
+    function has_kw(s) {
+      return s ~ /(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+\/[[:alnum:]_.-]+)?#[0-9]+/
+    }
+    {
+      line = tolower($0)
+      if (line ~ /^[[:space:]]*(```|~~~)/) { fence = !fence; next }
+      if (fence) { if (has_kw(line)) found = 1; next }
+      while (match(line, /`[^`]*`/)) {
+        if (has_kw(substr(line, RSTART, RLENGTH))) found = 1
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+    END { exit !found }
+  '
+}
+
+# %q でクォートするのは、空白を含む引数がそのまま並ぶと再実行できない形になるため。
+# 関数なのは、ブロックするときにしか要らない fork を通常経路に足さないため
+# （ルール1・ルール2 のメッセージが呼ぶ）
+attempted_command() {
+  printf 'gh'
+  printf ' %q' "${argv_all[@]}"
+}
+
+# 本文系ルール（2〜4）。違反していればメッセージを出して exit し、無ければ return する。
+# ルール1 のようにフラットに書けないのは、通過後に exec へ抜ける必要があるため
+check_body_rules() {
+  local body_source='' body_content='' distinct_refs
+
+  # ルール2: 複数行の本文を --body/-b で渡すことを禁止する
+  if [[ $inline_body == *$'\n'* ]]; then
+    cat >&2 <<EOF
+gh の書き込み系サブコマンドで複数行の本文を --body/-b で渡すことは禁止しています。
+
+実行しようとしたコマンド:
+  $(attempted_command)
+
+理由:
+  --body "\$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
+  誤ったエスケープ（バッククォート前の不要なバックスラッシュ等）が
+  そのまま本文に残る事故が起きます。
+
+対処:
+  1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
+  2. --body の代わりに --body-file <path> を指定して再実行する
+       例: gh pr edit -R owner/repo 123 --body-file /path/to/body.md
+EOF
+    exit "$block_exit"
+  fi
+
+  # ルール3・4 が読む本文。本文ファイルが読めない場合は fail open にする
+  # （ファイルはこれから書かれることがあり、読めない本文は走査できない）
+  if [ -n "$body_file" ]; then
+    if [ "$body_file" != '-' ] && [ -r "$body_file" ] && [ -f "$body_file" ]; then
+      body_content=$(<"$body_file")
+      body_source="--$body_file_long $body_file"
+    fi
+  elif [ -n "$inline_body" ]; then
+    body_content=$inline_body
+    body_source="--$body_long の本文"
+  fi
+
+  if [ -z "$body_source" ]; then
+    return 0
+  fi
+
+  # ルール3: 本文中の項番目的とみられる素の #N
+  distinct_refs=$(count_bare_hash_refs <<<"$body_content")
+  if [ "$distinct_refs" -ge 3 ]; then
+    cat >&2 <<EOF
+gh の書き込み系サブコマンドの本文に、項番とみられる素の #N を検出しました
+（#1〜#9 のうち ${distinct_refs} 種類）。
+
+検出元: $body_source
+
+理由:
+  素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
+  番号付け（指摘 #1, #2, ...）に使うと、無関係な Issue/PR に参照通知
+  （mentioned 表示）が飛ぶ事故が起きます。通知は後から取り消せません。
+
+対処:
+  1. 項番が目的の場合: 順序リスト（1. 2. ...）等、# を使わない形式に書き換える
+  2. 実際に Issue/PR を参照する意図の場合: OWNER/REPO#N 形式で明示する
+       例: 178inaba/dotfiles#3
+     （リンクは維持され、このガードにも掛かりません）
+EOF
+    exit "$block_exit"
+  fi
+
+  # ルール4: PR 本文中のバッククォート付き closing keyword
+  case "$noun:$verb" in
+    pr:create|pr:edit) ;;
+    *) return 0 ;;
+  esac
+
+  if has_quoted_closing_keyword <<<"$body_content"; then
+    cat >&2 <<EOF
+PR 本文中に、バッククォート（コードスパン/コードブロック）で囲まれた
+GitHub closing keyword（Closes/Fixes/Resolves #N）を検出しました。
+
+検出元: $body_source
+
+理由:
+  バッククォートで囲むと GitHub が closing keyword として解釈せず、
+  PR をマージしても対象 Issue が自動 close されません（open のまま残る事故）。
+
+対処:
+  1. Issue を自動 close する意図の場合: バッククォートを外して生のまま書く
+       例: Closes #656
+  2. closing keyword を引用・文書化する意図の場合: 実番号を避けて
+     プレースホルダに置き換える（例: \`Closes #N\`。番号がなければ検出されません）
+EOF
+    exit "$block_exit"
+  fi
+}
+
 if is_explicit; then
+  check_body_rules
   exec "$real_gh" "${argv_all[@]}"
 fi
 
@@ -386,8 +614,6 @@ $repo_flag_hint" ;;
 $repo_flag_hint" ;;
 esac
 
-# %q でクォートするのは、空白を含む引数がそのまま並ぶと再実行できない形になるため
-attempted=$(printf 'gh'; printf ' %q' "${argv_all[@]}")
 current_dir=$(pwd)
 current_remote=$(git remote get-url origin 2>/dev/null || printf '(取得不可: git リポジトリ外、または origin が未設定)')
 
@@ -395,7 +621,7 @@ cat >&2 <<EOF
 gh の書き込み系サブコマンドは、対象リポジトリをコマンド上で明示することを必須としています。
 
 実行しようとしたコマンド:
-  $attempted
+  $(attempted_command)
 
 明示が確認できなかった箇所: gh $noun $verb
 現在の作業ディレクトリ: $current_dir

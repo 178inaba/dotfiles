@@ -14,7 +14,7 @@
   - ブランチ作成: `git switch -c branch-name`
   - ブランチ切り替え: `git switch branch-name`
   - ファイル復元: `git restore file`
-- **ghコマンド（書き込み系）**: 対象リポジトリの明示は `~/.local/shims/gh`（PATH 上の shim）が `exit 78` で、それ以外は `~/.claude/hooks/gh-write-guard.sh`（PreToolUse フック）が `exit 2` でブロックする。ブロック時は stderr の理由・復旧手順に従って再実行する
+- **ghコマンド（書き込み系）**: 以下はいずれも `~/.local/shims/gh`（PATH 上の shim）が `exit 78` でブロックする。ブロック時は stderr の理由・復旧手順に従って再実行する
   - 対象リポジトリをコマンド上で明示しないこと（`gh issue` / `gh pr` / `gh release` / `gh repo` / `gh label` の create / comment / edit / close / merge / review 等。`gh repo create` / `gh repo fork` と read 系、verb の直後に置いた `--help` は対象外）。明示の形は noun ごとに異なる
     - `gh repo edit` / `delete` / `archive` / `unarchive` / `sync`: **最初の位置引数**に `owner/repo`（`host/owner/repo`・リポジトリ URL も可）を書く。フラグより前でも後ろでもよい。これらに `-R` は無く、環境変数によるリポジトリ指定も効かない
     - `gh repo rename`: 位置引数は新しいリポジトリ名なので `-R owner/repo` を付ける

@@ -92,5 +92,5 @@ Sub-Issueのリンク完了後、親Issue本文の子Issueへの言及を新し�
 ## 注意事項
 - 整数型の`id`を使用（`node_id`ではない）。`sub_issue_id`・`blocked_by` の `issue_id` とも同じ
 - リポジトリ書き込み権限が必要
-- `gh issue create` 等の書き込み系は `-R owner/repo` でリポジトリを明示し、複数行本文は `--body-file` で渡す（グローバル方針。前者は gh shim、後者は PreToolUse フックで強制。`--body` に `\n` を含む文字列を直渡しすると、bash はリテラルの `\n` として本文に焼き込む）
+- `gh issue create` 等の書き込み系は `-R owner/repo` でリポジトリを明示し、複数行本文は `--body-file` で渡す（グローバル方針。いずれも gh shim が強制。`--body` に `\n` を含む文字列を直渡しすると、bash はリテラルの `\n` として本文に焼き込む）
 - [GitHub REST API Docs: Sub-issues](https://docs.github.com/en/rest/issues/sub-issues) / [Issue dependencies](https://docs.github.com/en/rest/issues/dependencies)
