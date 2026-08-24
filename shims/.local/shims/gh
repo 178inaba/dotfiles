@@ -492,30 +492,35 @@ has_quoted_closing_keyword() {
 
 # %q でクォートするのは、空白を含む引数がそのまま並ぶと再実行できない形になるため。
 # 関数なのは、ブロックするときにしか要らない fork を通常経路に足さないため
-# （ルール1・ルール2 のメッセージが呼ぶ）
+# （ルール1・ルール2・本文ファイルを読めなかったときのメッセージが呼ぶ）
 attempted_command() {
   printf 'gh'
   printf ' %q' "${argv_all[@]}"
 }
 
-# 本文系ルール（2〜4）。違反していればメッセージを出して exit し、無ければ return する。
+# 本文系ルール（2〜4）と、その前提になる本文ファイルの読み取り可否。
+# 違反していればメッセージを出して exit し、無ければ return する。
 # ルール1 のようにフラットに書けないのは、通過後に exec へ抜ける必要があるため
 check_body_rules() {
   local body_source='' body_content='' distinct_refs unreadable_reason='' body_recovery=''
 
-  # ルール2: 複数行の本文をインラインの本文フラグで渡すことを禁止する。
-  # 復旧手順は verb 自身のファイル代替から導く（固定の --body-file 例を出すと、
-  # --notes-file しか持たない release や、ファイル代替を持たない close/reopen で
-  # 通らない手順を提示することになる）
+  # ルール2（詳細はヘッダーのルール2）。復旧手順を verb 自身のファイル代替から導くのは、
+  # 固定の --body-file 例だと --notes-file しか持たない release や、ファイル代替を
+  # 持たない close/reopen で「満たせない手順」を提示することになるため
   if [[ $inline_body == *$'\n'* ]]; then
     if [ -n "$body_file_long" ]; then
       body_recovery="  2. --$body_long の代わりに --$body_file_long <path> を指定して再実行する
        例: gh $noun $verb -R owner/repo ... --$body_file_long /path/to/body.md"
-    else
-      # -c/--comment が唯一の本文フラグなので、本文の投稿自体を別コマンドへ寄せる
+    elif [ "$noun" = issue ] || [ "$noun" = pr ]; then
+      # 本文の投稿自体を別コマンドへ寄せる。noun を確かめるのは、gh <noun> comment が
+      # あるのが issue/pr だけで、「ファイル代替が無い」からは導けないため
       body_recovery="  2. 本文は gh $noun comment --body-file で別途投稿し、$verb は -$body_short なしで実行する
        例: gh $noun comment -R owner/repo 123 --body-file /path/to/body.md
            gh $noun $verb -R owner/repo 123"
+    else
+      # ファイル代替も comment verb も無い本文フラグを表に足したとき用の受け皿。
+      # 実在しないコマンドを復旧手順として出さないためにあり、今は到達しない
+      body_recovery="  2. 本文を単一行に収めて再実行する（この verb には本文ファイルの代替がありません）"
     fi
     cat >&2 <<EOF
 gh の書き込み系サブコマンドで複数行の本文を --$body_long/-$body_short で渡すことは禁止しています。
@@ -535,13 +540,10 @@ EOF
     exit "$block_exit"
   fi
 
-  # ルール3・4 が読む本文。本文ファイルが読めない場合の唯一の fail open は stdin 綴り
-  # （-）で、shim が読むと gh が読むはずの stdin を消費してしまい走査と両立しないため。
-  # 名前付きパスが読めない場合は fail closed にする。gh は本文ファイルを API に触れる前に
-  # 読む（--web でも同じ）ので、ここでブロックしても成功したはずのコマンドは失われない。
-  # 帰結として、gh は読めるが通常ファイルでない本文（プロセス置換 --body-file <(...)、
-  # パイプされた /dev/stdin）もブロックされる。-f が false になるためで、これは no-op では
-  # なく実際の挙動変更だが、どちらの綴りも本リポジトリの利用に現れないので許容している
+  # ルール3・4 が読む本文（fail open を stdin 綴りだけに限る理由はヘッダーの「仕様」）。
+  # -f を条件に含めた帰結として、gh は読めるが通常ファイルでない本文（プロセス置換
+  # --body-file <(...)、パイプされた /dev/stdin）もブロックされる。これは no-op ではなく
+  # 実際の挙動変更だが、どちらの綴りも本リポジトリの利用に現れないので許容している
   if [ -n "$body_file" ]; then
     if [ "$body_file" = '-' ]; then
       return 0

@@ -421,8 +421,7 @@ fi
 assert_blocked 'release: -F is --notes-file, and is scanned' \
   "$SHIM" release create v1 -R foo/bar --title v1 -F "$BODY_DIR/hash-numbering.md"
 # インラインの --notes/-n も同じ本文を運ぶので、ルール2・3 の対象になる
-assert_blocked 'release: multiline --notes' \
-  "$SHIM" release create v1 -R foo/bar --title v1 --notes "$MULTILINE"
+# （long 綴りの --notes は下のドリフト検出が通すので、ここでは short 綴りだけ見る）
 assert_blocked 'release: multiline -n' \
   "$SHIM" release create v1 -R foo/bar --title v1 -n "$MULTILINE"
 assert_blocked 'release: bare #N in --notes' \
