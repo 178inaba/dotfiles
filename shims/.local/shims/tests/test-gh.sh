@@ -43,6 +43,32 @@ chmod +x "$STUB_DIR/gh"
 ARGV_LOG="$TMP/argv"
 STDERR_LOG="$TMP/stderr"
 
+# 本文ルール（ルール2〜4）用の本文ファイル。stub と同じ使い捨て領域に置く
+BODY_DIR="$TMP/bodies"
+mkdir -p "$BODY_DIR"
+
+# ルール3（本文中の素の #N 検出）用
+printf -- '- #1 foo\n- #2 bar\n- #3 baz\n' > "$BODY_DIR/hash-numbering.md"
+printf -- '1. foo\n2. bar\n3. baz\n' > "$BODY_DIR/ordered-list.md"
+printf -- 'see #1 and #2 and #2\n' > "$BODY_DIR/two-distinct-refs.md"
+printf -- '- `#1` foo\n- `#2` bar\n- `#3` baz\n' > "$BODY_DIR/backtick-refs.md"
+printf -- 'before\n```\n#1 #2 #3\n```\nafter\n' > "$BODY_DIR/fenced-refs.md"
+printf -- '- foo/bar#1 x\n- foo/bar#2 y\n- foo/bar#3 z\n' > "$BODY_DIR/cross-repo-refs.md"
+printf -- 'refs #123 #456 #789\n' > "$BODY_DIR/multi-digit-refs.md"
+printf -- 'colors #1a2b3c and #2f4f4f, place #3rd\n' > "$BODY_DIR/alnum-suffix-refs.md"
+
+# ルール4（PR 本文のバッククォート付き closing keyword 検出）用
+printf -- 'Related\n\n`Closes #656`\n' > "$BODY_DIR/quoted-closes.md"
+printf -- 'before\n```\ncloses #656\n```\nafter\n' > "$BODY_DIR/fenced-closes.md"
+printf -- 'see `Resolves foo/bar#12` here\n' > "$BODY_DIR/quoted-cross-repo-closes.md"
+printf -- 'Closes #656\n' > "$BODY_DIR/raw-closes.md"
+printf -- 'docs update: `Closes #N` placeholder\n' > "$BODY_DIR/quoted-placeholder-closes.md"
+printf -- 'call `closes the stream` explicitly\n' > "$BODY_DIR/quoted-closes-no-ref.md"
+printf -- 'word `discloses #656` here\n' > "$BODY_DIR/quoted-discloses.md"
+
+# ルール2 用。$( ) は末尾改行を落とすので、値そのものは 2 行のまま届く
+MULTILINE=$(printf 'line1\nline2')
+
 export GH_STUB_ARGV="$ARGV_LOG"
 export GH_BIN="$STUB_DIR/gh"
 export CLAUDECODE=1
@@ -299,6 +325,115 @@ assert_block_message 'message: issue create omits the URL form' \
 assert_block_message 'message: shows the command that was blocked' \
   'gh issue comment 1 --body x' '' \
   "$SHIM" issue comment 1 --body x
+
+# ---- ルール2: 複数行のインライン本文は --body-file へ誘導される ----
+# 以降は全ケースがリポジトリを明示する。ルール1 を満たした上で本文ルールを観測するため
+
+assert_blocked 'multiline --body'            "$SHIM" pr edit -R foo/bar 1 --body "$MULTILINE"
+assert_blocked 'multiline --body='           "$SHIM" pr edit -R foo/bar 1 --body="$MULTILINE"
+assert_blocked 'multiline -b'                "$SHIM" pr create -R foo/bar --title x -b "$MULTILINE"
+assert_blocked 'multiline -b attached'       "$SHIM" issue comment -R foo/bar 1 "-b$MULTILINE"
+assert_runs 'single-line --body'             "$SHIM" pr edit -R foo/bar 1 --body line1
+
+# 本文以外の引数の複数行値は撃たない。コマンド文字列を見ていたフックは --body 以降の
+# 改行をすべて拾うため、ここが誤ブロックになっていた
+assert_runs 'multiline value in --title'     "$SHIM" pr create -R foo/bar --title "$MULTILINE" --body x
+# -b の意味は verb ごとに違う（gh issue develop の -b は --base）
+assert_runs 'issue develop: -b is --base, not --body' \
+  "$SHIM" issue develop -R foo/bar 1 -b "$MULTILINE"
+
+# ---- ルール3: 本文中の項番とみられる素の #N ----
+
+assert_blocked 'body-file: bare #N numbering' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
+assert_blocked 'body-file: -F short flag, bare #N' \
+  "$SHIM" issue create -R foo/bar --title x -F "$BODY_DIR/hash-numbering.md"
+assert_blocked 'inline --body: bare #N' \
+  "$SHIM" issue comment -R foo/bar 1 --body 'fix #1, #2, #3'
+
+# GitHub がリンク化しない形・実参照とみられる形は項番ではない
+assert_runs 'body-file: ordered list numbering' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/ordered-list.md"
+assert_runs 'body-file: only 2 distinct #N' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/two-distinct-refs.md"
+assert_runs 'body-file: #N in backticks' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/backtick-refs.md"
+assert_runs 'body-file: #N in a fenced code block' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/fenced-refs.md"
+assert_runs 'body-file: OWNER/REPO#N form' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/cross-repo-refs.md"
+assert_runs 'body-file: multi-digit #N only' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/multi-digit-refs.md"
+assert_runs 'body-file: hex color / ordinal #N' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/alnum-suffix-refs.md"
+
+# 本文が読めなければ走査できないので fail open（ファイルはこれから書かれることがある）
+assert_runs 'body-file: nonexistent path' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/missing.md"
+
+# release notes も GitHub でレンダリングされるので素の #N は autolink する。
+# gh release の -F は --notes-file で、両方の綴りが同じ本文フラグを指す
+assert_blocked 'release: -F is --notes-file, and is scanned' \
+  "$SHIM" release create v1 -R foo/bar --title v1 -F "$BODY_DIR/hash-numbering.md"
+assert_blocked 'release: --notes-file is scanned' \
+  "$SHIM" release create v1 -R foo/bar --title v1 --notes-file "$BODY_DIR/hash-numbering.md"
+# インラインの --notes は本文フラグに登録していない（ルール2 の範囲は広げない）
+assert_runs 'release: multiline --notes is not a body flag' \
+  "$SHIM" release create v1 -R foo/bar --title v1 --notes "$MULTILINE"
+
+# ---- ルール4: PR 本文のバッククォート付き closing keyword ----
+
+assert_blocked 'pr create: quoted Closes #N' \
+  "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/quoted-closes.md"
+assert_blocked 'pr edit: fenced closes #N' \
+  "$SHIM" pr edit -R foo/bar 1 --body-file "$BODY_DIR/fenced-closes.md"
+assert_blocked 'pr create: quoted cross-repo Resolves' \
+  "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/quoted-cross-repo-closes.md"
+assert_blocked 'pr edit inline --body: quoted Fixes #N' \
+  "$SHIM" pr edit -R foo/bar 1 --body 'see `Fixes #12` here'
+
+assert_runs 'pr create: raw Closes #N' \
+  "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/raw-closes.md"
+assert_runs 'pr create: quoted placeholder Closes #N' \
+  "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/quoted-placeholder-closes.md"
+assert_runs 'pr edit: quoted closes without a #ref' \
+  "$SHIM" pr edit -R foo/bar 1 --body-file "$BODY_DIR/quoted-closes-no-ref.md"
+assert_runs 'pr edit: quoted discloses (word boundary)' \
+  "$SHIM" pr edit -R foo/bar 1 --body-file "$BODY_DIR/quoted-discloses.md"
+
+# closing keyword が効くのは PR 本文だけで、Issue 本文・コメントでは単なるリンクになる
+assert_runs 'issue create: quoted Closes #N is out of scope' \
+  "$SHIM" issue create -R foo/bar --title x --body-file "$BODY_DIR/quoted-closes.md"
+assert_runs 'pr comment: quoted Closes #N is out of scope' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/quoted-closes.md"
+
+# ---- CLAUDECODE 未設定なら本文ルールも判定しない ----
+
+assert_runs 'no CLAUDECODE: multiline --body' \
+  env -u CLAUDECODE "$SHIM" pr edit -R foo/bar 1 --body "$MULTILINE"
+assert_runs 'no CLAUDECODE: bare #N numbering' \
+  env -u CLAUDECODE "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
+assert_runs 'no CLAUDECODE: quoted Closes #N' \
+  env -u CLAUDECODE "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/quoted-closes.md"
+
+# ---- 本文ルールのブロックメッセージが直し方を示す ----
+
+assert_block_message 'message: rule 2 points at --body-file' \
+  '--body-file' '' \
+  "$SHIM" pr edit -R foo/bar 1 --body "$MULTILINE"
+assert_block_message 'message: rule 3 reports the distinct count' \
+  '3 種類' '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
+assert_block_message 'message: rule 3 shows the OWNER/REPO#N form' \
+  '178inaba/dotfiles#3' '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
+assert_block_message 'message: rule 4 names the closing keyword' \
+  'closing keyword' '' \
+  "$SHIM" pr create -R foo/bar --title x --body-file "$BODY_DIR/quoted-closes.md"
+# 検出元を示さないと、どの本文が問題なのか分からない
+assert_block_message 'message: rule 3 shows where the body came from' \
+  "$BODY_DIR/hash-numbering.md" '' \
+  "$SHIM" pr comment -R foo/bar 1 --body-file "$BODY_DIR/hash-numbering.md"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 
