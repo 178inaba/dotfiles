@@ -299,6 +299,19 @@ run find "$TMP/ja-sub.md" affected_code
 assert "find: body stops before the next heading" \
   "[ \"\$(printf '%s' \"\$out\" | jq -r .body)\" = '- \`claude/.claude/scripts/issue-sections.sh\`' ]" "out=$out"
 
+# 節見出しの直後に次の見出しが続く（空行なし）本文。body は空になる
+printf '## 依存\n## 要件\n\n1. foo\n' > "$TMP/adjacent.md"
+run find "$TMP/adjacent.md" depends_on
+assert "find: an empty section does not leak the next heading into the body" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -r .body)\" = '' ]" "out=$out"
+
+# GitHub の Web UI で書かれた本文は API 経由で CRLF になる。消費側（#88）が生の文字列と
+# 突き合わせられるよう、body に \r を残さない
+printf '## 依存\r\n\r\nなし\r\n\r\n## 要件\r\n\r\n1. foo\r\n' > "$TMP/crlf.md"
+run find "$TMP/crlf.md" depends_on
+assert "find: body of a CRLF draft carries no carriage return" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -r .body)\" = 'なし' ]" "out=$(printf '%s' "$out" | jq -c .)"
+
 # --- ケース8: 未対応 locale が前提不成立で落ちる ---
 run check "$TMP/ja-sub.md" --locale fr --kind sub
 assert "locale: unsupported locale fails as a precondition" \
@@ -368,6 +381,17 @@ assert "find: unknown key fails as a precondition" "[ $status -eq 1 ]" "status=$
 printf 'bogus_key Whatever\n' > "$TMP/mapping-unknown.txt"
 run check "$TMP/en-sub.md" --locale en --kind sub --mapping "$TMP/mapping-unknown.txt"
 assert "check: unknown key in the mapping fails as a precondition" \
+  "[ $status -eq 1 ]" "status=$status err=$err"
+
+# mapping の重複は起案モデルの書き間違いなので、黙って片方を採用せず前提不成立にする
+printf 'requirements Stuff\nrequirements Other\n' > "$TMP/mapping-dup-key.txt"
+run check "$TMP/en-sub.md" --locale en --kind sub --mapping "$TMP/mapping-dup-key.txt"
+assert "check: a duplicated key in the mapping fails as a precondition" \
+  "[ $status -eq 1 ]" "status=$status err=$err"
+
+printf 'requirements Stuff\nacceptance Stuff\n' > "$TMP/mapping-dup-heading.txt"
+run check "$TMP/en-sub.md" --locale en --kind sub --mapping "$TMP/mapping-dup-heading.txt"
+assert "check: two keys mapped to one heading fail as a precondition" \
   "[ $status -eq 1 ]" "status=$status err=$err"
 
 run check "$TMP/en-sub.md" --locale en --kind sub --mapping "$TMP/nope.txt"

@@ -56,11 +56,12 @@
 #   find   → {key, locale, heading, body}
 #     全ロケールの canonical 見出しを受け付ける（消費側はロケールを知らないため --locale を取らない）。
 #     locale はマッチした見出しのロケール。body は**見出し行を含まない**節本文（次の `## ` 見出しの
-#     手前まで、前後の空行を除去）。節が無い場合は stdout に何も出さず exit 6（消費側はこれで分岐する）。
+#     手前まで、前後の空行を除去し、行末 CR も除去）。節が空なら body は空文字列。
+#     節が無い場合は stdout に何も出さず exit 6（消費側はこれで分岐する）。
 #
 # 解析規則（check・find 共通）:
 #   - 節見出しは行頭 `## ` のみ（`### ` 以下は節境界にしない）。見出しは前後の空白を除去して比較する
-#     （除去対象に \r を含むので CRLF のドラフトも同じに扱える）
+#     （除去対象に \r を含むので CRLF のドラフトも同じに扱える。find の body からも CR を落とす）
 #   - バッククォート 3 個以上で開くフェンス内の行は見出しとして扱わない（本文テンプレートを例示する
 #     ドラフトで誤検出しないため）。`~~~` フェンスとインデントコードブロックは対象外
 #   - 同じ見出しが 2 回現れた場合・同一キーの複数ロケールの見出しが両方現れた場合、find は最初の 1 件を
@@ -71,7 +72,9 @@
 #   1 行 1 件で `<key> <テンプレートの見出し>`（key の後は空白 1 個以上、残りが見出し）。
 #   空行と `#` で始まる行は無視する。リポジトリの issue テンプレートに従うとき、起案モデルが
 #   「スキーマのキー → テンプレートの見出し」の対応を手で書くファイルなので、区切りをタブに
-#   限定せず最小の形にしてある。未知のキー・形式不正は前提不成立（exit 1）。
+#   限定せず最小の形にしてある。形式不正・未知のキー・キーの重複・同じ見出しへの複数キーは
+#   前提不成立（exit 1）— いずれも起案モデルの書き間違いで、黙って片方を採用すると
+#   「必須キーが見つからない」等の無関係な理由で落ちるため。
 #
 # ロケールを増やすときに触る場所（表の行を足すだけでは済まないので、ここに列挙しておく）:
 #   1. LOCALES に 1 語足す（ロケール集合の正で、表の見出し列の並びでもある）
@@ -194,15 +197,17 @@ scan_headings() {
   ' "$1"
 }
 
-strip_blank_edges() {
-  # stdin の前後の空行（空白のみの行を含む）を落とす
+normalize_body() {
+  # stdin の前後の空行（空白のみの行を含む）を落とし、各行の行末 CR を除去する。
+  # CR を落とすのは、GitHub の Web UI で書かれた本文が API 経由で CRLF になるため
+  # （消費側は body を "なし" 等の固定マーカーと突き合わせるので、\r が残ると一致しない）
   awk '
-    { lines[NR] = $0 }
+    { sub(/\r$/, ""); lines[NR] = $0 }
     END {
       first = 0
       last = 0
       for (i = 1; i <= NR; i++) {
-        if (lines[i] ~ /[^ \t\r]/) {
+        if (lines[i] ~ /[^ \t]/) {
           if (first == 0) first = i
           last = i
         }
@@ -254,22 +259,28 @@ parse_mapping() {
   # 親は空の mapping で検査を続けてしまうため（issue-hierarchy.sh の resolve_blockers と同じ理由）。
   # 行の形の判定を 1 本の jq に寄せているのは、grep(POSIX ERE) と jq(Oniguruma) に分けて書くと
   # 受け付ける形を変えたときに片方だけ直り、両者が食い違うため
-  local file=$1 parsed bad unknown
+  local file=$1 parsed bad unknown duplicate
   parsed=$(jq -Rs --argjson t "$TABLE_JSON" '
     split("\n")
     | map(select(test("^[[:space:]]*(#|$)") | not))
     | map({raw: ., entry: (capture("^[[:space:]]*(?<key>[^[:space:]]+)[[:space:]]+(?<heading>.*[^[:space:]])") // null)})
+    | [.[] | select(.entry != null) | .entry] as $entries
     | {
         bad: ([.[] | select(.entry == null) | .raw] | first),
-        unknown: ([.[] | select(.entry != null) | .entry.key
-                   | select(. as $k | ($t | any(.key == $k)) | not)] | first),
-        entries: [.[] | select(.entry != null) | .entry]
+        unknown: ([$entries[].key | select(. as $k | ($t | any(.key == $k)) | not)] | first),
+        duplicate_key: ([$entries[].key] | group_by(.) | map(select(length > 1) | .[0]) | first),
+        duplicate_heading: ([$entries[].heading] | group_by(.) | map(select(length > 1) | .[0]) | first),
+        entries: $entries
       }' < "$file")
 
   bad=$(printf '%s' "$parsed" | jq -r '.bad // empty')
   [ -z "$bad" ] || fatal "malformed mapping line (expected: <key> <template heading>): $bad"
   unknown=$(printf '%s' "$parsed" | jq -r '.unknown // empty')
   [ -z "$unknown" ] || fatal "unknown section key in the mapping: $unknown (see the section table in this script)"
+  duplicate=$(printf '%s' "$parsed" | jq -r '.duplicate_key // empty')
+  [ -z "$duplicate" ] || fatal "section key mapped more than once: $duplicate"
+  duplicate=$(printf '%s' "$parsed" | jq -r '.duplicate_heading // empty')
+  [ -z "$duplicate" ] || fatal "template heading mapped from more than one key: $duplicate"
   MAPPING_JSON=$(printf '%s' "$parsed" | jq -c '.entries')
 }
 
@@ -431,10 +442,14 @@ $scan
 SCAN
   [ -n "$start" ] || exit 6
 
-  if [ -n "$end" ]; then
-    body=$(sed -n "$((start + 1)),$((end - 1))p" "$file" | strip_blank_edges)
+  # 節が空（見出しの直後に次の見出しが来る）ときに sed を通さないのは、第 2 アドレスが
+  # 第 1 以下だと POSIX sed が第 1 アドレスの行だけを選び、次節の見出し行が body に漏れるため
+  if [ -n "$end" ] && [ "$((end - start))" -le 1 ]; then
+    body=''
+  elif [ -n "$end" ]; then
+    body=$(sed -n "$((start + 1)),$((end - 1))p" "$file" | normalize_body)
   else
-    body=$(sed -n "$((start + 1)),\$p" "$file" | strip_blank_edges)
+    body=$(sed -n "$((start + 1)),\$p" "$file" | normalize_body)
   fi
 
   jq -n --arg key "$key" --arg locale "$matched_locale" --arg heading "$matched" --arg body "$body" \
