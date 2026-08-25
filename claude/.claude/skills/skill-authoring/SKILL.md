@@ -15,9 +15,11 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 |-----------|------|------|
 | `name` | ✅ | スキル名（ディレクトリ名と一致） |
 | `description` | ✅ | 「何をするか + いつ使うか」を1行で書く（スキル解決・自動トリガーの一致精度に直結。用途を明記しないと、名前・機能が近い別スキルへの誤解決を招く — 組み込み `review` への deep-review 誤解決事故の教訓） |
-| `argument-hint` | - | 引数のヒント（ヘルプ表示用） |
+| `argument-hint` | - | 引数のヒント（ヘルプ表示用）。値が `[` / `{` で始まる場合は引用符で囲む |
 | `disable-model-invocation` | - | `true`: 手動のみ、`false`: 自動トリガー可能 |
 | `user-invocable` | - | `false`: ユーザーメニュー非表示（モデル参照・自動ロードのみ）。他スキルから参照される共有知識スキル向け（例: `worktree-resolution`） |
+
+引用符が要るのは、`[` / `{` で始まる値を YAML が flow sequence / flow mapping として読むため（`argument-hint: [--yes]` は文字列ではなく1要素の配列になる）。1行に複数並ぶと値として解釈しようがなくなり、frontmatter 全体が解析不能になる。
 
 ### `disable-model-invocation` の判断基準
 - **`true`（手動のみ）**: Git操作、ファイル編集、外部API呼び出しなど副作用があるスキル
