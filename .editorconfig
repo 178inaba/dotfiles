@@ -14,5 +14,9 @@ indent_size = 2
 indent_style = space
 indent_size = 2
 
+[shims/.local/shims/*]
+indent_style = space
+indent_size = 2
+
 [*.md]
 trim_trailing_whitespace = false
