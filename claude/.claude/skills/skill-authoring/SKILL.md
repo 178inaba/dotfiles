@@ -72,6 +72,10 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 - 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない
 - 既存例は `~/.claude/skills/*/scripts/`（スキル専用）と `~/.claude/scripts/`（スキル横断）を参照
 
+### frontmatter の検査
+
+`bash ~/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は自身が属する skills/。検出する違反は `invalid_yaml`（frontmatter が YAML として解析できない）・`missing_field`（`name` / `description` の欠落・空）・`name_mismatch`（`name` がディレクトリ名と不一致）・`unquoted_flow`（値が引用符なしの `[` / `{` で始まる）の4種で、条件と出力契約の正はスクリプトのヘッダーコメント。`tests/test-check-skill-frontmatter.sh` は実リポジトリの skills/ の検査を兼ねる。
+
 ## スキル間参照
 
 SKILL.md 本文の `@~/.claude/skills/<skill>/SKILL.md` は、そのスキルの起動時（slash 起動・Skill ツール起動とも）に参照先ファイルを **1 段だけ添付する @-mention** で、添付されたファイルの中の `@` は再走査されない。再帰的な import ではないため、参照の用途で書き方を分ける:
