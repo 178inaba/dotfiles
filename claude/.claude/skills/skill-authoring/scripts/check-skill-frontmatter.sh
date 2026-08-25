@@ -101,30 +101,27 @@ check_file() {
     # 生の形は `Error: bad file '<temp>': yaml: line N: ...`。temp パスを載せると読者が
     # 元のファイルに辿り着けないので前置きごと剥がす
     message=$(tr '\n' ' ' <"$tmp_err" \
-      | sed -E "s/^Error: bad file '[^']*': //" \
-      | sed -E 's/[[:space:]]+$//')
+      | sed -E -e "s/^Error: bad file '[^']*': //" -e 's/[[:space:]]+$//')
     emit --arg file "$rel" --arg message "$message" \
       '{type: "invalid_yaml", file: $file, message: $message}'
     return
   fi
 
-  local fields name description
+  # name / description の判定は jq 内で完結させる。値をシェル変数に取り出すと、改行や
+  # タブを含む値が区切りとして壊れるため（frontmatter の値はブロックスカラーになりうる）。
   # frontmatter がシーケンスやスカラーでも解析は成功するので、mapping 以外は空扱いに正規化する
-  fields=$(printf '%s' "$parsed" | jq -c '
+  records="${records}$(printf '%s' "$parsed" | jq -c --arg file "$rel" --arg skill "$skill" '
     (if type == "object" then . else {} end)
-    | {name: ((.name // "") | if type == "string" then . else tostring end),
-       description: ((.description // "") | if type == "string" then . else tostring end)}')
-  name=$(printf '%s' "$fields" | jq -r .name)
-  description=$(printf '%s' "$fields" | jq -r .description)
-
-  if [ -z "$name" ]; then
-    emit --arg file "$rel" '{type: "missing_field", file: $file, field: "name"}'
-  elif [ "$name" != "$skill" ]; then
-    emit --arg file "$rel" --arg expected "$skill" --arg actual "$name" \
-      '{type: "name_mismatch", file: $file, expected: $expected, actual: $actual}'
-  fi
-  [ -n "$description" ] || emit --arg file "$rel" \
-    '{type: "missing_field", file: $file, field: "description"}'
+    | {name: .name, description: .description}
+    | map_values(if . == null then "" elif type == "string" then . else tostring end)
+    | (if .name == "" then {type: "missing_field", file: $file, field: "name"}
+       elif .name != $skill then {type: "name_mismatch", file: $file,
+                                  expected: $skill, actual: .name}
+       else empty end),
+      (if .description == "" then {type: "missing_field", file: $file,
+                                   field: "description"}
+       else empty end)')
+"
 
   # unquoted_flow は生テキストからしか判定できない。解析後の値では区別が消えるため
   # （`[--yes]` は seq、`"[--yes]"` は str になり、`[a] [b]` はそもそも解析できない）。

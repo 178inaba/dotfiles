@@ -63,7 +63,13 @@ assert_exit() {
 assert_stderr() {
   local name=$1 file=$2 expected=$3 actual
   actual=$(cat "$file")
-  assert "$name" "[ \"\$(cat '$file')\" = '$expected' ]" "(stderr: $actual)"
+  if [ "$actual" = "$expected" ]; then
+    pass=$((pass + 1))
+    printf 'PASS  %s\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf 'FAIL  %s (stderr: %s)\n' "$name" "$actual"
+  fi
 }
 
 # フィクスチャ用 skills ディレクトリを作る。stdout にパスを返す
@@ -120,6 +126,7 @@ assert_json 'unquoted flow control: quoted/angle/bool/block scalar all clean' "$
 d=$(new_skills_dir case3)
 write_skill "$d" nodesc 'name: nodesc'
 write_skill "$d" emptydesc 'name: emptydesc' 'description: ""'
+write_skill "$d" noname 'description: 説明'
 # frontmatter ブロックそのものが無いファイル（invalid_yaml ではなく missing_field 2 件）
 mkdir -p "$d/nofence"
 printf '# /nofence\n\n本文だけのファイル。\n' >"$d/nofence/SKILL.md"
@@ -132,6 +139,9 @@ assert_json 'missing field: empty description flagged' "$out" \
   '.violations | any(. == {type: "missing_field", file: "emptydesc/SKILL.md", field: "description"})'
 assert_json 'missing field: absent description flagged' "$out" \
   '.violations | any(. == {type: "missing_field", file: "nodesc/SKILL.md", field: "description"})'
+assert_json 'missing field: absent name flagged without touching description' "$out" \
+  '[.violations[] | select(.file == "noname/SKILL.md")]
+   == [{type: "missing_field", file: "noname/SKILL.md", field: "name"}]'
 assert_json 'missing field: no frontmatter block yields both fields' "$out" \
   '[.violations[] | select(.file == "nofence/SKILL.md")]
    == [{type: "missing_field", file: "nofence/SKILL.md", field: "name"},
