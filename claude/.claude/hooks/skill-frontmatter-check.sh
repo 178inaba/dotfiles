@@ -47,7 +47,7 @@ input=$(cat)
 # jq を起動する前の足切り。対象パスが SKILL.md なら JSON のどこかに必ずこの部分文字列が
 # 現れるので偽陰性は無い（本文に SKILL.md を含むだけの編集は素通りして jq へ進むだけ）。
 # 本フックは編集系ツールの呼び出しごとに起動されるため、大多数を占める非 SKILL.md の
-# 呼び出しでプロセスを 1 つも fork しない形にしておく
+# 呼び出しで jq を起動しない形にしておく
 case "$input" in
   *SKILL.md*) ;;
   *) exit 0 ;;
@@ -86,7 +86,9 @@ check_script="$check_dir/check-skill-frontmatter.sh"
 # 案内するコマンドは実際に呼んだものと同じパスで出す（`~` を直書きすると、
 # check-skill-frontmatter.sh をリポジトリ側で編集中に stow 済みの古いコピーを案内する）
 recheck_hint() {
-  printf '\nRe-check with:\n  bash %s %s\n' "$check_script" "$target"
+  # %q は空白・引用符を含むパスでもそのまま実行できる形に整える（リポジトリ外の
+  # SKILL.md が対象になりうるため。通常のパスでは引用符は付かない）
+  printf '\nRe-check with:\n  bash %q %q\n' "$check_script" "$target"
 }
 
 tmp_err=$(mktemp)

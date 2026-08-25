@@ -173,6 +173,11 @@ assert_silent 'non-target tool: no output'
 run_hook 'not-json'
 assert_exit 'malformed json: exit 0' $? 0
 
+# 足切りを通過する壊れ JSON。jq のパース失敗 → eval が空 → 変数が空のまま exit 0 という
+# fail-open 本体を踏む（上の not-json は足切りで先に落ちるためこの経路を通らない）
+run_hook 'garbage { SKILL.md'
+assert_exit 'malformed json past the prefilter: exit 0' $? 0
+
 run_hook ''
 assert_exit 'empty stdin: exit 0' $? 0
 
