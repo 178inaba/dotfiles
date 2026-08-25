@@ -59,8 +59,24 @@ alias gfp='git fetch --prune'
 alias gpp='git pull --prune'
 alias gsu='git submodule update'
 
-# Tmux alias
-alias tmux-help='ccat --color=always --bg=dark ~/.dotfiles/docs/tmux-cheatsheet.md | less -R'
+# Tmux cheatsheet
+tmux-help() {
+  local sheet="${HOME}/.dotfiles/docs/tmux-cheatsheet.md"
+  if ! command -v ccat >/dev/null; then
+    echo 'tmux-help: ccat not found' >&2
+    return 1
+  fi
+  if [[ ! -r "${sheet}" ]]; then
+    echo "tmux-help: cannot read ${sheet}" >&2
+    return 1
+  fi
+  # Plain text off a terminal: a pipe or redirect should get neither escapes nor a pager.
+  if [[ -t 1 ]]; then
+    ccat --color=always --bg=dark "${sheet}" | less -R
+  else
+    ccat --color=never "${sheet}"
+  fi
+}
 
 # Recursive search under the current directory
 gre() {
