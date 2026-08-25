@@ -1,7 +1,7 @@
 ---
 name: review-response
 description: GitHubのレビューコメントに対応し、修正コミット・返信投稿・スレッド解決まで実行
-argument-hint: [<pr-number>] [--dry-run] [--worktree]
+argument-hint: "[<pr-number>] [--dry-run] [--worktree]"
 ---
 
 # /review-response
