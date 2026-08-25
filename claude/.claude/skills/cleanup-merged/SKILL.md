@@ -1,7 +1,7 @@
 ---
 name: cleanup-merged
 description: マージ済みのworktreeとlocal branchをまとめてクリーンアップ。ユーザーがマージ済みブランチ・worktreeの掃除・片付けを求めたときに使用（既定で一覧提示→承認後に削除）
-argument-hint: [--yes]
+argument-hint: "[--yes]"
 ---
 
 # /cleanup-merged

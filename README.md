@@ -13,13 +13,13 @@ This is my dotfiles.
 $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
 $ eval "$(/opt/homebrew/bin/brew shellenv)"
-$ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq
+$ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq yq
 $ stow tmux git vim zsh claude ghostty shims
 $ zsh -l
 $ gh auth login
 ```
 
-`gh` and `jq` are required by the Claude Code scripts (hooks, skills, statusline).
+`gh`, `jq` and `yq` are required by the Claude Code scripts (hooks, skills, statusline).
 Run `gh auth login` to authenticate the GitHub CLI after installing.
 
 ### Optional CLI tools

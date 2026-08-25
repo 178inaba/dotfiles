@@ -15,9 +15,11 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 |-----------|------|------|
 | `name` | ✅ | スキル名（ディレクトリ名と一致） |
 | `description` | ✅ | 「何をするか + いつ使うか」を1行で書く（スキル解決・自動トリガーの一致精度に直結。用途を明記しないと、名前・機能が近い別スキルへの誤解決を招く — 組み込み `review` への deep-review 誤解決事故の教訓） |
-| `argument-hint` | - | 引数のヒント（ヘルプ表示用） |
+| `argument-hint` | - | 引数のヒント（ヘルプ表示用）。値が `[` / `{` で始まる場合は引用符で囲む |
 | `disable-model-invocation` | - | `true`: 手動のみ、`false`: 自動トリガー可能 |
 | `user-invocable` | - | `false`: ユーザーメニュー非表示（モデル参照・自動ロードのみ）。他スキルから参照される共有知識スキル向け（例: `worktree-resolution`） |
+
+引用符が要るのは、`[` / `{` で始まる値を YAML が flow sequence / flow mapping として読むため（`argument-hint: [--yes]` は文字列ではなく1要素の配列になる）。1行に複数並ぶと値として解釈しようがなくなり、frontmatter 全体が解析不能になる。
 
 ### `disable-model-invocation` の判断基準
 - **`true`（手動のみ）**: Git操作、ファイル編集、外部API呼び出しなど副作用があるスキル
@@ -69,6 +71,10 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 - 配置: 対象スクリプトの兄弟 `tests/` ディレクトリ（`skills/<skill>/tests/test-<name>.sh`。配置規約の正は `claude/.claude/rules/script-testing.md`）
 - 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない
 - 既存例は `~/.claude/skills/*/scripts/`（スキル専用）と `~/.claude/scripts/`（スキル横断）を参照
+
+### frontmatter の検査
+
+`bash ~/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は自身が属する skills/。検出する違反は `invalid_yaml`（frontmatter が YAML として解析できない）・`missing_field`（`name` / `description` の欠落・空）・`name_mismatch`（`name` がディレクトリ名と不一致）・`unquoted_flow`（値が引用符なしの `[` / `{` で始まる）の4種で、条件と出力契約の正はスクリプトのヘッダーコメント。`tests/test-check-skill-frontmatter.sh` は実リポジトリの skills/ の検査を兼ねる。
 
 ## スキル間参照
 
