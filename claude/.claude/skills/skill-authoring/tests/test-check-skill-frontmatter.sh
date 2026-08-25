@@ -107,9 +107,9 @@ write_skill "$d" seqhint 'name: seqhint' 'description: 説明' 'argument-hint: [
 write_skill "$d" maphint 'name: maphint' 'description: 説明' 'argument-hint: {a: 1}'
 out=$(bash "$SCRIPT" "$d")
 assert_exit 'unquoted flow: exit 0' $? 0
-assert_json 'unquoted flow: sequence value flagged with key and line' "$out" \
+assert_json 'unquoted flow: mapping value flagged with key and line' "$out" \
   '.violations[0] == {type: "unquoted_flow", file: "maphint/SKILL.md", key: "argument-hint", line: 4}'
-assert_json 'unquoted flow: mapping value flagged too' "$out" \
+assert_json 'unquoted flow: sequence value flagged too' "$out" \
   '.violations[1] == {type: "unquoted_flow", file: "seqhint/SKILL.md", key: "argument-hint", line: 4}'
 assert_json 'unquoted flow: exactly two' "$out" '.violations | length == 2'
 
