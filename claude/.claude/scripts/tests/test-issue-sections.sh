@@ -371,7 +371,7 @@ assert "find: missing section writes nothing to stdout" "[ -z \"\$out\" ]" "out=
 run find "$TMP/empty.md" release_manual_steps
 assert "find: empty input fails as a precondition" "[ $status -eq 1 ]" "status=$status err=$err"
 assert "find: the empty-input reason names the file" \
-  "printf '%s' \"\$err\" | grep -q 'empty'" "err=$err"
+  "printf '%s' \"\$err\" | grep -qF \"\$TMP/empty.md\"" "err=$err"
 printf '   \n\n' > "$TMP/blank.md"
 run find "$TMP/blank.md" release_manual_steps
 assert "find: whitespace-only input fails the same way" "[ $status -eq 1 ]" "status=$status err=$err"
