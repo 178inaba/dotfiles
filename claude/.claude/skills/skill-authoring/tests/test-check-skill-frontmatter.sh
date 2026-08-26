@@ -181,10 +181,39 @@ assert_json 'invalid yaml: the only violation for that file' "$out" \
   '[.violations[] | select(.file == "broken/SKILL.md") | .type] == ["invalid_yaml"]'
 assert_json 'invalid yaml: message present' "$out" \
   '.violations[0].message | length > 0'
-assert_json 'invalid yaml: message keeps the parser hint' "$out" \
-  '.violations[0].message | startswith("yaml: ")'
 assert_json 'invalid yaml: temp path stripped from message' "$out" \
   '.violations[0].message | test("bad file|/var/folders|/tmp/") | not'
+
+# ケース5 が message の中身に踏み込まないのは、yq のエラー文言がバージョンで変わるため
+# （`yaml: ...` と `go-yaml load error ...` の両方を観測済み）。「yq の stderr が message に
+# 届き、ファイル名の前置きだけが剥がれる」という契約は、YQ_BIN に「stderr へ1行吐いて
+# 失敗するだけの偽 yq」を挿して等値で固定する。stderr の中身は環境変数から読ませ、
+# 偽 yq 本体へ埋め込まない（クォートの入れ子を避けるため）
+mkdir -p "$TMP/fakeyq"
+printf '#!/bin/bash\nprintf "%%s\\n" "$FAKE_YQ_STDERR" >&2\nexit 1\n' >"$TMP/fakeyq/yq"
+chmod +x "$TMP/fakeyq/yq"
+
+# 偽 yq は失敗しか返さないので、検査対象には解析できないスキルだけを置く（成功経路を
+# 通らせない）
+d=$(new_skills_dir case5b)
+mkdir -p "$d/broken"
+printf -- '---\nargument-hint: [a] [b]\n---\n\n# /broken\n' >"$d/broken/SKILL.md"
+
+# 旧形式: temp パスの前置きが付く → 前置きだけが剥がれて説明がそのまま残る
+out=$(FAKE_YQ_STDERR="Error: bad file '/var/folders/x/temp123': CANARY explanation" \
+  YQ_BIN="$TMP/fakeyq/yq" bash "$SCRIPT" "$d")
+assert_json 'invalid yaml: file prefix stripped, explanation kept verbatim' "$out" \
+  '.violations == [{type: "invalid_yaml", file: "broken/SKILL.md",
+                    message: "CANARY explanation"}]'
+
+# 新形式: 前置きが無い → 剥がしが no-op になって行全体が message になる。runner の yq が
+# 前置きを本当に省くのかは観測できない（観測した message は剥がした後の値）が、前置きの
+# 無い行がそのまま通ることはどちらであっても要る性質
+out=$(FAKE_YQ_STDERR="CANARY explanation without a file prefix" \
+  YQ_BIN="$TMP/fakeyq/yq" bash "$SCRIPT" "$d")
+assert_json 'invalid yaml: prefix-less stderr passes through unchanged' "$out" \
+  '.violations == [{type: "invalid_yaml", file: "broken/SKILL.md",
+                    message: "CANARY explanation without a file prefix"}]'
 
 # --- ケース6: 単一ファイル引数 ---
 d=$(new_skills_dir case6)
