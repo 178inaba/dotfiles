@@ -59,7 +59,9 @@
 #     全ロケールの canonical 見出しを受け付ける（消費側はロケールを知らないため --locale を取らない）。
 #     locale はマッチした見出しのロケール。body は**見出し行を含まない**節本文（次の `## ` 見出しの
 #     手前まで、前後の空行を除去し、行末 CR も除去）。節が空なら body は空文字列。
-#     節が無い場合は stdout に何も出さず exit 6（消費側はこれで分岐する）。
+#     節が無い場合は stdout に何も出さず exit 6（消費側はこれで分岐する）。空の入力は
+#     節が無いのではなく前提不成立（exit 1）— 消費側が exit 6 を「その節を持たない Issue」と
+#     読む以上、取得に失敗した本文をそこへ落とすと根拠のない判断が下るため。
 #
 # 解析規則（check・find 共通）:
 #   - 節見出しは行頭 `## ` のみ（`### ` 以下は節境界にしない）。見出しは前後の空白を除去して比較する
@@ -86,7 +88,7 @@
 #
 # exit code:
 #   0  成功
-#   1  前提不成立（usage・未対応 locale / kind・未知のキー・ファイル不在・mapping 不正）
+#   1  前提不成立（usage・未対応 locale / kind・未知のキー・ファイル不在・空の入力・mapping 不正）
 #   2  check: 必須キーの欠落（規則 1）
 #   3  check: 未知の見出し（規則 2）
 #   4  check: machine-consumed キーが mapping にある（規則 3）
@@ -412,6 +414,11 @@ $USAGE"
   key=${positional[1]}
   require_key "$key"
   require_file "$file" 'input file'
+  # 空の入力を「節が無い」に混ぜない。消費側は not-found を「その節を持たない Issue」と読んで
+  # 分岐するので、取得に失敗した本文がそこへ落ちると根拠のない判断が下る（`gh ... > file` は
+  # gh が落ちても空ファイルを先に作るため、この取り違えは実際に起きる）
+  grep -q '[^[:space:]]' "$file" || fatal "input file is empty: $file
+an empty body usually means the command that wrote it failed"
 
   key_headings=$(printf '%s' "$TABLE_JSON" | jq -r --arg k "$key" \
     '.[] | select(.key == $k) | .headings | to_entries[] | "\(.value)\t\(.key)"')

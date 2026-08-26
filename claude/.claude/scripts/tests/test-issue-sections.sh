@@ -364,6 +364,18 @@ run find "$TMP/ja-sub.md" release_manual_steps
 assert "find: missing section uses its own exit code" "[ $status -eq 6 ]" "status=$status err=$err"
 assert "find: missing section writes nothing to stdout" "[ -z \"\$out\" ]" "out=$out"
 
+# 空の入力は「節が無い」ではなく前提不成立。取得に失敗した本文（`gh ... > file` は gh が
+# 落ちても空ファイルを先に作る）が not-found に化けると、消費側は「節の無い Issue」として
+# 分岐してしまう
+: > "$TMP/empty.md"
+run find "$TMP/empty.md" release_manual_steps
+assert "find: empty input fails as a precondition" "[ $status -eq 1 ]" "status=$status err=$err"
+assert "find: the empty-input reason names the file" \
+  "printf '%s' \"\$err\" | grep -q 'empty'" "err=$err"
+printf '   \n\n' > "$TMP/blank.md"
+run find "$TMP/blank.md" release_manual_steps
+assert "find: whitespace-only input fails the same way" "[ $status -eq 1 ]" "status=$status err=$err"
+
 # --- ケース11: schema の出力と未知キー ---
 run schema release_manual_steps
 assert "schema: emits the ja canonical heading" \
