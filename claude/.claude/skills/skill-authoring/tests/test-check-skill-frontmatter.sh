@@ -190,7 +190,11 @@ assert_json 'invalid yaml: temp path stripped from message' "$out" \
 # 失敗するだけの偽 yq」を挿して等値で固定する。stderr の中身は環境変数から読ませ、
 # 偽 yq 本体へ埋め込まない（クォートの入れ子を避けるため）
 mkdir -p "$TMP/fakeyq"
-printf '#!/bin/bash\nprintf "%%s\\n" "$FAKE_YQ_STDERR" >&2\nexit 1\n' >"$TMP/fakeyq/yq"
+cat > "$TMP/fakeyq/yq" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$FAKE_YQ_STDERR" >&2
+exit 1
+EOF
 chmod +x "$TMP/fakeyq/yq"
 
 # 偽 yq は失敗しか返さないので、検査対象には解析できないスキルだけを置く（成功経路を
