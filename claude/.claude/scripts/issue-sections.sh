@@ -12,15 +12,17 @@
 # ネットワーク・gh を一切呼ばない。引数と入力ファイルに対する純粋なテキスト処理。
 #
 # 使用方法:
-#   issue-sections.sh heading <key> --locale <ja|en>
+#   issue-sections.sh schema <key>
 #   issue-sections.sh list --locale <ja|en> --kind <leaf|sub|parent>
 #   issue-sections.sh check <draft-file> --locale <ja|en> --kind <leaf|sub|parent> [--mapping <file>]
 #   issue-sections.sh find <file> <key>
 #
 # stdout は JSON のみ。契約（正はここ。各 SKILL.md には自スキルが使うフィールドの解釈のみ書く）:
 #
-#   heading → {key, locale, heading}
-#     指定ロケールの canonical 見出しを引く。
+#   schema → {key, headings: {ロケール: 見出し}, required_on, template_mappable, none_markers}
+#     1 キー分の表の行をそのまま返す。**ロケールを取らない**のは消費側向けの口だからで、
+#     #85 注記 4 のとおり消費側は両ロケールの見出し・マーカーを受け付ける（どちらで書かれた
+#     Issue かを知らないまま判定する）。none_markers は list と同じ形。
 #
 #   list   → {locale, kind, sections: [{key, heading, required, required_on, template_mappable, none_markers}]}
 #     issue-draft が節をレンダリングするための一覧。**kind で行を絞らない** — #85 注記 1 のとおり
@@ -57,7 +59,9 @@
 #     全ロケールの canonical 見出しを受け付ける（消費側はロケールを知らないため --locale を取らない）。
 #     locale はマッチした見出しのロケール。body は**見出し行を含まない**節本文（次の `## ` 見出しの
 #     手前まで、前後の空行を除去し、行末 CR も除去）。節が空なら body は空文字列。
-#     節が無い場合は stdout に何も出さず exit 6（消費側はこれで分岐する）。
+#     節が無い場合は stdout に何も出さず exit 6（消費側はこれで分岐する）。空の入力は
+#     節が無いのではなく前提不成立（exit 1）— 消費側が exit 6 を「その節を持たない Issue」と
+#     読む以上、取得に失敗した本文をそこへ落とすと根拠のない判断が下るため。
 #
 # 解析規則（check・find 共通）:
 #   - 節見出しは行頭 `## ` のみ（`### ` 以下は節境界にしない）。見出しは前後の空白を除去して比較する
@@ -84,7 +88,7 @@
 #
 # exit code:
 #   0  成功
-#   1  前提不成立（usage・未対応 locale / kind・未知のキー・ファイル不在・mapping 不正）
+#   1  前提不成立（usage・未対応 locale / kind・未知のキー・ファイル不在・空の入力・mapping 不正）
 #   2  check: 必須キーの欠落（規則 1）
 #   3  check: 未知の見出し（規則 2）
 #   4  check: machine-consumed キーが mapping にある（規則 3）
@@ -100,7 +104,7 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/warnings-lib.sh"
 
-USAGE='usage: issue-sections.sh heading <key> --locale <ja|en>
+USAGE='usage: issue-sections.sh schema <key>
        issue-sections.sh list --locale <ja|en> --kind <leaf|sub|parent>
        issue-sections.sh check <draft-file> --locale <ja|en> --kind <leaf|sub|parent> [--mapping <file>]
        issue-sections.sh find <file> <key>'
@@ -140,7 +144,7 @@ SUPPORTED_KINDS=$(printf '%s' "$KINDS" | sed 's/ /, /g')
 
 # 表 → JSON。以降のキー引きは全て jq 側で行う（連想配列は bash 4 以降で、macOS の /bin/bash は 3.2）。
 # 見出し列は LOCALES と zip して {ロケール: 見出し} にするので、ロケールを増やしても
-# 引く側（canonical_heading・list・find・CHECK_JQ）は書き換え不要
+# 引く側（schema・list・find・CHECK_JQ）は書き換え不要
 TABLE_JSON=$(printf '%s\n' "$SECTION_TABLE" | jq -Rs --argjson locales "$LOCALES_JSON" '
   ($locales | length) as $n
   | split("\n") | map(select(length > 0)) | map(split("|")) | map({
@@ -175,11 +179,6 @@ require_key() {
 require_file() {
   # require_file <path> <役割>
   [ -f "$1" ] || fatal "$2 not found or not a regular file: $1"
-}
-
-canonical_heading() {
-  # canonical_heading <key> <locale>
-  printf '%s' "$TABLE_JSON" | jq -r --arg k "$1" --arg l "$2" '.[] | select(.key == $k) | .headings[$l]'
 }
 
 scan_headings() {
@@ -324,22 +323,29 @@ def script_matches($heading; $loc):
 | $r1 + $r2 + $r3 + $r4
 '
 
-cmd_heading() {
+markers_json() {
+  # マーカー表 → {key: {ロケール: マーカー}}。list と schema の両方が使う
+  printf '%s\n' "$NONE_MARKER_TABLE" | jq -Rs --argjson locales "$LOCALES_JSON" '
+    split("\n") | map(select(length > 0)) | map(split("|"))
+    | map({key: .[0], value: ([$locales, .[1:]] | transpose | map({key: .[0], value: .[1]}) | from_entries)})
+    | from_entries'
+}
+
+cmd_schema() {
   local key
   parse_flags "$@"
-  [ "${#positional[@]}" -eq 1 ] && [ -n "$locale" ] || fatal "$USAGE"
-  [ -z "$kind" ] && [ -z "$mapping_file" ] || fatal "heading takes only --locale
+  [ "${#positional[@]}" -eq 1 ] || fatal "$USAGE"
+  [ -z "$locale" ] && [ -z "$kind" ] && [ -z "$mapping_file" ] || fatal "schema takes no flags
 $USAGE"
   key=${positional[0]}
-  require_locale "$locale"
   require_key "$key"
 
-  jq -n --arg key "$key" --arg locale "$locale" --arg heading "$(canonical_heading "$key" "$locale")" \
-    '{key: $key, locale: $locale, heading: $heading}'
+  printf '%s' "$TABLE_JSON" | jq --arg k "$key" --argjson markers "$(markers_json)" '
+    .[] | select(.key == $k)
+    | {key, headings, required_on, template_mappable, none_markers: ($markers[$k] // null)}'
 }
 
 cmd_list() {
-  local markers_json
   parse_flags "$@"
   [ "${#positional[@]}" -eq 0 ] && [ -n "$locale" ] && [ -n "$kind" ] || fatal "$USAGE"
   [ -z "$mapping_file" ] || fatal "list takes no --mapping
@@ -347,13 +353,7 @@ $USAGE"
   require_locale "$locale"
   require_kind "$kind"
 
-  # マーカー表を list でだけ組み立てるのは、他のサブコマンドが使わないため
-  markers_json=$(printf '%s\n' "$NONE_MARKER_TABLE" | jq -Rs --argjson locales "$LOCALES_JSON" '
-    split("\n") | map(select(length > 0)) | map(split("|"))
-    | map({key: .[0], value: ([$locales, .[1:]] | transpose | map({key: .[0], value: .[1]}) | from_entries)})
-    | from_entries')
-
-  jq -n --argjson table "$TABLE_JSON" --argjson markers "$markers_json" \
+  jq -n --argjson table "$TABLE_JSON" --argjson markers "$(markers_json)" \
     --arg locale "$locale" --arg kind "$kind" '
     {locale: $locale, kind: $kind,
      sections: ($table | map({
@@ -414,6 +414,11 @@ $USAGE"
   key=${positional[1]}
   require_key "$key"
   require_file "$file" 'input file'
+  # 空の入力を「節が無い」に混ぜない。消費側は not-found を「その節を持たない Issue」と読んで
+  # 分岐するので、取得に失敗した本文がそこへ落ちると根拠のない判断が下る（`gh ... > file` は
+  # gh が落ちても空ファイルを先に作るため、この取り違えは実際に起きる）
+  grep -q '[^[:space:]]' "$file" || fatal "input file is empty: $file
+an empty body usually means the command that wrote it failed"
 
   key_headings=$(printf '%s' "$TABLE_JSON" | jq -r --arg k "$key" \
     '.[] | select(.key == $k) | .headings | to_entries[] | "\(.value)\t\(.key)"')
@@ -460,7 +465,7 @@ SCAN
 subcommand=$1
 shift
 case "$subcommand" in
-  heading) cmd_heading "$@" ;;
+  schema) cmd_schema "$@" ;;
   list) cmd_list "$@" ;;
   check) cmd_check "$@" ;;
   find) cmd_find "$@" ;;

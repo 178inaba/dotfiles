@@ -364,16 +364,38 @@ run find "$TMP/ja-sub.md" release_manual_steps
 assert "find: missing section uses its own exit code" "[ $status -eq 6 ]" "status=$status err=$err"
 assert "find: missing section writes nothing to stdout" "[ -z \"\$out\" ]" "out=$out"
 
-# --- ケース11: heading の出力と未知キー ---
-run heading release_manual_steps --locale ja
-assert "heading: emits the ja canonical heading" \
-  "[ \"\$(printf '%s' \"\$out\" | jq -r .heading)\" = 'リリース時の手動作業' ]" "out=$out"
-run heading release_manual_steps --locale en
-assert "heading: emits the en canonical heading" \
-  "[ \"\$(printf '%s' \"\$out\" | jq -r .heading)\" = 'Manual release steps' ]" "out=$out"
+# 空の入力は「節が無い」ではなく前提不成立。取得に失敗した本文（`gh ... > file` は gh が
+# 落ちても空ファイルを先に作る）が not-found に化けると、消費側は「節の無い Issue」として
+# 分岐してしまう
+: > "$TMP/empty.md"
+run find "$TMP/empty.md" release_manual_steps
+assert "find: empty input fails as a precondition" "[ $status -eq 1 ]" "status=$status err=$err"
+assert "find: the empty-input reason names the file" \
+  "printf '%s' \"\$err\" | grep -qF \"\$TMP/empty.md\"" "err=$err"
+printf '   \n\n' > "$TMP/blank.md"
+run find "$TMP/blank.md" release_manual_steps
+assert "find: whitespace-only input fails the same way" "[ $status -eq 1 ]" "status=$status err=$err"
 
-run heading bogus_key --locale ja
-assert "heading: unknown key fails as a precondition" "[ $status -eq 1 ]" "status=$status err=$err"
+# --- ケース11: schema の出力と未知キー ---
+run schema release_manual_steps
+assert "schema: emits the ja canonical heading" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -r .headings.ja)\" = 'リリース時の手動作業' ]" "out=$out"
+assert "schema: emits the en canonical heading" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -r .headings.en)\" = 'Manual release steps' ]" "out=$out"
+# 消費側はロケールを知らないまま両方のマーカーを受け取る（#85 注記 4）
+assert "schema: emits the ja none marker" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -r .none_markers.ja)\" = 'なし（全 Sub のマージで完了）' ]" "out=$out"
+assert "schema: emits the en none marker" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -r .none_markers.en)\" = 'None (completed by merging all Subs)' ]" "out=$out"
+assert "schema: carries the row's required_on and template_mappable" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -c '[.required_on, .template_mappable]')\" = '[[\"parent\"],false]' ]" "out=$out"
+
+run schema background
+assert "schema: a key without markers reports null" \
+  "[ \"\$(printf '%s' \"\$out\" | jq -r .none_markers)\" = 'null' ]" "out=$out"
+
+run schema bogus_key
+assert "schema: unknown key fails as a precondition" "[ $status -eq 1 ]" "status=$status err=$err"
 run find "$TMP/ja-sub.md" bogus_key
 assert "find: unknown key fails as a precondition" "[ $status -eq 1 ]" "status=$status err=$err"
 
@@ -428,7 +450,7 @@ run bogus-subcommand
 assert "usage: unknown subcommand fails" "[ $status -eq 1 ]" "status=$status err=$err"
 run check "$TMP/ja-sub.md" --locale ja
 assert "usage: check without --kind fails" "[ $status -eq 1 ]" "status=$status err=$err"
-run heading background --locale ja --kind sub
+run schema background --locale ja
 assert "usage: a flag the subcommand does not take fails" "[ $status -eq 1 ]" "status=$status err=$err"
 run find "$TMP/ja-sub.md" background --locale ja
 assert "usage: find takes no flags" "[ $status -eq 1 ]" "status=$status err=$err"

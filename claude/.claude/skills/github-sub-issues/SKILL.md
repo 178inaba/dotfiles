@@ -1,6 +1,6 @@
 ---
 name: github-sub-issues
-description: GitHub Sub-Issues（Issueの親子関係）を作成・リンク・読み取る手順と、親子 Issue の運用規約（葉 Issue = 1 PR、親 = リリース単位、「リリース時の手動作業」節、PR 本文の Part of / Closes）。issue-draft・issue-handle・deep-review が参照する共有知識スキル。gh CLIに専用コマンドがないためAPIを直接使用する
+description: GitHub Sub-Issues（Issueの親子関係）を作成・リンク・読み取る手順と、親子 Issue の運用規約（葉 Issue = 1 PR、親 = リリース単位、release_manual_steps 節、PR 本文の Part of / Closes）。issue-draft・issue-handle・deep-review が参照する共有知識スキル。gh CLIに専用コマンドがないためAPIを直接使用する
 ---
 
 # /github-sub-issues
@@ -68,6 +68,16 @@ link_blocked_by() {
 
 親の有無・Sub 一覧・完了状態・依存を読むときは共有スクリプト `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number> [-R owner/repo] [--with-prs] [--with-deps]` を使う（親は専用エンドポイントの 404 が「親なし」、Sub 一覧と blocker 一覧はページネーション付きで、都度組み立てると扱いがぶれるため。`--with-prs` は各 Sub を閉じた PR の状態・マージ先を、`--with-deps` は各 Sub の blocker を付ける。出力契約はスクリプトヘッダー）。
 
+## 本文の節の読み取り
+
+Issue 本文の節は**意味キー**で識別する。キー ↔ 見出しの対応と「なし」の固定文字列を持つのは `~/.claude/scripts/issue-sections.sh` だけで、**この SKILL.md に表を複製しない**（複製はドリフトの元。起案側の使い方は issue-draft の「本文の節」）。消費側の規約:
+
+- 節は `bash ~/.claude/scripts/issue-sections.sh find <本文を書き出したファイル> <key>` で引く（本文は `gh issue view <番号> -R <owner>/<repo> --json body -q .body` でファイルへ落としてから渡す）。`find` は ja・en 両方の canonical 見出しを受け付けるので、消費側はロケールを知らなくてよい
+- **節が見つからないときの扱いは消費側が決める**（キーごとに違う — `release_manual_steps` は推定した上でユーザーに確認、`composition` は順序の制約なしとして扱う）。ja / en どちらの見出しでもない本文もここに落ちる。取得に失敗した入力は「節なし」ではなく前提不成立として弾かれるので、この分岐には入らない
+- 「なし」マーカーは `bash ~/.claude/scripts/issue-sections.sh schema <key>` の `none_markers` から取り、**ja / en 両方を受け付ける**。照合は緩く見る — 節本文がマーカーと同じ「なし」を述べていればよく、後続の句読点・補足文はそれを覆さない。作業項目が 1 つでも挙がっていれば「なし」ではない
+
+出力フィールドと exit code の契約の正はスクリプトヘッダー。
+
 ## 運用規約（親子 Issue と PR の対応）
 
 issue-draft（起票）・issue-handle（実装）・deep-review（レビュー）が共有する規約。定義はここが正で、各スキルは自分が実行する手順だけを書く。
@@ -75,10 +85,10 @@ issue-draft（起票）・issue-handle（実装）・deep-review（レビュー�
 - **葉 Issue = 1 PR = 1 実装セッション**。リリース単位（一緒に出さないと価値が完結しない範囲）が 1 PR に収まらないときは、親 Issue（リリース単位）+ Sub-Issues（各 1 PR）に分ける。進捗の正は Issue 階層の open/closed であり、本文のチェックリストやスキル側の状態管理で別管理しない。1 Issue に複数 PR を示唆する散文（「PR 分割の目安」等）は書かない — issue-handle は 1 Issue を 1 PR で処理し `Closes #<Issue>` を書くため消費できず、最初の PR のマージで Issue が閉じる
 - **仕様の配置（重複禁止）**: 全体に効くもの（横断ルール・エラーコード等の確定値・トランザクション順序・共通の参照文書等）は親にだけ、段階固有のスコープ・受け入れ条件は Sub にだけ書く。Sub の自己完結基準は「**親と合わせて読めば迷わず実装できる**」。したがって**葉を読むスキルは親の本文とコメントも取得**し、親の横断ルール・確定事項を葉の要件と同格に扱う。ただし要件充足の判定対象は葉自身の受け入れ条件のみ（親の受け入れ条件は他の Sub にまたがる）
 - **Sub の必須条件**: 単独でベースブランチにマージしても壊れない（未配線のルート・未スケジュールのバッチ・未参照のテーブル等は可）。リリースを揃える責任は親に置く
-- **親の「リリース時の手動作業」節**（見出し名は固定。issue-draft の親テンプレートが必須節として置く）: 「なし（全 Sub のマージで完了）」またはチェックリスト。「なし」なら最後の Sub の PR で親を閉じてよく、作業ありなら親は作業完了後に手動で閉じる。節が無い親（他の経路で立てられた Issue）は本文・コメントから推定した上でユーザーに確認し、推測で埋めない
-- **PR 本文**: Sub の PR は `Closes #<Sub>` に加えて `Part of #<親>`（closing keyword ではないので親は閉じず、親の Development サイドバーに全 Sub の PR が並ぶ。親が別リポジトリ — `issue-hierarchy.sh` の `parent.same_repo: false` — なら `Part of owner/repo#N` 形式で書く）。PR 作成時点で他の全 Sub が closed（`issue-hierarchy.sh` の `all_siblings_closed: true`）かつ手動作業が「なし」なら `Closes #<親>` も書く。並列で複数の Sub が open のうちはどの PR も親を閉じず、全 Sub 完了後に親を issue-handle に渡して充足検証 → close する
+- **親の `release_manual_steps` 節**（固定なのはキーで、見出し文字列はロケールごとに `issue-sections.sh` の表が持つ。issue-draft が親の必須節としてレンダリングする）: `none_markers` の「なし」マーカーまたはチェックリスト。マーカーなら最後の Sub の PR で親を閉じてよく、作業ありなら親は作業完了後に手動で閉じる。節が見つからない親（他の経路で立てられた Issue 等。引き方は「本文の節の読み取り」）は本文・コメントから推定した上でユーザーに確認し、推測で埋めない
+- **PR 本文**: Sub の PR は `Closes #<Sub>` に加えて `Part of #<親>`（closing keyword ではないので親は閉じず、親の Development サイドバーに全 Sub の PR が並ぶ。親が別リポジトリ — `issue-hierarchy.sh` の `parent.same_repo: false` — なら `Part of owner/repo#N` 形式で書く）。PR 作成時点で他の全 Sub が closed（`issue-hierarchy.sh` の `all_siblings_closed: true`）かつ `release_manual_steps` が「なし」マーカーなら `Closes #<親>` も書く。並列で複数の Sub が open のうちはどの PR も親を閉じず、全 Sub 完了後に親を issue-handle に渡して充足検証 → close する
 - **Sub のタイトル**: 接頭辞（【Sub】・[1/6] 等）を付けず単体で意味が通るものにする。親子関係は GitHub の Sub-Issues 表示が担い、後から Sub を足すと番号がずれる
-- **Sub 間の順序**: GitHub ネイティブの `blocked_by` リンク（上記「Sub-Issue作成とリンク」手順 4）が正で、`issue-hierarchy.sh` の `blocked_by[]` / `blockers_closed` から読む。散文（親の「構成（Sub-Issues）」一覧・Sub の「依存」節）は人が読むために残すが、判定の根拠にはしない。**例外**は依存が 1 件も登録されていない Issue（本規約より前に立てた Issue・他の経路で立てられた親）で、この場合のみ散文へフォールバックする。散文だけを正にしないのは、文言がぶれる・後から足した Sub が親の一覧から漏れるといった読み取り事故が起きる上、スキルの外（GitHub の UI・Projects）から依存が見えないため
+- **Sub 間の順序**: GitHub ネイティブの `blocked_by` リンク（上記「Sub-Issue作成とリンク」手順 4）が正で、`issue-hierarchy.sh` の `blocked_by[]` / `blockers_closed` から読む。散文（親の `composition` 節の一覧・Sub の `depends_on` 節）は人が読むために残すが、判定の根拠にはしない。**例外**は依存が 1 件も登録されていない Issue（本規約より前に立てた Issue・他の経路で立てられた親）で、この場合のみ散文へフォールバックする。散文だけを正にしないのは、文言がぶれる・後から足した Sub が親の一覧から漏れるといった読み取り事故が起きる上、スキルの外（GitHub の UI・Projects）から依存が見えないため
 
 ## リンク後の親Issue本文同期
 

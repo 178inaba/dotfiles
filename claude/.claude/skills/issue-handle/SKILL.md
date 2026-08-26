@@ -47,19 +47,19 @@ disable-model-invocation: true
 
 ### Issue 階層の扱い（Issue番号指定時）
 
-Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、「リリース時の手動作業」節、PR 本文の規則）。起動時に取得した `issue-hierarchy.sh` の出力（`kind` / `parent` / `sub_issues` / `siblings` / `all_sub_issues_closed` / `all_siblings_closed` / `blocked_by` / `blockers_closed` / `warnings`。契約の正はスクリプトヘッダー）で分岐する。取得できていなければ `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
+Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `issue-hierarchy.sh` の出力（`kind` / `parent` / `sub_issues` / `siblings` / `all_sub_issues_closed` / `all_siblings_closed` / `blocked_by` / `blockers_closed` / `warnings`。契約の正はスクリプトヘッダー）で分岐する。取得できていなければ `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
 
 - **`standalone`**: 従来どおり単独の Issue として進める
 - **`sub`（親あり・Sub なし）**: 実装対象。以下を要件確認に加える
   - **親の継承**: `gh issue view <parent.number> --comments` で親の本文・コメントを取得し、親の横断ルール・確定事項を本 Issue の要件と同格に扱う（運用規約「仕様の配置」）
-  - **親 close 方針の記録**: 親本文の「リリース時の手動作業」節から `PR で閉じてよい`（「なし」）/ `PR で閉じない`（作業あり）を決めて計画ファイルに記録する（下記「計画完了」）。節が無い親は、この時点で `all_siblings_closed: true` なら推定 + 推奨を添えて AskUserQuestion で確認し、そうでなければ `未確定` と記録して PR 作成時に持ち越す（最後にならない Sub で毎回聞かない）
+  - **親 close 方針の記録**: 親本文の `release_manual_steps` 節（`github-sub-issues` の「本文の節の読み取り」の手順で引く）から `PR で閉じてよい`（「なし」マーカー）/ `PR で閉じない`（作業あり）を決めて計画ファイルに記録する（下記「計画完了」）。節が無い親は、この時点で `all_siblings_closed: true` なら推定 + 推奨を添えて AskUserQuestion で確認し、そうでなければ `未確定` と記録して PR 作成時に持ち越す（最後にならない Sub で毎回聞かない）
   - **依存の確認**: 判定の根拠は `blocked_by[]`（運用規約「Sub 間の順序」）。open の blocker があれば、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。意図的な先行着手を妨げないため停止はしない
     - blocker が兄弟 Sub でなくても扱いは同じ（何が blocking かは GitHub の登録が正）。ただし stacked base に使える head branch が無い blocker では選択肢を続行 / 中断のみにする（兄弟でない blocker は PR を持たないことがある）。判定は `same_repo: false` か、`gh issue view <blocker.url> --json closedByPullRequestsReferences` が空か（`issue-hierarchy.sh` の `--with-prs` が Sub の PR を引くのと同じ機構）
-    - `blocked_by` が空 = 依存が 1 件も登録されていない → **散文へフォールバック**する（運用規約の例外）。本 Issue の「依存」節（または親の構成一覧）にある先行 Sub が `siblings[]` で open かを見る、従来どおりの確認
+    - `blocked_by` が空 = 依存が 1 件も登録されていない → **散文へフォールバック**する（運用規約の例外）。本 Issue の `depends_on` 節（または親の `composition` 節。いずれも同手順で引く）にある先行 Sub が `siblings[]` で open かを見る、従来どおりの確認
     - `blocked_by: null`（取得失敗）は上記冒頭の `warnings[]` の規定どおり、自動判定に頼らずユーザー確認へ倒す
 - **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない（Sub が実装単位）
   - open の Sub が残る（`all_sub_issues_closed: false`）→ **停止**。`bash ~/.claude/scripts/issue-hierarchy.sh <parent> --with-deps` で各 Sub の blocker を取り、Sub 一覧を番号・タイトル・状態で提示し、「次に着手できる Sub」を示して終了する。自動では着手しない（どの Sub をやるか・`--worktree` を使うかはユーザーの判断）
-    - 対象は **open の Sub のみ**（closed の Sub は blocker がすべて closed でも着手可に含めない）。その上で Sub ごとに判定して 1 つの一覧にまとめる: `blocked_by` が空でない Sub は `blockers_closed: true` なら着手可、`blocked_by` が空の Sub（依存未登録）は親本文の構成一覧の依存順で判定し、構成一覧が無い親では順序の制約なしとして着手可に含める。これにより一部の Sub だけリンク済みの親でも一覧が分裂しない
+    - 対象は **open の Sub のみ**（closed の Sub は blocker がすべて closed でも着手可に含めない）。その上で Sub ごとに判定して 1 つの一覧にまとめる: `blocked_by` が空でない Sub は `blockers_closed: true` なら着手可、`blocked_by` が空の Sub（依存未登録）は親本文の `composition` 節（同手順で引く）の依存順で判定し、節が無い親では順序の制約なしとして着手可に含める。これにより一部の Sub だけリンク済みの親でも一覧が分裂しない
     - `blocked_by: null` の Sub は着手可に含めず、取得に失敗した旨を添える
   - 全 Sub が closed（`all_sub_issues_closed: true`）→ **親の充足検証 → close** を行う（下記）。計画フェーズ・実装フェーズには進まない
 
@@ -68,7 +68,7 @@ Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運
 2. `bash ~/.claude/scripts/issue-hierarchy.sh <parent> --with-prs` で各 Sub を閉じた PR の状態を取り（`sub_issues[].prs[]` の `merged` / `base_ref`）、未マージ・`base_ref` がベースブランチと異なる・`prs` が空か null の Sub があれば警告し、続行するか AskUserQuestion で確認する
 3. 親本文の受け入れ条件・横断ルール（と Sub の受け入れ条件のうち親に集約されているもの）を項目展開し、`origin/<base>` のコードと突き合わせて **充足 / 未実装 / 逸脱** に分類する（deep-review の「Issue 要件の充足状況」と同じ形式。差分ではなくベースブランチの現状を読む）
 4. 未実装・逸脱が 1 つでもあれば close せず、充足表と未充足の内容を報告して終了する（対応は新しい Sub の起票等、ユーザーの判断）
-5. 全充足なら「リリース時の手動作業」節を確認する。「なし」（または節が無く手動作業も見当たらない）なら充足表を提示して close の承認を得てから閉じる: 充足表を scratchpad に Write して `gh issue comment <parent> -R <repo> --body-file <path>` で投稿（言語は Issue 本文に合わせる）→ `gh issue close <parent> -R <repo>`。手動作業ありなら、作業の完了をユーザーに確認できた場合のみ同じ手順で close し、未完了なら close せず作業一覧を提示して終了する
+5. 全充足なら `release_manual_steps` 節を確認する（同手順で引く）。「なし」マーカー（または節が無く手動作業も見当たらない）なら充足表を提示して close の承認を得てから閉じる: 充足表を scratchpad に Write して `gh issue comment <parent> -R <repo> --body-file <path>` で投稿（言語は Issue 本文に合わせる）→ `gh issue close <parent> -R <repo>`。手動作業ありなら、作業の完了をユーザーに確認できた場合のみ同じ手順で close し、未完了なら close せず作業一覧を提示して終了する
 
 ### 計画フェーズ
 
@@ -184,7 +184,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
      - ブランチ名（typeを含む完全な形式）
      - ベースブランチ（取得済みの値）
      - Issue番号（Issue番号指定時。`gh issue comment` や `Closes #N` で使用）
-     - 親 Issue 番号と親 close 方針（Issue が Sub の場合のみ）: `PR で閉じてよい`（手動作業節が「なし」、または節なしでユーザーが可と回答）/ `PR で閉じない`（手動作業あり、またはユーザーが否と回答）/ `未確定`（節なしで他の Sub が open のため未確認）。実装完了処理の PR 本文組み立てで参照する
+     - 親 Issue 番号と親 close 方針（Issue が Sub の場合のみ）: `PR で閉じてよい`（`release_manual_steps` が「なし」マーカー、または節なしでユーザーが可と回答）/ `PR で閉じない`（手動作業あり、またはユーザーが否と回答）/ `未確定`（節なしで他の Sub が open のため未確認）。実装完了処理の PR 本文組み立てで参照する
      - worktree 使用（`--worktree` 指定時 true）
      - 実装委譲（`--delegate-impl` 指定時 true。実装フェーズと Step 7-2 の分岐判定に使う。再開シナリオでも今回の起動引数を正とし、前回計画の値は引き継がない）
      - worktree 名（`--worktree` 指定時のみ。ブランチ名から `/` を `-` に置換した sanitized 名、例: `feature-99-add-oauth`）
