@@ -12,15 +12,17 @@
 # ネットワーク・gh を一切呼ばない。引数と入力ファイルに対する純粋なテキスト処理。
 #
 # 使用方法:
-#   issue-sections.sh heading <key> --locale <ja|en>
+#   issue-sections.sh schema <key>
 #   issue-sections.sh list --locale <ja|en> --kind <leaf|sub|parent>
 #   issue-sections.sh check <draft-file> --locale <ja|en> --kind <leaf|sub|parent> [--mapping <file>]
 #   issue-sections.sh find <file> <key>
 #
 # stdout は JSON のみ。契約（正はここ。各 SKILL.md には自スキルが使うフィールドの解釈のみ書く）:
 #
-#   heading → {key, locale, heading}
-#     指定ロケールの canonical 見出しを引く。
+#   schema → {key, headings: {ロケール: 見出し}, required_on, template_mappable, none_markers}
+#     1 キー分の表の行をそのまま返す。**ロケールを取らない**のは消費側向けの口だからで、
+#     #85 注記 4 のとおり消費側は両ロケールの見出し・マーカーを受け付ける（どちらで書かれた
+#     Issue かを知らないまま判定する）。none_markers は list と同じ形。
 #
 #   list   → {locale, kind, sections: [{key, heading, required, required_on, template_mappable, none_markers}]}
 #     issue-draft が節をレンダリングするための一覧。**kind で行を絞らない** — #85 注記 1 のとおり
@@ -100,7 +102,7 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/warnings-lib.sh"
 
-USAGE='usage: issue-sections.sh heading <key> --locale <ja|en>
+USAGE='usage: issue-sections.sh schema <key>
        issue-sections.sh list --locale <ja|en> --kind <leaf|sub|parent>
        issue-sections.sh check <draft-file> --locale <ja|en> --kind <leaf|sub|parent> [--mapping <file>]
        issue-sections.sh find <file> <key>'
@@ -140,7 +142,7 @@ SUPPORTED_KINDS=$(printf '%s' "$KINDS" | sed 's/ /, /g')
 
 # 表 → JSON。以降のキー引きは全て jq 側で行う（連想配列は bash 4 以降で、macOS の /bin/bash は 3.2）。
 # 見出し列は LOCALES と zip して {ロケール: 見出し} にするので、ロケールを増やしても
-# 引く側（canonical_heading・list・find・CHECK_JQ）は書き換え不要
+# 引く側（schema・list・find・CHECK_JQ）は書き換え不要
 TABLE_JSON=$(printf '%s\n' "$SECTION_TABLE" | jq -Rs --argjson locales "$LOCALES_JSON" '
   ($locales | length) as $n
   | split("\n") | map(select(length > 0)) | map(split("|")) | map({
@@ -175,11 +177,6 @@ require_key() {
 require_file() {
   # require_file <path> <役割>
   [ -f "$1" ] || fatal "$2 not found or not a regular file: $1"
-}
-
-canonical_heading() {
-  # canonical_heading <key> <locale>
-  printf '%s' "$TABLE_JSON" | jq -r --arg k "$1" --arg l "$2" '.[] | select(.key == $k) | .headings[$l]'
 }
 
 scan_headings() {
@@ -324,22 +321,29 @@ def script_matches($heading; $loc):
 | $r1 + $r2 + $r3 + $r4
 '
 
-cmd_heading() {
+markers_json() {
+  # マーカー表 → {key: {ロケール: マーカー}}。list と schema の両方が使う
+  printf '%s\n' "$NONE_MARKER_TABLE" | jq -Rs --argjson locales "$LOCALES_JSON" '
+    split("\n") | map(select(length > 0)) | map(split("|"))
+    | map({key: .[0], value: ([$locales, .[1:]] | transpose | map({key: .[0], value: .[1]}) | from_entries)})
+    | from_entries'
+}
+
+cmd_schema() {
   local key
   parse_flags "$@"
-  [ "${#positional[@]}" -eq 1 ] && [ -n "$locale" ] || fatal "$USAGE"
-  [ -z "$kind" ] && [ -z "$mapping_file" ] || fatal "heading takes only --locale
+  [ "${#positional[@]}" -eq 1 ] || fatal "$USAGE"
+  [ -z "$locale" ] && [ -z "$kind" ] && [ -z "$mapping_file" ] || fatal "schema takes no flags
 $USAGE"
   key=${positional[0]}
-  require_locale "$locale"
   require_key "$key"
 
-  jq -n --arg key "$key" --arg locale "$locale" --arg heading "$(canonical_heading "$key" "$locale")" \
-    '{key: $key, locale: $locale, heading: $heading}'
+  printf '%s' "$TABLE_JSON" | jq --arg k "$key" --argjson markers "$(markers_json)" '
+    .[] | select(.key == $k)
+    | {key, headings, required_on, template_mappable, none_markers: ($markers[$k] // null)}'
 }
 
 cmd_list() {
-  local markers_json
   parse_flags "$@"
   [ "${#positional[@]}" -eq 0 ] && [ -n "$locale" ] && [ -n "$kind" ] || fatal "$USAGE"
   [ -z "$mapping_file" ] || fatal "list takes no --mapping
@@ -347,13 +351,7 @@ $USAGE"
   require_locale "$locale"
   require_kind "$kind"
 
-  # マーカー表を list でだけ組み立てるのは、他のサブコマンドが使わないため
-  markers_json=$(printf '%s\n' "$NONE_MARKER_TABLE" | jq -Rs --argjson locales "$LOCALES_JSON" '
-    split("\n") | map(select(length > 0)) | map(split("|"))
-    | map({key: .[0], value: ([$locales, .[1:]] | transpose | map({key: .[0], value: .[1]}) | from_entries)})
-    | from_entries')
-
-  jq -n --argjson table "$TABLE_JSON" --argjson markers "$markers_json" \
+  jq -n --argjson table "$TABLE_JSON" --argjson markers "$(markers_json)" \
     --arg locale "$locale" --arg kind "$kind" '
     {locale: $locale, kind: $kind,
      sections: ($table | map({
@@ -460,7 +458,7 @@ SCAN
 subcommand=$1
 shift
 case "$subcommand" in
-  heading) cmd_heading "$@" ;;
+  schema) cmd_schema "$@" ;;
   list) cmd_list "$@" ;;
   check) cmd_check "$@" ;;
   find) cmd_find "$@" ;;
