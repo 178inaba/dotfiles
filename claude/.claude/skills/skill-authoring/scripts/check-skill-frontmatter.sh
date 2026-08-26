@@ -34,10 +34,11 @@
 #   violations  上記の配列。各要素は type / file と、type ごとの詳細:
 #                 invalid_yaml   message  yq のエラー文。yq は --front-matter=extract で
 #                                         対象を temp ファイルへ展開してから読むため、生の
-#                                         エラーは temp パスを名指しする。それを剥がした
-#                                         残り（元のパスは同じレコードの file が持つ）。
-#                                         **message 中の行番号は抽出した frontmatter
-#                                         ブロック基準**でファイルの行番号ではない
+#                                         エラーが temp パスを名指しすることがある。その
+#                                         前置きを剥がした残り（元のパスは同じレコードの
+#                                         file が持つ）。**message 中の行番号は抽出した
+#                                         frontmatter ブロック基準**でファイルの行番号では
+#                                         ない
 #                 missing_field  field    欠けているフィールド名
 #                 name_mismatch  expected / actual
 #                 unquoted_flow  key / line（line はファイル先頭からの絶対行番号）
@@ -52,7 +53,8 @@
 # なし）は非ゼロ exit + 英語 stderr。
 #
 # 環境変数:
-#   YQ_BIN  yq の実行パス（既定 yq）。テストが「yq 欠如」を再現するための差し替え口
+#   YQ_BIN  yq の実行パス（既定 yq）。テストが「yq 欠如」と yq の出力そのものを再現する
+#           ための差し替え口
 
 set -u
 
@@ -98,8 +100,10 @@ check_file() {
   local parsed
   if ! parsed=$("$yq_bin" --front-matter=extract -o=json '.' "$file" 2>"$tmp_err"); then
     local message
-    # 生の形は `Error: bad file '<temp>': yaml: line N: ...`。temp パスを載せると読者が
-    # 元のファイルに辿り着けないので前置きごと剥がす
+    # 生の形は yq のバージョンで変わる。`Error: bad file '<temp>': <説明>`（<説明> は
+    # `yaml: line N: ...` 等）と、前置きの無い <説明> だけの形の両方を観測している。
+    # temp パスを載せると読者が元のファイルに辿り着けないので、前置きがあればそれごと
+    # 剥がす（無ければこの置換は no-op で、行全体が message になる）
     message=$(tr '\n' ' ' <"$tmp_err" \
       | sed -E -e "s/^Error: bad file '[^']*': //" -e 's/[[:space:]]+$//')
     emit --arg file "$rel" --arg message "$message" \
