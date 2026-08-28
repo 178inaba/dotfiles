@@ -62,7 +62,7 @@ RPC ごとに専用の request / response メッセージを定義するか、�
 | 選択肢 | 適する条件 | 代償 |
 |---|---|---|
 | RPC ごとの専用 request / response メッセージ（[Buf Style Guide](https://buf.build/docs/best-practices/style-guide/)） | メソッドごとに独立して進化させたい。1つのメソッドにだけフィールドを足す場面が想定される | メッセージの数が増える。同じリソースの表現が複数箇所に散る |
-| 標準メソッドがリソースメッセージ自体を返す（[AIP-131 系の標準メソッド](https://google.aip.dev/121)） | リソース指向で一貫させたい。リソースの表現を1箇所に集約したい | あるメソッドにだけ必要なフィールドを足すと、他の全メソッドのレスポンスにも現れる |
+| 標準メソッドがリソースメッセージ自体を返す（[AIP-121 の標準メソッド](https://google.aip.dev/121)） | リソース指向で一貫させたい。リソースの表現を1箇所に集約したい | あるメソッドにだけ必要なフィールドを足すと、他の全メソッドのレスポンスにも現れる |
 
 **同一サーフェス内で混在させない**ことが、どちらを選ぶかより重要。既存サーフェスがあるならその形に従う（SKILL.md のステップ5）。
 
@@ -70,14 +70,19 @@ RPC ごとに専用の request / response メッセージを定義するか、�
 
 一度クライアントに配ったフィールド番号・フィールド名・型は、こちらの都合で変えられない。破壊的変更の一覧は [AIP-180](https://google.aip.dev/180) と [protobuf.dev, Dos and Don'ts](https://protobuf.dev/best-practices/dos-donts/) が正。
 
-### 決して破ってはならないもの（proto）
+### 決して破ってはならないもの
+
+プロトコルに依らず成立する:
+
+- **フィールドの型を変えない**。表現が互換でも、生成コードの型が変わってクライアントのビルドが壊れる
+- **rename は削除 + 追加**であり破壊的変更。「識別子（番号）が同じなら安全」ではない — 名前はワイヤ上の JSON にも生成コードにも現れる
+- **新しい required なフィールドを足さない**。古いクライアントは送れないので、必ず失敗する
+- **意味の変更も破壊的**。既定値をシリアライズするかどうか、空とは何を意味するか、単位、タイムゾーンの扱い — 表現が変わらなくてもクライアントの挙動は変わる
+
+proto の罠（フィールド番号という追加の識別子を持つため）:
 
 - **フィールド番号を再利用しない**。削除したフィールドの番号を別の意味で使い回すと、古いクライアントが送ったバイト列が新しい意味で解釈される（型が偶然一致すると、エラーにもならず値が化ける）
 - **削除したフィールドと enum 値は `reserved` にする**（番号と名前の両方）。将来の誰かが再利用するのを、コンパイラに止めさせるため
-- **フィールドの型を変えない**。ワイヤ形式が互換でも、生成コードの型が変わってクライアントのビルドが壊れる
-- **rename は削除 + 追加**であり破壊的変更。JSON マッピングとコード生成の両方に名前が現れるため、「番号が同じなら安全」ではない
-- **新しい required なフィールドを足さない**。古いクライアントは送れないので、必ず失敗する
-- **意味の変更も破壊的**。既定値をシリアライズするかどうか、空とは何を意味するか、単位、タイムゾーンの扱い — ワイヤ形式が変わらなくてもクライアントの挙動は変わる
 
 ### 進化は加算的に
 
@@ -100,19 +105,24 @@ RPC ごとに専用の request / response メッセージを定義するか、�
 
 ## 3. フィールド設計と型
 
-### proto3: 基本型には `optional` を付ける
+### presence（「未設定」と「既定値」の区別）を設計で決める
 
-proto3 の基本型（数値・bool・string）は、`optional` を付けないと**明示的な presence を持たない** — `0`・`false`・`""` が「設定された既定値」なのか「未設定」なのかを区別できない。`optional` を付けることが公式の推奨で、ワイヤ互換性を保ったまま presence を得られる（[protobuf.dev, Field Presence](https://protobuf.dev/programming-guides/field_presence/)）。
+`0`・`false`・`""` が「設定された既定値」なのか「未設定」なのかを、契約として区別できるようにする。「今は区別が要らない」で省くと、必要になったときには presence を足す変更が意味の変更（2節）になっている。
 
-「今は区別が要らない」で省くと、必要になったときには presence を足す変更が意味の変更（2節）になっている。
+- **proto3**: 基本型（数値・bool・string）は `optional` を付けないと**明示的な presence を持たない**。`optional` を付けることが公式の推奨で、ワイヤ互換性を保ったまま presence を得られる（[protobuf.dev, Field Presence](https://protobuf.dev/programming-guides/field_presence/)）
+- **REST/JSON**: キーの不在（`undefined`）と `null` が別の状態になりうる。OpenAPI の `required` と null 許容の指定で、どちらが何を意味するかを明示する
 
-### enum は `_UNSPECIFIED = 0` から始める
+### enum の 0 値は「未設定」に予約する
 
-0 番の値は、未設定のフィールドで返る値でもある。ここに意味のある値（`ACTIVE` 等）を置くと、「未設定」と「その値」が区別できず、後から区別を足せない（[AIP-126 系の規約](https://google.aip.dev/140)、[Buf Style Guide](https://buf.build/docs/best-practices/style-guide/)）。
+中立の意図は、**未設定・未知を表す値を予約し、それを既定にする**こと。ここに意味のある値（`ACTIVE` 等）を置くと「未設定」と「その値」が区別できず、後から区別を足せない。古いクライアントが未知の値を受け取ったときの受け皿も無くなる。
+
+proto では 0 番の値がこれにあたり、`<ENUM 名>_UNSPECIFIED` と命名する（[AIP-126](https://google.aip.dev/126)、[Buf Style Guide](https://buf.build/docs/best-practices/style-guide/)）。例外は「未知」そのものが有用な値である場合で、`_UNSPECIFIED` と `UNKNOWN` を両方持つより `UNKNOWN` を 0 値にする方が明快になる。
 
 ### 状態が増えうるなら bool より enum
 
-`is_enabled` のような bool は、3つ目の状態（「保留中」「不明」「一部有効」）が必要になった瞬間に破綻する。bool から enum への変更は型の変更（2節）なので破壊的。**将来 3 状態以上がありうるなら最初から enum** にする。ここは先回りの一般化ではなく型の選択で、加算的な移行手段が無い点が `repeated` の話と違う。
+`is_enabled` のような bool は、3つ目の状態（「保留中」「不明」「一部有効」）が必要になった瞬間に破綻する。bool から enum への変更は型の変更（2節）なので破壊的で、移行は「新しい enum フィールドを追加して旧 bool を廃止」になる。**将来 3 状態以上がありうるなら最初から enum** にする。
+
+これが「先回りの一般化をしない」（2節）と逆を向いて見えるのは、**前払いコストが非対称**だから。2値の enum を最初から置くコストはほぼゼロ（クライアントは値を1つ分岐するだけ）なのに対し、先回りの `repeated` は「1件だけのはず」という不変条件を全クライアントに恒久的に背負わせる。判断は移行手段の有無ではなく、この前払いコストで決める。
 
 ### well-known / common types を使う
 
@@ -120,7 +130,9 @@ proto3 の基本型（数値・bool・string）は、`optional` を付けない�
 
 ### フィールドの振る舞いを明示宣言する
 
-そのフィールドが必須なのか、出力専用なのか、作成後に変更できないのかを**契約として宣言する**（[AIP-203](https://google.aip.dev/203) の `REQUIRED` / `OPTIONAL` / `OUTPUT_ONLY` / `IMMUTABLE` 等）。宣言しないと、この知識はサーバー実装とドキュメントに散り、クライアントは試行錯誤で発見することになる。
+そのフィールドが必須なのか、出力専用なのか、作成後に変更できないのかを**契約として宣言する**。宣言しないと、この知識はサーバー実装とドキュメントに散り、クライアントは試行錯誤で発見することになる。
+
+proto では [AIP-203](https://google.aip.dev/203) の `REQUIRED` / `OPTIONAL` / `OUTPUT_ONLY` / `IMMUTABLE` 等、OpenAPI では `required` / `readOnly` / `writeOnly` が対応する。
 
 ### 1つの「不在」に複数の意味を持たせない
 
@@ -141,7 +153,7 @@ proto3 の基本型（数値・bool・string）は、`optional` を付けない�
 | 選択肢 | 根拠 |
 |---|---|
 | snake_case（[Zalando RESTful API Guidelines](https://opensource.zalando.com/restful-api-guidelines/)） | IDL のフィールド名とワイヤ上の名前が一致し、変換の層が消える |
-| camelCase（[proto3 JSON mapping](https://protobuf.dev/programming-guides/proto3/)） | proto の JSON マッピングの既定。JavaScript のクライアントで自然に読める |
+| camelCase（[proto3 JSON mapping](https://protobuf.dev/programming-guides/proto3/#json)） | proto の JSON マッピングの既定。JavaScript のクライアントで自然に読める |
 
 **どちらでもよい。混在だけが誤り。** 対象サーフェスの支配的な慣習に従う（SKILL.md のステップ5）。新規サーフェスならどちらかを選んで全体に適用し、選択を文書に残す。
 
@@ -169,9 +181,11 @@ status code は**クライアントが分岐に使う機械可読な情報**で�
 | コード | 意味する状況 | 取り違えやすい相手 |
 |---|---|---|
 | `INVALID_ARGUMENT` | 引数そのものが、システムの状態に関わらず不正 | `FAILED_PRECONDITION`（引数は正しいが、今の状態では実行できない） |
-| `NOT_FOUND` | 指定されたリソースが存在しない | `PERMISSION_DENIED`（存在を隠す設計判断としてあえて `NOT_FOUND` を返す場合は、その方針を文書化する） |
+| `NOT_FOUND` | 指定されたリソースが存在しない | `PERMISSION_DENIED` |
 | `FAILED_PRECONDITION` | 状態が変われば成功しうるが、**リトライしても今は成功しない** | `UNAVAILABLE`（そのままリトライすれば成功しうる） |
 | `UNAVAILABLE` | 一時的な障害。**そのままリトライしてよい** | `INTERNAL`（サーバー側のバグ。リトライしても直らない） |
+
+存在を隠す設計判断として、権限が無いリソースにあえて `NOT_FOUND` を返すことはある。その場合は方針を文書化する（さもないと、後の実装者が「バグ」として `PERMISSION_DENIED` に直す）。
 
 ### 機械可読なエラー詳細を載せる
 
@@ -183,9 +197,11 @@ status code は**クライアントが分岐に使う機械可読な情報**で�
 
 REST では、エラーの本文を独自形式で作らず [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) の problem details（`application/problem+json`）に従う。`type`・`title`・`status`・`detail`・`instance` という共通の枠があるため、クライアント側のライブラリ・ミドルウェアがそのまま扱える。追加の情報は拡張メンバーとして足す。
 
-### 200 にエラーをトンネルしない
+### 成功のステータスにエラーをトンネルしない
 
-`200 OK` の本文に `{"success": false, ...}` を入れる形は、HTTP のセマンティクスを無効化する。中間のプロキシ・キャッシュ・監視・クライアントのライブラリはすべてステータスコードでエラーを判定しているため、成功として計上され、キャッシュされ、アラートに出ない。**失敗は失敗のステータスコードで返す**。
+`200 OK` の本文に `{"success": false, ...}` を入れる形は、HTTP のセマンティクスを無効化する。中間のプロキシ・キャッシュ・監視・クライアントのライブラリはすべてステータスコードでエラーを判定しているため、成功として計上され、キャッシュされ、アラートに出ない。
+
+gRPC でも同じで、`OK` を返してレスポンスメッセージ内の `error` フィールドや `success` フラグで失敗を表すと、生成クライアントのエラーハンドリング・リトライ機構・メトリクスがすべて素通りする。**失敗は、そのプロトコルが持つ失敗チャネルで返す**。
 
 ## 6. 冪等性と部分更新
 
@@ -227,6 +243,7 @@ REST では、エラーの本文を独自形式で作らず [RFC 9457](https://w
 
 - [AIP-121, Resource-oriented design](https://google.aip.dev/121) — リソース指向の原則、DB スキーマと同一の API がアンチパターンである根拠
 - [AIP-122, Resource names](https://google.aip.dev/122) — リソース名の恒久性、参照を文字列で持つ理由
+- [AIP-126, Enumerations](https://google.aip.dev/126) — enum の 0 値の予約と命名、`UNKNOWN` の例外
 - [AIP-134, Standard methods: Update](https://google.aip.dev/134) — field mask による部分更新
 - [AIP-136, Custom methods](https://google.aip.dev/136) — 標準メソッドで表せない操作の扱い
 - [AIP-140, Field names](https://google.aip.dev/140) — 命名規約（casing・前置詞・修飾語の位置・単位）
