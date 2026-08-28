@@ -319,7 +319,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
    - Issue番号指定時: `Closes #<issue-number>` を含める
    - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of #<parent>` を書く（`parent.same_repo: false` なら `Part of <parent.repo>#<parent>`。別リポの親は兄弟が取れず `all_siblings_closed` が false のままなので `Closes` は付かない）。**PR 作成直前に `bash ~/.claude/scripts/issue-hierarchy.sh <issue-number>` を再実行**し、`all_siblings_closed: true` かつ計画の親 close 方針が `PR で閉じてよい` なら `Closes #<parent>` も書く。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
    - **draft 不変条件の確認**（PR 作成/更新後に無条件で実行。`gh pr view --json number,isDraft` と `gh repo view --json nameWithOwner -q .nameWithOwner` で `<pr-number>` / `<owner/repo>` を確定し、7-1・7-3 でも取り直さず使い回す）:
-     - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）。`/git-pr` は既存 PR の更新経路で draft 化しないため、再開シナリオ・手動作成の PR はここでしか回復できない
+     - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）。`/git-pr` は既存 PR の更新経路で draft 化しないため、再開シナリオ・手動作成の PR はこの確認が回復を担う（ステップ6を経由しない再開は 7-1 で同じ確認を行う）
      - undo が失敗した場合は停止せず、レビューループ中も PR が draft でないことを警告として報告に残す
 
 7. **独立セッションでのレビュー → 親での自動修正**
