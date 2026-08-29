@@ -29,11 +29,17 @@ argument-hint: "[--base BASE_BRANCH] [--draft]"
 
 ### 1. 状態確認・プッシュ
 1. `git status` で現在のブランチと未プッシュコミットを確認
-2. 未プッシュのコミットがあれば、`git rev-parse --abbrev-ref @{u}` でupstreamの有無を確認してプッシュ（非ゼロexit = upstreamなし）
-   - **upstreamなし**（初回プッシュ）: `git push -u origin HEAD`（**この引数形そのまま**。何も付け足さない）
-   - **upstreamあり**: `git push`
+2. 未プッシュのコミットがあれば、upstreamが現在のブランチ自身を指しているかを確認してプッシュ
+
+   ```bash
+   [ "$(git rev-parse --abbrev-ref @{u} 2>/dev/null)" = "origin/$(git branch --show-current)" ]
+   ```
+
+   - **偽**（upstream未設定、または別ブランチを指す = 初回プッシュ）: `git push -u origin HEAD`（**この引数形そのまま**。何も付け足さない）
+   - **真**: `git push`
+   - upstreamの**有無**ではなく**一致**で判定する理由: `git switch -c <新ブランチ> origin/main` で作ったブランチはupstreamが `origin/main` のまま残る。有無だけで見ると初回プッシュが素の `git push` に落ち、`push.default=simple` に拒否されてブランチが作られない
    - 形を固定する理由: 許可ルール `Bash(git push -u origin HEAD)` は完全一致で、ブランチ名を綴った形は一致せず毎回permission promptに落ちる。かといってprefixルールに広げると `--force` の併記・`+<refspec>` まで自動承認されてしまう
-   - upstreamの有無で分ける理由: `-u origin HEAD` は常に使っても動くが、リモートブランチを作成しうる形を実際に作成が起きるプッシュだけに限定するため
+   - 分岐する理由: `-u origin HEAD` は常に使っても動くが、リモートブランチを作成しうる形を実際に作成が起きるプッシュだけに限定するため
 3. `gh pr list --head [current-branch]` で既存PRの有無を確認
 
 ### 2. 差分確認
