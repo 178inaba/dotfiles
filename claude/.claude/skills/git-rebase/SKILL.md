@@ -1,12 +1,12 @@
 ---
 name: git-rebase
-description: PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消
+description: PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消して `--force-with-lease` でプッシュ
 disable-model-invocation: true
 ---
 
 # /git-rebase
 
-PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消
+PRのベースブランチへrebaseし、コンフリクトが発生したら自動解消して `--force-with-lease` でプッシュ
 
 ## 使用方法
 ```
@@ -31,7 +31,7 @@ PR文脈はコンフリクト解消時の判断材料として使用。
 ### 4. rebase実行
 5. `git status` で未コミット変更がないことを確認（あればユーザーに確認）
 6. `git rebase origin/[branch-name]` を実行
-7. コンフリクトなく完了した場合は完了確認へ
+7. コンフリクトなく完了した場合は完了確認とプッシュへ
 
 ### 5. コンフリクト自動解消
 コンフリクトが発生した場合、以下を繰り返す：
@@ -46,10 +46,16 @@ PR文脈はコンフリクト解消時の判断材料として使用。
 11. `git rebase --continue` で次のコミットへ進む
 12. さらにコンフリクトが発生したら 8 から繰り返す
 
-### 6. 完了確認
+### 6. 完了確認とプッシュ
 13. `git status` でクリーンな状態を確認
 14. `git log --oneline -10` でrebase後の履歴を確認
-15. ユーザーに結果を報告（プッシュは `/git-pr` または `git push --force-with-lease` で別途実行）
+15. `git rev-parse --abbrev-ref @{u}` でupstreamの有無を確認（非ゼロexit = upstreamなし）
+    - **upstreamなし**（一度もpushしていない・PRが無い）: プッシュしない。rebase結果を報告し、初回pushを行う `/git-pr` を案内して終了する
+16. `git push --force-with-lease` でプッシュ（**この引数形そのまま**。何も付け足さない）
+    - 形を固定する理由: 許可ルール `Bash(git push --force-with-lease)` は完全一致で、prefixルールにすると `--force` の併記・`+<refspec>`・`=<ref>:<sha>` がleaseを無効化してリモートを上書きできてしまうため（3形とも実測で `forced update` になったためprefixルールは不採用）
+    - **`stale info` で拒否された**（rebase中にリモートのbranchが動いた）: リトライしない。fetchし直しての再rebaseもしない。拒否出力を添えてユーザーに報告して停止する（相手側の変更を取り込むかはユーザーの判断）
+    - **その他の失敗**（認証・ネットワーク・保護ブランチ等）: リトライせず、出力をそのままユーザーに報告して停止する
+17. ユーザーに結果（rebase内容とプッシュ結果）を報告
 
 ## 自動解消の判断基準
 
@@ -64,5 +70,5 @@ PR文脈はコンフリクト解消時の判断材料として使用。
 
 ## 注意事項
 1. rebase中の中断: `git rebase --abort` で元の状態に戻せることを把握しておく
-2. force push: rebase後はリモートと履歴が乖離するため、push時は `--force-with-lease` を使用（`--force` は避ける）
+2. force push: rebase後はリモートと履歴が乖離するため、本スキル自身がステップ16で `git push --force-with-lease` を使ってプッシュする。`--force` は使わない（leaseによる上書き防止が無効になるため）
 3. 共有ブランチでの注意: 他者と共有しているブランチでは事前確認が望ましい
