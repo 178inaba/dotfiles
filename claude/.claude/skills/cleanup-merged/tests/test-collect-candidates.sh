@@ -70,11 +70,13 @@ git merge -q merged-nopr
 git push -q origin main 2>/dev/null
 
 # pr-merged-br: ローカル未マージだが PR は MERGED → pr_merged 候補
+# headRefOid == ローカル head なので「マージされた head と一致」ケースの検証も兼ねる
 git switch -qc pr-merged-br
 commit_file b.txt b
 git push -q -u origin pr-merged-br 2>/dev/null
 git switch -q main
-printf '[{"number":123,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/pr-merged-br.json"
+printf '[{"number":123,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/pr-merged-br)" > "$TMP/prdata/pr-merged-br.json"
 
 # inflight: 未マージ・PR なし → どこにも出ない（in-flight 保持）
 git switch -qc inflight
@@ -88,7 +90,10 @@ commit_file d.txt d
 git push -q -u origin unpushed-br 2>/dev/null
 commit_file d2.txt d2
 git switch -q main
-printf '[{"number":124,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/unpushed-br.json"
+# headRefOid に未 push commit を含むローカル head を与える。実在の PR では起こりえない状態だが、
+# マージ済み head 照合を通過させて unpushed_commits のアサーションを元の経路のまま残すため
+printf '[{"number":124,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/unpushed-br)" > "$TMP/prdata/unpushed-br.json"
 
 # develop: main にマージ済みでも保護 branch として常に除外
 git branch -q develop main
@@ -121,6 +126,29 @@ git switch -q main
 printf '[{"number":10,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
   "$(git rev-parse closed-noup)" > "$TMP/prdata/closed-noup.json"
 
+# merged-local-ahead: MERGED PR + マージ後に push した commit あり → skip（PR #98 で実際に起きた
+# データ喪失の再現。unpushed / no_upstream のどのセーフティにも掛からないため専用の判定が要る）
+git switch -qc merged-local-ahead
+commit_file n.txt n
+git push -q -u origin merged-local-ahead 2>/dev/null
+printf '[{"number":127,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/merged-local-ahead)" > "$TMP/prdata/merged-local-ahead.json"
+commit_file n2.txt n2
+git push -q origin merged-local-ahead 2>/dev/null
+git switch -q main
+
+# merged-local-behind: MERGED PR + ローカル head がマージされた head の祖先（単に behind）→ 候補
+# reset で外した commit はオブジェクト DB に残るため --is-ancestor が解決できる
+git switch -qc merged-local-behind
+commit_file o.txt o
+git push -q -u origin merged-local-behind 2>/dev/null
+commit_file o2.txt o2
+merged_behind_oid=$(git rev-parse refs/heads/merged-local-behind)
+git reset -q --hard HEAD~1
+git switch -q main
+printf '[{"number":128,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","headRefOid":"%s"}]\n' \
+  "$merged_behind_oid" > "$TMP/prdata/merged-local-behind.json"
+
 # closedmerged: CLOSED だが mergedAt 非 null → 除外（未マージ CLOSED への絞り込みの検証）
 git switch -qc closedmerged
 commit_file f.txt f
@@ -144,12 +172,14 @@ git push -q origin main 2>/dev/null
 # wt-dirty: PR は MERGED だが未コミット変更あり → skip
 git worktree add -q "$TMP/wt-dirty" -b wt-dirty main
 printf 'dirty\n' > "$TMP/wt-dirty/dirty.txt"
-printf '[{"number":125,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/wt-dirty.json"
+printf '[{"number":125,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/wt-dirty)" > "$TMP/prdata/wt-dirty.json"
 
 # wt-noupstream: PR は MERGED だが upstream 未設定 & 自前 commit あり → skip（branch 側と同じ保険）
 git worktree add -q "$TMP/wt-noupstream" -b wt-noupstream main
 (cd "$TMP/wt-noupstream" && commit_file h.txt h)
-printf '[{"number":126,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z"}]\n' > "$TMP/prdata/wt-noupstream.json"
+printf '[{"number":126,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/wt-noupstream)" > "$TMP/prdata/wt-noupstream.json"
 
 # wt-detached: detached HEAD の worktree → detached として別枠報告
 git worktree add -q --detach "$TMP/wt-detached" main
@@ -177,6 +207,14 @@ git worktree add -q "$TMP/wt-closed-noup" -b wt-closed-noup main
 (cd "$TMP/wt-closed-noup" && commit_file l.txt l)
 printf '[{"number":12,"state":"CLOSED","mergedAt":null,"headRefOid":"%s"}]\n' \
   "$(git rev-parse refs/heads/wt-closed-noup)" > "$TMP/prdata/wt-closed-noup.json"
+
+# wt-merged-ahead: merged-local-ahead と同じ状況を worktree で。worktree も judge_branch を通るため
+# 同じ判定が効くこと（かつセーフティチェックより先に評価されること）の検証
+git worktree add -q "$TMP/wt-merged-ahead" -b wt-merged-ahead main
+(cd "$TMP/wt-merged-ahead" && commit_file p.txt p && git push -q -u origin wt-merged-ahead 2>/dev/null)
+printf '[{"number":129,"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","headRefOid":"%s"}]\n' \
+  "$(git rev-parse refs/heads/wt-merged-ahead)" > "$TMP/prdata/wt-merged-ahead.json"
+(cd "$TMP/wt-merged-ahead" && commit_file p2.txt p2 && git push -q origin wt-merged-ahead 2>/dev/null)
 
 # --- 実行 ---
 out_normal=$(bash "$SCRIPT")
@@ -226,8 +264,9 @@ assert_exit 'exit code 0' "$normal_exit" 0
 # 通常モード
 assert 'merged_no_pr candidate detected' "$out_normal" \
   'any(.candidates.branches[]; .branch == "merged-nopr" and .verdict == "merged_no_pr")'
+# detail は完全一致で見る: cls から番号を切り出し損ねると head OID が detail に混入するため
 assert 'pr_merged candidate with PR number' "$out_normal" \
-  'any(.candidates.branches[]; .branch == "pr-merged-br" and .verdict == "pr_merged" and (.detail | contains("123")))'
+  'any(.candidates.branches[]; .branch == "pr-merged-br" and .verdict == "pr_merged" and .detail == "PR #123 MERGED")'
 assert 'in-flight branch absent everywhere' "$out_normal" \
   '([.candidates.branches[].branch] | index("inflight") | not) and ([.skipped[].target] | index("inflight") | not)'
 assert 'unpushed commits skipped' "$out_normal" \
@@ -258,6 +297,12 @@ assert 'dirty pr_closed worktree skipped' "$out_normal" \
   'any(.skipped[]; .type == "worktree" and .branch == "wt-closed-dirty" and .reason == "uncommitted_changes")'
 assert 'clean no-upstream pr_closed worktree is candidate' "$out_normal" \
   'any(.candidates.worktrees[]; .branch == "wt-closed-noup" and .verdict == "pr_closed")'
+assert 'commits beyond merged PR head skipped with reason' "$out_normal" \
+  'any(.skipped[]; .type == "branch" and .target == "merged-local-ahead" and .reason == "commits_beyond_merged_pr" and (.detail | contains("127") and contains("add n2.txt"))) and ([.candidates.branches[].branch] | index("merged-local-ahead") | not)'
+assert 'local head behind merged PR head still candidate' "$out_normal" \
+  'any(.candidates.branches[]; .branch == "merged-local-behind" and .verdict == "pr_merged") and ([.skipped[].target] | index("merged-local-behind") | not)'
+assert 'worktree with commits beyond merged PR head skipped' "$out_normal" \
+  'any(.skipped[]; .type == "worktree" and .branch == "wt-merged-ahead" and .reason == "commits_beyond_merged_pr") and ([.candidates.worktrees[].branch] | index("wt-merged-ahead") | not)'
 assert_exit '--include-closed flag rejected' "$removed_flag_exit" 1
 
 # 使用中 worktree

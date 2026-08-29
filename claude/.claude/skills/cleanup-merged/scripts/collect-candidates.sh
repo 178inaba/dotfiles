@@ -76,7 +76,9 @@ judge_skip=""
 judge_skip_detail=""
 judge_head_oid=""
 judge_branch() {
-  local branch=$1 prs cls num oid local_head
+  local branch=$1 prs cls num oid local_head beyond beyond_count
+  # detail に載せる commit の最大件数（超過分は「他 N 件」に丸める）
+  local max_beyond=5
   verdict=""
   detail=""
   judge_skip=""
@@ -84,7 +86,8 @@ judge_branch() {
   judge_head_oid=""
   if [ "$degraded" = false ]; then
     if prs=$("$GH_BIN" pr list --head "$branch" --state all --json number,state,mergedAt,headRefOid --limit 20 -R "$repo" 2>/dev/null); then
-      # 1パスで分類: "open" / "merged <番号>" / "no_pr" / "has_pr <未マージCLOSED番号|空> <head OID|空>"
+      # 1パスで分類: "open" / "merged <番号> <head OID|空>" / "no_pr"
+      #             / "has_pr <未マージCLOSED番号|空> <head OID|空>"
       # - OPEN の PR がある branch は他の判定より優先して in-flight 扱い
       #   （MERGED/CLOSED な旧 PR が併存していても、進行中の作業を削除候補にしない）
       # - gh の CLOSED には MERGED も含まれるため mergedAt == null で未マージのみに絞る
@@ -92,7 +95,8 @@ judge_branch() {
         if any(.[]; .state == "OPEN") then
           "open"
         elif any(.[]; .state == "MERGED") then
-          "merged \([.[] | select(.state == "MERGED")][0].number)"
+          [.[] | select(.state == "MERGED")][0] as $m
+            | "merged \($m.number) \($m.headRefOid // "")"
         elif length == 0 then
           "no_pr"
         else
@@ -101,8 +105,30 @@ judge_branch() {
         end' 2>/dev/null)
       case "$cls" in
         merged\ *)
-          verdict="pr_merged"
-          detail="PR #${cls#merged } MERGED"
+          read -r num oid <<<"${cls#merged }"
+          # マージ済み PR でも、ローカル head がマージされた head と同じかその祖先（単に behind）
+          # のときだけ削除して安全。マージ後に feature branch へ push された commit は unpushed 系
+          # のどのチェックにも掛からず（upstream にはある）、branch -d も upstream 基準で成功する
+          # ため、ここで直接照合しないと最後のローカル参照が silent に消える。
+          # --is-ancestor の非ゼロ exit（祖先でない: 1 / OID がローカルに無い: 128）は
+          # すべて skip 側に倒す。refs/heads/ 明示は pr_closed 経路と同じタグ shadowing 対策
+          if [ -n "$oid" ] && git merge-base --is-ancestor "refs/heads/$branch" "$oid" 2>/dev/null; then
+            verdict="pr_merged"
+            detail="PR #$num MERGED"
+          else
+            judge_skip="commits_beyond_merged_pr"
+            if [ -n "$oid" ] && git rev-parse --verify --quiet "$oid^{commit}" >/dev/null; then
+              # detail は端末の一覧表示用なので先頭数件 + 残件数に丸める
+              beyond_count=$(git rev-list --count "$oid..refs/heads/$branch" 2>/dev/null)
+              beyond=$(git log --oneline -n "$max_beyond" "$oid..refs/heads/$branch" 2>/dev/null)
+              beyond=${beyond//$'\n'/, }
+              [ "${beyond_count:-0}" -gt "$max_beyond" ] &&
+                beyond="$beyond, 他 $((beyond_count - max_beyond)) 件"
+              judge_skip_detail="PR #$num MERGED だがマージされた head より先の commit あり: $beyond"
+            else
+              judge_skip_detail="PR #$num MERGED だがマージされた head (${oid:-不明}) がローカルに存在しない"
+            fi
+          fi
           ;;
         no_pr)
           if contains_line "$merged_branches" "$branch"; then
