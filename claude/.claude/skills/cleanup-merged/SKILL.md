@@ -57,7 +57,7 @@ bash ~/.claude/skills/cleanup-merged/scripts/collect-candidates.sh
   - `detail` はそのまま一覧表示の「判定」欄に使える文字列
   - `is_current: true` はセッションが今いる worktree / チェックアウト中の branch。削除前に手順 3 の「カレント処理」が必要
   - `head_oid` は `pr_closed` のみ非空（照合済み OID）。delete スクリプトが `-D` 直前に再照合するため、候補を間引く際も落とさず渡すこと
-- **`skipped`**: セーフティチェックで弾かれた対象。`reason` は機械用コード、`detail` はそのまま一覧表示に使える文字列。`branch` フィールドは `type: "worktree"` のみ付与。`local_commits_beyond_pr` は「CLOSED 未マージ PR があるが PR に含まれないローカル commit を持つ」ケース。`in_use_by_process` は「別プロセス（他の Claude Code セッション・シェル等）が cwd にしている worktree」で、detail のプロセス名と PID を見て手動で判断する（カレント worktree 自身はこの検査を免除され `is_current` 候補になる）
+- **`skipped`**: セーフティチェックで弾かれた対象。`reason` は機械用コード、`detail` はそのまま一覧表示に使える文字列。`branch` フィールドは `type: "worktree"` のみ付与。`local_commits_beyond_pr` は「CLOSED 未マージ PR があるが PR に含まれないローカル commit を持つ」ケース。`commits_beyond_merged_pr` は「PR は MERGED だが、ローカル head がマージされた PR head と一致もその祖先（behind）もしていない」ケースで、マージ後に feature branch へ push した commit がある・乖離している・PR head がローカルに無い場合が該当する（`detail` にその commit 一覧が載る）。`in_use_by_process` は「別プロセス（他の Claude Code セッション・シェル等）が cwd にしている worktree」で、detail のプロセス名と PID を見て手動で判断する（カレント worktree 自身はこの検査を免除され `is_current` 候補になる）
 - **`detached`**: detached HEAD の worktree（branch が無く削除判定できないため別枠報告）
 - **`degraded: true`**: `gh` 不通でオフライン判定のみ（PR 情報なし。`pr_closed` は PR head 照合ができないため候補に出ない）。一覧のヘッダーに「オフライン判定（PR 情報なし）」と警告を出すこと
 - **`warnings`**: fetch 失敗等の注記。空でなければ一覧に併記する
