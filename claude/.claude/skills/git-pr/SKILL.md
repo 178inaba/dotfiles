@@ -29,7 +29,11 @@ argument-hint: "[--base BASE_BRANCH] [--draft]"
 
 ### 1. 状態確認・プッシュ
 1. `git status` で現在のブランチと未プッシュコミットを確認
-2. 未プッシュのコミットがあれば `git push -u origin [current-branch]` でプッシュ
+2. 未プッシュのコミットがあれば、`git rev-parse --abbrev-ref @{u}` でupstreamの有無を確認してプッシュ（非ゼロexit = upstreamなし）
+   - **upstreamなし**（初回プッシュ）: `git push -u origin HEAD`（**この引数形そのまま**。何も付け足さない）
+   - **upstreamあり**: `git push`
+   - 形を固定する理由: 許可ルール `Bash(git push -u origin HEAD)` は完全一致で、ブランチ名を綴った形は一致せず毎回permission promptに落ちる。かといってprefixルールに広げると `--force` の併記・`+<refspec>` まで自動承認されてしまう。argvを定数にしているのが `HEAD` で、これが完全一致とブランチ名解決を両立させている
+   - upstreamの有無で分ける理由: `-u origin HEAD` は常に使っても動くが、リモートブランチを作成しうる形を実際に作成が起きるプッシュだけに限定するため
 3. `gh pr list --head [current-branch]` で既存PRの有無を確認
 
 ### 2. 差分確認
