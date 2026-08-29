@@ -52,6 +52,7 @@ PR文脈はコンフリクト解消時の判断材料として使用。
 15. `git rev-parse --abbrev-ref @{u}` でupstreamの有無を確認（非ゼロexit = upstreamなし）
     - **upstreamなし**（一度もpushしていない・PRが無い）: プッシュしない。rebase結果を報告し、初回pushを行う `/git-pr` を案内して終了する
 16. `git push --force-with-lease` でプッシュ（**この引数形そのまま**。何も付け足さない）
+    - **プッシュ前のゲート**: ステップ1で得たローカルHEADとPRの最新head（`headRefOid`）の整合が **behind / diverged / 方向不明** だった場合はプッシュしない。乖離の内容を報告して停止する（rebase開始時点でリモートに未取得のcommitがあったということで、注意事項4のとおりleaseでは止まらない）。PRが無く整合を判定できない場合はゲートを適用せずleaseに委ねる
     - 形を固定する理由: 許可ルール `Bash(git push --force-with-lease)` は完全一致で、prefixルールにすると `--force` の併記・`+<refspec>`・`=<ref>:<sha>` がleaseを無効化してリモートを上書きできてしまうため（3形とも実測で `forced update` になったためprefixルールは不採用）
     - **`stale info` で拒否された**（rebase中にリモートのbranchが動いた）: リトライしない。fetchし直しての再rebaseもしない。拒否出力を添えてユーザーに報告して停止する（相手側の変更を取り込むかはユーザーの判断）
     - **その他の失敗**（認証・ネットワーク・保護ブランチ等）: リトライせず、出力をそのままユーザーに報告して停止する
@@ -72,3 +73,4 @@ PR文脈はコンフリクト解消時の判断材料として使用。
 1. rebase中の中断: `git rebase --abort` で元の状態に戻せることを把握しておく
 2. force push: rebase後はリモートと履歴が乖離するため、本スキル自身がステップ16で `git push --force-with-lease` を使ってプッシュする。`--force` は使わない（leaseによる上書き防止が無効になるため）
 3. 共有ブランチでの注意: 他者と共有しているブランチでは事前確認が望ましい
+4. leaseの限界: 引数なしの `--force-with-lease` はremote-tracking ref（`origin/[branch-name]`）をleaseに使うため、**リモートの更新をfetch済みで手元に取り込んでいない場合はpushが通ってしまう**（leaseがfetch後のrefと一致するため）。このリポジトリではレビュー系スクリプト（`check-pr-freshness.sh`・`resolve-pr-worktree.sh`）がPRのhead branchをfetchし、remote-tracking refは全worktree・全セッションで共有されるため、この経路は現実に成立する。ステップ16のプッシュ前ゲートがこの穴を塞ぐ役割で、判定にAPI由来の `headRefOid` を使うのはfetchの影響を受けないため
