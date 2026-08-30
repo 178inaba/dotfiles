@@ -31,6 +31,7 @@
       "Bash(git push --force-with-lease)",
       "Bash(git switch:*)",
       "Bash(git symbolic-ref:*)",
+      "Bash(go -C go install ./cmd/ccx)",
       "Bash(go build:*)",
       "Bash(go doc:*)",
       "Bash(go env:*)",
@@ -203,7 +204,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "~/.claude/statusline.sh",
+    "command": "~/go/bin/ccx statusline",
     "refreshInterval": 5
   },
   "extraKnownMarketplaces": {
