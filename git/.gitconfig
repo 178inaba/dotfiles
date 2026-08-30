@@ -52,6 +52,7 @@
 	# `git switch -c feature/x origin/main` が origin/main を upstream として
 	# 引き継ぐのを防ぐ。これにより引数なし push が名前不一致で落ちなくなり、
 	# `@{u}` の解決失敗が「一度も push していない」ことの判定として使える。
+	# その判定の消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15。
 	autoSetupMerge = simple
 [pull]
 	rebase = false
@@ -61,8 +62,10 @@
 	# ブランチだけを進める」ことに依存しているため、既定任せにせず明示する
 	# （core.excludesFile と同じ「既定と同値でも明示する」理由）。
 	# autoSetupRemote は upstream 未設定のときだけ初回 push でリモート
-	# ブランチを作って upstream を張る。両キーが担保する不変条件は
-	# claude/.claude/rules/hooks-design.md「許可ルールの設計意図」を参照。
+	# ブランチを作って upstream を張る。
+	# 両キーを前提にしている許可ルール（完全一致で維持する理由と、広げたときに
+	# 無言で防御が外れる仕組み）は claude/.claude/rules/hooks-design.md の
+	#「許可ルールの設計意図」を参照。
 	default = simple
 	autoSetupRemote = true
 [fetch]

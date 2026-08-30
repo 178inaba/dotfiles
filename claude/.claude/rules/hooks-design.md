@@ -2,6 +2,7 @@
 paths:
   - "**/.claude/hooks/**"
   - "**/.claude/settings.json"
+  - "**/.gitconfig"
   - "**/.local/shims/**"
 ---
 
@@ -22,4 +23,4 @@ paths:
 
 `settings.json` は JSON でコメントを持てないため、ルールの形そのものが不変条件を担っている箇所をここに記録する（`permissions.allow` を編集するときはこの節を先に読む）。
 
-- **`Bash(git push)` と `Bash(git push --force-with-lease)` は完全一致のまま維持し、`:*` を付けたり `Bash(git push:*)` に統合したりしない**。前者は「引数なしの push は現在ブランチと同名のリモートブランチを非 force で進めるだけ（無ければ作成する）で、リモート履歴は決して書き換えられない」ことに依存し、後者は `git push --force-with-lease` という argv そのものだけを許可することに依存している。`--force-with-lease` に prefix を許すと `--force` の併記・`+<refspec>`・`=<ref>:<sha>` が通り、いずれも lease を無効化してリモートを上書きできる（使い捨ての bare リポジトリで実測。3形とも `forced update` になり、素の `--force-with-lease` だけが `stale info` で拒否された）。`Bash(git push:*)` への統合は加えて `git push --force` と `git push --delete` まで自動承認する。**この設計の唯一の劣化経路がルールの拡大**である点に注意 — スキル本文の記述がずれた場合・エントリが消えた場合はいずれも permission prompt に落ちて気付けるが、ルールを広げた場合だけは無言で防御が外れる。この「同名・非 force・作成はしうるが書き換えはしない」を成立させているのは `git/.gitconfig` の `push.default = simple`（同名のリモートブランチにだけ push する）と `push.autoSetupRemote = true`（upstream 未設定のときだけ初回 push でリモートブランチを作って upstream を張る）で、両キーはこのルールの前提である — 変更・削除するときはこの節を先に読む（gitconfig 側の `[push]` コメントからも本節を指している）。消費者は `/git-rebase`（`claude/.claude/skills/git-rebase/SKILL.md` のステップ16が argv をこの形に固定している）と `/git-pr`（`claude/.claude/skills/git-pr/SKILL.md` のステップ2が引数なしの形に固定している）
+- **`Bash(git push)` と `Bash(git push --force-with-lease)` は完全一致のまま維持し、`:*` を付けたり `Bash(git push:*)` に統合したりしない**。前者は「引数なしの push は現在ブランチと同名のリモートブランチを非 force で進めるだけ（無ければ作成する）で、リモート履歴は決して書き換えられない」ことに依存し、後者は `git push --force-with-lease` という argv そのものだけを許可することに依存している。`--force-with-lease` に prefix を許すと `--force` の併記・`+<refspec>`・`=<ref>:<sha>` が通り、いずれも lease を無効化してリモートを上書きできる（使い捨ての bare リポジトリで実測。3形とも `forced update` になり、素の `--force-with-lease` だけが `stale info` で拒否された）。`Bash(git push:*)` への統合は加えて `git push --force` と `git push --delete` まで自動承認する。**この設計の唯一の劣化経路がルールの拡大**である点に注意 — スキル本文の記述がずれた場合・エントリが消えた場合はいずれも permission prompt に落ちて気付けるが、ルールを広げた場合だけは無言で防御が外れる。前者の保証を成立させているのは `git/.gitconfig` の `push.default = simple` と `push.autoSetupRemote = true` で、両キーはこのルールの前提だから変更・削除するときはこの節を先に読む（本節の `paths:` が `.gitconfig` を含むのはこのため）。ただし保証は絶対ではなく、リポジトリローカルの `remote.<name>.push` に `+refs/heads/*:refs/heads/*` を置くと引数なし push でも `forced update` になる（使い捨ての bare リポジトリで実測）。それでも上記の「唯一の劣化経路」が崩れないのは、`git config` / `git remote` が許可リストに無く、仕込むには permission prompt を通る必要があるため — 無言で外れるのはルールを広げた場合だけという性質は変わらない。消費者は `/git-rebase`（`claude/.claude/skills/git-rebase/SKILL.md` のステップ16が argv をこの形に固定している）と `/git-pr`（`claude/.claude/skills/git-pr/SKILL.md` のステップ2が引数なしの形に固定している）
