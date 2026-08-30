@@ -19,6 +19,10 @@ $ zsh -l
 $ gh auth login
 ```
 
+`git` must be 2.37 or newer, which the `brew install` above satisfies:
+`git/.gitconfig` sets `branch.autoSetupMerge = simple`, and older git dies with
+`bad boolean config value` on every command.
+
 `gh`, `jq` and `yq` are required by the Claude Code scripts (hooks, skills, statusline).
 Run `gh auth login` to authenticate the GitHub CLI after installing.
 
