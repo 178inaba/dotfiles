@@ -48,16 +48,14 @@
 [branch]
 	# origin/main から切ったブランチが origin/main を追うと、引数なし push が
 	# 名前不一致で落ち、`@{u}` の有無で「一度も push していない」を判定できなくなる
-	# （消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15）。
-	# simple は git 2.37 以降が必須（古い git は無視せず全コマンドが die する）。
+	# （消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15）。要 git 2.37+。
 	autoSetupMerge = simple
 [pull]
 	rebase = false
 [push]
-	# default は既定と同値だが、許可ルール `Bash(git push)` が「引数なし push は
-	# 同名のリモートブランチだけを非 force で進める」ことに依存するため明示する。
-	# autoSetupRemote は初回 push で upstream を張り、`-u origin` を不要にする。
-	# 許可ルール側の設計意図は claude/.claude/rules/hooks-design.md を参照。
+	# 許可ルール `Bash(git push)` が「引数なし push は同名のリモートブランチだけを
+	# 非 force で進める」ことに依存する（設計意図は claude/.claude/rules/hooks-design.md）。
+	# default は既定と同値でも明示し、autoSetupRemote が初回 push の upstream を張る。
 	default = simple
 	autoSetupRemote = true
 [fetch]
