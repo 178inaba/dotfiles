@@ -256,16 +256,21 @@ func TestRunRebuildsAndReExecs(t *testing.T) {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
 	}
 
-	want := []runner.Command{{Name: "go", Args: []string{"-C", h.root, "install", "./cmd/ccx"}}}
-	if diff := cmp.Diff(want, h.runner.calls); diff != "" {
+	wantCalls := []runner.Command{{Name: "go", Args: []string{"-C", h.root, "install", "./cmd/ccx"}}}
+	if diff := cmp.Diff(wantCalls, h.runner.calls); diff != "" {
 		t.Errorf("commands mismatch (-want +got):\n%s", diff)
 	}
 
 	// go install skips the copy when the binary is already current, so without
 	// this stamp a reverted edit would leave the binary permanently "stale" and
 	// rebuild on every single invocation.
-	if got, ok := h.touched[h.exe]; !ok || !got.Equal(h.now) {
-		t.Errorf("touched[%s] = %v (present=%t), want %v", h.exe, got, ok, h.now)
+	//
+	// The stamp is the newest source the build saw, not the time it finished:
+	// an edit landing during those few hundred milliseconds has to stay newer
+	// than the binary, or it is never noticed.
+	want := mustScan(t, h.root).newest
+	if got, ok := h.touched[h.exe]; !ok || !got.Equal(want) {
+		t.Errorf("touched[%s] = %v (present=%t), want %v", h.exe, got, ok, want)
 	}
 
 	if !h.reexec.called {
@@ -377,6 +382,46 @@ func TestSourceRoot(t *testing.T) {
 	}
 }
 
+func mustScan(t *testing.T, root string) source {
+	t.Helper()
+	s, err := scanSource(root)
+	if err != nil {
+		t.Fatalf("scanSource: %v", err)
+	}
+	return s
+}
+
+// TestInstallResolvesGOBIN pins the pair contract: a target names its directory
+// once, and both the install and the check that finds the binary afterwards
+// resolve it the same way.
+func TestInstallResolvesGOBIN(t *testing.T) {
+	h := newHarness(t)
+	shims := target{pkg: "./cmd/gh", gobin: ".local/shims"}
+	targets = append(targets, shims)
+	t.Cleanup(func() { targets = targets[:len(targets)-1] })
+
+	if _, err := install(h.deps(), h.root); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	want := []runner.Command{
+		{Name: "go", Args: []string{"-C", h.root, "install", "./cmd/ccx"}},
+		{
+			Name: "go",
+			Args: []string{"-C", h.root, "install", "./cmd/gh"},
+			// Absolute, because go install refuses anything else, and equal to
+			// what installPath expects the binary to be at.
+			Env: []string{"GOBIN=" + filepath.Join(h.home, ".local", "shims")},
+		},
+	}
+	if diff := cmp.Diff(want, h.runner.calls); diff != "" {
+		t.Errorf("commands mismatch (-want +got):\n%s", diff)
+	}
+	if got := installPath(h.deps(), shims); got != filepath.Join(h.home, ".local", "shims", "gh") {
+		t.Errorf("installPath = %q, does not match the GOBIN the install was given", got)
+	}
+}
+
 func TestInstallPathFollowsGOBIN(t *testing.T) {
 	h := newHarness(t)
 
@@ -425,7 +470,7 @@ func TestFirstLine(t *testing.T) {
 	}
 }
 
-func TestSourceSumChangesWithTheTree(t *testing.T) {
+func TestScanSourceSumChangesWithTheTree(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "a.go"), "package a\n")
 
@@ -442,11 +487,11 @@ func TestSourceSumChangesWithTheTree(t *testing.T) {
 
 func mustSum(t *testing.T, root string) string {
 	t.Helper()
-	sum, err := sourceSum(root)
+	s, err := scanSource(root)
 	if err != nil {
-		t.Fatalf("sourceSum: %v", err)
+		t.Fatalf("scanSource: %v", err)
 	}
-	return sum
+	return s.sum
 }
 
 func TestIsStale(t *testing.T) {

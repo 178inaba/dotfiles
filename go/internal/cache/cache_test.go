@@ -129,14 +129,20 @@ func TestReadKeyedTolerance(t *testing.T) {
 			ok:   true,
 		},
 		{
-			// A non-numeric timestamp is how a truncated or corrupt file reads,
-			// and the shell treated it as no record rather than as time zero.
-			name: "a non-numeric timestamp is no record",
+			// The shell rendered a record whose timestamp it could not read and
+			// refreshed it; dropping the value instead would blank the segment
+			// for a whole refresh interval. Zero fails every freshness test, so
+			// the refresh still happens.
+			name: "a non-numeric timestamp keeps the value",
 			body: "nope\nkey\nresult",
+			want: Keyed{Key: "key", Result: "result"},
+			ok:   true,
 		},
 		{
-			name: "a negative timestamp is no record",
+			name: "a negative timestamp keeps the value",
 			body: "-5\nkey\nresult",
+			want: Keyed{Key: "key", Result: "result"},
+			ok:   true,
 		},
 		{
 			name: "a short file is no record",
@@ -209,6 +215,15 @@ func TestAttemptRoundTrip(t *testing.T) {
 	}
 	if _, ok := ReadAttempt(filepath.Join(t.TempDir(), "absent")); ok {
 		t.Error("ReadAttempt reported a time for a file that does not exist")
+	}
+
+	// A corrupt attempt record must not block every future refresh.
+	corrupt := filepath.Join(t.TempDir(), "attempt")
+	if err := os.WriteFile(corrupt, []byte("nope\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, ok := ReadAttempt(corrupt); ok {
+		t.Error("ReadAttempt accepted a corrupt record")
 	}
 }
 

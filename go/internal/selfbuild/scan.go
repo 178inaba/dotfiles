@@ -49,12 +49,22 @@ func isStale(root string, binary time.Time) (bool, error) {
 	return stale, nil
 }
 
-// sourceSum identifies the exact state of the source tree.
-//
-// A build failure is recorded against it so the same broken tree is not rebuilt
-// on every tick, while any edit — including one that only reverts — produces a
-// different sum and earns a retry.
-func sourceSum(root string) (string, error) {
+// source is the full description of the tree, built only when a build is about
+// to run: the identity a failure is recorded against, and the timestamp the
+// freshly installed binary is stamped with.
+type source struct {
+	// sum changes with any edit, including one that only reverts, so a broken
+	// tree is not rebuilt on every tick but a fixed one is retried at once.
+	sum string
+	// newest is what the build actually saw, so an edit that lands while it
+	// runs stays newer than the binary it produced.
+	newest time.Time
+}
+
+// scanSource walks the whole tree. It is the cold path: nothing calls it unless
+// a build is about to happen, where go install dominates anyway.
+func scanSource(root string) (source, error) {
+	var s source
 	var entries []string
 	err := filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
 		if err != nil {
@@ -71,11 +81,15 @@ func sourceSum(root string) (string, error) {
 		if err != nil {
 			return err
 		}
-		entries = append(entries, fmt.Sprintf("%s\x00%d\x00%d", rel, info.Size(), info.ModTime().UnixNano()))
+		mod := info.ModTime()
+		if mod.After(s.newest) {
+			s.newest = mod
+		}
+		entries = append(entries, fmt.Sprintf("%s\x00%d\x00%d", rel, info.Size(), mod.UnixNano()))
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return source{}, err
 	}
 
 	slices.Sort(entries)
@@ -83,5 +97,6 @@ func sourceSum(root string) (string, error) {
 	for _, e := range entries {
 		fmt.Fprintln(h, e)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	s.sum = hex.EncodeToString(h.Sum(nil))
+	return s, nil
 }

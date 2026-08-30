@@ -193,12 +193,12 @@ func Run(d Deps) State {
 		return State{}
 	}
 
-	sum, err := sourceSum(root)
+	source, err := scanSource(root)
 	if err != nil {
 		log("skipped: cannot scan %s: %v", root, err)
 		return State{}
 	}
-	if rec, ok := readFailure(d); ok && rec.sum == sum {
+	if rec, ok := readFailure(d); ok && rec.sum == source.sum {
 		// Reported once, on the invocation that tried, and then not retried
 		// until the source changes. Failed without JustFailed is what tells a
 		// status line to keep showing its warning while everything else stays
@@ -225,7 +225,7 @@ func Run(d Deps) State {
 
 	if out, err := install(d, root); err != nil {
 		first := firstLine(out)
-		writeFailure(d, sum, first)
+		writeFailure(d, source.sum, first)
 		log("failed: %s", first)
 		return State{Failed: true, JustFailed: true, FirstError: first}
 	}
@@ -234,7 +234,7 @@ func Run(d Deps) State {
 	// timestamp behind the source that just changed back to a state it had
 	// built before. Without this the check would stay stale and reinstall on
 	// every invocation forever.
-	touch(d)
+	touch(d, source.newest)
 	log("rebuilt")
 
 	if err := d.ReExec(d.Exe, append([]string{d.Exe}, d.Args...), reexecEnviron(d)); err != nil {
@@ -253,7 +253,9 @@ func install(d Deps, root string) ([]byte, error) {
 			Args: []string{"-C", root, "install", t.pkg},
 		}
 		if t.gobin != "" {
-			c.Env = []string{"GOBIN=" + t.gobin}
+			// Resolved, not passed through: a target's gobin is home-relative,
+			// and go install refuses a GOBIN that is not absolute.
+			c.Env = []string{"GOBIN=" + binDir(d, t.gobin)}
 		}
 		out, err := d.Run.Run(context.Background(), c)
 		if err != nil {
@@ -266,12 +268,17 @@ func install(d Deps, root string) ([]byte, error) {
 	return nil, nil
 }
 
-// touch stamps every installed target with the current time.
-func touch(d Deps) {
-	now := d.Now()
+// touch stamps every installed target with the source state it was built from.
+//
+// Not with the current time: a build takes a few hundred milliseconds, and an
+// edit that lands inside that window would be stamped over and never noticed.
+// Stamping with what the build actually saw leaves anything newer newer, so the
+// next invocation picks it up. The comparison is strictly after, so a build
+// that matches its source exactly is not stale.
+func touch(d Deps, source time.Time) {
 	for _, t := range targets {
 		p := installPath(d, t)
-		if err := d.Chtimes(p, now, now); err != nil {
+		if err := d.Chtimes(p, source, source); err != nil {
 			fmt.Fprintf(d.Debug, "ccx selfbuild: cannot touch %s: %v\n", p, err)
 		}
 	}

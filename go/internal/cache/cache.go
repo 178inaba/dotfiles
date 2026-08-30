@@ -43,19 +43,19 @@ type Keyed struct {
 	Result string
 }
 
-// ReadKeyed returns the record in a file. The second value is false when there
-// is no usable one, which covers a missing file and a corrupt timestamp alike —
-// the shell told those apart no more finely than this.
+// ReadKeyed returns the record in a file. The second value is false only when
+// the file cannot be read.
+//
+// A record whose timestamp is corrupt keeps its value and takes a zero time,
+// which every freshness test then fails: the shell rendered such a record and
+// refreshed it rather than dropping it, and a torn read should cost a refresh
+// rather than a blank segment.
 func ReadKeyed(path string) (Keyed, bool) {
 	lines, err := lines(path, 3)
 	if err != nil {
 		return Keyed{}, false
 	}
-	at, ok := timestamp(lines[0])
-	if !ok {
-		return Keyed{}, false
-	}
-	return Keyed{At: at, Key: lines[1], Result: lines[2]}, true
+	return Keyed{At: timestamp(lines[0]), Key: lines[1], Result: lines[2]}, true
 }
 
 // WriteKeyed writes the record in place, without a temporary file.
@@ -81,17 +81,14 @@ func keyedBytes(k Keyed) []byte {
 	return []byte(strconv.FormatInt(k.At, 10) + "\n" + k.Key + "\n" + k.Result)
 }
 
-// ReadPair returns the two-line record the exchange rate cache holds.
+// ReadPair returns the two-line record the exchange rate cache holds, with the
+// same tolerance for a corrupt timestamp as ReadKeyed.
 func ReadPair(path string) (int64, string, bool) {
 	lines, err := lines(path, 2)
 	if err != nil {
 		return 0, "", false
 	}
-	at, ok := timestamp(lines[0])
-	if !ok {
-		return 0, "", false
-	}
-	return at, lines[1], true
+	return timestamp(lines[0]), lines[1], true
 }
 
 // WritePair writes the exchange rate record, which unlike the three-line one
@@ -100,13 +97,15 @@ func WritePair(path string, at int64, value string) error {
 	return WriteAtomic(path, []byte(strconv.FormatInt(at, 10)+"\n"+value+"\n"))
 }
 
-// ReadAttempt returns when a refresh was last started.
+// ReadAttempt returns when a refresh was last started. A corrupt record reads
+// as no attempt, which lets one start rather than blocking every future one.
 func ReadAttempt(path string) (int64, bool) {
 	lines, err := lines(path, 1)
 	if err != nil {
 		return 0, false
 	}
-	return timestamp(lines[0])
+	at := timestamp(lines[0])
+	return at, at != 0
 }
 
 // WriteAttempt records that a refresh is starting. The foreground writes it
@@ -168,15 +167,15 @@ func lines(path string, n int) ([]string, error) {
 	return shellfmt.Lines(string(b), n), nil
 }
 
-// timestamp accepts only what the shell's ^[0-9]+$ test accepted, so a corrupt
-// or partially written record is no record at all.
-func timestamp(s string) (int64, bool) {
+// timestamp accepts only what the shell's ^[0-9]+$ test accepted. Anything
+// else is zero, which reads as a record from long ago and so as one to refresh.
+func timestamp(s string) int64 {
 	if !shellfmt.IsDigits(s) {
-		return 0, false
+		return 0
 	}
 	at, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
-		return 0, false
+		return 0
 	}
-	return at, true
+	return at
 }

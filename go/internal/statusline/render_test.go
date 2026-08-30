@@ -98,6 +98,35 @@ func TestRender(t *testing.T) {
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{
+			// Red is the one review state that asks for work, so it is checked
+			// on its own rather than left to the shared colour switch.
+			name: "changes requested is red",
+			data: Data{
+				Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)",
+				PR: "125 CHANGES_REQUESTED https://example.test/pull/125",
+			},
+			want: "\x1b[0;34m/w\x1b[0m\n" +
+				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[0;31m" +
+				"\x1b]8;;https://example.test/pull/125\a\x1b[4m#125\x1b[24m\x1b]8;;\a\x1b[0m\n" +
+				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
+		},
+		{
+			// The three parts of the second line in one render: the badge sits
+			// between the repository and the session id, never beside one of
+			// them alone.
+			name: "the badge sits between the branch and the session id",
+			data: Data{
+				Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)",
+				PR:     "123 NONE https://example.test/pull/123",
+				Fields: Fields{SessionID: "b257201c"},
+			},
+			want: "\x1b[0;34m/w\x1b[0m\n" +
+				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[38;5;220m" +
+				"\x1b]8;;https://example.test/pull/123\a\x1b[4m#123\x1b[24m\x1b]8;;\a\x1b[0m" +
+				" \x1b[0;90mb257201c\x1b[0m\n" +
+				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
+		},
+		{
 			name: "a pull request without a link is plain text",
 			data: Data{Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)", PR: "127 APPROVED "},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
