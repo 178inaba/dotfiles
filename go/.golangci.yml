@@ -1,0 +1,23 @@
+version: "2"
+
+# The linter set is enumerated rather than inherited from the running version's
+# own default, so a golangci-lint upgrade changes diagnostics but never which
+# linters are active.
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      # Informational writes to a diagnostic stream or a hash, and best-effort
+      # cleanup where there is no meaningful recovery from a failure.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - os.Remove
+        - (*os.File).Close

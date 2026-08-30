@@ -22,6 +22,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Go のステップをシェルスイートより前に置くのは、シェル側が Sub 4 で消えたときに
+      # このジョブがそのまま Go 専用ジョブになり、チェック名が変わらないようにするため
+      - uses: actions/setup-go@v7
+        with:
+          # パッチリリースに追従させるため go/go.mod の go ディレクティブから読む
+          go-version-file: go/go.mod
+
+      - name: Vet the Go module
+        run: go -C go vet ./...
+
+      # cflio・rdsh・slio はバージョンを compose.yaml に持たせて CI から読ませているが、
+      # このリポジトリは docker でのローカル lint を持たないため、単一の正である
+      # ここに直接ピン留めする（上げるときはこの行だけを触る）。
+      # golangci-lint は自身のビルドに使われた Go より新しい go ディレクティブを
+      # 拒否するため、go.mod の go 1.27 に対しては 1.27 でビルドされた版が要る
+      # （v2.13.0 以降。v2.12.x は 1.26 ビルドで "can't load config" で落ちる）
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          working-directory: go
+
+      - name: Run Go tests
+        run: go -C go test -race ./...
+
       # スイートが実行時に要求する外部コマンド（jq は大半のフック・スキルスクリプト、
       # lsof は cleanup-merged の inuse-lib.sh）。ランナーイメージの内容は変わるため
       # preinstall を信頼せず、欠けているものだけを入れる。どのツールも同じ深さで扱うので、
