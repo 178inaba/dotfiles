@@ -48,7 +48,7 @@
 [branch]
 	# origin/main から切ったブランチが origin/main を追うと、引数なし push が
 	# 名前不一致で落ち、`@{u}` の有無で「一度も push していない」を判定できなくなる
-	# （消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15）。要 git 2.37+。
+	# （消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15）。
 	autoSetupMerge = simple
 [pull]
 	rebase = false
