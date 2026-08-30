@@ -28,8 +28,10 @@ argument-hint: "[--base BASE_BRANCH] [--draft]"
 ## 実行内容
 
 ### 1. 状態確認・プッシュ
-1. `git status` で現在のブランチと未プッシュコミットを確認
-2. 未プッシュのコミットがあれば `git push -u origin [current-branch]` でプッシュ
+1. `git status` で現在のブランチと未コミットの変更を確認（ブランチ名はステップ3で使う。未プッシュかどうかは判定しない）
+2. `git push` でプッシュ（**この引数形そのまま**。リダイレクト・パイプを含め何も付け足さない）
+   - 形を固定する理由: 許可ルール `Bash(git push)` は完全一致で、何かを付け足すと permission prompt に落ちるため
+   - 無条件に実行してよいのは、引数なし `git push` が冪等なため（すべてプッシュ済みなら `Everything up-to-date` と出るだけ）。upstream 未設定の初回は `git/.gitconfig` の `push.autoSetupRemote = true` がリモートブランチの作成と upstream 設定を担う
 3. `gh pr list --head [current-branch]` で既存PRの有無を確認
 
 ### 2. 差分確認
