@@ -158,6 +158,8 @@ run_git_test 'git: staged/modified/ahead (untracked excluded)' "$REPO_A" '(main 
 # repo_b: behind ↓1（push 後に1コミット戻す）
 REPO_B="$TEST_TMPDIR/repo-b"
 git clone -q "$ORIGIN" "$REPO_B"
+# upstream ありで同期済み: マーカー無しの (main)。upstream 無しの ↑∅ と対になる状態を固定する
+run_git_test 'git: in sync with upstream' "$REPO_B" '(main)'
 (
   cd "$REPO_B"
   $GIT commit -q --allow-empty -m c3
@@ -190,7 +192,7 @@ git init -q -b main "$REPO_C"
   # 環境 — CI 等 — でのみ表面化する。git 2.54 は検証が後段なので気付けない）
   $GIT merge -q side >/dev/null 2>&1 || true
 )
-run_git_test 'git: unmerged conflict' "$REPO_C" '(main +1 ~1)'
+run_git_test 'git: unmerged conflict' "$REPO_C" '(main +1 ~1 ↑∅)'
 
 # 非gitディレクトリ: ブランチ行が出ない（2行目はセッション情報行 = 空表示）
 PLAIN="$TEST_TMPDIR/plain"
@@ -217,7 +219,7 @@ run_session_test() {
   fi
 }
 
-run_session_test 'session id: appended to branch line' "$REPO_C" "(main +1 ~1) $SESSION_ID"
+run_session_test 'session id: appended to branch line' "$REPO_C" "(main +1 ~1 ↑∅) $SESSION_ID"
 run_session_test 'session id: shown alone in non-git dir' "$PLAIN" "$SESSION_ID"
 
 # --- USD/JPY 円表示 ---
@@ -329,8 +331,8 @@ pr_cache_written() { ls "$PR_CACHE_BASE"-* 2>/dev/null | grep -v attempt | grep 
 # OPEN PR: 初回描画は表示なし（非同期フェッチ）、更新完了後の描画で PR 番号が出る
 pr_reset
 printf '{"number":123,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/123"}' > "$GH_STUB_RESPONSE"
-check 'pr: first render shows nothing before fetch' 'pr_line2_is "(feat)"'
-check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(feat) PR #123\""'
+check 'pr: first render shows nothing before fetch' 'pr_line2_is "(feat ↑∅)"'
+check 'pr: open PR shown after background fetch' 'wait_for "pr_line2_is \"(feat ↑∅) PR #123\""'
 
 # フッターバッジと同じ見た目: 下線付きの番号部分のみ OSC 8 ハイパーリンク（"PR " は非リンク）
 check 'pr: only underlined number wrapped in OSC 8 hyperlink' \
@@ -338,26 +340,26 @@ check 'pr: only underlined number wrapped in OSC 8 hyperlink' \
 
 # 表示順: ブランチ情報 → PR → セッションID
 pr_session_line2=$(cd "$REPO_PR" && printf '{"session_id":"%s","workspace":{"current_dir":"%s","project_dir":"%s"}}' "$SESSION_ID" "$REPO_PR" "$REPO_PR" | bash "$STATUSLINE" 2>/dev/null | sed -n 2p | sed $'s/\x1b\\[[0-9;]*m//g; s/\x1b]8;;[^\x07]*\x07//g')
-check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(feat) PR #123 $SESSION_ID" ]'
+check 'pr: ordered between branch info and session id' '[ "$pr_session_line2" = "(feat ↑∅) PR #123 $SESSION_ID" ]'
 
 # reviewDecision の色分け（本家フッターバッジと同じマッピング）:
 # "PR " は無色（テーマのデフォルト前景色 = 直前が branch 部の NC）、番号部分が
 # APPROVED=緑 / CHANGES_REQUESTED=赤 / レビュー待ち=固定黄 / draft=無色
 pr_reset
 printf '{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/124"}' > "$GH_STUB_RESPONSE"
-check 'pr: approved shown' 'wait_for "pr_line2_is \"(feat) PR #124\""'
+check 'pr: approved shown' 'wait_for "pr_line2_is \"(feat ↑∅) PR #124\""'
 check 'pr: approved colored green' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_GREEN}${OSC8}https://example.test/pull/124${BEL}${ESC_UL}#124"'
 
 pr_reset
 printf '{"number":125,"reviewDecision":"CHANGES_REQUESTED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/125"}' > "$GH_STUB_RESPONSE"
-check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(feat) PR #125\""'
+check 'pr: changes_requested shown' 'wait_for "pr_line2_is \"(feat ↑∅) PR #125\""'
 check 'pr: changes_requested colored red' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_RED}${OSC8}https://example.test/pull/125${BEL}${ESC_UL}#125"'
 
 pr_reset
 printf '{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://example.test/pull/126"}' > "$GH_STUB_RESPONSE"
-check 'pr: draft shown' 'wait_for "pr_line2_is \"(feat) PR #126\""'
+check 'pr: draft shown' 'wait_for "pr_line2_is \"(feat ↑∅) PR #126\""'
 check 'pr: draft uncolored (default fg)' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${OSC8}https://example.test/pull/126${BEL}${ESC_UL}#126"'
 
@@ -365,13 +367,13 @@ check 'pr: draft uncolored (default fg)' \
 # 空文字（設定なし）の2形態がある。どちらも黄
 pr_reset
 printf '{"number":130,"reviewDecision":"REVIEW_REQUIRED","state":"OPEN","isDraft":false,"url":"https://example.test/pull/130"}' > "$GH_STUB_RESPONSE"
-check 'pr: review_required shown' 'wait_for "pr_line2_is \"(feat) PR #130\""'
+check 'pr: review_required shown' 'wait_for "pr_line2_is \"(feat ↑∅) PR #130\""'
 check 'pr: review_required colored yellow' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/130${BEL}${ESC_UL}#130"'
 
 pr_reset
 printf '{"number":134,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/134"}' > "$GH_STUB_RESPONSE"
-check 'pr: empty decision shown' 'wait_for "pr_line2_is \"(feat) PR #134\""'
+check 'pr: empty decision shown' 'wait_for "pr_line2_is \"(feat ↑∅) PR #134\""'
 check 'pr: empty decision colored yellow' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${ESC_PR_YELLOW}${OSC8}https://example.test/pull/134${BEL}${ESC_UL}#134"'
 
@@ -379,7 +381,7 @@ check 'pr: empty decision colored yellow' \
 # 主張せず無色に倒す
 pr_reset
 printf '{"number":135,"reviewDecision":"SOME_FUTURE_VALUE","state":"OPEN","isDraft":false,"url":"https://example.test/pull/135"}' > "$GH_STUB_RESPONSE"
-check 'pr: unknown decision shown' 'wait_for "pr_line2_is \"(feat) PR #135\""'
+check 'pr: unknown decision shown' 'wait_for "pr_line2_is \"(feat ↑∅) PR #135\""'
 check 'pr: unknown decision uncolored (fail-neutral)' \
   'render_line2_raw "$REPO_PR" | grep -qF "${ESC_NC} PR ${OSC8}https://example.test/pull/135${BEL}${ESC_UL}#135"'
 
@@ -387,12 +389,12 @@ check 'pr: unknown decision uncolored (fail-neutral)' \
 pr_reset
 printf '{"number":127,"reviewDecision":"APPROVED","state":"MERGED","isDraft":false}' > "$GH_STUB_RESPONSE"
 render_line2 "$REPO_PR" >/dev/null
-check 'pr: merged PR hidden' 'wait_for "pr_cache_written" && pr_line2_is "(feat)"'
+check 'pr: merged PR hidden' 'wait_for "pr_cache_written" && pr_line2_is "(feat ↑∅)"'
 
 # gh 失敗（PR 無し・オフライン等）: 「無し」としてキャッシュし、新鮮な間は再フェッチしない
 pr_reset
 render_line2 "$REPO_PR" >/dev/null
-check 'pr: gh failure cached as none' 'wait_for "pr_cache_written" && pr_line2_is "(feat)"'
+check 'pr: gh failure cached as none' 'wait_for "pr_cache_written" && pr_line2_is "(feat ↑∅)"'
 rm -f "$GH_STUB_LOG"
 render_line2 "$REPO_PR" >/dev/null
 sleep 0.3
@@ -406,17 +408,17 @@ render_line2 "$REPO_PR" >/dev/null
 render_line2 "$REPO_PR" >/dev/null
 unset GH_STUB_DELAY
 check 'pr: in-flight fetch not re-spawned' \
-  'wait_for "pr_line2_is \"(feat) PR #128\"" && [ "$(grep -c called "$GH_STUB_LOG")" -eq 1 ]'
+  'wait_for "pr_line2_is \"(feat ↑∅) PR #128\"" && [ "$(grep -c called "$GH_STUB_LOG")" -eq 1 ]'
 
 # ブランチ切替でキャッシュが即無効化される（キーが dir+branch のため）
 pr_reset
 printf '{"number":129,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://example.test/pull/129"}' > "$GH_STUB_RESPONSE"
-check 'pr: cached on feat' 'wait_for "pr_line2_is \"(feat) PR #129\""'
+check 'pr: cached on feat' 'wait_for "pr_line2_is \"(feat ↑∅) PR #129\""'
 (cd "$REPO_PR" && git switch -qc feature)
 rm -f "$GIT_CACHE_BASE"-*
-check 'pr: branch switch invalidates cache' 'pr_line2_is "(feature)"'
+check 'pr: branch switch invalidates cache' 'pr_line2_is "(feature ↑∅)"'
 # 新ブランチのキーで再フェッチされる（完了待ちを兼ね、次テストのログ削除とのレースを防ぐ）
-check 'pr: new branch fetches its own PR' 'wait_for "pr_line2_is \"(feature) PR #129\""'
+check 'pr: new branch fetches its own PR' 'wait_for "pr_line2_is \"(feature ↑∅) PR #129\""'
 
 # detached HEAD・非 git ディレクトリでは gh を起動しない
 pr_reset

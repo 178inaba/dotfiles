@@ -214,13 +214,17 @@ get_git_info() {
   # porcelain v2 の1回の git 呼び出しでまとめて取得する（旧実装は最大6プロセス起動していた）
   local result="" status_output=""
   if status_output=$(git --no-optional-locks status --porcelain=v2 --branch 2>/dev/null); then
-    local branch="" ahead=0 behind=0 staged_count=0 modified_count=0
+    local branch="" ahead=0 behind=0 staged_count=0 modified_count=0 has_upstream=""
     local line ab xy
     while IFS= read -r line; do
       case "$line" in
         "# branch.head "*)
           branch="${line#"# branch.head "}"
           [[ "$branch" == "(detached)" ]] && branch=""
+          ;;
+        "# branch.upstream "*)
+          # upstream 設定時のみ出る行。値は使わず有無だけを見る
+          has_upstream=1
           ;;
         "# branch.ab "*)
           # 形式: "+<ahead> -<behind>"（upstream がある場合のみ出現）
@@ -246,6 +250,11 @@ get_git_info() {
     fi
 
     local sync_status=""
+    if [[ -n "$branch" && -z "$has_upstream" ]]; then
+      # upstream 無し = コミットがこのマシンにしか無い。同期済み（マーカー無し）と区別する。
+      # ↑N/↓N は branch.ab 起点で upstream ありのときしか出ないため、順序を問わず排他になる
+      sync_status=" ↑∅"
+    fi
     if [[ $ahead -gt 0 ]]; then
       sync_status=" ↑${ahead}"
     fi
@@ -315,7 +324,7 @@ main() {
   # --- PR ---
   local pr_str=""
   if [[ -n "$git_info" ]]; then
-    # git_info は " (branch[ +N][ ~N][ ↑N][ ↓N])" 形式（branch 名に空白は入らない）
+    # git_info は " (branch[ +N][ ~N][ ↑N][ ↓N])" 形式（upstream 無しなら ↑N/↓N の代わりに ↑∅。branch 名に空白は入らない）
     local branch="${git_info#" ("}"
     branch="${branch%%)*}"
     branch="${branch%% *}"
