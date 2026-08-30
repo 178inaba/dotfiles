@@ -13,9 +13,10 @@ func TestRun(t *testing.T) {
 		name string
 		args []string
 
-		wantCode   int
-		wantStdout []string
-		wantStderr []string
+		wantCode      int
+		wantStdout    []string
+		wantNotStdout []string
+		wantStderr    []string
 		// bare says the other stream must be empty, which is what keeps a
 		// diagnostic out of the pipe a subcommand renders into.
 		bareStdout bool
@@ -34,6 +35,17 @@ func TestRun(t *testing.T) {
 			wantCode:   0,
 			wantStdout: []string{"Usage:"},
 			bareStderr: true,
+		},
+		{
+			// The refresh commands exist so the status line can re-run itself
+			// in the background; running one by hand does nothing useful, so
+			// they stay out of the listing while the real subcommand is in it.
+			name:          "help lists the subcommands but not the internal ones",
+			args:          []string{"--help"},
+			wantCode:      0,
+			wantStdout:    []string{"statusline"},
+			wantNotStdout: []string{"internal-refresh-fx", "internal-refresh-pr"},
+			bareStderr:    true,
 		},
 		{
 			name:       "unknown subcommand fails with usage on stderr",
@@ -62,6 +74,11 @@ func TestRun(t *testing.T) {
 			for _, want := range tt.wantStdout {
 				if !strings.Contains(stdout.String(), want) {
 					t.Errorf("stdout does not contain %q:\n%s", want, stdout.String())
+				}
+			}
+			for _, unwanted := range tt.wantNotStdout {
+				if strings.Contains(stdout.String(), unwanted) {
+					t.Errorf("stdout contains %q:\n%s", unwanted, stdout.String())
 				}
 			}
 			for _, want := range tt.wantStderr {

@@ -7,6 +7,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -14,6 +15,13 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
+
+// silentError marks a failure as the command's own rather than a misuse of the
+// command line, so it is reported without the usage text a typo deserves.
+type silentError struct{ error }
+
+// Silent wraps err so Execute prints it on its own.
+func Silent(err error) error { return silentError{err} }
 
 // Execute runs the tree and returns the process exit status.
 //
@@ -40,7 +48,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, build selfbui
 	fmt.Fprintf(stderr, "ccx: %v\n", err)
 	// Usage is printed here rather than by cobra, which sends it to the out
 	// stream — the same stream a subcommand renders on.
-	fmt.Fprint(stderr, cmd.UsageString())
+	if _, silent := errors.AsType[silentError](err); !silent {
+		fmt.Fprint(stderr, cmd.UsageString())
+	}
 	return 1
 }
 
@@ -63,5 +73,7 @@ func newRootCmd(build selfbuild.State) *cobra.Command {
 			return fmt.Errorf("unknown command %q for %q", args[0], c.CommandPath())
 		},
 	}
+	root.AddCommand(newStatuslineCmd(build))
+	root.AddCommand(newRefreshCmds()...)
 	return root
 }

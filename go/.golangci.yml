@@ -21,3 +21,4 @@ linters:
         - fmt.Fprintln
         - os.Remove
         - (*os.File).Close
+        - (io.ReadCloser).Close
