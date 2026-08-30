@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
 const now = int64(1756600000)
@@ -29,17 +30,22 @@ func (f *fakeRunner) Run(_ context.Context, c runner.Command) ([]byte, error) {
 	return []byte(f.out), nil
 }
 
-type fakeSpawner struct{ calls [][]string }
+type fakeSpawner struct {
+	calls [][]string
+	envs  [][]string
+}
 
-func (f *fakeSpawner) Spawn(args ...string) error {
+func (f *fakeSpawner) Spawn(env []string, args ...string) error {
 	f.calls = append(f.calls, args)
+	f.envs = append(f.envs, env)
 	return nil
 }
 
 type harness struct {
-	cfg     Config
-	runner  *fakeRunner
-	spawner *fakeSpawner
+	cfg        Config
+	runner     *fakeRunner
+	spawner    *fakeSpawner
+	buildError string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -55,6 +61,7 @@ func newHarness(t *testing.T) *harness {
 		GitCacheBase: filepath.Join(dir, "git-cache"),
 		PRCacheBase:  filepath.Join(dir, "pr-cache"),
 		FXCachePath:  filepath.Join(dir, "usd-jpy"),
+		ChildEnv:     selfbuild.ChildEnv(),
 	}
 	return h
 }
@@ -62,7 +69,7 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) run(t *testing.T, payload string) string {
 	t.Helper()
 	var out strings.Builder
-	if err := Run(t.Context(), h.cfg, strings.NewReader(payload), &out); err != nil {
+	if err := Run(t.Context(), h.cfg, strings.NewReader(payload), &out, h.buildError); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	return out.String()
@@ -155,8 +162,8 @@ func TestRunRefreshes(t *testing.T) {
 			name:    "fresh caches start nothing",
 			payload: payload,
 			seed: func(t *testing.T, h *harness) {
-				write(t, h.cfg.FXCachePath, "1756600000\n162.22\n")
-				write(t, prPath(h), "1756600000\n/w:main\n123 NONE https://e/1")
+				writeFile(t, h.cfg.FXCachePath, "1756600000\n162.22\n")
+				writeFile(t, prPath(h), "1756600000\n/w:main\n123 NONE https://e/1")
 			},
 		},
 		{
@@ -165,8 +172,8 @@ func TestRunRefreshes(t *testing.T) {
 			name:    "a recent attempt starts nothing",
 			payload: payload,
 			seed: func(t *testing.T, h *harness) {
-				write(t, h.cfg.FXCachePath+".attempt", "1756599990\n")
-				write(t, prPath(h)+".attempt", "1756599990\n")
+				writeFile(t, h.cfg.FXCachePath+".attempt", "1756599990\n")
+				writeFile(t, prPath(h)+".attempt", "1756599990\n")
 			},
 		},
 	}
@@ -209,6 +216,12 @@ func TestRunPassesTheParentsValuesToTheChild(t *testing.T) {
 	// The parent hands over what it computed rather than letting the child work
 	// it out again: the cache path is cut to a fixed length, and two
 	// derivations of that could disagree about which file to write.
+	// The child is told not to repeat the parent's self-rebuild check, which it
+	// would otherwise race.
+	if diff := cmp.Diff([][]string{selfbuild.ChildEnv()}, h.spawner.envs); diff != "" {
+		t.Errorf("child environment mismatch (-want +got):\n%s", diff)
+	}
+
 	want := []string{
 		RefreshPRCommandName,
 		"--now=1756600000",
@@ -235,7 +248,7 @@ func TestRunSkipsThePullRequestWithoutABranch(t *testing.T) {
 func TestRunReportsAFailedSelfRebuild(t *testing.T) {
 	h := newHarness(t)
 	h.runner.err = os.ErrNotExist
-	h.cfg.BuildError = "internal/x.go:1:2: undefined: nope"
+	h.buildError = "internal/x.go:1:2: undefined: nope"
 
 	got := h.run(t, "")
 
@@ -248,7 +261,7 @@ func prPath(h *harness) string {
 	return filepath.Join(filepath.Dir(h.cfg.PRCacheBase), "pr-cache-_w:main")
 }
 
-func write(t *testing.T, name, body string) {
+func writeFile(t *testing.T, name, body string) {
 	t.Helper()
 	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -109,12 +110,11 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	})
 }
 
+// statusCommand is the invocation production runs, taken from the package
+// rather than retyped: the whole point of these tests is that the parser agrees
+// with the output of that exact command.
 func statusCommand(dir string) runner.Command {
-	return runner.Command{
-		Dir:  dir,
-		Name: "git",
-		Args: []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"},
-	}
+	return runner.Command{Dir: dir, Name: "git", Args: gitstate.StatusArgs}
 }
 
 func segment(t *testing.T, dir string) string {
@@ -136,13 +136,12 @@ var identity = []string{
 
 func commit(t *testing.T, dir, message string, extra ...string) {
 	t.Helper()
-	args := append(append([]string{}, identity...), "commit", "-q", "-m", message)
-	run(t, dir, "git", append(args, extra...)...)
+	run(t, dir, "git", slices.Concat(identity, []string{"commit", "-q", "-m", message}, extra)...)
 }
 
 func merge(t *testing.T, dir string) {
 	t.Helper()
-	args := append(append([]string{}, identity...), "merge", "-q", "side")
+	args := slices.Concat(identity, []string{"merge", "-q", "side"})
 	// A conflicting merge exits non-zero, which is the point of the fixture.
 	_, _ = (runner.Exec{}).Run(t.Context(), runner.Command{Dir: dir, Name: "git", Args: args})
 }

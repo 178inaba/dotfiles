@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,8 +31,7 @@ import (
 const (
 	// disableEnv turns the whole mechanism off. It exists so the cost of a
 	// non-stale check can be measured against a run that does not make it, and
-	// it is what the detached refresh children are started with: a stale parent
-	// spawning a child that took the build lock and re-execed would race it.
+	// it is what ChildEnv hands to a detached child.
 	disableEnv = "CCX_SELFBUILD"
 	// reexecEnv marks the process that a rebuild already re-execed into, so a
 	// toolchain that somehow left the timestamps unchanged cannot loop.
@@ -40,37 +40,68 @@ const (
 	debugEnv = "CCX_DEBUG"
 )
 
-// target is one thing to install. Adding a binary is adding an entry: the
-// package to build and the GOBIN to put it in ("" is the go command's default).
+// target is one thing to install.
+//
+// gobin is relative to the home directory rather than absolute, because the
+// only reason a target needs one is to land somewhere other than the shared
+// GOBIN; an empty one means the go command's default. Home-relative rather than
+// a literal ~ because no shell expands it here — go install would create a
+// directory actually called "~".
 type target struct {
 	pkg   string
 	gobin string
 }
 
-// targets is the fixed list. cmd/gh joins it, with GOBIN ~/.local/shims, when
+// targets is the fixed list. cmd/gh joins it, with gobin ".local/shims", when
 // that binary exists; never list a package that has not been written yet.
 var targets = []target{{pkg: "./cmd/ccx"}}
 
-// State is what the check left behind.
+// ChildEnv is what a process this binary spawns must carry.
+//
+// The self-rebuild is the parent's job. A child that repeated it could take the
+// build lock and re-exec itself while the parent that started it is still
+// running, so it is told not to.
+func ChildEnv() []string {
+	return []string{disableEnv + "=0"}
+}
+
+// State is what the check left behind. Each subcommand decides how to report
+// it, because the right channel differs by kind of command.
 type State struct {
 	// Failed reports that the current source state does not build — either the
 	// build ran here and failed, or an earlier invocation recorded a failure
 	// for a source state that has not changed since.
+	//
+	// A status line reports this on every redraw: it is a display, and a stale
+	// binary has to stay visible for as long as it is stale.
 	Failed bool
+	// JustFailed narrows that to the invocation that actually ran the build.
+	//
+	// Anything that is not a display reports on this one instead, so a broken
+	// tree produces one message rather than one per hook and per script until
+	// somebody fixes it.
+	JustFailed bool
 	// FirstError is the first line of the compiler output for that failure.
 	FirstError string
 }
 
 // Deps are the seams. Use NewDeps for the real ones.
+//
+// Plain filesystem calls are not among them: the tests build a real home
+// directory in a temporary tree, which exercises the symlink resolution rather
+// than a description of it. Only what a test cannot arrange — this process's
+// own identity, the clock, running the compiler, replacing the process — is
+// injected.
 type Deps struct {
-	Home     string
-	Args     []string
-	Getenv   func(string) string
-	Environ  func() []string
-	Exe      func() (string, error)
-	Stat     func(string) (os.FileInfo, error)
-	Lstat    func(string) (os.FileInfo, error)
-	Readlink func(string) (string, error)
+	// Home is empty when it cannot be resolved, which makes Run skip.
+	Home string
+	// Exe is this process's path, empty when it cannot be resolved.
+	Exe     string
+	Args    []string
+	Getenv  func(string) string
+	Environ func() []string
+	// LookPath is how the go command is found, so that a machine without one
+	// can be arranged in a test.
 	LookPath func(string) (string, error)
 	Chtimes  func(string, time.Time, time.Time) error
 	Now      func() time.Time
@@ -80,19 +111,16 @@ type Deps struct {
 	Debug  io.Writer
 }
 
-// NewDeps wires the real implementations. Home is empty when it cannot be
-// resolved, which makes Run skip.
+// NewDeps wires the real implementations.
 func NewDeps(args []string) Deps {
 	home, _ := os.UserHomeDir()
+	exe, _ := os.Executable()
 	d := Deps{
 		Home:     home,
+		Exe:      exe,
 		Args:     args,
 		Getenv:   os.Getenv,
 		Environ:  os.Environ,
-		Exe:      os.Executable,
-		Stat:     os.Stat,
-		Lstat:    os.Lstat,
-		Readlink: os.Readlink,
 		LookPath: exec.LookPath,
 		Chtimes:  os.Chtimes,
 		Now:      time.Now,
@@ -113,10 +141,11 @@ func NewDeps(args []string) Deps {
 // the replacement process the original argv but not anything already consumed
 // from the pipe, so a statusline that read its JSON first would see it vanish.
 func Run(d Deps) State {
+	if d.Debug == nil {
+		d.Debug = io.Discard
+	}
 	log := func(format string, a ...any) {
-		if d.Debug != nil {
-			fmt.Fprintf(d.Debug, "ccx selfbuild: "+format+"\n", a...)
-		}
+		fmt.Fprintf(d.Debug, "ccx selfbuild: "+format+"\n", a...)
 	}
 
 	if d.Getenv(disableEnv) == "0" {
@@ -133,41 +162,47 @@ func Run(d Deps) State {
 		log("skipped: no source root")
 		return State{}
 	}
-
-	exe, err := d.Exe()
-	if err != nil {
-		log("skipped: cannot locate the running binary: %v", err)
+	if d.Exe == "" {
+		log("skipped: cannot locate the running binary")
 		return State{}
 	}
-	if !isInstalled(d, exe) {
+	if !isInstalled(d) {
 		// A hand-built binary (go run, go build -o) must not install the main
 		// tree over the user's ~/go/bin and re-exec into it: that would swap
 		// out the very code the user is verifying.
-		log("skipped: %s is not an installed target", exe)
+		log("skipped: %s is not an installed target", d.Exe)
+		return State{}
+	}
+	exeInfo, err := os.Stat(d.Exe)
+	if err != nil {
+		log("skipped: cannot stat %s: %v", d.Exe, err)
 		return State{}
 	}
 
-	files, err := scan(root)
+	// Asking whether anything is newer stops at the first file that is, and on
+	// the common path — nothing is — it costs one stat per file and nothing
+	// else. The hash of the whole tree is only built when it is going to be
+	// used, below.
+	stale, err := isStale(root, exeInfo.ModTime())
 	if err != nil {
 		log("skipped: cannot scan %s: %v", root, err)
 		return State{}
 	}
-	exeInfo, err := d.Stat(exe)
-	if err != nil {
-		log("skipped: cannot stat %s: %v", exe, err)
-		return State{}
-	}
-	if !files.newest.After(exeInfo.ModTime()) {
+	if !stale {
 		log("fresh")
 		return State{}
 	}
 
-	sum := files.sum()
+	sum, err := sourceSum(root)
+	if err != nil {
+		log("skipped: cannot scan %s: %v", root, err)
+		return State{}
+	}
 	if rec, ok := readFailure(d); ok && rec.sum == sum {
-		// The parent contract: report the failure once, on the invocation that
-		// tried, then stop retrying until the source changes. The statusline is
-		// the exception and keeps showing its segment, which is why the state
-		// is returned rather than swallowed.
+		// Reported once, on the invocation that tried, and then not retried
+		// until the source changes. Failed without JustFailed is what tells a
+		// status line to keep showing its warning while everything else stays
+		// quiet.
 		log("suppressed by hash")
 		return State{Failed: true, FirstError: rec.firstError}
 	}
@@ -192,7 +227,7 @@ func Run(d Deps) State {
 		first := firstLine(out)
 		writeFailure(d, sum, first)
 		log("failed: %s", first)
-		return State{Failed: true, FirstError: first}
+		return State{Failed: true, JustFailed: true, FirstError: first}
 	}
 	removeFailure(d)
 	// go install skips the copy when the binary is already current, leaving its
@@ -202,7 +237,7 @@ func Run(d Deps) State {
 	touch(d)
 	log("rebuilt")
 
-	if err := d.ReExec(exe, append([]string{exe}, d.Args...), reexecEnviron(d)); err != nil {
+	if err := d.ReExec(d.Exe, append([]string{d.Exe}, d.Args...), reexecEnviron(d)); err != nil {
 		// Nothing is broken: this process is the previous build and still runs.
 		log("re-exec failed: %v", err)
 	}
@@ -244,14 +279,10 @@ func touch(d Deps) {
 
 // reexecEnviron is the current environment plus the loop marker.
 func reexecEnviron(d Deps) []string {
-	env := d.Environ()
-	out := make([]string, 0, len(env)+1)
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, reexecEnv+"=") {
-			out = append(out, kv)
-		}
-	}
-	return append(out, reexecEnv+"=1")
+	env := slices.DeleteFunc(d.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, reexecEnv+"=")
+	})
+	return append(env, reexecEnv+"=1")
 }
 
 // firstLine is the first useful line of the compiler output, which is all the
@@ -262,7 +293,7 @@ func reexecEnviron(d Deps) []string {
 // diagnostic is taken instead and the banner is only used as a fallback.
 func firstLine(out []byte) string {
 	var banner string
-	for line := range strings.SplitSeq(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
+	for line := range strings.Lines(string(out)) {
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case trimmed == "":
@@ -280,14 +311,11 @@ func firstLine(out []byte) string {
 	return "build failed"
 }
 
-// isInstalled reports whether exe is one of the targets' install paths.
-func isInstalled(d Deps, exe string) bool {
-	for _, t := range targets {
-		if samePath(exe, installPath(d, t)) {
-			return true
-		}
-	}
-	return false
+// isInstalled reports whether this process is one of the targets.
+func isInstalled(d Deps) bool {
+	return slices.ContainsFunc(targets, func(t target) bool {
+		return samePath(d.Exe, installPath(d, t))
+	})
 }
 
 // installPath is where go install would put t.

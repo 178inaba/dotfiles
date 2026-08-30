@@ -68,15 +68,7 @@ func Lookup(cachePath, cacheKey string, now int64) (string, bool) {
 		return result, false
 	}
 
-	// The attempt file is derived from the cut path, so two keys that collide
-	// share one throttle as well as one record.
-	attemptPath := cachePath + ".attempt"
-	if last, ok := cache.ReadAttempt(attemptPath); ok && cache.Fresh(now, last, retryInterval) {
-		return result, false
-	}
-	// Best effort: a write that fails only costs one duplicate gh call.
-	_ = cache.WriteAttempt(attemptPath, now)
-	return result, true
+	return result, cache.ShouldAttempt(cachePath, now, retryInterval)
 }
 
 // Parse reads a cached record. The second value is false when there is no pull
@@ -85,7 +77,7 @@ func Parse(record string) (Info, bool) {
 	number, rest := field(record)
 	reviewState, rest := field(rest)
 	url := strings.Trim(rest, blanks)
-	if !isNumber(number) {
+	if !shellfmt.IsDigits(number) {
 		return Info{}, false
 	}
 	return Info{Number: number, State: reviewState, URL: url}, true
@@ -107,18 +99,6 @@ func field(s string) (string, string) {
 		return s, ""
 	}
 	return s[:i], s[i:]
-}
-
-func isNumber(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 // Refresh asks gh about the current branch and stores the answer. It is meant

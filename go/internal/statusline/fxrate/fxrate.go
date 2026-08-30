@@ -61,13 +61,7 @@ func Lookup(cachePath string, now int64) (string, bool) {
 		return rate, false
 	}
 
-	attemptPath := cachePath + ".attempt"
-	if last, ok := cache.ReadAttempt(attemptPath); ok && cache.Fresh(now, last, retryInterval) {
-		return rate, false
-	}
-	// Best effort: a write that fails only costs one duplicate fetch.
-	_ = cache.WriteAttempt(attemptPath, now)
-	return rate, true
+	return rate, cache.ShouldAttempt(cachePath, now, retryInterval)
 }
 
 // Refresh fetches the rate and stores it. It is meant to run detached, so it

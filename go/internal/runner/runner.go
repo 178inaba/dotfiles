@@ -51,7 +51,10 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // Spawner starts a detached copy of this binary and returns immediately.
 type Spawner interface {
-	Spawn(args ...string) error
+	// Spawn appends env to the child's environment. The caller has to be able
+	// to tell the child what it is, because a detached copy that repeated the
+	// parent's startup work would race it.
+	Spawn(env []string, args ...string) error
 }
 
 // executablePath is a seam for tests, which point it at the test binary so the
@@ -61,7 +64,6 @@ var executablePath = os.Executable
 // Exec is the real Runner and Spawner.
 type Exec struct{}
 
-// Run implements Runner.
 func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	cmd.Dir = c.Dir
@@ -79,7 +81,7 @@ func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 	return out, nil
 }
 
-// Spawn implements Spawner. It replaces the shell idiom
+// Spawn replaces the shell idiom
 // `( cmd </dev/null >/dev/null 2>&1 & )`: a child that outlives this process,
 // which a goroutine cannot be.
 //
@@ -88,13 +90,16 @@ func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 // Claude Code reads to EOF, so a child holding the write end would block the
 // render until its network call finished. No unit test catches that, which is
 // why it is spelled out.
-func (Exec) Spawn(args ...string) error {
+func (Exec) Spawn(env []string, args ...string) error {
 	self, err := executablePath()
 	if err != nil {
 		return err
 	}
 
 	cmd := exec.Command(self, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	// Setsid detaches further than the shell original did, which left the child
 	// in the caller's process group: a harness that kills the statusline's
 	// process group on timeout cannot take the refresh down with it.

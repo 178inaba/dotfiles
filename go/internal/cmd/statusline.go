@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 	"github.com/178inaba/dotfiles/go/internal/statusline"
 )
@@ -12,15 +13,19 @@ import (
 // It never fails. Every source it draws on is optional, and Claude Code redraws
 // it every few seconds, so an error exit would be noise the user cannot act on;
 // a missing segment says as much as a message would.
+//
+// The status line is the one command that reports a failed self-rebuild on
+// every render rather than once: it is a display, and a stale binary has to
+// stay visible for as long as it is stale.
 func newStatuslineCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "statusline",
 		Short: "Render the Claude Code status line",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			cfg := statusline.Default()
-			cfg.BuildError = build.FirstError
-			if err := statusline.Run(c.Context(), cfg, c.InOrStdin(), c.OutOrStdout()); err != nil {
+			err := statusline.Run(c.Context(), statusline.Default(),
+				c.InOrStdin(), c.OutOrStdout(), build.FirstError)
+			if err != nil {
 				return Silent(err)
 			}
 			return nil
@@ -53,7 +58,7 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			statusline.RefreshPR(c.Context(), statusline.Default(), cachePath, cacheKey, head, now)
+			statusline.RefreshPR(c.Context(), runner.Exec{}, cachePath, cacheKey, head, now)
 			return nil
 		},
 	}
@@ -62,11 +67,11 @@ func newRefreshCmds() []*cobra.Command {
 		// The parent passes what it computed rather than letting the child work
 		// it out again: the cache path is cut to a fixed length, and two
 		// derivations of that could disagree.
-		c.Flags().Int64Var(&now, "now", 0, "unix time the refresh was started for")
-		c.Flags().StringVar(&cachePath, "cache", "", "cache file to write")
+		c.Flags().Int64Var(&now, statusline.FlagNow, 0, "unix time the refresh was started for")
+		c.Flags().StringVar(&cachePath, statusline.FlagCache, "", "cache file to write")
 	}
-	pr.Flags().StringVar(&cacheKey, "key", "", "cache key the record belongs to")
-	pr.Flags().StringVar(&head, "branch", "", "branch to look the pull request up for")
+	pr.Flags().StringVar(&cacheKey, statusline.FlagKey, "", "cache key the record belongs to")
+	pr.Flags().StringVar(&head, statusline.FlagBranch, "", "branch to look the pull request up for")
 
 	return []*cobra.Command{fx, pr}
 }

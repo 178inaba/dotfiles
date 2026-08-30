@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/statusline/fxrate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
@@ -20,6 +21,24 @@ const (
 	RefreshPRCommandName = "internal-refresh-pr"
 )
 
+// The child's flags. The parent builds the argv and the command tree declares
+// the flags, so they are named here rather than spelled out at both ends:
+// renaming one otherwise compiles cleanly and silently stops a refresh that
+// reports nothing by design.
+const (
+	FlagNow    = "now"
+	FlagCache  = "cache"
+	FlagKey    = "key"
+	FlagBranch = "branch"
+)
+
+const (
+	flagNow    = "--" + FlagNow
+	flagCache  = "--" + FlagCache
+	flagKey    = "--" + FlagKey
+	flagBranch = "--" + FlagBranch
+)
+
 // RefreshFX fetches the exchange rate. The caller passes the cache path and the
 // timestamp rather than deriving them again, so that the child cannot disagree
 // with the parent about which file it is writing.
@@ -31,6 +50,6 @@ func RefreshFX(ctx context.Context, cachePath string, now int64) {
 //
 // The working directory is inherited rather than set: gh and git both resolve
 // the repository from it, and the parent was already standing in the right one.
-func RefreshPR(ctx context.Context, cfg Config, cachePath, cacheKey, branch string, now int64) {
-	prinfo.Refresh(ctx, cfg.Runner, cachePath, cacheKey, branch, now)
+func RefreshPR(ctx context.Context, r runner.Runner, cachePath, cacheKey, branch string, now int64) {
+	prinfo.Refresh(ctx, r, cachePath, cacheKey, branch, now)
 }

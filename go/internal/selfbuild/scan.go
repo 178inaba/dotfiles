@@ -6,28 +6,56 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"sort"
+	"slices"
 	"time"
 )
 
-// scanned is the state of the source tree: what the staleness check compares
-// against, and what identifies the tree for the build-failure record.
-type scanned struct {
-	newest time.Time
-	// entries are "relative path\x00size\x00modification time", sorted, one per
-	// file.
-	entries []string
-}
-
-// scan walks the source tree. It is on the path of every invocation, so it does
-// no more than stat each of a few dozen files.
+// isStale reports whether anything under root is newer than the binary.
+//
+// This runs on every single invocation, so it is the one that has to be cheap:
+// it stats each file and stops at the first one that is newer, and on the
+// common path — where nothing is — that is all it does. Building the identity
+// of the tree costs an allocation per file, so it waits for sourceSum, which
+// only the stale path calls.
 //
 // Every file counts, not just .go ones: go.mod, go.sum and the linter config
 // all change what a build produces. The cost is that anything dropped into the
 // tree looks like a change — .DS_Store included, so opening the directory in
-// Finder can trigger one rebuild.
-func scan(root string) (scanned, error) {
-	var s scanned
+// Finder can trigger one rebuild — and that the check is only as cheap as the
+// tree is small. A vendor directory or a large testdata corpus under go/ would
+// put this on the wrong side of its budget.
+func isStale(root string, binary time.Time) (bool, error) {
+	stale := false
+	err := filepath.WalkDir(root, func(_ string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.IsDir() {
+			return nil
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if info.ModTime().After(binary) {
+			stale = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return stale, nil
+}
+
+// sourceSum identifies the exact state of the source tree.
+//
+// A build failure is recorded against it so the same broken tree is not rebuilt
+// on every tick, while any edit — including one that only reverts — produces a
+// different sum and earns a retry.
+func sourceSum(root string) (string, error) {
+	var entries []string
 	err := filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -39,31 +67,21 @@ func scan(root string) (scanned, error) {
 		if err != nil {
 			return err
 		}
-		mod := info.ModTime()
-		if mod.After(s.newest) {
-			s.newest = mod
-		}
 		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return err
 		}
-		s.entries = append(s.entries, fmt.Sprintf("%s\x00%d\x00%d", rel, info.Size(), mod.UnixNano()))
+		entries = append(entries, fmt.Sprintf("%s\x00%d\x00%d", rel, info.Size(), info.ModTime().UnixNano()))
 		return nil
 	})
 	if err != nil {
-		return scanned{}, err
+		return "", err
 	}
-	return s, nil
-}
 
-// sum identifies this exact source state. A build failure is recorded against
-// it so the same broken tree is not rebuilt on every tick, while any edit —
-// including one that only reverts — produces a different sum and earns a retry.
-func (s scanned) sum() string {
-	sort.Strings(s.entries)
+	slices.Sort(entries)
 	h := sha256.New()
-	for _, e := range s.entries {
+	for _, e := range entries {
 		fmt.Fprintln(h, e)
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

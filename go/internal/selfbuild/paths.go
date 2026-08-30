@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -24,7 +25,7 @@ func sourceRoot(d Deps) (string, bool) {
 	}
 	settings := filepath.Join(d.Home, ".claude", "settings.json")
 
-	fi, err := d.Lstat(settings)
+	fi, err := os.Lstat(settings)
 	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		// Not a symlink means the configuration is not stowed from a checkout,
 		// so there is no source to be stale against. os.Lstat rather than
@@ -32,7 +33,7 @@ func sourceRoot(d Deps) (string, bool) {
 		// unchanged and would hide exactly this case.
 		return "", false
 	}
-	link, err := d.Readlink(settings)
+	link, err := os.Readlink(settings)
 	if err != nil {
 		return "", false
 	}
@@ -44,58 +45,75 @@ func sourceRoot(d Deps) (string, bool) {
 	// <repo>/claude/.claude/settings.json up three levels is <repo>.
 	repo := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Clean(link))))
 	root := filepath.Join(repo, "go")
-	if _, err := d.Stat(filepath.Join(root, "go.mod")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		return "", false
 	}
 	return root, true
 }
 
-// binDir is where go install writes, for an explicit GOBIN or the default one.
+// binDir is where go install writes: the target's own directory when it has
+// one, and the go command's default otherwise.
 //
-// It is resolved in process rather than by running `go env`: this runs on every
-// invocation, and spawning the go command would cost more than the whole check.
+// The default is resolved in process rather than by running `go env`: this runs
+// on every invocation, and spawning the go command would cost more than the
+// whole check.
 func binDir(d Deps, gobin string) string {
 	if gobin != "" {
-		return gobin
+		// Home-relative, so that a target can name ~/.local/shims without a
+		// shell to expand the tilde for it.
+		return filepath.Join(d.Home, gobin)
 	}
-	if v := goEnv(d, "GOBIN"); v != "" {
-		return v
+
+	env := goEnv(d, "GOBIN", "GOPATH")
+	if env["GOBIN"] != "" {
+		return env["GOBIN"]
 	}
-	gopath := goEnv(d, "GOPATH")
+	gopath := env["GOPATH"]
 	if gopath == "" {
 		gopath = filepath.Join(d.Home, "go")
 	}
 	return filepath.Join(gopath, "bin")
 }
 
-// goEnv reads a go command setting: the environment first, then the go env
-// file, matching the go command's own precedence.
-func goEnv(d Deps, key string) string {
-	if v := d.Getenv(key); v != "" {
-		return v
+// goEnv reads go command settings: the environment first, then the go env file,
+// matching the go command's own precedence. It takes every key it will be asked
+// for at once so the file is opened no more than once per invocation.
+func goEnv(d Deps, keys ...string) map[string]string {
+	out := make(map[string]string, len(keys))
+	var missing []string
+	for _, k := range keys {
+		if v := d.Getenv(k); v != "" {
+			out[k] = v
+			continue
+		}
+		missing = append(missing, k)
 	}
+	if len(missing) == 0 {
+		return out
+	}
+
 	name := d.Getenv("GOENV")
 	if name == "" {
 		config, err := os.UserConfigDir()
 		if err != nil {
-			return ""
+			return out
 		}
 		name = filepath.Join(config, "go", "env")
 	}
 	f, err := os.Open(name)
 	if err != nil {
-		return ""
+		return out
 	}
 	defer f.Close()
 
-	prefix := key + "="
 	s := bufio.NewScanner(f)
 	for s.Scan() {
-		if line := s.Text(); strings.HasPrefix(line, prefix) {
-			return strings.TrimPrefix(line, prefix)
+		key, value, ok := strings.Cut(s.Text(), "=")
+		if ok && slices.Contains(missing, key) {
+			out[key] = value
 		}
 	}
-	return ""
+	return out
 }
 
 // samePath reports whether two paths name the same file. Symlinks are resolved

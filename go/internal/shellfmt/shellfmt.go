@@ -74,6 +74,30 @@ func AwkNumber(s string) float64 {
 	return f
 }
 
+// IsDigits is the shell's ^[0-9]+$ test: no sign, no decimal point, no
+// exponent. It is what tells a usable record from a truncated or corrupt one.
+func IsDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// Lines is a run of n `read` calls over a string: the trailing newlines go
+// first, what is left is split, and a short input leaves the remaining
+// variables empty rather than shortening the result.
+func Lines(s string, n int) []string {
+	got := strings.Split(Capture([]byte(s)), "\n")
+	out := make([]string, n)
+	copy(out, got)
+	return out
+}
+
 // Capture is $(command): the output with every trailing newline removed, and
 // nothing else touched. Trimming whitespace instead would silently accept
 // output the shell would have kept.

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/178inaba/dotfiles/go/internal/cache"
 )
 
 // failure is the record of a build that did not succeed.
@@ -43,13 +45,9 @@ func writeFailure(d Deps, sum, firstError string) {
 	// A partial record would read as a mismatched sum and cost one wasted
 	// rebuild, so this is written whole or not at all.
 	body := []byte(sum + "\n" + strings.ReplaceAll(firstError, "\n", " ") + "\n")
-	tmp := failurePath(d) + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		return
-	}
-	if err := os.Rename(tmp, failurePath(d)); err != nil {
-		os.Remove(tmp)
-	}
+	// Best effort: without a record the next invocation retries the build,
+	// which is the safe direction.
+	_ = cache.WriteAtomic(failurePath(d), body)
 }
 
 // removeFailure clears the record after a successful build.

@@ -93,7 +93,7 @@ func TestSpawnDoesNotWait(t *testing.T) {
 	t.Cleanup(func() { executablePath = os.Executable })
 
 	start := time.Now()
-	if err := (Exec{}).Spawn(); err != nil {
+	if err := (Exec{}).Spawn(nil); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {

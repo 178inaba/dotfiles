@@ -79,10 +79,10 @@ func TestLookup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "pr-cache")
 			if tt.record != "" {
-				write(t, p, tt.record)
+				writeFile(t, p, tt.record)
 			}
 			if tt.attempt != "" {
-				write(t, p+".attempt", tt.attempt)
+				writeFile(t, p+".attempt", tt.attempt)
 			}
 
 			result, refresh := Lookup(p, key, now)
@@ -267,7 +267,7 @@ func readRecord(t *testing.T, path string) (string, bool) {
 	return string(b[len(want):]), true
 }
 
-func write(t *testing.T, name, body string) {
+func writeFile(t *testing.T, name, body string) {
 	t.Helper()
 	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)

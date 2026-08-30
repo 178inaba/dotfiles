@@ -72,10 +72,10 @@ func TestLookup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "usd-jpy")
 			if tt.cached != "" {
-				write(t, p, tt.cached)
+				writeFile(t, p, tt.cached)
 			}
 			if tt.attempt != "" {
-				write(t, p+".attempt", tt.attempt)
+				writeFile(t, p+".attempt", tt.attempt)
 			}
 
 			rate, refresh := Lookup(p, now)
@@ -174,7 +174,7 @@ func TestRefreshSurvivesAnUnreachableServer(t *testing.T) {
 	}
 }
 
-func write(t *testing.T, name, body string) {
+func writeFile(t *testing.T, name, body string) {
 	t.Helper()
 	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)

@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/cache"
-	"github.com/178inaba/dotfiles/go/internal/ccjson"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 	"github.com/178inaba/dotfiles/go/internal/statusline/fxrate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
@@ -45,9 +45,10 @@ type Config struct {
 	PRCacheBase  string
 	FXCachePath  string
 
-	// BuildError is the first line of a failed self-rebuild, empty when the
-	// binary is current.
-	BuildError string
+	// ChildEnv is what a detached refresh is started with. The refreshes are
+	// copies of this binary, and a copy that repeated the parent's startup work
+	// would race it.
+	ChildEnv []string
 }
 
 // Default returns the configuration the command runs with.
@@ -64,31 +65,35 @@ func Default() Config {
 		GitCacheBase: GitCacheBase,
 		PRCacheBase:  prinfo.CacheBase,
 		FXCachePath:  fxrate.CachePath,
+		ChildEnv:     selfbuild.ChildEnv(),
 	}
 }
 
-// Run reads the payload and writes the status line.
+// Run reads the payload and writes the status line. buildError is the first
+// line of a failed self-rebuild, empty when the binary is current.
 //
 // It has no failure mode the caller can act on: every source of information is
 // optional and a missing one simply leaves its segment out, so the command that
 // wraps this always succeeds.
-func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer) error {
+func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, buildError string) error {
 	payload, _ := io.ReadAll(stdin)
-	fields := ccjson.Parse(payload)
+	fields := ParseFields(payload)
 	now := cfg.Now().Unix()
 
-	cwd, _ := cfg.Getwd()
+	// The payload names the directory; the working directory stands in when it
+	// does not. Resolved once, because the cache keys and the rendered path
+	// have to agree on it.
 	current := fields.CurrentDir
 	if current == "" {
-		current = cwd
+		current, _ = cfg.Getwd()
 	}
 
 	d := Data{
 		Fields:     fields,
 		Home:       cfg.Home,
-		Cwd:        cwd,
+		Current:    current,
 		Now:        now,
-		BuildError: cfg.BuildError,
+		BuildError: buildError,
 	}
 	d.Git = gitSegment(ctx, cfg, current, now)
 	d.PR = pullRequestRecord(cfg, d.Git, current, now)
@@ -113,14 +118,8 @@ func gitSegment(ctx context.Context, cfg Config, current string, now int64) stri
 		return rec.Result
 	}
 
-	// One porcelain v2 report carries the branch, the ahead and behind counts
-	// and both change totals. The first version of this ran up to six separate
-	// git commands.
 	segment := ""
-	out, err := cfg.Runner.Run(ctx, runner.Command{
-		Name: "git",
-		Args: []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"},
-	})
+	out, err := cfg.Runner.Run(ctx, runner.Command{Name: "git", Args: gitstate.StatusArgs})
 	if err == nil {
 		segment = gitstate.Parse(out).Segment()
 	}
@@ -148,14 +147,15 @@ func pullRequestRecord(cfg Config, gitSegment, current string, now int64) string
 	path := cache.Path(cfg.PRCacheBase, key)
 	record, refresh := prinfo.Lookup(path, key, now)
 	if refresh {
-		spawn(cfg, RefreshPRCommandName, "--now="+strconv.FormatInt(now, 10),
-			"--cache="+path, "--key="+key, "--branch="+branch)
+		spawn(cfg, RefreshPRCommandName,
+			flagNow+"="+strconv.FormatInt(now, 10),
+			flagCache+"="+path, flagKey+"="+key, flagBranch+"="+branch)
 	}
 	return record
 }
 
 // exchangeRate returns the cached rate and starts a refresh when it is stale.
-func exchangeRate(cfg Config, fields ccjson.Fields, now int64) string {
+func exchangeRate(cfg Config, fields Fields, now int64) string {
 	if !ShowsCost(fields) {
 		// Nothing to convert, so nothing is fetched: a session below a cent
 		// should not be starting network requests.
@@ -163,7 +163,8 @@ func exchangeRate(cfg Config, fields ccjson.Fields, now int64) string {
 	}
 	rate, refresh := fxrate.Lookup(cfg.FXCachePath, now)
 	if refresh {
-		spawn(cfg, RefreshFXCommandName, "--now="+strconv.FormatInt(now, 10), "--cache="+cfg.FXCachePath)
+		spawn(cfg, RefreshFXCommandName,
+			flagNow+"="+strconv.FormatInt(now, 10), flagCache+"="+cfg.FXCachePath)
 	}
 	return rate
 }
@@ -175,5 +176,5 @@ func spawn(cfg Config, args ...string) {
 	if cfg.Spawner == nil {
 		return
 	}
-	_ = cfg.Spawner.Spawn(args...)
+	_ = cfg.Spawner.Spawn(cfg.ChildEnv, args...)
 }

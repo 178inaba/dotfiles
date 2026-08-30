@@ -57,23 +57,31 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, build selfbui
 // newRootCmd builds the command tree. build is the self-rebuild outcome, which
 // each subcommand reports in whatever way suits its own output contract.
 func newRootCmd(build selfbuild.State) *cobra.Command {
-	root := &cobra.Command{
-		Use:   "ccx",
-		Short: "Claude Code extensions for this dotfiles repository",
-		// Errors and usage are printed once, centrally, in Execute.
-		SilenceUsage:  true,
-		SilenceErrors: true,
+	root := newParentCmd("ccx", "Claude Code extensions for this dotfiles repository")
+	// Errors and usage are printed once, centrally, in run.
+	root.SilenceUsage = true
+	root.SilenceErrors = true
+
+	root.AddCommand(newStatuslineCmd(build))
+	root.AddCommand(newRefreshCmds()...)
+	return root
+}
+
+// newParentCmd builds a command that only groups others.
+//
+// Every such command has to be built this way. cobra checks whether a command
+// is runnable before it validates the arguments, so a parent with no RunE
+// treats a mistyped subcommand as a request for help and exits 0 — and a hook
+// whose name is misspelled in settings.json exiting 0 reads as "allow".
+func newParentCmd(use, short string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return c.Help()
 			}
-			// Without a RunE, cobra treats a stray argument on a command that
-			// cannot run as a request for help and exits 0, which would let a
-			// mistyped subcommand pass for a successful one in a hook.
 			return fmt.Errorf("unknown command %q for %q", args[0], c.CommandPath())
 		},
 	}
-	root.AddCommand(newStatuslineCmd(build))
-	root.AddCommand(newRefreshCmds()...)
-	return root
 }

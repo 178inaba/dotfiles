@@ -1,13 +1,11 @@
 package statusline
 
 import (
-	"strconv"
-	"strings"
-
-	"github.com/178inaba/dotfiles/go/internal/ccjson"
 	"github.com/178inaba/dotfiles/go/internal/shellfmt"
 	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
+	"strconv"
+	"strings"
 )
 
 // Terminal escapes, spelled out rather than generated. They are part of the
@@ -39,11 +37,12 @@ const (
 // Data is everything one render needs: the payload as it was parsed, the state
 // the caches held, and the outcome of the self-rebuild check.
 type Data struct {
-	Fields ccjson.Fields
+	Fields Fields
 	// Home is what the leading path is abbreviated against.
 	Home string
-	// Cwd stands in for a payload that named no directory.
-	Cwd string
+	// Current is the working directory the payload named, or the process's own
+	// when it named none.
+	Current string
 	// Git is the cached repository fragment, empty outside a repository.
 	Git string
 	// PR is the cached pull request record, empty when there is none.
@@ -89,18 +88,14 @@ func Render(d Data) []byte {
 // directory is the first line: the project, and the working directory after it
 // when the two differ.
 func directory(d Data) string {
-	current := d.Fields.CurrentDir
-	if current == "" {
-		current = d.Cwd
-	}
 	project := d.Fields.ProjectDir
 	if project == "" {
-		project = current
+		project = d.Current
 	}
 
 	out := shellfmt.AbbreviateHome(project, d.Home)
-	if current != project {
-		out += " > " + shellfmt.AbbreviateHome(current, d.Home)
+	if d.Current != project {
+		out += " > " + shellfmt.AbbreviateHome(d.Current, d.Home)
 	}
 	return out
 }
@@ -224,7 +219,7 @@ func window(label, used, resetsAt string, now int64) string {
 // The state layer asks before looking the exchange rate up, because looking it
 // up is not free: a miss records an attempt and starts a background fetch, and
 // a session with nothing to convert should do neither.
-func ShowsCost(f ccjson.Fields) bool {
+func ShowsCost(f Fields) bool {
 	// The cost hangs off the model segment: with no model named there is no
 	// session to attribute it to.
 	if f.ModelDisplayName == "" || f.TotalCostUSD == "" {

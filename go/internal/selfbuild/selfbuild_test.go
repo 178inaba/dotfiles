@@ -114,12 +114,9 @@ func (h *harness) deps() Deps {
 	return Deps{
 		Home:     h.home,
 		Args:     []string{"statusline"},
+		Exe:      h.exe,
 		Getenv:   func(k string) string { return h.env[k] },
 		Environ:  func() []string { return []string{"PATH=/usr/bin"} },
-		Exe:      func() (string, error) { return h.exe, nil },
-		Stat:     os.Stat,
-		Lstat:    os.Lstat,
-		Readlink: os.Readlink,
 		LookPath: func(string) (string, error) { return "/usr/bin/go", nil },
 		Chtimes: func(p string, _, mod time.Time) error {
 			h.touched[p] = mod
@@ -294,7 +291,7 @@ func TestRunRecordsBuildFailure(t *testing.T) {
 
 	got := Run(h.deps())
 
-	want := State{Failed: true, FirstError: "internal/statusline/render.go:12:2: undefined: nope"}
+	want := State{Failed: true, JustFailed: true, FirstError: "internal/statusline/render.go:12:2: undefined: nope"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
 	}
@@ -305,8 +302,11 @@ func TestRunRecordsBuildFailure(t *testing.T) {
 	// A second start in the same source state reports the same breakage without
 	// paying for another build; that is what keeps a broken tree from running
 	// go install on every five-second tick.
+	// The second start reports the same breakage but not as a fresh one, which
+	// is how a hook knows to stay quiet while a status line keeps warning.
+	suppressed := State{Failed: true, FirstError: want.FirstError}
 	h.runner.calls = nil
-	if diff := cmp.Diff(want, Run(h.deps())); diff != "" {
+	if diff := cmp.Diff(suppressed, Run(h.deps())); diff != "" {
 		t.Errorf("second State mismatch (-want +got):\n%s", diff)
 	}
 	if len(h.runner.calls) != 0 {
@@ -384,11 +384,12 @@ func TestInstallPathFollowsGOBIN(t *testing.T) {
 		t.Errorf("installPath = %q, want %q", got, want)
 	}
 
-	// An explicit GOBIN on a target wins, which is how cmd/gh will land in
-	// ~/.local/shims rather than the shared ~/go/bin.
-	shims := filepath.Join(h.home, ".local", "shims")
-	got := installPath(h.deps(), target{pkg: "./cmd/gh", gobin: shims})
-	if want := filepath.Join(shims, "gh"); got != want {
+	// A target's own directory wins, which is how cmd/gh will land in
+	// ~/.local/shims rather than the shared ~/go/bin. It is resolved against
+	// home rather than written with a tilde, because nothing here runs a shell
+	// and go install would create a directory actually called "~".
+	got := installPath(h.deps(), target{pkg: "./cmd/gh", gobin: ".local/shims"})
+	if want := filepath.Join(h.home, ".local", "shims", "gh"); got != want {
 		t.Errorf("installPath = %q, want %q", got, want)
 	}
 }
@@ -424,26 +425,59 @@ func TestFirstLine(t *testing.T) {
 	}
 }
 
-func TestScanSumChangesWithTheTree(t *testing.T) {
+func TestSourceSumChangesWithTheTree(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "a.go"), "package a\n")
 
-	before := mustScan(t, root).sum()
-	if same := mustScan(t, root).sum(); same != before {
+	before := mustSum(t, root)
+	if same := mustSum(t, root); same != before {
 		t.Errorf("sum is not stable: %q then %q", before, same)
 	}
 
 	writeFile(t, filepath.Join(root, "a.go"), "package a // edited\n")
-	if after := mustScan(t, root).sum(); after == before {
+	if after := mustSum(t, root); after == before {
 		t.Error("sum did not change after an edit")
 	}
 }
 
-func mustScan(t *testing.T, root string) scanned {
+func mustSum(t *testing.T, root string) string {
 	t.Helper()
-	s, err := scan(root)
+	sum, err := sourceSum(root)
 	if err != nil {
-		t.Fatalf("scan: %v", err)
+		t.Fatalf("sourceSum: %v", err)
 	}
-	return s
+	return sum
+}
+
+func TestIsStale(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a.go"), "package a\n")
+	mod := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(filepath.Join(root, "a.go"), mod, mod); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		binary time.Time
+		want   bool
+	}{
+		{name: "the binary is newer", binary: mod.Add(time.Second)},
+		// Equal timestamps are not stale: the comparison is strictly after, so
+		// a build that lands in the same second as the edit is not rebuilt on
+		// every invocation from then on.
+		{name: "the timestamps match", binary: mod},
+		{name: "the binary is older", binary: mod.Add(-time.Second), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := isStale(root, tt.binary)
+			if err != nil {
+				t.Fatalf("isStale: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("isStale = %t, want %t", got, tt.want)
+			}
+		})
+	}
 }

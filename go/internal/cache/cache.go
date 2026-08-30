@@ -1,9 +1,10 @@
-// Package cache reads and writes the status line's cache files.
+// Package cache reads and writes the cache files the ported tools keep under
+// /tmp and ~/.cache.
 //
-// The files live where the shell implementation put them and hold exactly the
-// bytes it wrote, down to which of them end with a newline. That matters
-// because the two implementations shared them during the port, and because the
-// records are compared by hand when something looks wrong.
+// The files hold exactly the bytes the shell implementations wrote, down to
+// which of them end with a newline. That matters because the two
+// implementations shared them during the port, and because the records are
+// compared by hand when something looks wrong.
 package cache
 
 import (
@@ -72,7 +73,7 @@ func WriteKeyed(path string, k Keyed) error {
 // writes it while a render may be reading, and a torn read there would drop the
 // badge for a whole refresh interval rather than for one tick.
 func WriteKeyedAtomic(path string, k Keyed) error {
-	return writeAtomic(path, keyedBytes(k))
+	return WriteAtomic(path, keyedBytes(k))
 }
 
 // keyedBytes is the record's on-disk form: three lines, no trailing newline.
@@ -96,7 +97,7 @@ func ReadPair(path string) (int64, string, bool) {
 // WritePair writes the exchange rate record, which unlike the three-line one
 // ends with a newline.
 func WritePair(path string, at int64, value string) error {
-	return writeAtomic(path, []byte(strconv.FormatInt(at, 10)+"\n"+value+"\n"))
+	return WriteAtomic(path, []byte(strconv.FormatInt(at, 10)+"\n"+value+"\n"))
 }
 
 // ReadAttempt returns when a refresh was last started.
@@ -115,6 +116,23 @@ func WriteAttempt(path string, at int64) error {
 	return os.WriteFile(path, []byte(strconv.FormatInt(at, 10)+"\n"), 0o644)
 }
 
+// ShouldAttempt reports whether a refresh of the record at cachePath may start,
+// and records the attempt when it may.
+//
+// The throttle lives beside the record as "<path>.attempt", which means two
+// keys that collide after the name is cut to length share one throttle as well
+// as one record. Every stale-while-revalidate cache uses this, so the suffix
+// and the bookkeeping have one owner rather than one per caller.
+func ShouldAttempt(cachePath string, now, retryInterval int64) bool {
+	attemptPath := cachePath + ".attempt"
+	if last, ok := ReadAttempt(attemptPath); ok && Fresh(now, last, retryInterval) {
+		return false
+	}
+	// Best effort: a write that fails only costs one duplicate refresh.
+	_ = WriteAttempt(attemptPath, now)
+	return true
+}
+
 // Fresh reports whether a record written at is still within maxAge.
 //
 // The comparison is signed and the boundary is inclusive, both as the shell had
@@ -125,9 +143,9 @@ func Fresh(now, at, maxAge int64) bool {
 	return now-at <= maxAge
 }
 
-// writeAtomic writes through a sibling temporary file named after this process,
+// WriteAtomic writes through a sibling temporary file named after this process,
 // as the shell did with $$, and renames it into place.
-func writeAtomic(path string, body []byte) error {
+func WriteAtomic(path string, body []byte) error {
 	tmp := path + "." + strconv.Itoa(os.Getpid())
 	// 0644 rather than the 0600 a temporary file defaults to: the shell created
 	// these with a plain redirect and the mode is part of the on-disk contract.
@@ -141,30 +159,20 @@ func writeAtomic(path string, body []byte) error {
 	return nil
 }
 
-// lines reads the first n lines of a file, padding with empty strings. It
-// mirrors a run of `read` calls: a file with fewer lines leaves the rest of the
-// variables empty, and a missing final newline still yields its line.
+// lines reads the first n lines of a file the way a run of `read` calls would.
 func lines(path string, n int) ([]string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	got := strings.Split(shellfmt.Capture(b), "\n")
-	out := make([]string, n)
-	copy(out, got)
-	return out, nil
+	return shellfmt.Lines(string(b), n), nil
 }
 
-// timestamp accepts only the digits the shell's ^[0-9]+$ test accepted, so a
-// corrupt or partially written record is no record at all.
+// timestamp accepts only what the shell's ^[0-9]+$ test accepted, so a corrupt
+// or partially written record is no record at all.
 func timestamp(s string) (int64, bool) {
-	if s == "" {
+	if !shellfmt.IsDigits(s) {
 		return 0, false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return 0, false
-		}
 	}
 	at, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {

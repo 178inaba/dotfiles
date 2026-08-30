@@ -12,6 +12,15 @@ import (
 	"strings"
 )
 
+// StatusArgs is the git invocation this package parses. It is exported so that
+// the caller running it and the tests checking the parser against real git
+// cannot drift apart from each other.
+//
+// One report carries the branch, the ahead and behind counts and both change
+// totals; the shell version started as six separate git invocations and was
+// collapsed into this because the status line redraws every five seconds.
+var StatusArgs = []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"}
+
 // Status is what a single porcelain v2 report said.
 type Status struct {
 	// Branch is empty on a detached head, which is also how the report reads.

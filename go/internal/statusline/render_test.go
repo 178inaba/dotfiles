@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-
-	"github.com/178inaba/dotfiles/go/internal/ccjson"
 )
 
 // The expectations below are the bytes the bash implementation produced for the
@@ -34,15 +32,16 @@ func TestRender(t *testing.T) {
 			// colour codes are unconditional, so it is four escapes and nothing
 			// else, and there is no second line at all.
 			name: "nothing but a directory",
-			data: Data{Cwd: "/tmp", Home: "/Users/x"},
+			data: Data{Current: "/tmp", Home: "/Users/x"},
 			want: "\x1b[0;34m/tmp\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{
 			name: "the home directory is abbreviated",
 			data: Data{
-				Fields: ccjson.Fields{CurrentDir: "/Users/x/proj", ProjectDir: "/Users/x/proj"},
-				Home:   "/Users/x",
+				Fields:  Fields{ProjectDir: "/Users/x/proj"},
+				Current: "/Users/x/proj",
+				Home:    "/Users/x",
 			},
 			want: "\x1b[0;34m~/proj\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -50,8 +49,9 @@ func TestRender(t *testing.T) {
 		{
 			name: "a working directory below the project is shown after it",
 			data: Data{
-				Fields: ccjson.Fields{CurrentDir: "/Users/x/proj/sub", ProjectDir: "/Users/x/proj"},
-				Home:   "/Users/x",
+				Fields:  Fields{ProjectDir: "/Users/x/proj"},
+				Current: "/Users/x/proj/sub",
+				Home:    "/Users/x",
 			},
 			want: "\x1b[0;34m~/proj > ~/proj/sub\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -59,8 +59,9 @@ func TestRender(t *testing.T) {
 		{
 			name: "every segment at once",
 			data: Data{
-				Fields: ccjson.Fields{
-					CurrentDir: "/w", ProjectDir: "/w", SessionID: "b257201c",
+				Current: "/w",
+				Fields: Fields{
+					ProjectDir: "/w", SessionID: "b257201c",
 					ModelDisplayName: "Opus", TotalCostUSD: "1.23", TotalDurationMS: "5400000",
 					ContextUsedPct:  "42.5",
 					FiveHourUsedPct: "35", SevenDayUsedPct: "95",
@@ -78,7 +79,7 @@ func TestRender(t *testing.T) {
 			// A session outside a repository still shows its id, so a
 			// transcript can be found while the session is running.
 			name: "the session id stands alone without a repository",
-			data: Data{Cwd: "/tmp", Home: "/Users/x", Fields: ccjson.Fields{SessionID: "b257201c"}},
+			data: Data{Current: "/tmp", Home: "/Users/x", Fields: Fields{SessionID: "b257201c"}},
 			want: "\x1b[0;34m/tmp\x1b[0m\n" +
 				"\x1b[0;90mb257201c\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -88,7 +89,7 @@ func TestRender(t *testing.T) {
 			// terminal's own colour, so what is clickable looks clickable.
 			name: "a pull request badge is a link on the number alone",
 			data: Data{
-				Cwd: "/w", Home: "/Users/x", Git: " (feat ↑∅)",
+				Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)",
 				PR: "123 NONE https://example.test/pull/123",
 			},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
@@ -98,7 +99,7 @@ func TestRender(t *testing.T) {
 		},
 		{
 			name: "a pull request without a link is plain text",
-			data: Data{Cwd: "/w", Home: "/Users/x", Git: " (feat ↑∅)", PR: "127 APPROVED "},
+			data: Data{Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)", PR: "127 APPROVED "},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[0;32m#127\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -107,7 +108,7 @@ func TestRender(t *testing.T) {
 			// A state nobody has seen before must not claim a review is
 			// pending, so it falls back to no colour at all.
 			name: "an unrecognised review state is left uncoloured",
-			data: Data{Cwd: "/w", Home: "/Users/x", Git: " (feat ↑∅)", PR: "135 SOME_FUTURE_VALUE "},
+			data: Data{Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)", PR: "135 SOME_FUTURE_VALUE "},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR #135\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -115,7 +116,7 @@ func TestRender(t *testing.T) {
 		{
 			// Detached: no branch, so no badge even with a record in the cache.
 			name: "no branch means no badge",
-			data: Data{Cwd: "/w", Home: "/Users/x", Git: " ()", PR: "123 NONE https://e/1"},
+			data: Data{Current: "/w", Home: "/Users/x", Git: " ()", PR: "123 NONE https://e/1"},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m()\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -125,14 +126,14 @@ func TestRender(t *testing.T) {
 			// stale binary is invisible otherwise, and the display is the only
 			// channel that can say so on every redraw.
 			name: "a failed self-rebuild is reported on every redraw",
-			data: Data{Cwd: "/w", Home: "/Users/x", BuildError: "internal/statusline/render.go:12:2: undefined: nope"},
+			data: Data{Current: "/w", Home: "/Users/x", BuildError: "internal/statusline/render.go:12:2: undefined: nope"},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m " +
 				"\x1b[0;31m⚠ ccx build failed: internal/statusline/render.go:12:2: undefined: nope\x1b[0m\n",
 		},
 		{
 			name: "a long build error is cut to one line",
-			data: Data{Cwd: "/w", Home: "/Users/x", BuildError: strings.Repeat("x", 80)},
+			data: Data{Current: "/w", Home: "/Users/x", BuildError: strings.Repeat("x", 80)},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m " +
 				"\x1b[0;31m⚠ ccx build failed: " + strings.Repeat("x", 59) + "…\x1b[0m\n",
@@ -204,36 +205,36 @@ func TestRateLimits(t *testing.T) {
 
 	tests := []struct {
 		name string
-		f    ccjson.Fields
+		f    Fields
 		want string
 	}{
-		{name: "neither window", f: ccjson.Fields{}, want: ""},
+		{name: "neither window", f: Fields{}, want: ""},
 		{
 			name: "five hour only",
-			f:    ccjson.Fields{FiveHourUsedPct: "35"},
+			f:    Fields{FiveHourUsedPct: "35"},
 			want: " \x1b[0;32m5h:35%\x1b[0m",
 		},
 		{
 			name: "seven day only",
-			f:    ccjson.Fields{SevenDayUsedPct: "95"},
+			f:    Fields{SevenDayUsedPct: "95"},
 			want: " \x1b[0;31m7d:95%\x1b[0m",
 		},
 		{
 			// The countdown sits outside the reset code, so it takes the
 			// terminal's colour rather than the threshold's.
 			name: "a countdown follows the percentage",
-			f:    ccjson.Fields{FiveHourUsedPct: "35", FiveHourResetsAt: "6400"},
+			f:    Fields{FiveHourUsedPct: "35", FiveHourResetsAt: "6400"},
 			want: " \x1b[0;32m5h:35%\x1b[0m(1h30m)",
 		},
 		{
 			name: "a reset already past shows no countdown",
-			f:    ccjson.Fields{FiveHourUsedPct: "35", FiveHourResetsAt: "1"},
+			f:    Fields{FiveHourUsedPct: "35", FiveHourResetsAt: "1"},
 			want: " \x1b[0;32m5h:35%\x1b[0m",
 		},
 		{
 			// printf rounds half to even, so 72.5 is 72 and 89.5 is 90.
 			name: "percentages round half to even",
-			f:    ccjson.Fields{FiveHourUsedPct: "72.5", SevenDayUsedPct: "89.5"},
+			f:    Fields{FiveHourUsedPct: "72.5", SevenDayUsedPct: "89.5"},
 			want: " \x1b[1;33m5h:72%\x1b[0m \x1b[0;31m7d:90%\x1b[0m",
 		},
 	}
@@ -266,7 +267,7 @@ func TestCost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := Data{
-				Fields: ccjson.Fields{ModelDisplayName: tt.model, TotalCostUSD: tt.usd},
+				Fields: Fields{ModelDisplayName: tt.model, TotalCostUSD: tt.usd},
 				Rate:   tt.rate,
 			}
 			if got := cost(d); got != tt.want {
