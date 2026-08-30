@@ -46,26 +46,18 @@
 [init]
 	defaultBranch = main
 [branch]
-	# autoSetupMerge = simple は git 2.37 以降が必須（古い git は無視せず
-	# bad boolean config value で全 git コマンドが死ぬ）。始点が同名の
-	# remote-tracking branch のときだけ upstream を設定するので、
-	# `git switch -c feature/x origin/main` が origin/main を upstream として
-	# 引き継ぐのを防ぐ。これにより引数なし push が名前不一致で落ちなくなり、
-	# `@{u}` の解決失敗が「一度も push していない」ことの判定として使える。
-	# その判定の消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15。
+	# origin/main から切ったブランチが origin/main を追うと、引数なし push が
+	# 名前不一致で落ち、`@{u}` の有無で「一度も push していない」を判定できなくなる
+	# （消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15）。
+	# simple は git 2.37 以降が必須（古い git は無視せず全コマンドが die する）。
 	autoSetupMerge = simple
 [pull]
 	rebase = false
 [push]
-	# default = simple は git 2.0 以降の既定と同値だが、許可ルール
-	# `Bash(git push)` が「引数なし push は現在ブランチと同名のリモート
-	# ブランチだけを進める」ことに依存しているため、既定任せにせず明示する
-	# （core.excludesFile と同じ「既定と同値でも明示する」理由）。
-	# autoSetupRemote は upstream 未設定のときだけ初回 push でリモート
-	# ブランチを作って upstream を張る。
-	# 両キーを前提にしている許可ルール（完全一致で維持する理由と、広げたときに
-	# 無言で防御が外れる仕組み）は claude/.claude/rules/hooks-design.md の
-	#「許可ルールの設計意図」を参照。
+	# default は既定と同値だが、許可ルール `Bash(git push)` が「引数なし push は
+	# 同名のリモートブランチだけを非 force で進める」ことに依存するため明示する。
+	# autoSetupRemote は初回 push で upstream を張り、`-u origin` を不要にする。
+	# 許可ルール側の設計意図は claude/.claude/rules/hooks-design.md を参照。
 	default = simple
 	autoSetupRemote = true
 [fetch]
