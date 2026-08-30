@@ -51,6 +51,7 @@ PR文脈はコンフリクト解消時の判断材料として使用。
 14. `git log --oneline -10` でrebase後の履歴を確認
 15. `git rev-parse --abbrev-ref @{u}` でupstreamの有無を確認（非ゼロexit = upstreamなし）
     - **upstreamなし**（一度もpushしていない・PRが無い）: プッシュしない。rebase結果を報告し、初回pushを行う `/git-pr` を案内して終了する
+    - この判定が成り立つのは `git/.gitconfig` の `branch.autoSetupMerge = simple` が、`origin/main` のような異なる名前の始点から作ったブランチに upstream を引き継がせないため（引き継ぐと一度もpushしていなくても `@{u}` が解決してしまう）
 16. `git push --force-with-lease` でプッシュ（**この引数形そのまま**。何も付け足さない）
     - **プッシュ前のゲート**: ステップ1で得たローカルHEADとPRの最新head（`headRefOid`）の整合が **behind / diverged / 方向不明** だった場合はプッシュしない。乖離の内容を報告して停止する（rebase開始時点でリモートに未取得のcommitがあったということで、注意事項4のとおりleaseでは止まらない）。PRが無く整合を判定できない場合はゲートを適用せずleaseに委ねる
     - 形を固定する理由: 許可ルール `Bash(git push --force-with-lease)` は完全一致で、prefixルールにすると `--force` の併記・`+<refspec>`・`=<ref>:<sha>` がleaseを無効化してリモートを上書きできてしまうため（3形とも実測で `forced update` になったためprefixルールは不採用）

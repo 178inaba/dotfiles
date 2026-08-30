@@ -45,10 +45,19 @@
 	cookiefile = ~/.gitcookies
 [init]
 	defaultBranch = main
+[branch]
+	# origin/main から切ったブランチが origin/main を追うと、引数なし push が
+	# 名前不一致で落ち、`@{u}` の有無で「一度も push していない」を判定できなくなる
+	# （消費者は claude/.claude/skills/git-rebase/SKILL.md のステップ15）。
+	autoSetupMerge = simple
 [pull]
 	rebase = false
 [push]
+	# 許可ルール `Bash(git push)` が「引数なし push は同名のリモートブランチだけを
+	# 非 force で進める」ことに依存する（設計意図は claude/.claude/rules/hooks-design.md）。
+	# default は既定と同値でも明示し、autoSetupRemote が初回 push の upstream を張る。
 	default = simple
+	autoSetupRemote = true
 [fetch]
 	prune = true
 # remote.origin.* をここに直接書くと remote 未設定のリポジトリにも幽霊 origin が
