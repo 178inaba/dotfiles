@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// Terminal escapes, spelled out rather than generated. They are part of the
-// output byte for byte, and the display was matched against the shell version
-// with them in place.
+// Terminal escapes, spelled out rather than generated: they are part of the
+// output byte for byte.
 const (
 	red       = "\x1b[0;31m"
 	green     = "\x1b[0;32m"
@@ -61,10 +60,9 @@ type Data struct {
 //
 // Three lines at most: the directory, then the repository and session, then the
 // model and its counters. The middle line disappears outside a repository with
-// no session id, but the last line never does — its colour codes are emitted
-// unconditionally, so it is four escape sequences and nothing else when there
-// is nothing to say. That is what the shell version did, and a status line that
-// changed height as fields came and went would be worse anyway.
+// no session id; the last never does — its colour codes are emitted
+// unconditionally, so with nothing to say it is four escape sequences. That is
+// what the shell version did.
 func Render(d Data) []byte {
 	var b strings.Builder
 
@@ -119,8 +117,6 @@ func second(d Data) string {
 	return line
 }
 
-// pullRequest renders the badge, which is empty when the branch has no open
-// pull request.
 func pullRequest(d Data) string {
 	if gitstate.BranchOf(d.Git) == "" {
 		return ""
@@ -153,7 +149,6 @@ func pullRequest(d Data) string {
 	return " PR " + color + text + reset
 }
 
-// model is the display name in brackets, empty when the payload named none.
 func model(d Data) string {
 	if d.Fields.ModelDisplayName == "" {
 		return ""
@@ -166,8 +161,6 @@ func contextBar(used string) string {
 	if used == "" {
 		return ""
 	}
-	// Truncated rather than rounded, so the gauge never claims a percentage the
-	// session has not reached.
 	pct := shellfmt.TruncateDecimal(used)
 	n := number(pct)
 
@@ -214,11 +207,9 @@ func window(label, used, resetsAt string, now int64) string {
 	return out
 }
 
-// ShowsCost reports whether the cost segment will be rendered.
-//
-// The state layer asks before looking the exchange rate up, because looking it
-// up is not free: a miss records an attempt and starts a background fetch, and
-// a session with nothing to convert should do neither.
+// ShowsCost reports whether the cost segment will be rendered. The state layer
+// asks before looking the exchange rate up, because a miss there records an
+// attempt and starts a background fetch.
 func ShowsCost(f Fields) bool {
 	// The cost hangs off the model segment: with no model named there is no
 	// session to attribute it to.
@@ -241,7 +232,7 @@ func cost(d Data) string {
 	return " ¥" + shellfmt.RoundFloat(shellfmt.AwkNumber(d.Fields.TotalCostUSD)*shellfmt.AwkNumber(d.Rate))
 }
 
-// duration is how long the session has been running, absent below a minute.
+// duration is how long the session has been running.
 func duration(ms string) string {
 	if ms == "" {
 		return ""
@@ -298,7 +289,6 @@ func humanDuration(seconds int) string {
 	}
 }
 
-// thresholdColor is red past ninety percent, yellow past seventy, green below.
 func thresholdColor(pct int) string {
 	switch {
 	case pct >= 90:

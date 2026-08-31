@@ -45,9 +45,8 @@ type Config struct {
 	PRCacheBase  string
 	FXCachePath  string
 
-	// ChildEnv is what a detached refresh is started with. The refreshes are
-	// copies of this binary, and a copy that repeated the parent's startup work
-	// would race it.
+	// ChildEnv is what a detached refresh is started with; see
+	// selfbuild.ChildEnv.
 	ChildEnv []string
 }
 
@@ -106,12 +105,7 @@ func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, bui
 // gitSegment returns the repository fragment, from the cache when it is fresh.
 //
 // The cache is keyed by directory so that parallel sessions do not overwrite
-// each other's, and the key is stored inside the file because two directories
-// can share one once the file name is cut to length.
-//
-// git runs in the process working directory rather than in the directory the
-// payload named — that is what the shell did, and Claude Code starts the
-// command there anyway.
+// each other's.
 func gitSegment(ctx context.Context, cfg Config, current string, now int64) string {
 	path := cache.Path(cfg.GitCacheBase, current)
 	if rec, ok := cache.ReadKeyed(path); ok && rec.Key == current && cache.Fresh(now, rec.At, gitMaxAge) {
@@ -141,8 +135,6 @@ func pullRequestRecord(cfg Config, gitSegment, current string, now int64) string
 		return ""
 	}
 
-	// Keying on the branch as well as the directory is what makes a branch
-	// switch take effect at once rather than at the next expiry.
 	key := current + ":" + branch
 	path := cache.Path(cfg.PRCacheBase, key)
 	record, refresh := prinfo.Lookup(path, key, now)
@@ -157,8 +149,6 @@ func pullRequestRecord(cfg Config, gitSegment, current string, now int64) string
 // exchangeRate returns the cached rate and starts a refresh when it is stale.
 func exchangeRate(cfg Config, fields Fields, now int64) string {
 	if !ShowsCost(fields) {
-		// Nothing to convert, so nothing is fetched: a session below a cent
-		// should not be starting network requests.
 		return ""
 	}
 	rate, refresh := fxrate.Lookup(cfg.FXCachePath, now)
@@ -170,8 +160,7 @@ func exchangeRate(cfg Config, fields Fields, now int64) string {
 }
 
 // spawn starts a refresh and forgets about it. A failure to start is not worth
-// reporting: the segment renders from the cache either way, and the recorded
-// attempt keeps the next redraw from trying again immediately.
+// reporting: the segment renders from the cache either way.
 func spawn(cfg Config, args ...string) {
 	if cfg.Spawner == nil {
 		return

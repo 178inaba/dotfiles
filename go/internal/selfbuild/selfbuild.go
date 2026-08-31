@@ -65,8 +65,7 @@ func ChildEnv() []string {
 	return []string{disableEnv + "=0"}
 }
 
-// State is what the check left behind. Each subcommand decides how to report
-// it, because the right channel differs by kind of command.
+// State is what the check left behind.
 type State struct {
 	// Failed reports that the current source state does not build — either the
 	// build ran here and failed, or an earlier invocation recorded a failure
@@ -87,11 +86,9 @@ type State struct {
 
 // Deps are the seams. Use NewDeps for the real ones.
 //
-// Plain filesystem calls are not among them: the tests build a real home
-// directory in a temporary tree, which exercises the symlink resolution rather
-// than a description of it. Only what a test cannot arrange — this process's
-// own identity, the clock, running the compiler, replacing the process — is
-// injected.
+// Filesystem calls are not among them: the tests build a real home directory in
+// a temporary tree, which exercises the symlink resolution rather than a
+// description of it.
 type Deps struct {
 	// Home is empty when it cannot be resolved, which makes Run skip.
 	Home string
@@ -179,10 +176,7 @@ func Run(d Deps) State {
 		return State{}
 	}
 
-	// Asking whether anything is newer stops at the first file that is, and on
-	// the common path — nothing is — it costs one stat per file and nothing
-	// else. The hash of the whole tree is only built when it is going to be
-	// used, below.
+	// The tree's hash is only built on the stale path, below.
 	stale, err := isStale(root, exeInfo.ModTime())
 	if err != nil {
 		log("skipped: cannot scan %s: %v", root, err)
@@ -200,9 +194,7 @@ func Run(d Deps) State {
 	}
 	if rec, ok := readFailure(d); ok && rec.sum == source.sum {
 		// Reported once, on the invocation that tried, and then not retried
-		// until the source changes. Failed without JustFailed is what tells a
-		// status line to keep showing its warning while everything else stays
-		// quiet.
+		// until the source changes.
 		log("suppressed by hash")
 		return State{Failed: true, FirstError: rec.firstError}
 	}
@@ -273,8 +265,7 @@ func install(d Deps, root string) ([]byte, error) {
 // Not with the current time: a build takes a few hundred milliseconds, and an
 // edit that lands inside that window would be stamped over and never noticed.
 // Stamping with what the build actually saw leaves anything newer newer, so the
-// next invocation picks it up. The comparison is strictly after, so a build
-// that matches its source exactly is not stale.
+// next invocation picks it up.
 func touch(d Deps, source time.Time) {
 	for _, t := range targets {
 		p := installPath(d, t)
@@ -284,7 +275,6 @@ func touch(d Deps, source time.Time) {
 	}
 }
 
-// reexecEnviron is the current environment plus the loop marker.
 func reexecEnviron(d Deps) []string {
 	env := slices.DeleteFunc(d.Environ(), func(kv string) bool {
 		return strings.HasPrefix(kv, reexecEnv+"=")
@@ -318,7 +308,6 @@ func firstLine(out []byte) string {
 	return "build failed"
 }
 
-// isInstalled reports whether this process is one of the targets.
 func isInstalled(d Deps) bool {
 	return slices.ContainsFunc(targets, func(t target) bool {
 		return samePath(d.Exe, installPath(d, t))

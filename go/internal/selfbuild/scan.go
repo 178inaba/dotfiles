@@ -20,10 +20,7 @@ import (
 //
 // Every file counts, not just .go ones: go.mod, go.sum and the linter config
 // all change what a build produces. The cost is that anything dropped into the
-// tree looks like a change — .DS_Store included, so opening the directory in
-// Finder can trigger one rebuild — and that the check is only as cheap as the
-// tree is small. A vendor directory or a large testdata corpus under go/ would
-// put this on the wrong side of its budget.
+// tree looks like a change — a .DS_Store will trigger one rebuild.
 func isStale(root string, binary time.Time) (bool, error) {
 	stale := false
 	err := filepath.WalkDir(root, func(_ string, e fs.DirEntry, err error) error {
@@ -56,8 +53,7 @@ type source struct {
 	// sum changes with any edit, including one that only reverts, so a broken
 	// tree is not rebuilt on every tick but a fixed one is retried at once.
 	sum string
-	// newest is what the build actually saw, so an edit that lands while it
-	// runs stays newer than the binary it produced.
+	// newest is the newest modification time the walk saw.
 	newest time.Time
 }
 

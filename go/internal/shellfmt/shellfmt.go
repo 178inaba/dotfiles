@@ -107,20 +107,15 @@ func Capture(out []byte) string {
 
 // AbbreviateHome is ${path/#$HOME/~} as bash 3.2 performs it.
 //
-// The version matters. bash 5 expands the tilde in the replacement and hands
-// back the absolute path unchanged; bash 3.2 leaves it literal and produces the
-// abbreviated form. The script runs under /bin/bash, which on macOS is 3.2, so
-// the abbreviated form is what the status line has always shown — even though
-// its own test suite ran under the newer bash on PATH and only ever exercised
-// the other branch.
+// The version matters: bash 5 expands the tilde in the replacement and hands
+// back the absolute path unchanged, while bash 3.2 leaves it literal and
+// produces the abbreviated form. The script ran under /bin/bash, which on macOS
+// is 3.2, so the abbreviated form is what the status line has always shown.
 //
-// It is a plain prefix substitution: no path boundary is required, so a home of
-// /Users/x turns /Users/xyz into ~yz, and an empty home matches at position
-// zero and prefixes everything.
-//
-// Known divergence: bash treats the pattern as a glob, so a home directory
-// containing ? or * would match more than itself. Reproducing that would make
-// the common case slower for no one's benefit.
+// It is a plain prefix substitution with no path boundary, so a home of
+// /Users/x turns /Users/xyz into ~yz and an empty home prefixes everything.
+// Known divergence: bash treats the pattern as a glob, so a home containing
+// ? or * would match more than itself.
 func AbbreviateHome(path, home string) string {
 	if strings.HasPrefix(path, home) {
 		return "~" + path[len(home):]

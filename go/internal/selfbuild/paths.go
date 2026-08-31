@@ -16,9 +16,9 @@ import (
 // always points into the main tree, so editing <repo>/.claude/worktrees/x/go
 // leaves the installed binary alone, which is the intended behaviour.
 //
-// The second return value is false whenever the layout does not hold, and the
-// caller then does nothing at all. That silence is deliberate: the binary has
-// to stay usable on a machine where this repository is not stowed.
+// A false second value means the layout does not hold and the caller does
+// nothing at all: the binary has to stay usable on a machine where this
+// repository is not stowed.
 func sourceRoot(d Deps) (string, bool) {
 	if d.Home == "" {
 		return "", false
@@ -59,8 +59,6 @@ func sourceRoot(d Deps) (string, bool) {
 // whole check.
 func binDir(d Deps, gobin string) string {
 	if gobin != "" {
-		// Home-relative, so that a target can name ~/.local/shims without a
-		// shell to expand the tilde for it.
 		return filepath.Join(d.Home, gobin)
 	}
 

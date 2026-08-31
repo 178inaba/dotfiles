@@ -1,10 +1,9 @@
 // Package fxrate keeps the US dollar to yen rate the cost segment converts
 // with.
 //
-// The rate is served stale while it revalidates. A status line redraw is a hot
-// path — every five seconds, in every session — so it never waits on the
-// network: the cached value is rendered as it is, and a refresh is started in
-// the background when the value is old or missing.
+// The rate is served stale while it revalidates: the cached value is rendered
+// as it is and a refresh is started in the background when it is old or
+// missing, so a redraw never waits on the network.
 package fxrate
 
 import (
@@ -47,9 +46,6 @@ var rateFormat = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
 //
 // A stale rate is still returned: yesterday's conversion is far better than
 // dropping the cost from the display while a fetch happens.
-//
-// Deciding to refresh records the attempt, so a second redraw arriving while
-// the first fetch is still in flight does not start another one.
 func Lookup(cachePath string, now int64) (string, bool) {
 	rate := ""
 	at, value, ok := cache.ReadPair(cachePath)
@@ -65,8 +61,7 @@ func Lookup(cachePath string, now int64) (string, bool) {
 }
 
 // Refresh fetches the rate and stores it. It is meant to run detached, so it
-// reports nothing: a failure simply leaves the previous cache in place, and the
-// recorded attempt keeps the next redraw from trying again immediately.
+// reports nothing: a failure simply leaves the previous cache in place.
 func Refresh(ctx context.Context, client *http.Client, url, cachePath string, now int64) {
 	rate, ok := fetch(ctx, client, url)
 	if !ok {

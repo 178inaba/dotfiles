@@ -2,9 +2,8 @@
 // /tmp and ~/.cache.
 //
 // The files hold exactly the bytes the shell implementations wrote, down to
-// which of them end with a newline. That matters because the two
-// implementations shared them during the port, and because the records are
-// compared by hand when something looks wrong.
+// which of them end with a newline, because the two implementations shared them
+// during the port.
 package cache
 
 import (
@@ -23,10 +22,8 @@ const maxPathLength = 200
 // Path is the cache file for a key: the base, the key with its slashes
 // flattened, and the result cut to length.
 //
-// The cut counts characters rather than bytes, which is what bash does in a
-// UTF-8 locale. Under LC_ALL=C it would count bytes; that locale never applies
-// here, and cutting a multibyte path mid-rune would be worse than the
-// divergence.
+// The cut counts characters rather than bytes, which is what bash does in the
+// UTF-8 locale this runs in.
 func Path(base, key string) string {
 	p := base + "-" + strings.ReplaceAll(key, "/", "_")
 	if r := []rune(p); len(r) > maxPathLength {
@@ -118,10 +115,9 @@ func WriteAttempt(path string, at int64) error {
 // ShouldAttempt reports whether a refresh of the record at cachePath may start,
 // and records the attempt when it may.
 //
-// The throttle lives beside the record as "<path>.attempt", which means two
-// keys that collide after the name is cut to length share one throttle as well
-// as one record. Every stale-while-revalidate cache uses this, so the suffix
-// and the bookkeeping have one owner rather than one per caller.
+// The throttle lives beside the record as "<path>.attempt". Every
+// stale-while-revalidate cache uses this, so the suffix and the bookkeeping
+// have one owner rather than one per caller.
 func ShouldAttempt(cachePath string, now, retryInterval int64) bool {
 	attemptPath := cachePath + ".attempt"
 	if last, ok := ReadAttempt(attemptPath); ok && Fresh(now, last, retryInterval) {

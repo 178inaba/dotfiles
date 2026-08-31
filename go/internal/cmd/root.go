@@ -23,11 +23,8 @@ type silentError struct{ error }
 // Silent wraps err so Execute prints it on its own.
 func Silent(err error) error { return silentError{err} }
 
-// Execute runs the tree and returns the process exit status.
-//
-// The self-rebuild check runs first, and before anything reads stdin: it may
-// replace this process, and the replacement inherits the argv but not bytes
-// already taken off the pipe.
+// Execute runs the tree and returns the process exit status. The self-rebuild
+// check runs first, before anything reads stdin; see selfbuild.Run.
 func Execute(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return run(args, stdin, stdout, stderr, selfbuild.Run(selfbuild.NewDeps(args)))
 }

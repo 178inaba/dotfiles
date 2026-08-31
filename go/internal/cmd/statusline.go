@@ -9,14 +9,8 @@ import (
 )
 
 // newStatuslineCmd renders the status line from the payload on standard input.
-//
-// It never fails. Every source it draws on is optional, and Claude Code redraws
-// it every few seconds, so an error exit would be noise the user cannot act on;
-// a missing segment says as much as a message would.
-//
-// The status line is the one command that reports a failed self-rebuild on
-// every render rather than once: it is a display, and a stale binary has to
-// stay visible for as long as it is stale.
+// It never fails; see statusline.Run. It reports a build failure on every
+// render rather than once, which is what selfbuild.State.Failed is for.
 func newStatuslineCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "statusline",
@@ -64,9 +58,6 @@ func newRefreshCmds() []*cobra.Command {
 	}
 
 	for _, c := range []*cobra.Command{fx, pr} {
-		// The parent passes what it computed rather than letting the child work
-		// it out again: the cache path is cut to a fixed length, and two
-		// derivations of that could disagree.
 		c.Flags().Int64Var(&now, statusline.FlagNow, 0, "unix time the refresh was started for")
 		c.Flags().StringVar(&cachePath, statusline.FlagCache, "", "cache file to write")
 	}

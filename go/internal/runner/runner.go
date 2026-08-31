@@ -51,9 +51,7 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // Spawner starts a detached copy of this binary and returns immediately.
 type Spawner interface {
-	// Spawn appends env to the child's environment. The caller has to be able
-	// to tell the child what it is, because a detached copy that repeated the
-	// parent's startup work would race it.
+	// Spawn appends env to the child's environment; see selfbuild.ChildEnv.
 	Spawn(env []string, args ...string) error
 }
 
@@ -86,10 +84,9 @@ func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 // which a goroutine cannot be.
 //
 // Leaving all three standard streams nil wires them to /dev/null. Inheriting
-// stdout would be the one fatal mistake here: the statusline writes to a pipe
-// Claude Code reads to EOF, so a child holding the write end would block the
-// render until its network call finished. No unit test catches that, which is
-// why it is spelled out.
+// stdout would be fatal: the statusline writes to a pipe Claude Code reads to
+// EOF, so a child holding the write end would block the render until its
+// network call finished.
 func (Exec) Spawn(env []string, args ...string) error {
 	self, err := executablePath()
 	if err != nil {

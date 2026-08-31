@@ -23,7 +23,6 @@ func failurePath(d Deps) string {
 	return filepath.Join(cacheDir(d), "build-failed")
 }
 
-// readFailure returns the recorded failure, if there is a readable one.
 func readFailure(d Deps) (failure, bool) {
 	b, err := os.ReadFile(failurePath(d))
 	if err != nil {
@@ -50,7 +49,6 @@ func writeFailure(d Deps, sum, firstError string) {
 	_ = cache.WriteAtomic(failurePath(d), body)
 }
 
-// removeFailure clears the record after a successful build.
 func removeFailure(d Deps) {
 	os.Remove(failurePath(d))
 }

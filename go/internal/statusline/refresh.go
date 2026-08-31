@@ -47,9 +47,6 @@ func RefreshFX(ctx context.Context, cachePath string, now int64) {
 }
 
 // RefreshPR asks gh about a branch's pull request.
-//
-// The working directory is inherited rather than set: gh and git both resolve
-// the repository from it, and the parent was already standing in the right one.
 func RefreshPR(ctx context.Context, r runner.Runner, cachePath, cacheKey, branch string, now int64) {
 	prinfo.Refresh(ctx, r, cachePath, cacheKey, branch, now)
 }

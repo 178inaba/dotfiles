@@ -8,8 +8,6 @@ import (
 )
 
 func main() {
-	// Nothing may read os.Stdin before Execute: it runs the self-rebuild check
-	// first, and a rebuild replaces this process with one that inherits the
-	// argv but not whatever has already been consumed from the input pipe.
+	// Nothing may read os.Stdin before Execute; see selfbuild.Run.
 	os.Exit(cmd.Execute(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }

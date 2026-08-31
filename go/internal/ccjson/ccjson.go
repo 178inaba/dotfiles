@@ -11,9 +11,7 @@
 //   - `tostring` hands back the literal a number arrived as, trailing zero and
 //     all.
 //
-// Each command supplies its own list of paths. Splitting the results back into
-// fields is shellfmt.Lines, because that is a property of the `read` calls that
-// consumed them rather than of jq.
+// Each command supplies its own list of paths.
 package ccjson
 
 import (

@@ -54,8 +54,6 @@ func ParseFields(payload []byte) Fields {
 	for i, p := range fieldPaths {
 		v, err := ccjson.Lookup(doc, p)
 		if err != nil {
-			// jq exits non-zero on the first bad path and prints nothing, so
-			// one unexpected shape costs every field, not just its own.
 			return Fields{}
 		}
 		values[i] = ccjson.ToString(v)
