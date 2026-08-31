@@ -6,8 +6,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func f64(v float64) *float64 { return &v }
-
 func TestParseFields(t *testing.T) {
 	t.Parallel()
 
@@ -27,10 +25,10 @@ func TestParseFields(t *testing.T) {
 				f.SessionID = "b257201c"
 				f.Workspace.CurrentDir, f.Workspace.ProjectDir = "/w", "/p"
 				f.Model.DisplayName = "Opus"
-				f.Cost.TotalUSD, f.Cost.DurationMS = f64(1.23), f64(5400000)
-				f.ContextWindow.UsedPercentage = f64(42.5)
-				f.RateLimits.FiveHour = rateWindow{UsedPercentage: f64(35), ResetsAt: f64(9999999999)}
-				f.RateLimits.SevenDay = rateWindow{UsedPercentage: f64(73), ResetsAt: f64(9999999998)}
+				f.Cost.TotalUSD, f.Cost.DurationMS = new(1.23), new(int64(5400000))
+				f.ContextWindow.UsedPercentage = new(42.5)
+				f.RateLimits.FiveHour = rateWindow{UsedPercentage: new(35.0), ResetsAt: new(int64(9999999999))}
+				f.RateLimits.SevenDay = rateWindow{UsedPercentage: new(73.0), ResetsAt: new(int64(9999999998))}
 			}),
 		},
 		{
@@ -47,13 +45,21 @@ func TestParseFields(t *testing.T) {
 			name:  "zero is a value",
 			stdin: `{"context_window":{"used_percentage":0},"rate_limits":{"five_hour":{"used_percentage":0}}}`,
 			want: fields(func(f *Fields) {
-				f.ContextWindow.UsedPercentage = f64(0)
-				f.RateLimits.FiveHour.UsedPercentage = f64(0)
+				f.ContextWindow.UsedPercentage = new(0.0)
+				f.RateLimits.FiveHour.UsedPercentage = new(0.0)
 			}),
 		},
 		{
 			name:  "null is absent",
 			stdin: `{"model":{"display_name":null},"context_window":{"used_percentage":null}}`,
+		},
+		{
+			// A percentage carries a fraction and a duration does not, which is
+			// what the payload declares. Sending one where the other belongs is
+			// a change of contract, and a display that empties says so where a
+			// silently truncated timestamp would not.
+			name:  "a fractional duration is rejected",
+			stdin: `{"session_id":"b257201c","cost":{"total_duration_ms":5400000.5}}`,
 		},
 		{name: "no input", stdin: ""},
 		{name: "only newlines", stdin: "\n\n\n"},

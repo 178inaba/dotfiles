@@ -12,6 +12,11 @@ import (
 // The numbers are pointers so that an absent field stays distinguishable from a
 // zero. The difference is visible: no rate-limit segment at all versus "5h:0%",
 // and no context bar versus an empty one.
+//
+// A duration and a reset time are integers and the rest are not, which follows
+// the payload rather than being a simplification of it: Claude Code declares
+// both as integers and rounds the reset time before sending it, while a cost
+// and a percentage are the results of a division.
 type Fields struct {
 	SessionID string `json:"session_id"`
 	Workspace struct {
@@ -23,7 +28,7 @@ type Fields struct {
 	} `json:"model"`
 	Cost struct {
 		TotalUSD   *float64 `json:"total_cost_usd"`
-		DurationMS *float64 `json:"total_duration_ms"`
+		DurationMS *int64   `json:"total_duration_ms"`
 	} `json:"cost"`
 	ContextWindow struct {
 		UsedPercentage *float64 `json:"used_percentage"`
@@ -37,7 +42,7 @@ type Fields struct {
 // rateWindow is one usage window and when it resets.
 type rateWindow struct {
 	UsedPercentage *float64 `json:"used_percentage"`
-	ResetsAt       *float64 `json:"resets_at"`
+	ResetsAt       *int64   `json:"resets_at"`
 }
 
 // ParseFields reads the payload. No input, malformed input and an unexpected
@@ -55,9 +60,9 @@ func ParseFields(stdin []byte) Fields {
 }
 
 // unixTime reads a payload timestamp, which is seconds since the epoch.
-func unixTime(p *float64) (time.Time, bool) {
+func unixTime(p *int64) (time.Time, bool) {
 	if p == nil {
 		return time.Time{}, false
 	}
-	return time.Unix(int64(*p), 0), true
+	return time.Unix(*p, 0), true
 }

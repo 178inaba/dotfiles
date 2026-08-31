@@ -206,10 +206,10 @@ func full() Data {
 	d.Fields.SessionID = "b257201c"
 	d.Fields.Workspace.ProjectDir = "/w"
 	d.Fields.Model.DisplayName = "Opus"
-	d.Fields.Cost.TotalUSD, d.Fields.Cost.DurationMS = f64(1.23), f64(5400000)
-	d.Fields.ContextWindow.UsedPercentage = f64(42.5)
-	d.Fields.RateLimits.FiveHour.UsedPercentage = f64(35)
-	d.Fields.RateLimits.SevenDay.UsedPercentage = f64(95)
+	d.Fields.Cost.TotalUSD, d.Fields.Cost.DurationMS = new(1.23), new(int64(5400000))
+	d.Fields.ContextWindow.UsedPercentage = new(42.5)
+	d.Fields.RateLimits.FiveHour.UsedPercentage = new(35.0)
+	d.Fields.RateLimits.SevenDay.UsedPercentage = new(95.0)
 	return d
 }
 
@@ -222,17 +222,17 @@ func TestContextBar(t *testing.T) {
 		want string
 	}{
 		{name: "absent renders nothing"},
-		{name: "zero", used: f64(0), want: " \x1b[0;32m░░░░░░░░░░ 0%\x1b[0m"},
+		{name: "zero", used: new(0.0), want: " \x1b[0;32m░░░░░░░░░░ 0%\x1b[0m"},
 		// Truncated, not rounded: 42.9 is still 42.
-		{name: "truncated to the whole percent", used: f64(42.9), want: " \x1b[0;32m▓▓▓▓░░░░░░ 42%\x1b[0m"},
-		{name: "green below seventy", used: f64(69), want: " \x1b[0;32m▓▓▓▓▓▓░░░░ 69%\x1b[0m"},
-		{name: "yellow from seventy", used: f64(70), want: " \x1b[1;33m▓▓▓▓▓▓▓░░░ 70%\x1b[0m"},
-		{name: "red from ninety", used: f64(90), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓░ 90%\x1b[0m"},
-		{name: "full", used: f64(100), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓ 100%\x1b[0m"},
+		{name: "truncated to the whole percent", used: new(42.9), want: " \x1b[0;32m▓▓▓▓░░░░░░ 42%\x1b[0m"},
+		{name: "green below seventy", used: new(69.0), want: " \x1b[0;32m▓▓▓▓▓▓░░░░ 69%\x1b[0m"},
+		{name: "yellow from seventy", used: new(70.0), want: " \x1b[1;33m▓▓▓▓▓▓▓░░░ 70%\x1b[0m"},
+		{name: "red from ninety", used: new(90.0), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓░ 90%\x1b[0m"},
+		{name: "full", used: new(100.0), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓ 100%\x1b[0m"},
 		{
 			// Over a hundred draws a longer bar rather than capping, so an
 			// impossible number is visible instead of hidden.
-			name: "over full", used: f64(150), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 150%\x1b[0m",
+			name: "over full", used: new(150.0), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 150%\x1b[0m",
 		},
 	}
 	for _, tt := range tests {
@@ -285,12 +285,12 @@ func TestRateLimits(t *testing.T) {
 		{name: "neither window", build: func(*Fields) {}},
 		{
 			name:  "five hour only",
-			build: func(f *Fields) { f.RateLimits.FiveHour.UsedPercentage = f64(35) },
+			build: func(f *Fields) { f.RateLimits.FiveHour.UsedPercentage = new(35.0) },
 			want:  " \x1b[0;32m5h:35%\x1b[0m",
 		},
 		{
 			name:  "seven day only",
-			build: func(f *Fields) { f.RateLimits.SevenDay.UsedPercentage = f64(95) },
+			build: func(f *Fields) { f.RateLimits.SevenDay.UsedPercentage = new(95.0) },
 			want:  " \x1b[0;31m7d:95%\x1b[0m",
 		},
 		{
@@ -298,14 +298,14 @@ func TestRateLimits(t *testing.T) {
 			// terminal's colour rather than the threshold's.
 			name: "a countdown follows the percentage",
 			build: func(f *Fields) {
-				f.RateLimits.FiveHour = rateWindow{UsedPercentage: f64(35), ResetsAt: f64(6400)}
+				f.RateLimits.FiveHour = rateWindow{UsedPercentage: new(35.0), ResetsAt: new(int64(6400))}
 			},
 			want: " \x1b[0;32m5h:35%\x1b[0m(1h30m)",
 		},
 		{
 			name: "a reset already past shows no countdown",
 			build: func(f *Fields) {
-				f.RateLimits.FiveHour = rateWindow{UsedPercentage: f64(35), ResetsAt: f64(1)}
+				f.RateLimits.FiveHour = rateWindow{UsedPercentage: new(35.0), ResetsAt: new(int64(1))}
 			},
 			want: " \x1b[0;32m5h:35%\x1b[0m",
 		},
@@ -313,8 +313,8 @@ func TestRateLimits(t *testing.T) {
 			// Half to even, as C's printf and Go's fmt both round.
 			name: "percentages round half to even",
 			build: func(f *Fields) {
-				f.RateLimits.FiveHour.UsedPercentage = f64(72.5)
-				f.RateLimits.SevenDay.UsedPercentage = f64(89.5)
+				f.RateLimits.FiveHour.UsedPercentage = new(72.5)
+				f.RateLimits.SevenDay.UsedPercentage = new(89.5)
 			},
 			want: " \x1b[1;33m5h:72%\x1b[0m \x1b[0;31m7d:90%\x1b[0m",
 		},
@@ -341,17 +341,17 @@ func TestCost(t *testing.T) {
 		rate  float64
 		want  string
 	}{
-		{name: "no model means no cost", usd: f64(1.23), rate: 160},
+		{name: "no model means no cost", usd: new(1.23), rate: 160},
 		{name: "no cost field", model: "Opus", rate: 160},
 		// Below a cent the figure would round to zero and say nothing.
-		{name: "below half a cent", model: "Opus", usd: f64(0.004), rate: 160},
+		{name: "below half a cent", model: "Opus", usd: new(0.004), rate: 160},
 		// Rounded rather than truncated, so this one still shows.
-		{name: "just over half a cent", model: "Opus", usd: f64(0.006), rate: 160, want: " ¥1"},
-		{name: "exactly a cent", model: "Opus", usd: f64(0.01), rate: 160, want: " ¥2"},
-		{name: "zero", model: "Opus", usd: f64(0), rate: 160},
-		{name: "converted to yen", model: "Opus", usd: f64(1.23), rate: 160, want: " ¥197"},
+		{name: "just over half a cent", model: "Opus", usd: new(0.006), rate: 160, want: " ¥1"},
+		{name: "exactly a cent", model: "Opus", usd: new(0.01), rate: 160, want: " ¥2"},
+		{name: "zero", model: "Opus", usd: new(0.0), rate: 160},
+		{name: "converted to yen", model: "Opus", usd: new(1.23), rate: 160, want: " ¥197"},
 		// Without a rate the dollars are shown rather than nothing.
-		{name: "dollars without a rate", model: "Opus", usd: f64(1.23), want: " $1.23"},
+		{name: "dollars without a rate", model: "Opus", usd: new(1.23), want: " $1.23"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

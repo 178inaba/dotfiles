@@ -254,11 +254,11 @@ func cost(d Data) string {
 }
 
 // duration is how long the session has been running.
-func duration(ms *float64) string {
+func duration(ms *int64) string {
 	if ms == nil {
 		return ""
 	}
-	d := humanDuration(time.Duration(int64(*ms)/1000) * time.Second)
+	d := humanDuration(time.Duration(*ms) * time.Millisecond)
 	if d == "" {
 		return ""
 	}
@@ -281,7 +281,7 @@ func warning(buildError string) string {
 }
 
 // countdown is the time left until a reset, empty once it has passed.
-func countdown(resetsAt *float64, now time.Time) string {
+func countdown(resetsAt *int64, now time.Time) string {
 	at, ok := unixTime(resetsAt)
 	if !ok {
 		return ""
