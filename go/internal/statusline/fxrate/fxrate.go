@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	// CachePath is shared by every session rather than kept per session. A
-	// per-session cache would refetch once per parallel session and would pin a
-	// long-lived session to whatever the rate was when it started.
-	CachePath = "/tmp/claude-statusline-usd-jpy"
+	// CacheName is one entry shared by every session rather than one per
+	// session. A per-session cache would refetch once per parallel session and
+	// would pin a long-lived session to whatever the rate was when it started.
+	CacheName = "usd-jpy"
 	// APIURL serves the European Central Bank's published rates.
 	APIURL = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=JPY"
 	// cacheKey is fixed: the rate is the same for every session.
@@ -42,8 +42,8 @@ const (
 //
 // A stale rate is still returned: yesterday's conversion is far better than
 // dropping the cost from the display while a fetch happens.
-func Lookup(path string, now time.Time) (float64, bool) {
-	rec, ok := cache.Read[float64](path, cacheKey)
+func Lookup(dir string, now time.Time) (float64, bool) {
+	rec, ok := cache.Read[float64](dir, cacheKey)
 	if ok && rec.Value > 0 && cache.Fresh(now, rec.At, maxAge) {
 		return rec.Value, false
 	}
@@ -52,18 +52,18 @@ func Lookup(path string, now time.Time) (float64, bool) {
 		// A negative rate is not one; it would render a negative cost.
 		rate = 0
 	}
-	return rate, cache.ShouldAttempt(path, now, retryInterval)
+	return rate, cache.ShouldAttempt(dir, now, retryInterval)
 }
 
 // Refresh fetches the rate and stores it. It is meant to run detached, so it
 // reports nothing: a failure simply leaves the previous cache in place.
-func Refresh(ctx context.Context, client *http.Client, url, path string, now time.Time) {
+func Refresh(ctx context.Context, client *http.Client, url, dir string, now time.Time) {
 	rate, ok := fetch(ctx, client, url)
 	if !ok {
 		return
 	}
 	// Best effort: a write that fails leaves the previous rate rendering.
-	_ = cache.Write(path, cacheKey, now, rate)
+	_ = cache.Write(dir, cacheKey, now, rate)
 }
 
 func fetch(ctx context.Context, client *http.Client, url string) (float64, bool) {

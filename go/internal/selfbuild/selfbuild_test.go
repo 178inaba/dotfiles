@@ -113,6 +113,7 @@ func (h *harness) chtimes(p string, mod time.Time) {
 func (h *harness) deps() Deps {
 	return Deps{
 		Home:     h.home,
+		CacheDir: filepath.Join(h.home, "Library", "Caches", "ccx"),
 		Args:     []string{"statusline"},
 		Exe:      h.exe,
 		Getenv:   func(k string) string { return h.env[k] },

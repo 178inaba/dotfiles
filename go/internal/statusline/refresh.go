@@ -40,14 +40,14 @@ const (
 	flagBranch = "--" + FlagBranch
 )
 
-// RefreshFX fetches the exchange rate. The caller passes the cache path and the
-// timestamp rather than deriving them again, so that the child cannot disagree
-// with the parent about which file it is writing.
-func RefreshFX(ctx context.Context, cachePath string, now time.Time) {
-	fxrate.Refresh(ctx, http.DefaultClient, fxrate.APIURL, cachePath, now)
+// RefreshFX fetches the exchange rate. The caller passes the cache directory
+// and the timestamp rather than deriving them again, so that the child cannot
+// disagree with the parent about which entry it is writing.
+func RefreshFX(ctx context.Context, cacheDir string, now time.Time) {
+	fxrate.Refresh(ctx, http.DefaultClient, fxrate.APIURL, cacheDir, now)
 }
 
 // RefreshPR asks gh about a branch's pull request.
-func RefreshPR(ctx context.Context, r runner.Runner, cachePath, cacheKey, branch string, now time.Time) {
-	prinfo.Refresh(ctx, r, cachePath, cacheKey, branch, now)
+func RefreshPR(ctx context.Context, r runner.Runner, cacheDir, cacheKey, branch string, now time.Time) {
+	prinfo.Refresh(ctx, r, cacheDir, cacheKey, branch, now)
 }

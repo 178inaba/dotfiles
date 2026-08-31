@@ -12,13 +12,8 @@ type failure struct {
 	firstError string
 }
 
-// cacheDir is ~/.cache/ccx, shared by every binary this module installs.
-func cacheDir(d Deps) string {
-	return filepath.Join(d.Home, ".cache", "ccx")
-}
-
 func failurePath(d Deps) string {
-	return filepath.Join(cacheDir(d), "build-failed")
+	return filepath.Join(d.CacheDir, "build-failed")
 }
 
 func readFailure(d Deps) (failure, bool) {
@@ -36,7 +31,7 @@ func readFailure(d Deps) (failure, bool) {
 // writeFailure records that this source state does not build, so later
 // invocations can skip the rebuild and still report the breakage.
 func writeFailure(d Deps, sum, firstError string) {
-	if err := os.MkdirAll(cacheDir(d), 0o755); err != nil {
+	if err := os.MkdirAll(d.CacheDir, 0o755); err != nil {
 		return
 	}
 	// A partial record reads as a mismatched sum and costs one wasted rebuild,

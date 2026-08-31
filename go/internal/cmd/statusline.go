@@ -34,8 +34,8 @@ func newStatuslineCmd(build selfbuild.State) *cobra.Command {
 // is what defines their arguments.
 func newRefreshCmds() []*cobra.Command {
 	var (
-		now                       int64
-		cachePath, cacheKey, head string
+		now                      int64
+		cacheDir, cacheKey, head string
 	)
 
 	fx := &cobra.Command{
@@ -44,7 +44,7 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			statusline.RefreshFX(c.Context(), cachePath, time.Unix(now, 0))
+			statusline.RefreshFX(c.Context(), cacheDir, time.Unix(now, 0))
 			return nil
 		},
 	}
@@ -54,14 +54,14 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			statusline.RefreshPR(c.Context(), runner.Exec{}, cachePath, cacheKey, head, time.Unix(now, 0))
+			statusline.RefreshPR(c.Context(), runner.Exec{}, cacheDir, cacheKey, head, time.Unix(now, 0))
 			return nil
 		},
 	}
 
 	for _, c := range []*cobra.Command{fx, pr} {
 		c.Flags().Int64Var(&now, statusline.FlagNow, 0, "unix time the refresh was started for")
-		c.Flags().StringVar(&cachePath, statusline.FlagCache, "", "cache file to write")
+		c.Flags().StringVar(&cacheDir, statusline.FlagCache, "", "cache entry to write")
 	}
 	pr.Flags().StringVar(&cacheKey, statusline.FlagKey, "", "cache key the record belongs to")
 	pr.Flags().StringVar(&head, statusline.FlagBranch, "", "branch to look the pull request up for")

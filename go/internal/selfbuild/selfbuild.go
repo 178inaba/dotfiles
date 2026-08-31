@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/178inaba/dotfiles/go/internal/cache"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -97,6 +98,10 @@ type State struct {
 type Deps struct {
 	// Home is empty when it cannot be resolved, which makes Run skip.
 	Home string
+	// CacheDir holds the build lock and the record of a failed build, in the
+	// same tree the status line caches under: one directory to inspect, and one
+	// to remove when something needs resetting.
+	CacheDir string
 	// Exe is this process's path, empty when it cannot be resolved.
 	Exe     string
 	Args    []string
@@ -119,6 +124,7 @@ func NewDeps(args []string) Deps {
 	exe, _ := os.Executable()
 	d := Deps{
 		Home:     home,
+		CacheDir: cache.Dir(),
 		Exe:      exe,
 		Args:     args,
 		Getenv:   os.Getenv,

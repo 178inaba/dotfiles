@@ -1,35 +1,60 @@
 // Package cache stores the short-lived state the status line would otherwise
 // recompute on every redraw.
 //
-// A record is one JSON document, written whole and renamed into place, so a
-// reader sees either the previous record or the new one. Anything that will not
-// parse — a file left by an older version, a truncated write — is reported as
-// absent, which costs one recomputation and never a garbled display.
+// One entry is one directory holding a record, and the record is a JSON
+// document written whole and renamed into place, so a reader sees either the
+// previous one or the new one. Anything that will not parse — a file left by an
+// older version, a truncated write — is reported as absent, which costs one
+// recomputation and never a garbled display.
 package cache
 
 import (
 	"encoding/json/v2"
 	"os"
+	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
-// maxPathLength caps the file name so a deep working directory cannot exceed
-// the filesystem's limit. Two directories that collide after the cut share a
-// file, which the key recorded inside it resolves.
-const maxPathLength = 200
+const (
+	// recordName and attemptName are the two files an entry can hold. The
+	// throttle is a file of its own because the process that decides to refresh
+	// is not the one that writes the result: a single file would have the
+	// foreground clobber what the background had just stored.
+	recordName  = "record.json"
+	attemptName = "attempt.json"
+)
 
-// Path is the cache file for a key: the base, the key with its slashes
-// flattened, and the result cut to length.
+// Dir is the directory this module caches under.
 //
-// The cut counts characters rather than bytes. APFS rejects a name that is not
-// valid UTF-8, so cutting a multibyte path mid-rune would produce a file that
-// cannot be created at all and a cache that silently never works.
-func Path(base, key string) string {
-	p := base + "-" + strings.ReplaceAll(key, "/", "_")
-	if r := []rune(p); len(r) > maxPathLength {
-		return string(r[:maxPathLength])
+// The user cache directory rather than /tmp, which is where the shell version
+// kept these: /tmp is world-writable and shared between accounts, and a cache
+// is what the cache directory is for.
+func Dir() string {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		// Nowhere to derive a home directory from. Somewhere writable beats
+		// scattering relative paths through whatever the working directory is.
+		base = os.TempDir()
+	}
+	return filepath.Join(base, "ccx")
+}
+
+// Path is the entry for a key, whose parts are laid out as directories beneath
+// base.
+//
+// Mirroring the key rather than flattening it into one name is what removes the
+// need for a length limit: the filesystem bounds each component, not the path,
+// so a working directory of any depth fits without being cut. Each part is
+// rooted before it is cleaned, so no key can name anything outside base.
+//
+// Parts are joined, so a key can in principle be split two ways — a directory
+// /a/b with branch c lands where /a would with branch b/c. The key recorded
+// inside the entry is what tells those apart.
+func Path(base string, key ...string) string {
+	p := base
+	for _, k := range key {
+		p = filepath.Join(p, filepath.Clean("/"+k))
 	}
 	return p
 }
@@ -37,18 +62,21 @@ func Path(base, key string) string {
 // Record is one cached value: when it was written, what it was written for, and
 // the value.
 //
-// Key is stored because two directories can share a file once the name is cut
-// to length. A reader that finds someone else's key treats the record as
-// absent rather than showing one directory's state under another.
+// Key is stored so that a reader who finds someone else's record treats it as
+// absent rather than showing one working directory's state under another.
 type Record[T any] struct {
 	At    time.Time `json:"at"`
 	Key   string    `json:"key"`
 	Value T         `json:"value"`
 }
 
-// Read returns the record in a file. The second value is false when there is
+// Read returns the record in an entry. The second value is false when there is
 // none to use: a missing or unreadable file, or one written for another key.
-func Read[T any](path, key string) (Record[T], bool) {
+func Read[T any](dir, key string) (Record[T], bool) {
+	return read[T](filepath.Join(dir, recordName), key)
+}
+
+func read[T any](path, key string) (Record[T], bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return Record[T]{}, false
@@ -67,12 +95,20 @@ func Read[T any](path, key string) (Record[T], bool) {
 //
 // Always atomically: a background refresh writes while a redraw may be reading,
 // and a torn read would show a half-built value rather than the previous one.
-func Write[T any](path, key string, at time.Time, value T) error {
+func Write[T any](dir, key string, at time.Time, value T) error {
+	return write(dir, recordName, key, at, value)
+}
+
+func write[T any](dir, name, key string, at time.Time, value T) error {
 	b, err := json.Marshal(Record[T]{At: at, Key: key, Value: value})
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 
+	path := filepath.Join(dir, name)
 	tmp := path + "." + strconv.Itoa(os.Getpid())
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
@@ -92,22 +128,17 @@ func Fresh(now, at time.Time, maxAge time.Duration) bool {
 }
 
 // attemptKey is the key of a throttle record, which has nothing to distinguish
-// beyond the file it lives in.
+// beyond the entry it lives in.
 const attemptKey = "attempt"
 
-// ShouldAttempt reports whether a refresh of the record at path may start, and
-// records the attempt when it may.
-//
-// The throttle is a file of its own beside the record, because the process that
-// decides to refresh is not the one that writes the result: a single file would
-// have the foreground clobber what the background had just stored. Every
-// stale-while-revalidate cache uses this, so the convention has one owner.
-func ShouldAttempt(path string, now time.Time, retry time.Duration) bool {
-	attempt := path + ".attempt"
-	if r, ok := Read[struct{}](attempt, attemptKey); ok && Fresh(now, r.At, retry) {
+// ShouldAttempt reports whether a refresh of an entry may start, and records
+// the attempt when it may. Every stale-while-revalidate cache uses this, so the
+// convention has one owner.
+func ShouldAttempt(dir string, now time.Time, retry time.Duration) bool {
+	if r, ok := read[struct{}](filepath.Join(dir, attemptName), attemptKey); ok && Fresh(now, r.At, retry) {
 		return false
 	}
 	// Best effort: a write that fails only costs one duplicate refresh.
-	_ = Write(attempt, attemptKey, now, struct{}{})
+	_ = write(dir, attemptName, attemptKey, now, struct{}{})
 	return true
 }

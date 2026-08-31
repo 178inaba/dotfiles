@@ -87,19 +87,19 @@ func TestLookup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			path := filepath.Join(t.TempDir(), "pr-cache")
+			dir := filepath.Join(t.TempDir(), "pr")
 			if tt.seed != nil {
-				if err := cache.Write(path, tt.seedKey, tt.at, *tt.seed); err != nil {
+				if err := cache.Write(dir, tt.seedKey, tt.at, *tt.seed); err != nil {
 					t.Fatalf("seed: %v", err)
 				}
 			}
 			if !tt.attempt.IsZero() {
-				if err := cache.Write(path+".attempt", "attempt", tt.attempt, struct{}{}); err != nil {
-					t.Fatalf("seed attempt: %v", err)
-				}
+				// Recorded the way the foreground records it, since that is the
+				// only way in from outside the package.
+				cache.ShouldAttempt(dir, tt.attempt, retryInterval)
 			}
 
-			info, refresh := Lookup(path, key, now)
+			info, refresh := Lookup(dir, key, now)
 
 			if diff := cmp.Diff(tt.wantInfo, info); diff != "" {
 				t.Errorf("Info mismatch (-want +got):\n%s", diff)
@@ -206,12 +206,12 @@ func TestRefresh(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			path := filepath.Join(t.TempDir(), "pr-cache")
+			dir := filepath.Join(t.TempDir(), "pr")
 			r := &fakeRunner{out: tt.out, fail: tt.fail}
 
-			Refresh(t.Context(), r, path, key, tt.branch, now)
+			Refresh(t.Context(), r, dir, key, tt.branch, now)
 
-			rec, ok := cache.Read[Info](path, key)
+			rec, ok := cache.Read[Info](dir, key)
 			if !ok {
 				t.Fatal("no record written")
 			}

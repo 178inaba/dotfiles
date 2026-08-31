@@ -63,19 +63,19 @@ func TestLookup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			path := filepath.Join(t.TempDir(), "usd-jpy")
+			dir := filepath.Join(t.TempDir(), "usd-jpy")
 			if tt.cached != 0 {
-				if err := cache.Write(path, cacheKey, tt.at, tt.cached); err != nil {
+				if err := cache.Write(dir, cacheKey, tt.at, tt.cached); err != nil {
 					t.Fatalf("seed: %v", err)
 				}
 			}
 			if !tt.attempt.IsZero() {
-				if err := cache.Write(path+".attempt", "attempt", tt.attempt, struct{}{}); err != nil {
-					t.Fatalf("seed attempt: %v", err)
-				}
+				// Recorded the way the foreground records it, since that is the
+				// only way in from outside the package.
+				cache.ShouldAttempt(dir, tt.attempt, retryInterval)
 			}
 
-			rate, refresh := Lookup(path, now)
+			rate, refresh := Lookup(dir, now)
 
 			if rate != tt.wantRate {
 				t.Errorf("rate = %v, want %v", rate, tt.wantRate)
@@ -133,10 +133,10 @@ func TestRefresh(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			path := filepath.Join(t.TempDir(), "usd-jpy")
-			Refresh(t.Context(), srv.Client(), srv.URL, path, now)
+			dir := filepath.Join(t.TempDir(), "usd-jpy")
+			Refresh(t.Context(), srv.Client(), srv.URL, dir, now)
 
-			rec, ok := cache.Read[float64](path, cacheKey)
+			rec, ok := cache.Read[float64](dir, cacheKey)
 			if tt.want == 0 {
 				if ok {
 					t.Errorf("cache written as %v, want no record", rec.Value)
@@ -163,10 +163,10 @@ func TestRefreshSurvivesAnUnreachableServer(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	path := filepath.Join(t.TempDir(), "usd-jpy")
-	Refresh(t.Context(), http.DefaultClient, url, path, now)
+	dir := filepath.Join(t.TempDir(), "usd-jpy")
+	Refresh(t.Context(), http.DefaultClient, url, dir, now)
 
-	if _, ok := cache.Read[float64](path, cacheKey); ok {
+	if _, ok := cache.Read[float64](dir, cacheKey); ok {
 		t.Error("a record was written for a failed fetch")
 	}
 }

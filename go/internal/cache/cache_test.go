@@ -22,65 +22,62 @@ func TestPath(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		base, key string
-		want      string
+		name string
+		base string
+		key  []string
+		want string
 	}{
 		{
-			name: "slashes become underscores",
-			base: "/tmp/claude-statusline-git-cache", key: "/Users/x/repo",
-			want: "/tmp/claude-statusline-git-cache-_Users_x_repo",
+			name: "the key becomes directories",
+			base: "/c/statusline/git", key: []string{"/Users/x/repo"},
+			want: "/c/statusline/git/Users/x/repo",
 		},
 		{
-			name: "a branch in the key is flattened too",
-			base: "/tmp/claude-statusline-pr-cache", key: "/Users/x/repo:feature/99-a",
-			want: "/tmp/claude-statusline-pr-cache-_Users_x_repo:feature_99-a",
+			name: "a branch is a further part of the path",
+			base: "/c/statusline/pr", key: []string{"/Users/x/repo", "feature/99-a"},
+			want: "/c/statusline/pr/Users/x/repo/feature/99-a",
 		},
 		{
-			// The whole path is cut at 200, base included, so two very deep
-			// directories can share a file; the key stored inside it is what
-			// tells them apart.
-			name: "long paths are truncated whole",
-			base: "/tmp/b", key: "/" + strings.Repeat("a", 300),
-			want: ("/tmp/b-_" + strings.Repeat("a", 300))[:200],
+			// The filesystem bounds each component, not the path, so a working
+			// directory of any depth is kept whole.
+			name: "depth is not a limit",
+			base: "/c", key: []string{"/" + strings.Repeat("d/", 200) + "repo"},
+			want: "/c/" + strings.Repeat("d/", 200) + "repo",
+		},
+		{
+			// Rooting each part before cleaning it is what makes this total:
+			// there is no key that names anything outside base.
+			name: "a key cannot climb out of the base",
+			base: "/c", key: []string{"/Users/x/../../../etc"},
+			want: "/c/etc",
+		},
+		{
+			name: "nor can a relative one",
+			base: "/c", key: []string{"../../escape"},
+			want: "/c/escape",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := Path(tt.base, tt.key); got != tt.want {
+			if got := Path(tt.base, tt.key...); got != tt.want {
 				t.Errorf("Path(%q, %q) = %q, want %q", tt.base, tt.key, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestPathTruncatesByCharacter(t *testing.T) {
-	t.Parallel()
-
-	// APFS rejects a file name that is not valid UTF-8, so a cut that split a
-	// rune would produce a name that cannot be created at all and a cache that
-	// silently never works.
-	got := Path("/tmp/b", strings.Repeat("あ", 300))
-	if n := len([]rune(got)); n != 200 {
-		t.Errorf("length = %d characters, want 200", n)
-	}
-	if strings.ContainsRune(got, '�') {
-		t.Errorf("Path produced an invalid rune: %q", got)
-	}
-}
-
 func TestRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "cache")
+	dir := filepath.Join(t.TempDir(), "Users", "x", "repo")
 	want := value{Segment: " (main +1 ~1)", Count: 2}
 
-	if err := Write(path, "/Users/x/repo", now, want); err != nil {
+	if err := Write(dir, "/Users/x/repo", now, want); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
-	rec, ok := Read[value](path, "/Users/x/repo")
+	rec, ok := Read[value](dir, "/Users/x/repo")
 	if !ok {
 		t.Fatal("Read reported no record")
 	}
@@ -97,23 +94,31 @@ func TestReadRejects(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// write puts a file in place; nil means the file does not exist.
-		write func(t *testing.T, path string)
+		// write puts an entry in place; nil means nothing is there at all.
+		write func(t *testing.T, dir string)
 	}{
-		{name: "a missing file"},
+		{name: "an entry that was never written"},
 		{
 			// A file left by an older version, or a machine that lost power
 			// mid-write. Absent is the safe reading: it costs one
 			// recomputation, where a partial parse could render nonsense.
-			name:  "a file that is not a record",
-			write: func(t *testing.T, path string) { writeFile(t, path, "1756600000\nkey\nresult") },
+			name: "a file that is not a record",
+			write: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, recordName), []byte("1756600000\nkey\n"), 0o644); err != nil {
+					t.Fatalf("write: %v", err)
+				}
+			},
 		},
 		{
-			// Two deep directories can share a file once the name is cut to
-			// length; one must not show the other's state.
+			// Parts are joined, so a directory and a branch can in principle
+			// land where another pair would; one must not show the other's
+			// state.
 			name: "a record written for another key",
-			write: func(t *testing.T, path string) {
-				if err := Write(path, "other", now, value{Segment: "x"}); err != nil {
+			write: func(t *testing.T, dir string) {
+				if err := Write(dir, "other", now, value{Segment: "x"}); err != nil {
 					t.Fatalf("Write: %v", err)
 				}
 			},
@@ -122,11 +127,11 @@ func TestReadRejects(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			path := filepath.Join(t.TempDir(), "cache")
+			dir := filepath.Join(t.TempDir(), "entry")
 			if tt.write != nil {
-				tt.write(t, path)
+				tt.write(t, dir)
 			}
-			if _, ok := Read[value](path, "wanted"); ok {
+			if _, ok := Read[value](dir, "wanted"); ok {
 				t.Error("Read accepted the record")
 			}
 		})
@@ -136,8 +141,8 @@ func TestReadRejects(t *testing.T) {
 func TestWriteLeavesNoTemporary(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	if err := Write(filepath.Join(dir, "cache"), "k", now, value{Segment: "x"}); err != nil {
+	dir := filepath.Join(t.TempDir(), "entry")
+	if err := Write(dir, "k", now, value{Segment: "x"}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -145,12 +150,12 @@ func TestWriteLeavesNoTemporary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "cache" {
+	if len(entries) != 1 || entries[0].Name() != recordName {
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		t.Errorf("directory holds %v, want only the record", names)
+		t.Errorf("entry holds %v, want only %s", names, recordName)
 	}
 }
 
@@ -201,20 +206,20 @@ func TestShouldAttempt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			path := filepath.Join(t.TempDir(), "cache")
+			dir := filepath.Join(t.TempDir(), "entry")
 			if !tt.last.IsZero() {
-				if err := Write(path+".attempt", attemptKey, tt.last, struct{}{}); err != nil {
-					t.Fatalf("Write: %v", err)
+				if err := write(dir, attemptName, attemptKey, tt.last, struct{}{}); err != nil {
+					t.Fatalf("seed: %v", err)
 				}
 			}
 
-			if got := ShouldAttempt(path, now, time.Minute); got != tt.want {
+			if got := ShouldAttempt(dir, now, time.Minute); got != tt.want {
 				t.Fatalf("ShouldAttempt = %t, want %t", got, tt.want)
 			}
 
 			// Deciding to refresh has to be recorded before the refresh starts,
 			// or the redraw five seconds later starts a second one.
-			rec, ok := Read[struct{}](path+".attempt", attemptKey)
+			rec, ok := read[struct{}](filepath.Join(dir, attemptName), attemptKey)
 			switch {
 			case tt.want && (!ok || !rec.At.Equal(now)):
 				t.Errorf("attempt recorded at %v (present=%t), want %v", rec.At, ok, now)
@@ -225,9 +230,24 @@ func TestShouldAttempt(t *testing.T) {
 	}
 }
 
-func writeFile(t *testing.T, name, body string) {
-	t.Helper()
-	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
-		t.Fatalf("write %s: %v", name, err)
+// The throttle is a file of its own beside the record, because the process that
+// decides to refresh is not the one that writes the result.
+func TestShouldAttemptLeavesTheRecordAlone(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "entry")
+	want := value{Segment: "x"}
+	if err := Write(dir, "k", now, want); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	ShouldAttempt(dir, now, time.Minute)
+
+	rec, ok := Read[value](dir, "k")
+	if !ok {
+		t.Fatal("the record is gone")
+	}
+	if diff := cmp.Diff(want, rec.Value); diff != "" {
+		t.Errorf("value mismatch (-want +got):\n%s", diff)
 	}
 }

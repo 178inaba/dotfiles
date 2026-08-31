@@ -20,11 +20,6 @@ import (
 )
 
 const (
-	// CacheBase names the per-directory-and-branch cache files. Keying on the
-	// branch as well as the directory is what makes a branch switch take effect
-	// at once instead of after the next expiry.
-	CacheBase = "/tmp/claude-statusline-pr-cache"
-
 	// maxAge matches the refresh interval of the badge this one stands in for.
 	maxAge = time.Minute
 	// retryInterval keeps a slow or failing gh from being started again on
@@ -57,12 +52,12 @@ type Info struct {
 
 // Lookup returns the cached badge and whether the caller should start a
 // refresh. A stale badge is still returned: it beats a gap while gh runs.
-func Lookup(path, key string, now time.Time) (Info, bool) {
-	rec, ok := cache.Read[Info](path, key)
+func Lookup(dir, key string, now time.Time) (Info, bool) {
+	rec, ok := cache.Read[Info](dir, key)
 	if ok && cache.Fresh(now, rec.At, maxAge) {
 		return rec.Value, false
 	}
-	return rec.Value, cache.ShouldAttempt(path, now, retryInterval)
+	return rec.Value, cache.ShouldAttempt(dir, now, retryInterval)
 }
 
 // Refresh asks gh about the current branch and stores the answer. It is meant
@@ -71,7 +66,7 @@ func Lookup(path, key string, now time.Time) (Info, bool) {
 // A failure of any kind — no pull request, offline, not authenticated, all of
 // which gh reports the same way — is cached as "no pull request". That is what
 // keeps an offline machine from calling gh on every redraw.
-func Refresh(ctx context.Context, r runner.Runner, path, key, branch string, now time.Time) {
+func Refresh(ctx context.Context, r runner.Runner, dir, key, branch string, now time.Time) {
 	var info Info
 	// The default branch may be the head of a release pull request, but it is
 	// not a branch-specific working context, so it is skipped before gh is even
@@ -80,7 +75,7 @@ func Refresh(ctx context.Context, r runner.Runner, path, key, branch string, now
 		info = fetch(ctx, r)
 	}
 	// Best effort: a write that fails leaves the previous record in place.
-	_ = cache.Write(path, key, now, info)
+	_ = cache.Write(dir, key, now, info)
 }
 
 // fetch returns the current branch's pull request, or the zero Info when there

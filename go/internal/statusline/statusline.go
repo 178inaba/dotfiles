@@ -12,6 +12,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -23,14 +24,10 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
-const (
-	// gitCacheBase names the per-directory repository caches.
-	gitCacheBase = "/tmp/claude-statusline-git-cache"
-	// gitMaxAge matches statusLine.refreshInterval in settings.json, which
-	// keeps the redraw to at most one git invocation per cycle. Changing one
-	// without the other either wastes invocations or shows stale state.
-	gitMaxAge = 5 * time.Second
-)
+// gitMaxAge matches statusLine.refreshInterval in settings.json, which keeps
+// the redraw to at most one git invocation per cycle. Changing one without the
+// other either wastes invocations or shows stale state.
+const gitMaxAge = 5 * time.Second
 
 // Config carries the seams and the cache locations. Use Default for the real
 // ones.
@@ -41,9 +38,10 @@ type Config struct {
 	Getwd   func() (string, error)
 	Home    string
 
-	GitCacheBase string
-	PRCacheBase  string
-	FXCachePath  string
+	// The cache directories, one per kind of state.
+	GitCacheDir string
+	PRCacheDir  string
+	FXCacheDir  string
 
 	// ChildEnv is what a detached refresh is started with; see
 	// selfbuild.ChildEnv.
@@ -53,18 +51,21 @@ type Config struct {
 // Default returns the configuration the command runs with.
 func Default() Config {
 	home, _ := os.UserHomeDir()
+	// Every status line cache lives under one directory, so that clearing the
+	// lot is removing one tree.
+	root := filepath.Join(cache.Dir(), "statusline")
 	return Config{
 		Runner:  runner.Exec{},
 		Spawner: runner.Exec{},
 		Now:     time.Now,
 		// os.Getwd prefers $PWD when it names the same directory, which is the
 		// logical path the shell reported and the one the user recognises.
-		Getwd:        os.Getwd,
-		Home:         home,
-		GitCacheBase: gitCacheBase,
-		PRCacheBase:  prinfo.CacheBase,
-		FXCachePath:  fxrate.CachePath,
-		ChildEnv:     selfbuild.ChildEnv(),
+		Getwd:       os.Getwd,
+		Home:        home,
+		GitCacheDir: filepath.Join(root, "git"),
+		PRCacheDir:  filepath.Join(root, "pr"),
+		FXCacheDir:  filepath.Join(root, fxrate.CacheName),
+		ChildEnv:    selfbuild.ChildEnv(),
 	}
 }
 
@@ -109,8 +110,8 @@ func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, bui
 // each other's. git runs in the process working directory rather than in the
 // one the payload named; Claude Code starts the command there.
 func repository(ctx context.Context, cfg Config, current string, now time.Time) *gitstate.Status {
-	path := cache.Path(cfg.GitCacheBase, current)
-	if rec, ok := cache.Read[*gitstate.Status](path, current); ok && cache.Fresh(now, rec.At, gitMaxAge) {
+	dir := cache.Path(cfg.GitCacheDir, current)
+	if rec, ok := cache.Read[*gitstate.Status](dir, current); ok && cache.Fresh(now, rec.At, gitMaxAge) {
 		return rec.Value
 	}
 
@@ -124,7 +125,7 @@ func repository(ctx context.Context, cfg Config, current string, now time.Time) 
 	// Written even when there is no repository, so that a directory outside one
 	// is not re-checked on every redraw. Best effort: a failed write costs one
 	// git invocation next time.
-	_ = cache.Write(path, current, now, status)
+	_ = cache.Write(dir, current, now, status)
 	return status
 }
 
@@ -140,12 +141,12 @@ func pullRequestInfo(cfg Config, status *gitstate.Status, current string, now ti
 	// Keying on the branch as well as the directory is what makes a branch
 	// switch take effect at once rather than at the next expiry.
 	key := current + ":" + status.Branch
-	path := cache.Path(cfg.PRCacheBase, key)
-	info, refresh := prinfo.Lookup(path, key, now)
+	dir := cache.Path(cfg.PRCacheDir, current, status.Branch)
+	info, refresh := prinfo.Lookup(dir, key, now)
 	if refresh {
 		spawn(cfg, RefreshPRCommandName,
 			flagNow+"="+strconv.FormatInt(now.Unix(), 10),
-			flagCache+"="+path, flagKey+"="+key, flagBranch+"="+status.Branch)
+			flagCache+"="+dir, flagKey+"="+key, flagBranch+"="+status.Branch)
 	}
 	return &info
 }
@@ -157,10 +158,10 @@ func exchangeRate(cfg Config, fields Fields, now time.Time) float64 {
 		// should not be starting network requests.
 		return 0
 	}
-	rate, refresh := fxrate.Lookup(cfg.FXCachePath, now)
+	rate, refresh := fxrate.Lookup(cfg.FXCacheDir, now)
 	if refresh {
 		spawn(cfg, RefreshFXCommandName,
-			flagNow+"="+strconv.FormatInt(now.Unix(), 10), flagCache+"="+cfg.FXCachePath)
+			flagNow+"="+strconv.FormatInt(now.Unix(), 10), flagCache+"="+cfg.FXCacheDir)
 	}
 	return rate
 }

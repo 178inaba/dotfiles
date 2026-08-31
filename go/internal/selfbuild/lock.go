@@ -15,10 +15,10 @@ import (
 // everything that fired at the same moment; the next invocation picks the
 // rebuild up if it is still needed.
 func lock(d Deps) (func(), bool) {
-	if err := os.MkdirAll(cacheDir(d), 0o755); err != nil {
+	if err := os.MkdirAll(d.CacheDir, 0o755); err != nil {
 		return nil, false
 	}
-	f, err := os.OpenFile(filepath.Join(cacheDir(d), "build.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(filepath.Join(d.CacheDir, "build.lock"), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, false
 	}

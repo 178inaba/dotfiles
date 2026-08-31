@@ -56,15 +56,15 @@ func newHarness(t *testing.T) *harness {
 	dir := t.TempDir()
 	h := &harness{runner: &fakeRunner{}, spawner: &fakeSpawner{}}
 	h.cfg = Config{
-		Runner:       h.runner,
-		Spawner:      h.spawner,
-		Now:          func() time.Time { return now },
-		Getwd:        func() (string, error) { return "/w", nil },
-		Home:         "/home/nobody",
-		GitCacheBase: filepath.Join(dir, "git-cache"),
-		PRCacheBase:  filepath.Join(dir, "pr-cache"),
-		FXCachePath:  filepath.Join(dir, "usd-jpy"),
-		ChildEnv:     selfbuild.ChildEnv(),
+		Runner:      h.runner,
+		Spawner:     h.spawner,
+		Now:         func() time.Time { return now },
+		Getwd:       func() (string, error) { return "/w", nil },
+		Home:        "/home/nobody",
+		GitCacheDir: filepath.Join(dir, "git"),
+		PRCacheDir:  filepath.Join(dir, "pr"),
+		FXCacheDir:  filepath.Join(dir, "usd-jpy"),
+		ChildEnv:    selfbuild.ChildEnv(),
 	}
 	return h
 }
@@ -78,8 +78,8 @@ func (h *harness) run(t *testing.T, payload string) string {
 	return out.String()
 }
 
-func (h *harness) prPath() string {
-	return cache.Path(h.cfg.PRCacheBase, "/w:main")
+func (h *harness) prDir() string {
+	return cache.Path(h.cfg.PRCacheDir, "/w", "main")
 }
 
 const (
@@ -161,8 +161,8 @@ func TestRunRefreshes(t *testing.T) {
 			name:    "fresh caches start nothing",
 			payload: withCost,
 			seed: func(t *testing.T, h *harness) {
-				write(t, h.cfg.FXCachePath, "usd-jpy", 162.22)
-				write(t, h.prPath(), "/w:main", prinfo.Info{Number: 123})
+				write(t, h.cfg.FXCacheDir, "usd-jpy", 162.22)
+				write(t, h.prDir(), "/w:main", prinfo.Info{Number: 123})
 			},
 		},
 		{
@@ -171,8 +171,8 @@ func TestRunRefreshes(t *testing.T) {
 			name:    "a recent attempt starts nothing",
 			payload: withCost,
 			seed: func(t *testing.T, h *harness) {
-				write(t, h.cfg.FXCachePath+".attempt", "attempt", struct{}{})
-				write(t, h.prPath()+".attempt", "attempt", struct{}{})
+				attempted(t, h.cfg.FXCacheDir)
+				attempted(t, h.prDir())
 			},
 		},
 	}
@@ -228,7 +228,7 @@ func TestRunPassesTheParentsValuesToTheChild(t *testing.T) {
 	want := [][]string{{
 		RefreshPRCommandName,
 		"--now=" + strconv.FormatInt(now.Unix(), 10),
-		"--cache=" + h.prPath(),
+		"--cache=" + h.prDir(),
 		"--key=/w:main",
 		"--branch=main",
 	}}
@@ -262,9 +262,18 @@ func TestRunReportsAFailedSelfRebuild(t *testing.T) {
 	}
 }
 
-func write[T any](t *testing.T, path, key string, value T) {
+func write[T any](t *testing.T, dir, key string, value T) {
 	t.Helper()
-	if err := cache.Write(path, key, now, value); err != nil {
-		t.Fatalf("seed %s: %v", path, err)
+	if err := cache.Write(dir, key, now, value); err != nil {
+		t.Fatalf("seed %s: %v", dir, err)
+	}
+}
+
+// attempted records a refresh attempt, the same way the foreground does before
+// it spawns one.
+func attempted(t *testing.T, dir string) {
+	t.Helper()
+	if !cache.ShouldAttempt(dir, now, time.Minute) {
+		t.Fatalf("seed %s: an attempt was already recorded", dir)
 	}
 }
