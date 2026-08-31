@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/idlenotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
 	"github.com/178inaba/dotfiles/go/internal/hooks/terminalbell"
@@ -40,6 +41,8 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 func newHookCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
+		leafHookCmd("idle-notify", "Notify unless a subagent is still running", build,
+			func(*cobra.Command) hook { return idlenotify.New(idlenotify.Default()) }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
 			func(*cobra.Command) hook { return slacknotify.New(slacknotify.Default()) }),
 		subagentTrackerCmd(build),
