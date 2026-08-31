@@ -16,6 +16,8 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
 	"github.com/178inaba/dotfiles/go/internal/hooks/terminalbell"
+	"github.com/178inaba/dotfiles/go/internal/hooks/worktreeguard"
+	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
@@ -53,6 +55,8 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
 			func(*cobra.Command) hook { return slacknotify.New(slacknotify.Default()) }),
 		subagentTrackerCmd(build),
+		leafHookCmd("worktree-edit-guard", "Block an edit that leaves the current worktree", build,
+			func(*cobra.Command) hook { return worktreeguard.New(runner.Exec{}) }),
 		leafHookCmd("terminal-bell", "Ring the terminal bell", build,
 			func(*cobra.Command) hook { return terminalbell.New() }),
 	)
