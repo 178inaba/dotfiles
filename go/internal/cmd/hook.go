@@ -13,6 +13,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/hooks/caffeinate"
 	"github.com/178inaba/dotfiles/go/internal/hooks/idlenotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
+	"github.com/178inaba/dotfiles/go/internal/hooks/skillcheck"
 	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
 	"github.com/178inaba/dotfiles/go/internal/hooks/terminalbell"
@@ -52,6 +53,8 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 			func(*cobra.Command) hook { return idlenotify.New(idlenotify.Default()) }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", build,
 			func(*cobra.Command) hook { return noopwait.New() }),
+		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", build,
+			func(*cobra.Command) hook { return skillcheck.New(skillcheck.Default()) }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
 			func(*cobra.Command) hook { return slacknotify.New(slacknotify.Default()) }),
 		subagentTrackerCmd(build),
