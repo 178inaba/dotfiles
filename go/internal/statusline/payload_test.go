@@ -65,9 +65,10 @@ func TestParseFields(t *testing.T) {
 		{name: "only newlines", stdin: "\n\n\n"},
 		{name: "malformed json", stdin: `{"workspace":`},
 		{
-			// One bad shape loses every field, not just its own: the shell ran
-			// all eleven lookups through a single jq program, which printed
-			// nothing once any of them failed.
+			// One bad shape loses every field, not just its own. The decoder
+			// would have kept session_id here, and would have dropped it had
+			// the two members been the other way round; the display must not
+			// turn on that.
 			name:  "a scalar where an object belongs",
 			stdin: `{"workspace":"x","session_id":"otherwise-fine"}`,
 		},

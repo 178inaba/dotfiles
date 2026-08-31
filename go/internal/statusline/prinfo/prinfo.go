@@ -32,21 +32,26 @@ const (
 	retryInterval = time.Minute
 )
 
-// Review states as they reach the display. The first three are gh's own
-// reviewDecision values; the last two are this package's.
+// State is a review state as it reaches the display, which is not gh's notion
+// of a pull request's state — that one is open or merged or closed, and only
+// decides whether a badge is shown at all.
+type State string
+
+// The review states. The first three are gh's own reviewDecision values; the
+// last two are this package's.
 const (
-	StateApproved          = "APPROVED"
-	StateChangesRequested  = "CHANGES_REQUESTED"
-	StateReviewRequired    = "REVIEW_REQUIRED"
-	StateDraft             = "DRAFT"
-	StateNoReviewRequested = "NONE"
+	StateApproved          State = "APPROVED"
+	StateChangesRequested  State = "CHANGES_REQUESTED"
+	StateReviewRequired    State = "REVIEW_REQUIRED"
+	StateDraft             State = "DRAFT"
+	StateNoReviewRequested State = "NONE"
 )
 
 // Info is a pull request worth showing. A zero Number means there is none, so
 // "no pull request" is a cacheable answer rather than a missing record.
 type Info struct {
 	Number int    `json:"number"`
-	State  string `json:"state"`
+	State  State  `json:"state"`
 	URL    string `json:"url"`
 }
 
@@ -106,14 +111,14 @@ func fetch(ctx context.Context, r runner.Runner) Info {
 	return Info{Number: pr.Number, State: state(pr.IsDraft, pr.ReviewDecision), URL: pr.URL}
 }
 
-func state(isDraft bool, reviewDecision string) string {
+func state(isDraft bool, reviewDecision string) State {
 	switch {
 	case isDraft:
 		return StateDraft
 	case reviewDecision == "":
 		return StateNoReviewRequested
 	default:
-		return reviewDecision
+		return State(reviewDecision)
 	}
 }
 

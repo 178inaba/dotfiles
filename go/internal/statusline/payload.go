@@ -51,9 +51,10 @@ type rateWindow struct {
 func ParseFields(stdin []byte) Fields {
 	var f Fields
 	if err := json.UnmarshalRead(bytes.NewReader(stdin), &f); err != nil {
-		// One unexpected shape costs every field rather than its own, as it did
-		// when all eleven values came from a single jq program that printed
-		// nothing once any of its paths failed.
+		// The partial result a failed decode leaves behind depends on the order
+		// the members arrived in: a field ahead of the bad one keeps its value
+		// and one behind it does not. Discarding the lot makes the render a
+		// function of the payload rather than of the order it was written in.
 		return Fields{}
 	}
 	return f
