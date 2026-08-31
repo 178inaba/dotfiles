@@ -53,6 +53,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err == nil {
 		return 0
 	}
+	// A status a subcommand chose, not a failure: it has already written
+	// whatever its own contract calls for.
+	if code, ok := errors.AsType[exitCode](err); ok {
+		return int(code)
+	}
 	fmt.Fprintf(stderr, "ccx: %v\n", err)
 	// Usage is printed here rather than by cobra, which sends it to the out
 	// stream — the same stream a subcommand renders on.
@@ -71,6 +76,7 @@ func newRootCmd(build selfbuild.State) *cobra.Command {
 	root.SilenceErrors = true
 
 	root.AddCommand(newStatuslineCmd(build))
+	root.AddCommand(newHookCmd(build))
 	root.AddCommand(newRefreshCmds()...)
 	return root
 }
