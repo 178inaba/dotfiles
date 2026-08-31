@@ -28,7 +28,6 @@ $ slio auth login
 `bad boolean config value` on every command.
 
 `gh`, `jq` and `yq` are required by the Claude Code scripts (shared and skill-bundled).
-Run `gh auth login` to authenticate the GitHub CLI after installing.
 
 `go -C go install ./cmd/ccx` is the only build step, and only the first one:
 `ccx` compares its own timestamp with the newest file under `go/` on every
@@ -38,7 +37,7 @@ start and reinstalls itself when it is behind.
 
 `cflio`, `rdsh` and `slio` — the Confluence, Redash and Slack CLIs installed
 above — each back a Claude Code skill, and the skills themselves are not copied
-into this repo. Each ships its own Claude Code plugin, declared in
+into this repo. Each CLI ships its own plugin, declared in
 `claude/.claude/settings.json`, so Claude Code registers the marketplace,
 installs the plugin and keeps it current by itself — no step beyond the usual
 `git pull` and `stow -R`. Registration and installation run in the background
