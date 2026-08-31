@@ -5,11 +5,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 )
 
+var now = time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+
+// value stands in for the things the status line caches.
+type value struct {
+	Segment string `json:"segment"`
+	Count   int    `json:"count"`
+}
+
 func TestPath(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		base, key string
@@ -27,8 +38,8 @@ func TestPath(t *testing.T) {
 		},
 		{
 			// The whole path is cut at 200, base included, so two very deep
-			// directories can share a file; the key stored inside the file is
-			// what tells them apart.
+			// directories can share a file; the key stored inside it is what
+			// tells them apart.
 			name: "long paths are truncated whole",
 			base: "/tmp/b", key: "/" + strings.Repeat("a", 300),
 			want: ("/tmp/b-_" + strings.Repeat("a", 300))[:200],
@@ -36,6 +47,7 @@ func TestPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := Path(tt.base, tt.key); got != tt.want {
 				t.Errorf("Path(%q, %q) = %q, want %q", tt.base, tt.key, got, tt.want)
 			}
@@ -44,8 +56,11 @@ func TestPath(t *testing.T) {
 }
 
 func TestPathTruncatesByCharacter(t *testing.T) {
-	// bash cuts a substring by character in a UTF-8 locale, which is the one
-	// the status line runs in, so a multibyte path must not be cut mid-rune.
+	t.Parallel()
+
+	// APFS rejects a file name that is not valid UTF-8, so a cut that split a
+	// rune would produce a name that cannot be created at all and a cache that
+	// silently never works.
 	got := Path("/tmp/b", strings.Repeat("あ", 300))
 	if n := len([]rune(got)); n != 200 {
 		t.Errorf("length = %d characters, want 200", n)
@@ -55,201 +70,164 @@ func TestPathTruncatesByCharacter(t *testing.T) {
 	}
 }
 
-func TestKeyedRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "git-cache-x")
-	want := Keyed{At: 1756600000, Key: "/Users/x/repo", Result: " (main +1 ~1)"}
+func TestRoundTrip(t *testing.T) {
+	t.Parallel()
 
-	if err := WriteKeyed(p, want); err != nil {
-		t.Fatalf("WriteKeyed: %v", err)
+	path := filepath.Join(t.TempDir(), "cache")
+	want := value{Segment: " (main +1 ~1)", Count: 2}
+
+	if err := Write(path, "/Users/x/repo", now, want); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 
-	// The three-line record ends without a newline. It is compared byte for
-	// byte because the shell implementation wrote it with a bare printf and
-	// anything reading it back has to agree.
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if got, wantBytes := string(b), "1756600000\n/Users/x/repo\n (main +1 ~1)"; got != wantBytes {
-		t.Errorf("file = %q, want %q", got, wantBytes)
-	}
-
-	got, ok := ReadKeyed(p)
+	rec, ok := Read[value](path, "/Users/x/repo")
 	if !ok {
-		t.Fatal("ReadKeyed reported no record")
+		t.Fatal("Read reported no record")
 	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("Keyed mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff(want, rec.Value); diff != "" {
+		t.Errorf("value mismatch (-want +got):\n%s", diff)
+	}
+	if !rec.At.Equal(now) {
+		t.Errorf("At = %v, want %v", rec.At, now)
 	}
 }
 
-func TestWriteKeyedAtomicLeavesNoTemporary(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "pr-cache-x")
+func TestReadRejects(t *testing.T) {
+	t.Parallel()
 
-	if err := WriteKeyedAtomic(p, Keyed{At: 1, Key: "k", Result: "123 NONE https://e/1"}); err != nil {
-		t.Fatalf("WriteKeyedAtomic: %v", err)
+	tests := []struct {
+		name string
+		// write puts a file in place; nil means the file does not exist.
+		write func(t *testing.T, path string)
+	}{
+		{name: "a missing file"},
+		{
+			// A file left by an older version, or a machine that lost power
+			// mid-write. Absent is the safe reading: it costs one
+			// recomputation, where a partial parse could render nonsense.
+			name:  "a file that is not a record",
+			write: func(t *testing.T, path string) { writeFile(t, path, "1756600000\nkey\nresult") },
+		},
+		{
+			// Two deep directories can share a file once the name is cut to
+			// length; one must not show the other's state.
+			name: "a record written for another key",
+			write: func(t *testing.T, path string) {
+				if err := Write(path, "other", now, value{Segment: "x"}); err != nil {
+					t.Fatalf("Write: %v", err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "cache")
+			if tt.write != nil {
+				tt.write(t, path)
+			}
+			if _, ok := Read[value](path, "wanted"); ok {
+				t.Error("Read accepted the record")
+			}
+		})
+	}
+}
+
+func TestWriteLeavesNoTemporary(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := Write(filepath.Join(dir, "cache"), "k", now, value{Segment: "x"}); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(p) {
+	if len(entries) != 1 || entries[0].Name() != "cache" {
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		t.Errorf("directory holds %v, want only %q", names, filepath.Base(p))
-	}
-
-	// The shell wrote with a plain redirect, so the file is world readable and
-	// not the 0600 a temporary file would default to.
-	info, err := os.Stat(p)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o644 {
-		t.Errorf("mode = %o, want 644", got)
-	}
-}
-
-func TestReadKeyedTolerance(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-		want Keyed
-		ok   bool
-	}{
-		{
-			name: "an empty result is a record",
-			body: "5\nkey\n",
-			want: Keyed{At: 5, Key: "key"},
-			ok:   true,
-		},
-		{
-			// The shell rendered a record whose timestamp it could not read and
-			// refreshed it; dropping the value instead would blank the segment
-			// for a whole refresh interval. Zero fails every freshness test, so
-			// the refresh still happens.
-			name: "a non-numeric timestamp keeps the value",
-			body: "nope\nkey\nresult",
-			want: Keyed{Key: "key", Result: "result"},
-			ok:   true,
-		},
-		{
-			name: "a negative timestamp keeps the value",
-			body: "-5\nkey\nresult",
-			want: Keyed{Key: "key", Result: "result"},
-			ok:   true,
-		},
-		{
-			name: "a short file is no record",
-			body: "5",
-			want: Keyed{At: 5},
-			ok:   true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := filepath.Join(t.TempDir(), "c")
-			if err := os.WriteFile(p, []byte(tt.body), 0o644); err != nil {
-				t.Fatalf("WriteFile: %v", err)
-			}
-			got, ok := ReadKeyed(p)
-			if ok != tt.ok {
-				t.Fatalf("ReadKeyed ok = %t, want %t", ok, tt.ok)
-			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("Keyed mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestReadKeyedMissingFile(t *testing.T) {
-	if _, ok := ReadKeyed(filepath.Join(t.TempDir(), "absent")); ok {
-		t.Error("ReadKeyed reported a record for a file that does not exist")
-	}
-}
-
-func TestPairRoundTrip(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "usd-jpy")
-
-	if err := WritePair(p, 1756600000, "162.22"); err != nil {
-		t.Fatalf("WritePair: %v", err)
-	}
-
-	// Unlike the three-line record, this one ends with a newline.
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if got, want := string(b), "1756600000\n162.22\n"; got != want {
-		t.Errorf("file = %q, want %q", got, want)
-	}
-
-	at, value, ok := ReadPair(p)
-	if !ok || at != 1756600000 || value != "162.22" {
-		t.Errorf("ReadPair = (%d, %q, %t), want (1756600000, \"162.22\", true)", at, value, ok)
-	}
-}
-
-func TestAttemptRoundTrip(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "usd-jpy.attempt")
-
-	if err := WriteAttempt(p, 1756600000); err != nil {
-		t.Fatalf("WriteAttempt: %v", err)
-	}
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if got, want := string(b), "1756600000\n"; got != want {
-		t.Errorf("file = %q, want %q", got, want)
-	}
-
-	if at, ok := ReadAttempt(p); !ok || at != 1756600000 {
-		t.Errorf("ReadAttempt = (%d, %t), want (1756600000, true)", at, ok)
-	}
-	if _, ok := ReadAttempt(filepath.Join(t.TempDir(), "absent")); ok {
-		t.Error("ReadAttempt reported a time for a file that does not exist")
-	}
-
-	// A corrupt attempt record must not block every future refresh.
-	corrupt := filepath.Join(t.TempDir(), "attempt")
-	if err := os.WriteFile(corrupt, []byte("nope\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	if _, ok := ReadAttempt(corrupt); ok {
-		t.Error("ReadAttempt accepted a corrupt record")
+		t.Errorf("directory holds %v, want only the record", names)
 	}
 }
 
 func TestFresh(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name            string
-		now, at, maxAge int64
-		want            bool
+		name   string
+		at     time.Time
+		maxAge time.Duration
+		want   bool
 	}{
-		{name: "well inside", now: 100, at: 98, maxAge: 5, want: true},
-		// The shell staleness test is a strict >, so exactly at the limit is
-		// still fresh.
-		{name: "exactly at the limit", now: 105, at: 100, maxAge: 5, want: true},
-		{name: "one past the limit", now: 106, at: 100, maxAge: 5},
+		{name: "well inside", at: now.Add(-2 * time.Second), maxAge: 5 * time.Second, want: true},
+		{name: "exactly at the limit", at: now.Add(-5 * time.Second), maxAge: 5 * time.Second, want: true},
+		{name: "one past the limit", at: now.Add(-6 * time.Second), maxAge: 5 * time.Second},
 		{
-			// A clock that went backwards makes the difference negative, which
-			// reads as fresh. Preserved: the alternative is a stampede of
-			// refreshes after a time sync.
-			name: "a future timestamp", now: 100, at: 200, maxAge: 5, want: true,
+			// A clock that went backwards reads as fresh rather than starting a
+			// stampede of refreshes after a time sync.
+			name: "a future timestamp", at: now.Add(time.Hour), maxAge: 5 * time.Second, want: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Fresh(tt.now, tt.at, tt.maxAge); got != tt.want {
-				t.Errorf("Fresh(%d, %d, %d) = %t, want %t", tt.now, tt.at, tt.maxAge, got, tt.want)
+			t.Parallel()
+			if got := Fresh(now, tt.at, tt.maxAge); got != tt.want {
+				t.Errorf("Fresh = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestShouldAttempt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// last is when a previous attempt was recorded; zero means none.
+		last time.Time
+		want bool
+	}{
+		{name: "no previous attempt", want: true},
+		// Without this an offline machine would start a refresh on every
+		// redraw, five seconds apart, forever.
+		{name: "a recent attempt", last: now.Add(-10 * time.Second)},
+		{name: "an old attempt", last: now.Add(-2 * time.Minute), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "cache")
+			if !tt.last.IsZero() {
+				if err := Write(path+".attempt", attemptKey, tt.last, struct{}{}); err != nil {
+					t.Fatalf("Write: %v", err)
+				}
+			}
+
+			if got := ShouldAttempt(path, now, time.Minute); got != tt.want {
+				t.Fatalf("ShouldAttempt = %t, want %t", got, tt.want)
+			}
+
+			// Deciding to refresh has to be recorded before the refresh starts,
+			// or the redraw five seconds later starts a second one.
+			rec, ok := Read[struct{}](path+".attempt", attemptKey)
+			switch {
+			case tt.want && (!ok || !rec.At.Equal(now)):
+				t.Errorf("attempt recorded at %v (present=%t), want %v", rec.At, ok, now)
+			case !tt.want && !rec.At.Equal(tt.last):
+				t.Errorf("attempt = %v, want it left at %v", rec.At, tt.last)
+			}
+		})
+	}
+}
+
+func writeFile(t *testing.T, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
 	}
 }

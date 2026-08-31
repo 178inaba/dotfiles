@@ -21,6 +21,12 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 
+	// The user's own git configuration must not reach these fixtures: a global
+	// status.showUntrackedFiles would change the output the parser is being
+	// validated against.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+
 	root := t.TempDir()
 	origin := filepath.Join(root, "origin.git")
 	run(t, "", "git", "init", "-q", "--bare", "-b", "main", origin)
@@ -33,7 +39,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	commit(t, solo, "first")
 
 	t.Run("a branch that was never pushed", func(t *testing.T) {
-		if got, want := segment(t, solo), " (main ↑∅)"; got != want {
+		if got, want := segment(t, solo), "(main ↑∅)"; got != want {
 			t.Errorf("segment = %q, want %q", got, want)
 		}
 	})
@@ -47,7 +53,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	writeFile(t, filepath.Join(solo, "untracked.txt"), "u\n")
 
 	t.Run("staged, modified and ahead, with the untracked file ignored", func(t *testing.T) {
-		if got, want := segment(t, solo), " (main +1 ~1 ↑1)"; got != want {
+		if got, want := segment(t, solo), "(main +1 ~1 ↑1)"; got != want {
 			t.Errorf("segment = %q, want %q", got, want)
 		}
 	})
@@ -56,7 +62,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	run(t, "", "git", "clone", "-q", origin, clone)
 
 	t.Run("in sync with its upstream", func(t *testing.T) {
-		if got, want := segment(t, clone), " (main)"; got != want {
+		if got, want := segment(t, clone), "(main)"; got != want {
 			t.Errorf("segment = %q, want %q", got, want)
 		}
 	})
@@ -66,7 +72,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	run(t, clone, "git", "reset", "-q", "--hard", "HEAD~1")
 
 	t.Run("behind its upstream", func(t *testing.T) {
-		if got, want := segment(t, clone), " (main ↓1)"; got != want {
+		if got, want := segment(t, clone), "(main ↓1)"; got != want {
 			t.Errorf("segment = %q, want %q", got, want)
 		}
 	})
@@ -74,7 +80,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	run(t, clone, "git", "switch", "-q", "--detach", "HEAD")
 
 	t.Run("detached", func(t *testing.T) {
-		if got, want := segment(t, clone), " ()"; got != want {
+		if got, want := segment(t, clone), "()"; got != want {
 			t.Errorf("segment = %q, want %q", got, want)
 		}
 	})
@@ -97,7 +103,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	merge(t, conflicted)
 
 	t.Run("a conflict counts on both sides", func(t *testing.T) {
-		if got, want := segment(t, conflicted), " (main +1 ~1 ↑∅)"; got != want {
+		if got, want := segment(t, conflicted), "(main +1 ~1 ↑∅)"; got != want {
 			t.Errorf("segment = %q, want %q", got, want)
 		}
 	})
@@ -114,7 +120,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 // rather than retyped: the whole point of these tests is that the parser agrees
 // with the output of that exact command.
 func statusCommand(dir string) runner.Command {
-	return runner.Command{Dir: dir, Name: "git", Args: gitstate.StatusArgs}
+	return runner.Command{Dir: dir, Name: "git", Args: gitstate.StatusArgs()}
 }
 
 func segment(t *testing.T, dir string) string {

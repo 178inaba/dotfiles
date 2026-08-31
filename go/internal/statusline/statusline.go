@@ -24,12 +24,12 @@ import (
 )
 
 const (
-	// GitCacheBase names the per-directory repository caches.
-	GitCacheBase = "/tmp/claude-statusline-git-cache"
+	// gitCacheBase names the per-directory repository caches.
+	gitCacheBase = "/tmp/claude-statusline-git-cache"
 	// gitMaxAge matches statusLine.refreshInterval in settings.json, which
 	// keeps the redraw to at most one git invocation per cycle. Changing one
 	// without the other either wastes invocations or shows stale state.
-	gitMaxAge = 5
+	gitMaxAge = 5 * time.Second
 )
 
 // Config carries the seams and the cache locations. Use Default for the real
@@ -61,7 +61,7 @@ func Default() Config {
 		// logical path the shell reported and the one the user recognises.
 		Getwd:        os.Getwd,
 		Home:         home,
-		GitCacheBase: GitCacheBase,
+		GitCacheBase: gitCacheBase,
 		PRCacheBase:  prinfo.CacheBase,
 		FXCachePath:  fxrate.CachePath,
 		ChildEnv:     selfbuild.ChildEnv(),
@@ -77,12 +77,12 @@ func Default() Config {
 func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, buildError string) error {
 	payload, _ := io.ReadAll(stdin)
 	fields := ParseFields(payload)
-	now := cfg.Now().Unix()
+	now := cfg.Now()
 
 	// The payload names the directory; the working directory stands in when it
 	// does not. Resolved once, because the cache keys and the rendered path
 	// have to agree on it.
-	current := fields.CurrentDir
+	current := fields.Workspace.CurrentDir
 	if current == "" {
 		current, _ = cfg.Getwd()
 	}
@@ -94,67 +94,73 @@ func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, bui
 		Now:        now,
 		BuildError: buildError,
 	}
-	d.Git = gitSegment(ctx, cfg, current, now)
-	d.PR = pullRequestRecord(cfg, d.Git, current, now)
+	d.Git = repository(ctx, cfg, current, now)
+	d.PR = pullRequestInfo(cfg, d.Git, current, now)
 	d.Rate = exchangeRate(cfg, fields, now)
 
 	_, err := stdout.Write(Render(d))
 	return err
 }
 
-// gitSegment returns the repository fragment, from the cache when it is fresh.
+// repository returns the state of the repository the status line is standing
+// in, or nil when it is not in one.
 //
 // The cache is keyed by directory so that parallel sessions do not overwrite
-// each other's.
-func gitSegment(ctx context.Context, cfg Config, current string, now int64) string {
+// each other's. git runs in the process working directory rather than in the
+// one the payload named; Claude Code starts the command there.
+func repository(ctx context.Context, cfg Config, current string, now time.Time) *gitstate.Status {
 	path := cache.Path(cfg.GitCacheBase, current)
-	if rec, ok := cache.ReadKeyed(path); ok && rec.Key == current && cache.Fresh(now, rec.At, gitMaxAge) {
-		return rec.Result
+	if rec, ok := cache.Read[*gitstate.Status](path, current); ok && cache.Fresh(now, rec.At, gitMaxAge) {
+		return rec.Value
 	}
 
-	segment := ""
-	out, err := cfg.Runner.Run(ctx, runner.Command{Name: "git", Args: gitstate.StatusArgs})
+	var status *gitstate.Status
+	out, err := cfg.Runner.Run(ctx, runner.Command{Name: "git", Args: gitstate.StatusArgs()})
 	if err == nil {
-		segment = gitstate.Parse(out).Segment()
+		parsed := gitstate.Parse(out)
+		status = &parsed
 	}
 
 	// Written even when there is no repository, so that a directory outside one
-	// is not re-checked on every redraw.
-	// Best effort: a write that fails only costs one git invocation next time.
-	_ = cache.WriteKeyed(path, cache.Keyed{At: now, Key: current, Result: segment})
-	return segment
+	// is not re-checked on every redraw. Best effort: a failed write costs one
+	// git invocation next time.
+	_ = cache.Write(path, current, now, status)
+	return status
 }
 
-// pullRequestRecord returns the cached badge and starts a refresh when it is
+// pullRequestInfo returns the cached badge and starts a refresh when it is
 // stale.
-func pullRequestRecord(cfg Config, gitSegment, current string, now int64) string {
-	branch := gitstate.BranchOf(gitSegment)
-	if branch == "" {
+func pullRequestInfo(cfg Config, status *gitstate.Status, current string, now time.Time) *prinfo.Info {
+	if status == nil || status.Branch == "" {
 		// Outside a repository, or on a detached head, there is no branch to
 		// have a pull request for and gh is never started.
-		return ""
+		return nil
 	}
 
-	key := current + ":" + branch
+	// Keying on the branch as well as the directory is what makes a branch
+	// switch take effect at once rather than at the next expiry.
+	key := current + ":" + status.Branch
 	path := cache.Path(cfg.PRCacheBase, key)
-	record, refresh := prinfo.Lookup(path, key, now)
+	info, refresh := prinfo.Lookup(path, key, now)
 	if refresh {
 		spawn(cfg, RefreshPRCommandName,
-			flagNow+"="+strconv.FormatInt(now, 10),
-			flagCache+"="+path, flagKey+"="+key, flagBranch+"="+branch)
+			flagNow+"="+strconv.FormatInt(now.Unix(), 10),
+			flagCache+"="+path, flagKey+"="+key, flagBranch+"="+status.Branch)
 	}
-	return record
+	return &info
 }
 
 // exchangeRate returns the cached rate and starts a refresh when it is stale.
-func exchangeRate(cfg Config, fields Fields, now int64) string {
-	if !ShowsCost(fields) {
-		return ""
+func exchangeRate(cfg Config, fields Fields, now time.Time) float64 {
+	if !showsCost(fields) {
+		// Nothing to convert, so nothing is fetched: a session below a cent
+		// should not be starting network requests.
+		return 0
 	}
 	rate, refresh := fxrate.Lookup(cfg.FXCachePath, now)
 	if refresh {
 		spawn(cfg, RefreshFXCommandName,
-			flagNow+"="+strconv.FormatInt(now, 10), flagCache+"="+cfg.FXCachePath)
+			flagNow+"="+strconv.FormatInt(now.Unix(), 10), flagCache+"="+cfg.FXCachePath)
 	}
 	return rate
 }

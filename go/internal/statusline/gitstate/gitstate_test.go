@@ -94,13 +94,11 @@ func TestParse(t *testing.T) {
 			want: Status{Branch: "main", HasUpstream: true, Ahead: 2, Behind: 3},
 		},
 		{
-			// The shell read the two status letters by slicing, and a line too
-			// short to slice compared unequal to a dot on both halves. Counting
-			// a malformed record as a change is the safe direction: it shows
-			// something rather than hiding it.
-			name: "a truncated record counts as both",
+			// The shortest record git emits is about a hundred characters, so
+			// anything too short to hold the two status letters is not one.
+			name: "a record too short to be one is ignored",
 			out:  "# branch.head main\n1\n",
-			want: Status{Branch: "main", Staged: 1, Modified: 1},
+			want: Status{Branch: "main"},
 		},
 		{
 			name: "empty output",
@@ -124,27 +122,27 @@ func TestStatusSegment(t *testing.T) {
 		out  string
 		want string
 	}{
-		{name: "clean and in sync", out: inSync, want: " (main)"},
-		{name: "staged, modified and ahead", out: stagedModifiedAhead, want: " (main +1 ~1 ↑1)"},
-		{name: "behind", out: behind, want: " (main ↓1)"},
-		{name: "detached", out: detached, want: " ()"},
-		{name: "unmerged", out: unmerged, want: " (main +1 ~1 ↑∅)"},
+		{name: "clean and in sync", out: inSync, want: "(main)"},
+		{name: "staged, modified and ahead", out: stagedModifiedAhead, want: "(main +1 ~1 ↑1)"},
+		{name: "behind", out: behind, want: "(main ↓1)"},
+		{name: "detached", out: detached, want: "()"},
+		{name: "unmerged", out: unmerged, want: "(main +1 ~1 ↑∅)"},
 		{
 			// A branch with no upstream exists only on this machine, which the
 			// empty-set marker says and a bare (main) would not.
-			name: "no upstream", out: noUpstream, want: " (main ↑∅)",
+			name: "no upstream", out: noUpstream, want: "(main ↑∅)",
 		},
 		{
 			// Ahead replaces the marker rather than joining it: a branch with
 			// commits to push necessarily has an upstream to push them to.
 			name: "ahead replaces the no-upstream marker",
 			out:  "# branch.head main\n# branch.upstream origin/main\n# branch.ab +3 -0\n",
-			want: " (main ↑3)",
+			want: "(main ↑3)",
 		},
 		{
 			name: "ahead and behind",
 			out:  "# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -3\n",
-			want: " (main ↑2 ↓3)",
+			want: "(main ↑2 ↓3)",
 		},
 	}
 
@@ -154,22 +152,5 @@ func TestStatusSegment(t *testing.T) {
 				t.Errorf("Segment() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestBranchOf(t *testing.T) {
-	tests := []struct{ in, want string }{
-		// The branch is recovered from the rendered fragment rather than from
-		// the parsed status, because a cache hit only ever has the fragment.
-		{in: " (main)", want: "main"},
-		{in: " (main +1 ~1 ↑1)", want: "main"},
-		{in: " (feature/99-a ↑∅)", want: "feature/99-a"},
-		{in: " ()", want: ""},
-		{in: "", want: ""},
-	}
-	for _, tt := range tests {
-		if got := BranchOf(tt.in); got != tt.want {
-			t.Errorf("BranchOf(%q) = %q, want %q", tt.in, got, tt.want)
-		}
 	}
 }

@@ -66,7 +66,7 @@ func TestRun(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := run(tt.args, strings.NewReader(""), &stdout, &stderr, selfbuild.State{})
+			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, selfbuild.State{})
 
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d (stdout=%q stderr=%q)", code, tt.wantCode, stdout.String(), stderr.String())

@@ -5,18 +5,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/178inaba/dotfiles/go/internal/cache"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-const (
-	now = int64(1756600000)
-	key = "/Users/x/repo:feat"
-)
+var now = time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
 
-// fakeRunner answers by command name and records what it was asked.
+const key = "/Users/x/repo:feat"
+
+// fakeRunner answers by command and records what it was asked.
 type fakeRunner struct {
 	out   map[string]string
 	fail  map[string]bool
@@ -33,111 +34,86 @@ func (f *fakeRunner) Run(_ context.Context, c runner.Command) ([]byte, error) {
 }
 
 func TestLookup(t *testing.T) {
+	t.Parallel()
+
+	open := Info{Number: 123, State: StateNoReviewRequested, URL: "https://e/1"}
+
 	tests := []struct {
-		name            string
-		record, attempt string
-		wantResult      string
-		wantRefresh     bool
+		name string
+		// seed is the record to write, with the key and time to write it under.
+		seed     *Info
+		seedKey  string
+		at       time.Time
+		attempt  time.Time
+		wantInfo Info
+		wantRef  bool
 	}{
 		{
-			name:       "a fresh record is used and gh is not asked",
-			record:     "1756600000\n" + key + "\n123 NONE https://e/1",
-			wantResult: "123 NONE https://e/1",
+			name: "a fresh record is used and gh is not asked",
+			seed: &open, seedKey: key, at: now,
+			wantInfo: open,
 		},
 		{
-			name:        "no record renders nothing and starts a refresh",
-			wantRefresh: true,
+			name:    "no record renders nothing and starts a refresh",
+			wantRef: true,
 		},
 		{
 			// The badge stays put while the refresh runs, exactly as the
 			// exchange rate does.
-			name:        "a stale record is still rendered",
-			record:      "1\n" + key + "\n123 NONE https://e/1",
-			wantResult:  "123 NONE https://e/1",
-			wantRefresh: true,
+			name: "a stale record is still rendered",
+			seed: &open, seedKey: key, at: now.Add(-time.Hour),
+			wantInfo: open, wantRef: true,
 		},
 		{
 			// "no pull request" is a real answer and is cached like any other,
 			// which is what keeps gh from running on every redraw offline.
-			name:   "an empty record is a fresh answer",
-			record: "1756600000\n" + key + "\n",
+			name: "an empty record is a fresh answer",
+			seed: &Info{}, seedKey: key, at: now,
 		},
 		{
 			// Deep directories can share a cache file once the name is cut to
 			// length; the key inside decides whether the record is ours.
-			name:        "a record for another key is discarded",
-			record:      "1756600000\n/Users/x/other:main\n999 NONE https://e/9",
-			wantRefresh: true,
+			name: "a record for another key is discarded",
+			seed: &open, seedKey: "/Users/x/other:main", at: now,
+			wantRef: true,
 		},
 		{
 			name:    "a recent attempt suppresses the refresh",
-			attempt: "1756599990\n",
+			attempt: now.Add(-10 * time.Second),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := filepath.Join(t.TempDir(), "pr-cache")
-			if tt.record != "" {
-				writeFile(t, p, tt.record)
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "pr-cache")
+			if tt.seed != nil {
+				if err := cache.Write(path, tt.seedKey, tt.at, *tt.seed); err != nil {
+					t.Fatalf("seed: %v", err)
+				}
 			}
-			if tt.attempt != "" {
-				writeFile(t, p+".attempt", tt.attempt)
+			if !tt.attempt.IsZero() {
+				if err := cache.Write(path+".attempt", "attempt", tt.attempt, struct{}{}); err != nil {
+					t.Fatalf("seed attempt: %v", err)
+				}
 			}
 
-			result, refresh := Lookup(p, key, now)
+			info, refresh := Lookup(path, key, now)
 
-			if result != tt.wantResult {
-				t.Errorf("result = %q, want %q", result, tt.wantResult)
-			}
-			if refresh != tt.wantRefresh {
-				t.Errorf("refresh = %t, want %t", refresh, tt.wantRefresh)
-			}
-		})
-	}
-}
-
-func TestParse(t *testing.T) {
-	tests := []struct {
-		name   string
-		record string
-		want   Info
-		ok     bool
-	}{
-		{
-			name:   "number, state and link",
-			record: "123 NONE https://example.test/pull/123",
-			want:   Info{Number: "123", State: StateNoReviewRequested, URL: "https://example.test/pull/123"},
-			ok:     true,
-		},
-		{
-			// gh can report a pull request without a URL, and the record then
-			// ends in a separator that read discards rather than turning into
-			// an empty link.
-			name:   "a missing link leaves no trailing space",
-			record: "127 APPROVED ",
-			want:   Info{Number: "127", State: StateApproved},
-			ok:     true,
-		},
-		{name: "no pull request", record: ""},
-		{name: "a non-numeric number is not a pull request", record: "abc NONE https://e/1"},
-		{name: "a partial record is not a pull request", record: " NONE"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := Parse(tt.record)
-			if ok != tt.ok {
-				t.Fatalf("ok = %t, want %t", ok, tt.ok)
-			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
+			if diff := cmp.Diff(tt.wantInfo, info); diff != "" {
 				t.Errorf("Info mismatch (-want +got):\n%s", diff)
+			}
+			if refresh != tt.wantRef {
+				t.Errorf("refresh = %t, want %t", refresh, tt.wantRef)
 			}
 		})
 	}
 }
 
 func TestRefresh(t *testing.T) {
+	t.Parallel()
+
 	const prView = "gh pr"
 
 	tests := []struct {
@@ -145,7 +121,7 @@ func TestRefresh(t *testing.T) {
 		branch string
 		out    map[string]string
 		fail   map[string]bool
-		want   string
+		want   Info
 		wantGH bool
 	}{
 		{
@@ -155,7 +131,7 @@ func TestRefresh(t *testing.T) {
 				"git symbolic-ref": "origin/main\n",
 				prView:             `{"number":123,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://e/123"}`,
 			},
-			want:   "123 " + StateNoReviewRequested + " https://e/123",
+			want:   Info{Number: 123, State: StateNoReviewRequested, URL: "https://e/123"},
 			wantGH: true,
 		},
 		{
@@ -165,7 +141,7 @@ func TestRefresh(t *testing.T) {
 				"git symbolic-ref": "origin/main\n",
 				prView:             `{"number":126,"reviewDecision":"","state":"OPEN","isDraft":true,"url":"https://e/126"}`,
 			},
-			want:   "126 " + StateDraft + " https://e/126",
+			want:   Info{Number: 126, State: StateDraft, URL: "https://e/126"},
 			wantGH: true,
 		},
 		{
@@ -175,7 +151,7 @@ func TestRefresh(t *testing.T) {
 				"git symbolic-ref": "origin/main\n",
 				prView:             `{"number":124,"reviewDecision":"APPROVED","state":"OPEN","isDraft":false,"url":"https://e/124"}`,
 			},
-			want:   "124 " + StateApproved + " https://e/124",
+			want:   Info{Number: 124, State: StateApproved, URL: "https://e/124"},
 			wantGH: true,
 		},
 		{
@@ -212,7 +188,7 @@ func TestRefresh(t *testing.T) {
 				prView: `{"number":133,"reviewDecision":"","state":"OPEN","isDraft":false,"url":"https://e/133"}`,
 			},
 			fail:   map[string]bool{"git symbolic-ref": true, "gh repo": true},
-			want:   "133 " + StateNoReviewRequested + " https://e/133",
+			want:   Info{Number: 133, State: StateNoReviewRequested, URL: "https://e/133"},
 			wantGH: true,
 		},
 		{
@@ -228,17 +204,19 @@ func TestRefresh(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := filepath.Join(t.TempDir(), "pr-cache")
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "pr-cache")
 			r := &fakeRunner{out: tt.out, fail: tt.fail}
 
-			Refresh(t.Context(), r, p, key, tt.branch, now)
+			Refresh(t.Context(), r, path, key, tt.branch, now)
 
-			rec, ok := readRecord(t, p)
+			rec, ok := cache.Read[Info](path, key)
 			if !ok {
 				t.Fatal("no record written")
 			}
-			if rec != tt.want {
-				t.Errorf("record = %q, want %q", rec, tt.want)
+			if diff := cmp.Diff(tt.want, rec.Value); diff != "" {
+				t.Errorf("Info mismatch (-want +got):\n%s", diff)
 			}
 
 			asked := false
@@ -251,25 +229,5 @@ func TestRefresh(t *testing.T) {
 				t.Errorf("gh pr view called = %t, want %t (calls: %v)", asked, tt.wantGH, r.calls)
 			}
 		})
-	}
-}
-
-func readRecord(t *testing.T, path string) (string, bool) {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	want := "1756600000\n" + key + "\n"
-	if len(b) < len(want) || string(b[:len(want)]) != want {
-		t.Fatalf("record = %q, want it to start with %q", b, want)
-	}
-	return string(b[len(want):]), true
-}
-
-func writeFile(t *testing.T, name, body string) {
-	t.Helper()
-	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
-		t.Fatalf("write %s: %v", name, err)
 	}
 }

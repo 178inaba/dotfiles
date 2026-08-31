@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -20,7 +22,7 @@ func newStatuslineCmd(build selfbuild.State) *cobra.Command {
 			err := statusline.Run(c.Context(), statusline.Default(),
 				c.InOrStdin(), c.OutOrStdout(), build.FirstError)
 			if err != nil {
-				return Silent(err)
+				return silent(err)
 			}
 			return nil
 		},
@@ -42,7 +44,7 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			statusline.RefreshFX(c.Context(), cachePath, now)
+			statusline.RefreshFX(c.Context(), cachePath, time.Unix(now, 0))
 			return nil
 		},
 	}
@@ -52,7 +54,7 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			statusline.RefreshPR(c.Context(), runner.Exec{}, cachePath, cacheKey, head, now)
+			statusline.RefreshPR(c.Context(), runner.Exec{}, cachePath, cacheKey, head, time.Unix(now, 0))
 			return nil
 		},
 	}

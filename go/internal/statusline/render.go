@@ -1,11 +1,14 @@
 package statusline
 
 import (
-	"github.com/178inaba/dotfiles/go/internal/shellfmt"
-	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
-	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
+	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
 // Terminal escapes, spelled out rather than generated: they are part of the
@@ -42,15 +45,15 @@ type Data struct {
 	// Current is the working directory the payload named, or the process's own
 	// when it named none.
 	Current string
-	// Git is the cached repository fragment, empty outside a repository.
-	Git string
-	// PR is the cached pull request record, empty when there is none.
-	PR string
-	// Rate is the cached dollars-to-yen rate, empty when there is none and the
-	// cost falls back to dollars.
-	Rate string
+	// Git is the repository state, nil outside a repository.
+	Git *gitstate.Status
+	// PR is the branch's pull request, nil when there is none.
+	PR *prinfo.Info
+	// Rate is the dollars-to-yen rate, zero when there is none and the cost
+	// falls back to dollars.
+	Rate float64
 	// Now is the clock the countdowns are measured against.
-	Now int64
+	Now time.Time
 	// BuildError is the first line of a failed self-rebuild, empty when the
 	// binary is current.
 	BuildError string
@@ -61,8 +64,7 @@ type Data struct {
 // Three lines at most: the directory, then the repository and session, then the
 // model and its counters. The middle line disappears outside a repository with
 // no session id; the last never does — its colour codes are emitted
-// unconditionally, so with nothing to say it is four escape sequences. That is
-// what the shell version did.
+// unconditionally, so with nothing to say it is four escape sequences.
 func Render(d Data) []byte {
 	var b strings.Builder
 
@@ -72,11 +74,11 @@ func Render(d Data) []byte {
 		b.WriteString("\n" + line)
 	}
 
-	b.WriteString("\n" + purple + strings.TrimPrefix(model(d), " ") + reset)
-	b.WriteString(contextBar(d.Fields.ContextUsedPct))
+	b.WriteString("\n" + purple + model(d) + reset)
+	b.WriteString(contextBar(d.Fields.ContextWindow.UsedPercentage))
 	b.WriteString(rateLimits(d))
 	b.WriteString(cyan + cost(d) + reset)
-	b.WriteString(duration(d.Fields.TotalDurationMS))
+	b.WriteString(duration(d.Fields.Cost.DurationMS))
 	b.WriteString(warning(d.BuildError))
 	b.WriteString("\n")
 
@@ -86,16 +88,31 @@ func Render(d Data) []byte {
 // directory is the first line: the project, and the working directory after it
 // when the two differ.
 func directory(d Data) string {
-	project := d.Fields.ProjectDir
+	project := d.Fields.Workspace.ProjectDir
 	if project == "" {
 		project = d.Current
 	}
 
-	out := shellfmt.AbbreviateHome(project, d.Home)
+	out := abbreviateHome(project, d.Home)
 	if d.Current != project {
-		out += " > " + shellfmt.AbbreviateHome(d.Current, d.Home)
+		out += " > " + abbreviateHome(d.Current, d.Home)
 	}
 	return out
+}
+
+// abbreviateHome replaces the home directory with a tilde, on a path boundary
+// so that a sibling directory sharing the prefix is left alone.
+func abbreviateHome(path, home string) string {
+	if home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(path, home+"/"); ok {
+		return "~/" + rest
+	}
+	return path
 }
 
 // second is the repository fragment, the pull request badge and the session id.
@@ -105,8 +122,8 @@ func directory(d Data) string {
 // two paths long, and it appears alone when there is no repository.
 func second(d Data) string {
 	line := ""
-	if d.Git != "" {
-		line = green + strings.TrimPrefix(d.Git, " ") + reset + pullRequest(d)
+	if d.Git != nil {
+		line = green + d.Git.Segment() + reset + pullRequest(d)
 	}
 	if id := d.Fields.SessionID; id != "" {
 		if line != "" {
@@ -117,12 +134,10 @@ func second(d Data) string {
 	return line
 }
 
+// pullRequest renders the badge for the current branch.
 func pullRequest(d Data) string {
-	if gitstate.BranchOf(d.Git) == "" {
-		return ""
-	}
-	info, ok := prinfo.Parse(d.PR)
-	if !ok {
+	// A detached head has no branch to have a pull request for.
+	if d.PR == nil || d.PR.Number == 0 || d.Git == nil || d.Git.Branch == "" {
 		return ""
 	}
 
@@ -131,7 +146,7 @@ func pullRequest(d Data) string {
 	// list — a draft, or something a future gh invents — is left uncoloured
 	// rather than asserting that a review is pending.
 	color := ""
-	switch info.State {
+	switch d.PR.State {
 	case prinfo.StateApproved:
 		color = green
 	case prinfo.StateChangesRequested:
@@ -140,104 +155,110 @@ func pullRequest(d Data) string {
 		color = prYellow
 	}
 
-	text := "#" + info.Number
-	if info.URL != "" {
+	text := "#" + strconv.Itoa(d.PR.Number)
+	if d.PR.URL != "" {
 		// Only the underlined number is the link, so that what is clickable
 		// looks clickable.
-		text = oscLink + info.URL + bel + underline + text + underlineOff + oscLink + bel
+		text = oscLink + d.PR.URL + bel + underline + text + underlineOff + oscLink + bel
 	}
 	return " PR " + color + text + reset
 }
 
 func model(d Data) string {
-	if d.Fields.ModelDisplayName == "" {
+	if d.Fields.Model.DisplayName == "" {
 		return ""
 	}
-	return " [" + d.Fields.ModelDisplayName + "]"
+	return "[" + d.Fields.Model.DisplayName + "]"
 }
 
 // contextBar is a ten-block gauge of the context window.
-func contextBar(used string) string {
-	if used == "" {
+func contextBar(used *float64) string {
+	if used == nil {
 		return ""
 	}
-	pct := shellfmt.TruncateDecimal(used)
-	n := number(pct)
+	// Truncated rather than rounded, so the gauge never claims a percentage the
+	// session has not reached.
+	pct := int(*used)
 
 	const width = 10
-	filled := n * width / 100
+	filled := pct * width / 100
 	// Left uncorrected on purpose: a percentage over 100 draws a longer bar
 	// instead of quietly capping, which is a visible symptom rather than a
 	// hidden one.
 	empty := width - filled
 	bar := strings.Repeat("▓", max(filled, 0)) + strings.Repeat("░", max(empty, 0))
 
-	return " " + thresholdColor(n) + bar + " " + pct + "%" + reset
+	return " " + thresholdColor(pct) + bar + " " + strconv.Itoa(pct) + "%" + reset
 }
 
 // rateLimits is the five-hour and seven-day usage with the time until each
 // resets.
 func rateLimits(d Data) string {
-	f := d.Fields
-	if f.FiveHourUsedPct == "" && f.SevenDayUsedPct == "" {
+	five := window("5h", d.Fields.RateLimits.FiveHour, d.Now)
+	seven := window("7d", d.Fields.RateLimits.SevenDay, d.Now)
+	switch {
+	case five == "" && seven == "":
 		return ""
+	case five == "":
+		return " " + seven
+	case seven == "":
+		return " " + five
+	default:
+		return " " + five + " " + seven
 	}
-
-	out := ""
-	if f.FiveHourUsedPct != "" {
-		out = window("5h", f.FiveHourUsedPct, f.FiveHourResetsAt, d.Now)
-	}
-	if f.SevenDayUsedPct != "" {
-		if out != "" {
-			out += " "
-		}
-		out += window("7d", f.SevenDayUsedPct, f.SevenDayResetsAt, d.Now)
-	}
-	return " " + out
 }
 
-// window renders one usage figure. The countdown sits outside the reset code so
-// it takes the terminal's own colour rather than the threshold's.
-func window(label, used, resetsAt string, now int64) string {
-	pct := shellfmt.Round(used)
-	out := thresholdColor(number(pct)) + label + ":" + pct + "%" + reset
-	if left := countdown(resetsAt, now); left != "" {
+// window renders one usage figure, empty when the payload carried none.
+//
+// Rounded rather than truncated, unlike the context bar: this one is a figure
+// and not a gauge. The countdown sits outside the reset code so it takes the
+// terminal's own colour rather than the threshold's.
+func window(label string, w rateWindow, now time.Time) string {
+	if w.UsedPercentage == nil {
+		return ""
+	}
+	pct := int(math.RoundToEven(*w.UsedPercentage))
+
+	out := thresholdColor(pct) + label + ":" + strconv.Itoa(pct) + "%" + reset
+	if left := countdown(w.ResetsAt, now); left != "" {
 		out += "(" + left + ")"
 	}
 	return out
 }
 
-// ShowsCost reports whether the cost segment will be rendered. The state layer
-// asks before looking the exchange rate up, because a miss there records an
-// attempt and starts a background fetch.
-func ShowsCost(f Fields) bool {
+// showsCost reports whether the cost segment will be rendered.
+//
+// The state layer asks before looking the exchange rate up, because a miss
+// there records an attempt and starts a background fetch.
+func showsCost(f Fields) bool {
 	// The cost hangs off the model segment: with no model named there is no
 	// session to attribute it to.
-	if f.ModelDisplayName == "" || f.TotalCostUSD == "" {
+	if f.Model.DisplayName == "" || f.Cost.TotalUSD == nil {
 		return false
 	}
-	// Anything under a cent would render as zero and say nothing.
-	cents := shellfmt.RoundFloat(shellfmt.AwkNumber(f.TotalCostUSD) * 100)
-	return number(cents) >= 1
+	// Anything under a cent would render as zero and say nothing. Rounded to
+	// the nearest cent rather than truncated, so a cost of 0.006 still shows.
+	return math.RoundToEven(*f.Cost.TotalUSD*100) >= 1
 }
 
 // cost is the session cost, in yen when a rate is cached and dollars otherwise.
 func cost(d Data) string {
-	if !ShowsCost(d.Fields) {
+	if !showsCost(d.Fields) {
 		return ""
 	}
-	if d.Rate == "" {
-		return " $" + shellfmt.Money(d.Fields.TotalCostUSD)
+	usd := *d.Fields.Cost.TotalUSD
+	if d.Rate == 0 {
+		return fmt.Sprintf(" $%.2f", usd)
 	}
-	return " ¥" + shellfmt.RoundFloat(shellfmt.AwkNumber(d.Fields.TotalCostUSD)*shellfmt.AwkNumber(d.Rate))
+	return fmt.Sprintf(" ¥%.0f", usd*d.Rate)
 }
 
 // duration is how long the session has been running.
-func duration(ms string) string {
-	if ms == "" {
+func duration(ms *float64) string {
+	if ms == nil {
 		return ""
 	}
-	d := humanDuration(number(shellfmt.TruncateDecimal(ms)) / 1000)
+	d := humanDuration(time.Duration(int64(*ms)/1000) * time.Second)
 	if d == "" {
 		return ""
 	}
@@ -260,23 +281,24 @@ func warning(buildError string) string {
 }
 
 // countdown is the time left until a reset, empty once it has passed.
-func countdown(resetsAt string, now int64) string {
-	if resetsAt == "" {
+func countdown(resetsAt *float64, now time.Time) string {
+	at, ok := unixTime(resetsAt)
+	if !ok {
 		return ""
 	}
-	return humanDuration(number(shellfmt.TruncateDecimal(resetsAt)) - int(now))
+	return humanDuration(at.Sub(now))
 }
 
 // humanDuration renders a span at two units of precision, and renders nothing
 // at all below a minute — a session that has just started shows no age rather
 // than a number ticking every second.
-func humanDuration(seconds int) string {
-	if seconds <= 0 {
+func humanDuration(d time.Duration) string {
+	if d <= 0 {
 		return ""
 	}
-	days := seconds / 86400
-	hours := seconds % 86400 / 3600
-	minutes := seconds % 3600 / 60
+	days := int(d / (24 * time.Hour))
+	hours := int(d % (24 * time.Hour) / time.Hour)
+	minutes := int(d % time.Hour / time.Minute)
 	switch {
 	case days > 0:
 		return strconv.Itoa(days) + "d" + strconv.Itoa(hours) + "h"
@@ -289,6 +311,7 @@ func humanDuration(seconds int) string {
 	}
 }
 
+// thresholdColor is red past ninety percent, yellow past seventy, green below.
 func thresholdColor(pct int) string {
 	switch {
 	case pct >= 90:
@@ -298,14 +321,4 @@ func thresholdColor(pct int) string {
 	default:
 		return green
 	}
-}
-
-// number reads an integer the way the shell's arithmetic did, where anything
-// unparseable — an empty string included — is zero.
-func number(s string) int {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return 0
-	}
-	return n
 }

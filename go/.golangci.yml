@@ -2,13 +2,15 @@ version: "2"
 
 # The linter set is enumerated rather than inherited from the running version's
 # own default, so a golangci-lint upgrade changes diagnostics but never which
-# linters are active.
+# linters are active. revive is here for its exported-doc-comment rule, which
+# is how a required doc comment stops being something to notice by eye.
 linters:
   default: none
   enable:
     - errcheck
     - govet
     - ineffassign
+    - revive
     - staticcheck
     - unused
   settings:

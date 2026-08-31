@@ -8,10 +8,9 @@ package fxrate
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
-	"regexp"
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/cache"
@@ -24,85 +23,78 @@ const (
 	CachePath = "/tmp/claude-statusline-usd-jpy"
 	// APIURL serves the European Central Bank's published rates.
 	APIURL = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=JPY"
+	// cacheKey is fixed: the rate is the same for every session.
+	cacheKey = "usd-jpy"
 
 	// maxAge is half a day, which is ample: the published rate moves once per
 	// working day.
-	maxAge = 43200
+	maxAge = 12 * time.Hour
 	// retryInterval keeps an offline machine from starting a fetch on every
 	// redraw.
-	retryInterval = 60
+	retryInterval = time.Minute
 	// timeout bounds the background fetch. Nothing waits on it, but a hung
 	// request should not leave a process around indefinitely.
 	timeout = 5 * time.Second
 )
 
-// rateFormat is what counts as a rate. Anything else — an error page, a
-// truncated write, a field that moved — is treated as no rate at all rather
-// than rendered.
-var rateFormat = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
-
-// Lookup returns the rate to render, which is empty when there is none, and
+// Lookup returns the rate to render, which is zero when there is none, and
 // whether the caller should start a refresh.
 //
 // A stale rate is still returned: yesterday's conversion is far better than
 // dropping the cost from the display while a fetch happens.
-func Lookup(cachePath string, now int64) (string, bool) {
-	rate := ""
-	at, value, ok := cache.ReadPair(cachePath)
-	if ok && rateFormat.MatchString(value) {
-		rate = value
+func Lookup(path string, now time.Time) (float64, bool) {
+	rec, ok := cache.Read[float64](path, cacheKey)
+	if ok && rec.Value > 0 && cache.Fresh(now, rec.At, maxAge) {
+		return rec.Value, false
 	}
-
-	if rate != "" && cache.Fresh(now, at, maxAge) {
-		return rate, false
+	rate := rec.Value
+	if rate < 0 {
+		// A negative rate is not one; it would render a negative cost.
+		rate = 0
 	}
-
-	return rate, cache.ShouldAttempt(cachePath, now, retryInterval)
+	return rate, cache.ShouldAttempt(path, now, retryInterval)
 }
 
 // Refresh fetches the rate and stores it. It is meant to run detached, so it
 // reports nothing: a failure simply leaves the previous cache in place.
-func Refresh(ctx context.Context, client *http.Client, url, cachePath string, now int64) {
+func Refresh(ctx context.Context, client *http.Client, url, path string, now time.Time) {
 	rate, ok := fetch(ctx, client, url)
 	if !ok {
 		return
 	}
 	// Best effort: a write that fails leaves the previous rate rendering.
-	_ = cache.WritePair(cachePath, now, rate)
+	_ = cache.Write(path, cacheKey, now, rate)
 }
 
-func fetch(ctx context.Context, client *http.Client, url string) (string, bool) {
+func fetch(ctx context.Context, client *http.Client, url string) (float64, bool) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", false
+		return 0, false
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", false
+		return 0, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", false
+		return 0, false
 	}
 
-	dec := json.NewDecoder(io.LimitReader(resp.Body, 1<<16))
-	// The rate is kept as the literal the response carried, so the conversion
-	// works from the same digits the shell version did.
-	dec.UseNumber()
 	var body struct {
 		Rates struct {
-			JPY json.Number `json:"JPY"`
+			JPY float64 `json:"JPY"`
 		} `json:"rates"`
 	}
-	if err := dec.Decode(&body); err != nil {
-		return "", false
+	if err := json.UnmarshalRead(io.LimitReader(resp.Body, 1<<16), &body); err != nil {
+		return 0, false
 	}
-	rate := body.Rates.JPY.String()
-	if !rateFormat.MatchString(rate) {
-		return "", false
+	// A missing or nonsensical rate is treated as no answer, so the previous
+	// one keeps rendering rather than being replaced by zero.
+	if body.Rates.JPY <= 0 {
+		return 0, false
 	}
-	return rate, true
+	return body.Rates.JPY, true
 }

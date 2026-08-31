@@ -2,6 +2,7 @@ package selfbuild
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -110,6 +111,12 @@ func goEnv(d Deps, keys ...string) map[string]string {
 		if ok && slices.Contains(missing, key) {
 			out[key] = value
 		}
+	}
+	if err := s.Err(); err != nil {
+		// A partial read leaves GOBIN or GOPATH looking unset, and the caller
+		// would then install to the wrong directory rather than fail.
+		fmt.Fprintf(d.Debug, "ccx selfbuild: cannot read %s: %v\n", name, err)
+		return nil
 	}
 	return out
 }

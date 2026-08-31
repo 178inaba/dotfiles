@@ -3,6 +3,7 @@ package statusline
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/statusline/fxrate"
@@ -42,11 +43,11 @@ const (
 // RefreshFX fetches the exchange rate. The caller passes the cache path and the
 // timestamp rather than deriving them again, so that the child cannot disagree
 // with the parent about which file it is writing.
-func RefreshFX(ctx context.Context, cachePath string, now int64) {
+func RefreshFX(ctx context.Context, cachePath string, now time.Time) {
 	fxrate.Refresh(ctx, http.DefaultClient, fxrate.APIURL, cachePath, now)
 }
 
 // RefreshPR asks gh about a branch's pull request.
-func RefreshPR(ctx context.Context, r runner.Runner, cachePath, cacheKey, branch string, now int64) {
+func RefreshPR(ctx context.Context, r runner.Runner, cachePath, cacheKey, branch string, now time.Time) {
 	prinfo.Refresh(ctx, r, cachePath, cacheKey, branch, now)
 }

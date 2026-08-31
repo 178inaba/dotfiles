@@ -3,8 +3,12 @@ package statusline
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
+	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
 // The expectations below are the bytes the bash implementation produced for the
@@ -21,6 +25,8 @@ var escapes = cmp.Transformer("escapes", func(b []byte) []string {
 })
 
 func TestRender(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		data Data
@@ -38,38 +44,27 @@ func TestRender(t *testing.T) {
 		},
 		{
 			name: "the home directory is abbreviated",
-			data: Data{
-				Fields:  Fields{ProjectDir: "/Users/x/proj"},
-				Current: "/Users/x/proj",
-				Home:    "/Users/x",
-			},
+			data: Data{Current: "/Users/x/proj", Home: "/Users/x"},
 			want: "\x1b[0;34m~/proj\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{
+			// On a path boundary, so a sibling that merely shares the prefix is
+			// left alone rather than rendered as "~-backup".
+			name: "a sibling sharing the prefix is left alone",
+			data: Data{Current: "/Users/x-backup/proj", Home: "/Users/x"},
+			want: "\x1b[0;34m/Users/x-backup/proj\x1b[0m\n" +
+				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
+		},
+		{
 			name: "a working directory below the project is shown after it",
-			data: Data{
-				Fields:  Fields{ProjectDir: "/Users/x/proj"},
-				Current: "/Users/x/proj/sub",
-				Home:    "/Users/x",
-			},
+			data: withProject(Data{Current: "/Users/x/proj/sub", Home: "/Users/x"}, "/Users/x/proj"),
 			want: "\x1b[0;34m~/proj > ~/proj/sub\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{
 			name: "every segment at once",
-			data: Data{
-				Current: "/w",
-				Fields: Fields{
-					ProjectDir: "/w", SessionID: "b257201c",
-					ModelDisplayName: "Opus", TotalCostUSD: "1.23", TotalDurationMS: "5400000",
-					ContextUsedPct:  "42.5",
-					FiveHourUsedPct: "35", SevenDayUsedPct: "95",
-				},
-				Home: "/Users/x",
-				Git:  " (main +1 ~1 ↑1)",
-				Rate: "160.00",
-			},
+			data: full(),
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(main +1 ~1 ↑1)\x1b[0m \x1b[0;90mb257201c\x1b[0m\n" +
 				"\x1b[0;35m[Opus]\x1b[0m \x1b[0;32m▓▓▓▓░░░░░░ 42%\x1b[0m " +
@@ -79,7 +74,7 @@ func TestRender(t *testing.T) {
 			// A session outside a repository still shows its id, so a
 			// transcript can be found while the session is running.
 			name: "the session id stands alone without a repository",
-			data: Data{Current: "/tmp", Home: "/Users/x", Fields: Fields{SessionID: "b257201c"}},
+			data: withSession(Data{Current: "/tmp", Home: "/Users/x"}, "b257201c"),
 			want: "\x1b[0;34m/tmp\x1b[0m\n" +
 				"\x1b[0;90mb257201c\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -89,8 +84,9 @@ func TestRender(t *testing.T) {
 			// terminal's own colour, so what is clickable looks clickable.
 			name: "a pull request badge is a link on the number alone",
 			data: Data{
-				Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)",
-				PR: "123 NONE https://example.test/pull/123",
+				Current: "/w", Home: "/Users/x",
+				Git: &gitstate.Status{Branch: "feat"},
+				PR:  &prinfo.Info{Number: 123, State: prinfo.StateNoReviewRequested, URL: "https://example.test/pull/123"},
 			},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[38;5;220m" +
@@ -102,8 +98,9 @@ func TestRender(t *testing.T) {
 			// on its own rather than left to the shared colour switch.
 			name: "changes requested is red",
 			data: Data{
-				Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)",
-				PR: "125 CHANGES_REQUESTED https://example.test/pull/125",
+				Current: "/w", Home: "/Users/x",
+				Git: &gitstate.Status{Branch: "feat"},
+				PR:  &prinfo.Info{Number: 125, State: prinfo.StateChangesRequested, URL: "https://example.test/pull/125"},
 			},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[0;31m" +
@@ -112,14 +109,13 @@ func TestRender(t *testing.T) {
 		},
 		{
 			// The three parts of the second line in one render: the badge sits
-			// between the repository and the session id, never beside one of
-			// them alone.
+			// between the repository and the session id.
 			name: "the badge sits between the branch and the session id",
-			data: Data{
-				Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)",
-				PR:     "123 NONE https://example.test/pull/123",
-				Fields: Fields{SessionID: "b257201c"},
-			},
+			data: withSession(Data{
+				Current: "/w", Home: "/Users/x",
+				Git: &gitstate.Status{Branch: "feat"},
+				PR:  &prinfo.Info{Number: 123, State: prinfo.StateNoReviewRequested, URL: "https://example.test/pull/123"},
+			}, "b257201c"),
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[38;5;220m" +
 				"\x1b]8;;https://example.test/pull/123\a\x1b[4m#123\x1b[24m\x1b]8;;\a\x1b[0m" +
@@ -128,7 +124,11 @@ func TestRender(t *testing.T) {
 		},
 		{
 			name: "a pull request without a link is plain text",
-			data: Data{Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)", PR: "127 APPROVED "},
+			data: Data{
+				Current: "/w", Home: "/Users/x",
+				Git: &gitstate.Status{Branch: "feat"},
+				PR:  &prinfo.Info{Number: 127, State: prinfo.StateApproved},
+			},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[0;32m#127\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -137,7 +137,11 @@ func TestRender(t *testing.T) {
 			// A state nobody has seen before must not claim a review is
 			// pending, so it falls back to no colour at all.
 			name: "an unrecognised review state is left uncoloured",
-			data: Data{Current: "/w", Home: "/Users/x", Git: " (feat ↑∅)", PR: "135 SOME_FUTURE_VALUE "},
+			data: Data{
+				Current: "/w", Home: "/Users/x",
+				Git: &gitstate.Status{Branch: "feat"},
+				PR:  &prinfo.Info{Number: 135, State: "SOME_FUTURE_VALUE"},
+			},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR #135\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -145,7 +149,11 @@ func TestRender(t *testing.T) {
 		{
 			// Detached: no branch, so no badge even with a record in the cache.
 			name: "no branch means no badge",
-			data: Data{Current: "/w", Home: "/Users/x", Git: " ()", PR: "123 NONE https://e/1"},
+			data: Data{
+				Current: "/w", Home: "/Users/x",
+				Git: &gitstate.Status{},
+				PR:  &prinfo.Info{Number: 123, State: prinfo.StateNoReviewRequested, URL: "https://e/1"},
+			},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m()\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
@@ -171,6 +179,7 @@ func TestRender(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if diff := cmp.Diff([]byte(tt.want), Render(tt.data), escapes); diff != "" {
 				t.Errorf("Render mismatch (-want +got):\n%s", diff)
 			}
@@ -178,98 +187,144 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func withProject(d Data, project string) Data {
+	d.Fields.Workspace.ProjectDir = project
+	return d
+}
+
+func withSession(d Data, id string) Data {
+	d.Fields.SessionID = id
+	return d
+}
+
+func full() Data {
+	d := Data{
+		Current: "/w", Home: "/Users/x",
+		Git:  &gitstate.Status{Branch: "main", HasUpstream: true, Ahead: 1, Staged: 1, Modified: 1},
+		Rate: 160,
+	}
+	d.Fields.SessionID = "b257201c"
+	d.Fields.Workspace.ProjectDir = "/w"
+	d.Fields.Model.DisplayName = "Opus"
+	d.Fields.Cost.TotalUSD, d.Fields.Cost.DurationMS = f64(1.23), f64(5400000)
+	d.Fields.ContextWindow.UsedPercentage = f64(42.5)
+	d.Fields.RateLimits.FiveHour.UsedPercentage = f64(35)
+	d.Fields.RateLimits.SevenDay.UsedPercentage = f64(95)
+	return d
+}
+
 func TestContextBar(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name, used, want string
+		name string
+		used *float64
+		want string
 	}{
-		{name: "empty renders nothing", used: "", want: ""},
-		{name: "zero", used: "0", want: " \x1b[0;32m░░░░░░░░░░ 0%\x1b[0m"},
+		{name: "absent renders nothing"},
+		{name: "zero", used: f64(0), want: " \x1b[0;32m░░░░░░░░░░ 0%\x1b[0m"},
 		// Truncated, not rounded: 42.9 is still 42.
-		{name: "truncated to the whole percent", used: "42.9", want: " \x1b[0;32m▓▓▓▓░░░░░░ 42%\x1b[0m"},
-		{name: "green below seventy", used: "69", want: " \x1b[0;32m▓▓▓▓▓▓░░░░ 69%\x1b[0m"},
-		{name: "yellow from seventy", used: "70", want: " \x1b[1;33m▓▓▓▓▓▓▓░░░ 70%\x1b[0m"},
-		{name: "red from ninety", used: "90", want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓░ 90%\x1b[0m"},
-		{name: "full", used: "100", want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓ 100%\x1b[0m"},
+		{name: "truncated to the whole percent", used: f64(42.9), want: " \x1b[0;32m▓▓▓▓░░░░░░ 42%\x1b[0m"},
+		{name: "green below seventy", used: f64(69), want: " \x1b[0;32m▓▓▓▓▓▓░░░░ 69%\x1b[0m"},
+		{name: "yellow from seventy", used: f64(70), want: " \x1b[1;33m▓▓▓▓▓▓▓░░░ 70%\x1b[0m"},
+		{name: "red from ninety", used: f64(90), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓░ 90%\x1b[0m"},
+		{name: "full", used: f64(100), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓ 100%\x1b[0m"},
 		{
 			// Over a hundred draws a longer bar rather than capping, so an
 			// impossible number is visible instead of hidden.
-			name: "over full", used: "150", want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 150%\x1b[0m",
+			name: "over full", used: f64(150), want: " \x1b[0;31m▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ 150%\x1b[0m",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := contextBar(tt.used); got != tt.want {
-				t.Errorf("contextBar(%q) = %q, want %q", tt.used, got, tt.want)
+				t.Errorf("contextBar = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestHumanDuration(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name    string
-		seconds int
-		want    string
+		name string
+		d    time.Duration
+		want string
 	}{
 		// Below a minute there is nothing worth showing, and a counter ticking
 		// every second would be worse than nothing.
-		{name: "under a minute", seconds: 30},
-		{name: "zero", seconds: 0},
-		{name: "negative", seconds: -5},
-		{name: "minutes", seconds: 90, want: "1m"},
-		{name: "hours and minutes", seconds: 5400, want: "1h30m"},
-		{name: "days and hours", seconds: 90000, want: "1d1h"},
+		{name: "under a minute", d: 30 * time.Second},
+		{name: "zero"},
+		{name: "negative", d: -5 * time.Second},
+		{name: "minutes", d: 90 * time.Second, want: "1m"},
+		{name: "hours and minutes", d: 90 * time.Minute, want: "1h30m"},
+		{name: "days and hours", d: 25 * time.Hour, want: "1d1h"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := humanDuration(tt.seconds); got != tt.want {
-				t.Errorf("humanDuration(%d) = %q, want %q", tt.seconds, got, tt.want)
+			t.Parallel()
+			if got := humanDuration(tt.d); got != tt.want {
+				t.Errorf("humanDuration(%v) = %q, want %q", tt.d, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestRateLimits(t *testing.T) {
-	const now = int64(1000)
+	t.Parallel()
+
+	now := time.Unix(1000, 0)
 
 	tests := []struct {
-		name string
-		f    Fields
-		want string
+		name  string
+		build func(*Fields)
+		want  string
 	}{
-		{name: "neither window", f: Fields{}, want: ""},
+		{name: "neither window", build: func(*Fields) {}},
 		{
-			name: "five hour only",
-			f:    Fields{FiveHourUsedPct: "35"},
-			want: " \x1b[0;32m5h:35%\x1b[0m",
+			name:  "five hour only",
+			build: func(f *Fields) { f.RateLimits.FiveHour.UsedPercentage = f64(35) },
+			want:  " \x1b[0;32m5h:35%\x1b[0m",
 		},
 		{
-			name: "seven day only",
-			f:    Fields{SevenDayUsedPct: "95"},
-			want: " \x1b[0;31m7d:95%\x1b[0m",
+			name:  "seven day only",
+			build: func(f *Fields) { f.RateLimits.SevenDay.UsedPercentage = f64(95) },
+			want:  " \x1b[0;31m7d:95%\x1b[0m",
 		},
 		{
 			// The countdown sits outside the reset code, so it takes the
 			// terminal's colour rather than the threshold's.
 			name: "a countdown follows the percentage",
-			f:    Fields{FiveHourUsedPct: "35", FiveHourResetsAt: "6400"},
+			build: func(f *Fields) {
+				f.RateLimits.FiveHour = rateWindow{UsedPercentage: f64(35), ResetsAt: f64(6400)}
+			},
 			want: " \x1b[0;32m5h:35%\x1b[0m(1h30m)",
 		},
 		{
 			name: "a reset already past shows no countdown",
-			f:    Fields{FiveHourUsedPct: "35", FiveHourResetsAt: "1"},
+			build: func(f *Fields) {
+				f.RateLimits.FiveHour = rateWindow{UsedPercentage: f64(35), ResetsAt: f64(1)}
+			},
 			want: " \x1b[0;32m5h:35%\x1b[0m",
 		},
 		{
-			// printf rounds half to even, so 72.5 is 72 and 89.5 is 90.
+			// Half to even, as C's printf and Go's fmt both round.
 			name: "percentages round half to even",
-			f:    Fields{FiveHourUsedPct: "72.5", SevenDayUsedPct: "89.5"},
+			build: func(f *Fields) {
+				f.RateLimits.FiveHour.UsedPercentage = f64(72.5)
+				f.RateLimits.SevenDay.UsedPercentage = f64(89.5)
+			},
 			want: " \x1b[1;33m5h:72%\x1b[0m \x1b[0;31m7d:90%\x1b[0m",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := rateLimits(Data{Fields: tt.f, Now: now}); got != tt.want {
+			t.Parallel()
+			var f Fields
+			tt.build(&f)
+			if got := rateLimits(Data{Fields: f, Now: now}); got != tt.want {
 				t.Errorf("rateLimits = %q, want %q", got, tt.want)
 			}
 		})
@@ -277,28 +332,34 @@ func TestRateLimits(t *testing.T) {
 }
 
 func TestCost(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name      string
-		model     string
-		usd, rate string
-		want      string
+		name  string
+		model string
+		usd   *float64
+		rate  float64
+		want  string
 	}{
-		{name: "no model means no cost", usd: "1.23", rate: "160.00", want: ""},
-		{name: "no cost field", model: "Opus", want: ""},
+		{name: "no model means no cost", usd: f64(1.23), rate: 160},
+		{name: "no cost field", model: "Opus", rate: 160},
 		// Below a cent the figure would round to zero and say nothing.
-		{name: "below a cent", model: "Opus", usd: "0.004", rate: "160.00", want: ""},
-		{name: "exactly a cent", model: "Opus", usd: "0.01", rate: "160.00", want: " ¥2"},
-		{name: "zero", model: "Opus", usd: "0", rate: "160.00", want: ""},
-		{name: "converted to yen", model: "Opus", usd: "1.23", rate: "160.00", want: " ¥197"},
+		{name: "below half a cent", model: "Opus", usd: f64(0.004), rate: 160},
+		// Rounded rather than truncated, so this one still shows.
+		{name: "just over half a cent", model: "Opus", usd: f64(0.006), rate: 160, want: " ¥1"},
+		{name: "exactly a cent", model: "Opus", usd: f64(0.01), rate: 160, want: " ¥2"},
+		{name: "zero", model: "Opus", usd: f64(0), rate: 160},
+		{name: "converted to yen", model: "Opus", usd: f64(1.23), rate: 160, want: " ¥197"},
 		// Without a rate the dollars are shown rather than nothing.
-		{name: "dollars without a rate", model: "Opus", usd: "1.23", want: " $1.23"},
+		{name: "dollars without a rate", model: "Opus", usd: f64(1.23), want: " $1.23"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := Data{
-				Fields: Fields{ModelDisplayName: tt.model, TotalCostUSD: tt.usd},
-				Rate:   tt.rate,
-			}
+			t.Parallel()
+			var d Data
+			d.Fields.Model.DisplayName = tt.model
+			d.Fields.Cost.TotalUSD = tt.usd
+			d.Rate = tt.rate
 			if got := cost(d); got != tt.want {
 				t.Errorf("cost = %q, want %q", got, tt.want)
 			}

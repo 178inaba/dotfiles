@@ -54,7 +54,12 @@ type target struct {
 
 // targets is the fixed list. cmd/gh joins it, with gobin ".local/shims", when
 // that binary exists; never list a package that has not been written yet.
-var targets = []target{{pkg: "./cmd/ccx"}}
+//
+// A function rather than a variable so nothing — a later subcommand, a test —
+// can change what the whole process installs.
+func targets() []target {
+	return []target{{pkg: "./cmd/ccx"}}
+}
 
 // ChildEnv is what a process this binary spawns must carry.
 //
@@ -137,7 +142,7 @@ func NewDeps(args []string) Deps {
 // Callers must not read standard input before this returns: the re-exec hands
 // the replacement process the original argv but not anything already consumed
 // from the pipe, so a statusline that read its JSON first would see it vanish.
-func Run(d Deps) State {
+func Run(ctx context.Context, d Deps) State {
 	if d.Debug == nil {
 		d.Debug = io.Discard
 	}
@@ -215,7 +220,7 @@ func Run(d Deps) State {
 	}
 	defer unlock()
 
-	if out, err := install(d, root); err != nil {
+	if out, err := install(ctx, d, root, targets()); err != nil {
 		first := firstLine(out)
 		writeFailure(d, source.sum, first)
 		log("failed: %s", first)
@@ -226,7 +231,7 @@ func Run(d Deps) State {
 	// timestamp behind the source that just changed back to a state it had
 	// built before. Without this the check would stay stale and reinstall on
 	// every invocation forever.
-	touch(d, source.newest)
+	touch(d, source.newest, targets())
 	log("rebuilt")
 
 	if err := d.ReExec(d.Exe, append([]string{d.Exe}, d.Args...), reexecEnviron(d)); err != nil {
@@ -237,9 +242,10 @@ func Run(d Deps) State {
 }
 
 // install builds every target, returning the compiler output of the first
-// failure.
-func install(d Deps, root string) ([]byte, error) {
-	for _, t := range targets {
+// failure. The list is a parameter so a test can pin what a second binary
+// would be given without reaching into package state.
+func install(ctx context.Context, d Deps, root string, ts []target) ([]byte, error) {
+	for _, t := range ts {
 		c := runner.Command{
 			Name: "go",
 			Args: []string{"-C", root, "install", t.pkg},
@@ -249,7 +255,7 @@ func install(d Deps, root string) ([]byte, error) {
 			// and go install refuses a GOBIN that is not absolute.
 			c.Env = []string{"GOBIN=" + binDir(d, t.gobin)}
 		}
-		out, err := d.Run.Run(context.Background(), c)
+		out, err := d.Run.Run(ctx, c)
 		if err != nil {
 			if stderr := runner.Stderr(err); len(stderr) > 0 {
 				return stderr, err
@@ -266,8 +272,8 @@ func install(d Deps, root string) ([]byte, error) {
 // edit that lands inside that window would be stamped over and never noticed.
 // Stamping with what the build actually saw leaves anything newer newer, so the
 // next invocation picks it up.
-func touch(d Deps, source time.Time) {
-	for _, t := range targets {
+func touch(d Deps, source time.Time, ts []target) {
+	for _, t := range ts {
 		p := installPath(d, t)
 		if err := d.Chtimes(p, source, source); err != nil {
 			fmt.Fprintf(d.Debug, "ccx selfbuild: cannot touch %s: %v\n", p, err)
@@ -309,7 +315,7 @@ func firstLine(out []byte) string {
 }
 
 func isInstalled(d Deps) bool {
-	return slices.ContainsFunc(targets, func(t target) bool {
+	return slices.ContainsFunc(targets(), func(t target) bool {
 		return samePath(d.Exe, installPath(d, t))
 	})
 }

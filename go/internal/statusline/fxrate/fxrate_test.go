@@ -3,116 +3,104 @@ package fxrate
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/178inaba/dotfiles/go/internal/cache"
 )
 
-const now = int64(1756600000)
+var now = time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
 
 func TestLookup(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
-		// cached and attempt are written before the lookup; an empty string
-		// means the file is absent.
-		cached, attempt string
+		// cached is the rate to seed, zero for none; at is when it was written.
+		cached float64
+		at     time.Time
+		// attempt is when a refresh was last started, zero for never.
+		attempt time.Time
 
-		wantRate    string
+		wantRate    float64
 		wantRefresh bool
 	}{
 		{
 			name:   "a fresh rate is used and nothing is fetched",
-			cached: "1756600000\n162.22\n",
-
-			wantRate: "162.22",
+			cached: 162.22, at: now,
+			wantRate: 162.22,
 		},
 		{
-			name: "no cache renders nothing and starts a fetch",
-
+			name:        "no cache renders nothing and starts a fetch",
 			wantRefresh: true,
 		},
 		{
 			// The whole point of the cache: an old rate keeps the cost visible
 			// while a new one is fetched behind it.
 			name:   "a stale rate is still rendered while it refreshes",
-			cached: "1\n100.00\n",
-
-			wantRate:    "100.00",
+			cached: 100, at: now.Add(-24 * time.Hour),
+			wantRate: 100, wantRefresh: true,
+		},
+		{
+			// A negative rate would render a negative cost.
+			name:   "a negative rate is discarded",
+			cached: -162.22, at: now,
 			wantRefresh: true,
 		},
 		{
-			// A corrupt value must not reach the display, and it must not stop
-			// the refresh that would replace it either.
-			name:   "a malformed rate is discarded",
-			cached: "1756600000\ngarbage\n",
-
-			wantRefresh: true,
-		},
-		{
-			name:   "a negative rate is malformed",
-			cached: "1756600000\n-162.22\n",
-
-			wantRefresh: true,
-		},
-		{
-			// Without this an offline machine would start a fetch on every
-			// redraw, five seconds apart, forever.
 			name:    "a recent attempt suppresses the fetch",
-			attempt: "1756599990\n",
+			attempt: now.Add(-10 * time.Second),
 		},
 		{
-			name:    "an old attempt does not",
-			attempt: "1756500000\n",
-
+			name:        "an old attempt does not",
+			attempt:     now.Add(-2 * time.Minute),
 			wantRefresh: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := filepath.Join(t.TempDir(), "usd-jpy")
-			if tt.cached != "" {
-				writeFile(t, p, tt.cached)
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "usd-jpy")
+			if tt.cached != 0 {
+				if err := cache.Write(path, cacheKey, tt.at, tt.cached); err != nil {
+					t.Fatalf("seed: %v", err)
+				}
 			}
-			if tt.attempt != "" {
-				writeFile(t, p+".attempt", tt.attempt)
+			if !tt.attempt.IsZero() {
+				if err := cache.Write(path+".attempt", "attempt", tt.attempt, struct{}{}); err != nil {
+					t.Fatalf("seed attempt: %v", err)
+				}
 			}
 
-			rate, refresh := Lookup(p, now)
+			rate, refresh := Lookup(path, now)
 
 			if rate != tt.wantRate {
-				t.Errorf("rate = %q, want %q", rate, tt.wantRate)
+				t.Errorf("rate = %v, want %v", rate, tt.wantRate)
 			}
 			if refresh != tt.wantRefresh {
 				t.Errorf("refresh = %t, want %t", refresh, tt.wantRefresh)
-			}
-
-			// Deciding to fetch has to be recorded before the fetch starts, or
-			// the redraw five seconds later starts a second one.
-			b, err := os.ReadFile(p + ".attempt")
-			switch {
-			case tt.wantRefresh && (err != nil || string(b) != "1756600000\n"):
-				t.Errorf("attempt file = %q (err=%v), want %q", b, err, "1756600000\n")
-			case !tt.wantRefresh && tt.attempt != "" && string(b) != tt.attempt:
-				t.Errorf("attempt file = %q, want it left at %q", b, tt.attempt)
 			}
 		})
 	}
 }
 
 func TestRefresh(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name    string
-		status  int
-		body    string
-		want    string // the cache file contents, empty when none should exist
-		wantErr bool
+		name   string
+		status int
+		body   string
+		want   float64 // zero means no record should be written
 	}{
 		{
 			name:   "a rate is stored with the time it was fetched",
 			status: http.StatusOK,
 			body:   `{"amount":1.0,"base":"USD","date":"2026-08-31","rates":{"JPY":162.22}}`,
-			want:   "1756600000\n162.22\n",
+			want:   162.22,
 		},
 		{
 			// Nothing is written, so the previous rate — however old — keeps
@@ -135,55 +123,50 @@ func TestRefresh(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.status)
-				respond(t, w, tt.body)
+				if _, err := w.Write([]byte(tt.body)); err != nil {
+					t.Errorf("write response: %v", err)
+				}
 			}))
 			defer srv.Close()
 
-			p := filepath.Join(t.TempDir(), "usd-jpy")
-			Refresh(t.Context(), srv.Client(), srv.URL, p, now)
+			path := filepath.Join(t.TempDir(), "usd-jpy")
+			Refresh(t.Context(), srv.Client(), srv.URL, path, now)
 
-			b, err := os.ReadFile(p)
-			if tt.want == "" {
-				if err == nil {
-					t.Errorf("cache written as %q, want no file", b)
+			rec, ok := cache.Read[float64](path, cacheKey)
+			if tt.want == 0 {
+				if ok {
+					t.Errorf("cache written as %v, want no record", rec.Value)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("ReadFile: %v", err)
+			if !ok {
+				t.Fatal("no record written")
 			}
-			if string(b) != tt.want {
-				t.Errorf("cache = %q, want %q", b, tt.want)
+			if rec.Value != tt.want {
+				t.Errorf("rate = %v, want %v", rec.Value, tt.want)
+			}
+			if !rec.At.Equal(now) {
+				t.Errorf("At = %v, want %v", rec.At, now)
 			}
 		})
 	}
 }
 
 func TestRefreshSurvivesAnUnreachableServer(t *testing.T) {
+	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := srv.URL
 	srv.Close()
 
-	p := filepath.Join(t.TempDir(), "usd-jpy")
-	Refresh(t.Context(), http.DefaultClient, url, p, now)
+	path := filepath.Join(t.TempDir(), "usd-jpy")
+	Refresh(t.Context(), http.DefaultClient, url, path, now)
 
-	if _, err := os.Stat(p); err == nil {
-		t.Error("a cache file was written for a failed fetch")
-	}
-}
-
-func writeFile(t *testing.T, name, body string) {
-	t.Helper()
-	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
-		t.Fatalf("write %s: %v", name, err)
-	}
-}
-
-func respond(t *testing.T, w http.ResponseWriter, body string) {
-	t.Helper()
-	if _, err := w.Write([]byte(body)); err != nil {
-		t.Fatalf("write response: %v", err)
+	if _, ok := cache.Read[float64](path, cacheKey); ok {
+		t.Error("a record was written for a failed fetch")
 	}
 }

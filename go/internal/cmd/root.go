@@ -7,6 +7,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,25 +21,28 @@ import (
 // command line, so it is reported without the usage text a typo deserves.
 type silentError struct{ error }
 
-// Silent wraps err so Execute prints it on its own.
-func Silent(err error) error { return silentError{err} }
+// Unwrap keeps errors.Is and errors.As working through the wrapper.
+func (e silentError) Unwrap() error { return e.error }
+
+// silent wraps err so run prints it on its own.
+func silent(err error) error { return silentError{err} }
 
 // Execute runs the tree and returns the process exit status. The self-rebuild
 // check runs first, before anything reads stdin; see selfbuild.Run.
-func Execute(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return run(args, stdin, stdout, stderr, selfbuild.Run(selfbuild.NewDeps(args)))
+func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return run(ctx, args, stdin, stdout, stderr, selfbuild.Run(ctx, selfbuild.NewDeps(args)))
 }
 
 // run is Execute without the self-rebuild check, so tests can drive the tree
 // without the filesystem underneath it.
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer, build selfbuild.State) int {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, build selfbuild.State) int {
 	root := newRootCmd(build)
 	root.SetArgs(args)
 	root.SetIn(stdin)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 
-	cmd, err := root.ExecuteC()
+	cmd, err := root.ExecuteContextC(ctx)
 	if err == nil {
 		return 0
 	}

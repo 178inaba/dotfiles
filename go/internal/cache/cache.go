@@ -1,17 +1,18 @@
-// Package cache reads and writes the cache files the ported tools keep under
-// /tmp and ~/.cache.
+// Package cache stores the short-lived state the status line would otherwise
+// recompute on every redraw.
 //
-// The files hold exactly the bytes the shell implementations wrote, down to
-// which of them end with a newline, because the two implementations shared them
-// during the port.
+// A record is one JSON document, written whole and renamed into place, so a
+// reader sees either the previous record or the new one. Anything that will not
+// parse — a file left by an older version, a truncated write — is reported as
+// absent, which costs one recomputation and never a garbled display.
 package cache
 
 import (
+	"encoding/json/v2"
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/178inaba/dotfiles/go/internal/shellfmt"
+	"time"
 )
 
 // maxPathLength caps the file name so a deep working directory cannot exceed
@@ -22,8 +23,9 @@ const maxPathLength = 200
 // Path is the cache file for a key: the base, the key with its slashes
 // flattened, and the result cut to length.
 //
-// The cut counts characters rather than bytes, which is what bash does in the
-// UTF-8 locale this runs in.
+// The cut counts characters rather than bytes. APFS rejects a name that is not
+// valid UTF-8, so cutting a multibyte path mid-rune would produce a file that
+// cannot be created at all and a cache that silently never works.
 func Path(base, key string) string {
 	p := base + "-" + strings.ReplaceAll(key, "/", "_")
 	if r := []rune(p); len(r) > maxPathLength {
@@ -32,119 +34,47 @@ func Path(base, key string) string {
 	return p
 }
 
-// Keyed is the three-line record the git and pull request caches hold: when it
-// was written, what it was written for, and the rendered fragment.
-type Keyed struct {
-	At     int64
-	Key    string
-	Result string
+// Record is one cached value: when it was written, what it was written for, and
+// the value.
+//
+// Key is stored because two directories can share a file once the name is cut
+// to length. A reader that finds someone else's key treats the record as
+// absent rather than showing one directory's state under another.
+type Record[T any] struct {
+	At    time.Time `json:"at"`
+	Key   string    `json:"key"`
+	Value T         `json:"value"`
 }
 
-// ReadKeyed returns the record in a file. The second value is false only when
-// the file cannot be read.
-//
-// A record whose timestamp is corrupt keeps its value and takes a zero time,
-// which every freshness test then fails: the shell rendered such a record and
-// refreshed it rather than dropping it, and a torn read should cost a refresh
-// rather than a blank segment.
-func ReadKeyed(path string) (Keyed, bool) {
-	lines, err := lines(path, 3)
+// Read returns the record in a file. The second value is false when there is
+// none to use: a missing or unreadable file, or one written for another key.
+func Read[T any](path, key string) (Record[T], bool) {
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return Keyed{}, false
+		return Record[T]{}, false
 	}
-	return Keyed{At: timestamp(lines[0]), Key: lines[1], Result: lines[2]}, true
+	var r Record[T]
+	if err := json.Unmarshal(b, &r); err != nil {
+		return Record[T]{}, false
+	}
+	if r.Key != key {
+		return Record[T]{}, false
+	}
+	return r, true
 }
 
-// WriteKeyed writes the record in place, without a temporary file.
+// Write stores a record through a temporary file and a rename.
 //
-// The git cache is written this way because the shell was: a reader that
-// catches a half-written file sees a corrupt timestamp, treats it as no record
-// and recomputes, which costs one git invocation and nothing else.
-func WriteKeyed(path string, k Keyed) error {
-	return os.WriteFile(path, keyedBytes(k), 0o644)
-}
-
-// WriteKeyedAtomic writes the record through a temporary file and a rename.
-//
-// The pull request cache is written this way because a background refresh
-// writes it while a render may be reading, and a torn read there would drop the
-// badge for a whole refresh interval rather than for one tick.
-func WriteKeyedAtomic(path string, k Keyed) error {
-	return WriteAtomic(path, keyedBytes(k))
-}
-
-// keyedBytes is the record's on-disk form: three lines, no trailing newline.
-func keyedBytes(k Keyed) []byte {
-	return []byte(strconv.FormatInt(k.At, 10) + "\n" + k.Key + "\n" + k.Result)
-}
-
-// ReadPair returns the two-line record the exchange rate cache holds, with the
-// same tolerance for a corrupt timestamp as ReadKeyed.
-func ReadPair(path string) (int64, string, bool) {
-	lines, err := lines(path, 2)
+// Always atomically: a background refresh writes while a redraw may be reading,
+// and a torn read would show a half-built value rather than the previous one.
+func Write[T any](path, key string, at time.Time, value T) error {
+	b, err := json.Marshal(Record[T]{At: at, Key: key, Value: value})
 	if err != nil {
-		return 0, "", false
+		return err
 	}
-	return timestamp(lines[0]), lines[1], true
-}
 
-// WritePair writes the exchange rate record, which unlike the three-line one
-// ends with a newline.
-func WritePair(path string, at int64, value string) error {
-	return WriteAtomic(path, []byte(strconv.FormatInt(at, 10)+"\n"+value+"\n"))
-}
-
-// ReadAttempt returns when a refresh was last started. A corrupt record reads
-// as no attempt, which lets one start rather than blocking every future one.
-func ReadAttempt(path string) (int64, bool) {
-	lines, err := lines(path, 1)
-	if err != nil {
-		return 0, false
-	}
-	at := timestamp(lines[0])
-	return at, at != 0
-}
-
-// WriteAttempt records that a refresh is starting. The foreground writes it
-// before spawning the child, so a second render arriving while the first fetch
-// is still in flight does not start another one.
-func WriteAttempt(path string, at int64) error {
-	return os.WriteFile(path, []byte(strconv.FormatInt(at, 10)+"\n"), 0o644)
-}
-
-// ShouldAttempt reports whether a refresh of the record at cachePath may start,
-// and records the attempt when it may.
-//
-// The throttle lives beside the record as "<path>.attempt". Every
-// stale-while-revalidate cache uses this, so the suffix and the bookkeeping
-// have one owner rather than one per caller.
-func ShouldAttempt(cachePath string, now, retryInterval int64) bool {
-	attemptPath := cachePath + ".attempt"
-	if last, ok := ReadAttempt(attemptPath); ok && Fresh(now, last, retryInterval) {
-		return false
-	}
-	// Best effort: a write that fails only costs one duplicate refresh.
-	_ = WriteAttempt(attemptPath, now)
-	return true
-}
-
-// Fresh reports whether a record written at is still within maxAge.
-//
-// The comparison is signed and the boundary is inclusive, both as the shell had
-// them: a record exactly at its limit is fresh, and a clock that jumped
-// backwards makes everything look fresh rather than starting a stampede of
-// refreshes.
-func Fresh(now, at, maxAge int64) bool {
-	return now-at <= maxAge
-}
-
-// WriteAtomic writes through a sibling temporary file named after this process,
-// as the shell did with $$, and renames it into place.
-func WriteAtomic(path string, body []byte) error {
 	tmp := path + "." + strconv.Itoa(os.Getpid())
-	// 0644 rather than the 0600 a temporary file defaults to: the shell created
-	// these with a plain redirect and the mode is part of the on-disk contract.
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -154,24 +84,30 @@ func WriteAtomic(path string, body []byte) error {
 	return nil
 }
 
-// lines reads the first n lines of a file the way a run of `read` calls would.
-func lines(path string, n int) ([]string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return shellfmt.Lines(string(b), n), nil
+// Fresh reports whether a record written at is still within maxAge. A clock
+// that jumped backwards makes everything look fresh rather than starting a
+// stampede of refreshes.
+func Fresh(now, at time.Time, maxAge time.Duration) bool {
+	return now.Sub(at) <= maxAge
 }
 
-// timestamp accepts only what the shell's ^[0-9]+$ test accepted. Anything
-// else is zero, which reads as a record from long ago and so as one to refresh.
-func timestamp(s string) int64 {
-	if !shellfmt.IsDigits(s) {
-		return 0
+// attemptKey is the key of a throttle record, which has nothing to distinguish
+// beyond the file it lives in.
+const attemptKey = "attempt"
+
+// ShouldAttempt reports whether a refresh of the record at path may start, and
+// records the attempt when it may.
+//
+// The throttle is a file of its own beside the record, because the process that
+// decides to refresh is not the one that writes the result: a single file would
+// have the foreground clobber what the background had just stored. Every
+// stale-while-revalidate cache uses this, so the convention has one owner.
+func ShouldAttempt(path string, now time.Time, retry time.Duration) bool {
+	attempt := path + ".attempt"
+	if r, ok := Read[struct{}](attempt, attemptKey); ok && Fresh(now, r.At, retry) {
+		return false
 	}
-	at, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return at
+	// Best effort: a write that fails only costs one duplicate refresh.
+	_ = Write(attempt, attemptKey, now, struct{}{})
+	return true
 }

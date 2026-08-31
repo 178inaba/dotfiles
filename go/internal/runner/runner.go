@@ -55,13 +55,15 @@ type Spawner interface {
 	Spawn(env []string, args ...string) error
 }
 
-// executablePath is a seam for tests, which point it at the test binary so the
-// spawn path can be exercised without building cmd/ccx.
-var executablePath = os.Executable
-
 // Exec is the real Runner and Spawner.
-type Exec struct{}
+type Exec struct {
+	// Executable names the binary Spawn re-runs. Empty means this process,
+	// which is what production wants; a test points it at the test binary so
+	// the spawn path can be exercised without building cmd/ccx.
+	Executable string
+}
 
+// Run implements Runner.
 func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	cmd.Dir = c.Dir
@@ -87,10 +89,13 @@ func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 // stdout would be fatal: the statusline writes to a pipe Claude Code reads to
 // EOF, so a child holding the write end would block the render until its
 // network call finished.
-func (Exec) Spawn(env []string, args ...string) error {
-	self, err := executablePath()
-	if err != nil {
-		return err
+func (e Exec) Spawn(env []string, args ...string) error {
+	self := e.Executable
+	if self == "" {
+		var err error
+		if self, err = os.Executable(); err != nil {
+			return err
+		}
 	}
 
 	cmd := exec.Command(self, args...)

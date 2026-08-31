@@ -12,23 +12,30 @@ import (
 	"strings"
 )
 
-// StatusArgs is the git invocation this package parses. It is exported so that
-// the caller running it and the tests checking the parser against real git
-// cannot drift apart from each other.
-var StatusArgs = []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"}
+// StatusArgs is the git invocation this package parses. A function rather than
+// a variable so no importer can change what the whole process runs, and shared
+// so that the caller running it and the tests checking the parser against real
+// git cannot drift apart.
+func StatusArgs() []string {
+	return []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"}
+}
 
 // Status is what a single porcelain v2 report said.
+//
+// The tags are here because this is cached: without them the Go field names
+// would themselves be the on-disk format, and renaming one would quietly
+// invalidate every cache on the machine.
 type Status struct {
 	// Branch is empty on a detached head, which is also how the report reads.
-	Branch string
+	Branch string `json:"branch"`
 	// HasUpstream is whether the branch tracks anything. git prints the
 	// upstream and the ahead/behind counts as separate records, so a pruned
 	// remote reference leaves this true with both counts at zero.
-	HasUpstream bool
-	Ahead       int
-	Behind      int
-	Staged      int
-	Modified    int
+	HasUpstream bool `json:"has_upstream"`
+	Ahead       int  `json:"ahead"`
+	Behind      int  `json:"behind"`
+	Staged      int  `json:"staged"`
+	Modified    int  `json:"modified"`
 }
 
 // Parse reads a porcelain v2 report.
@@ -53,32 +60,20 @@ func Parse(out []byte) Status {
 			// 1 is a change, 2 a rename and u a conflict. The two letters after
 			// the record type are the staged and unstaged states, and a dot
 			// means unchanged — so a conflict, whose code is UU, counts on both
-			// sides. A line too short to hold them counts on both sides too,
-			// which shows a malformed record rather than hiding it.
-			staged, modified := states(line)
-			if staged != '.' {
+			// sides. The shortest record git can emit is about a hundred
+			// characters, so anything too short to slice is not one.
+			if len(line) < 4 {
+				continue
+			}
+			if line[2] != '.' {
 				s.Staged++
 			}
-			if modified != '.' {
+			if line[3] != '.' {
 				s.Modified++
 			}
 		}
 	}
 	return s
-}
-
-// states returns the two status letters of a record, using a rune that is not a
-// dot when the line is too short to hold them.
-func states(line string) (byte, byte) {
-	const missing = ' '
-	staged, modified := byte(missing), byte(missing)
-	if len(line) > 2 {
-		staged = line[2]
-	}
-	if len(line) > 3 {
-		modified = line[3]
-	}
-	return staged, modified
 }
 
 func count(s string) int {
@@ -89,14 +84,11 @@ func count(s string) int {
 	return n
 }
 
-// Segment renders the repository fragment, uncolored and with its leading
-// space: " (main +1 ~1 ↑1)".
-//
-// This exact string is what the cache holds, which is why the colouring belongs
-// to the caller and why BranchOf can recover the branch from it.
+// Segment renders the repository fragment, uncoloured and without a leading
+// separator: "(main +1 ~1 ↑1)". The caller supplies the colour and the spacing.
 func (s Status) Segment() string {
 	var b strings.Builder
-	b.WriteString(" (")
+	b.WriteString("(")
 	b.WriteString(s.Branch)
 	if s.Staged > 0 {
 		b.WriteString(" +" + strconv.Itoa(s.Staged))
@@ -127,19 +119,4 @@ func (s Status) sync() string {
 		out += " ↓" + strconv.Itoa(s.Behind)
 	}
 	return out
-}
-
-// BranchOf recovers the branch name from a rendered segment.
-//
-// It reads the string rather than the struct because the segment is what the
-// cache stores: on a hit there is no parsed status to ask, and the pull request
-// lookup still needs the branch.
-func BranchOf(segment string) string {
-	rest, ok := strings.CutPrefix(segment, " (")
-	if !ok {
-		return ""
-	}
-	rest, _, _ = strings.Cut(rest, ")")
-	branch, _, _ := strings.Cut(rest, " ")
-	return branch
 }

@@ -4,17 +4,20 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/178inaba/dotfiles/go/internal/cache"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
+	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
-const now = int64(1756600000)
+var now = time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
 
 type fakeRunner struct {
 	out   string
@@ -55,7 +58,7 @@ func newHarness(t *testing.T) *harness {
 	h.cfg = Config{
 		Runner:       h.runner,
 		Spawner:      h.spawner,
-		Now:          func() time.Time { return time.Unix(now, 0) },
+		Now:          func() time.Time { return now },
 		Getwd:        func() (string, error) { return "/w", nil },
 		Home:         "/home/nobody",
 		GitCacheBase: filepath.Join(dir, "git-cache"),
@@ -75,111 +78,109 @@ func (h *harness) run(t *testing.T, payload string) string {
 	return out.String()
 }
 
-// names is what the runner was asked to execute, for asserting that something
-// was or was not run in the foreground.
-func (h *harness) names() []string {
-	var names []string
-	for _, c := range h.calls() {
-		names = append(names, c.Name)
-	}
-	return names
+func (h *harness) prPath() string {
+	return cache.Path(h.cfg.PRCacheBase, "/w:main")
 }
 
-func (h *harness) calls() []runner.Command { return h.runner.calls }
-
-const porcelain = "# branch.head main\n# branch.upstream origin/main\n# branch.ab +1 -0\n"
+const (
+	porcelain = "# branch.head main\n# branch.upstream origin/main\n# branch.ab +1 -0\n"
+	workspace = `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`
+	withCost  = `{"workspace":{"current_dir":"/w","project_dir":"/w"},` +
+		`"model":{"display_name":"Opus"},"cost":{"total_cost_usd":1.23}}`
+)
 
 func TestRunCachesTheRepositoryState(t *testing.T) {
+	t.Parallel()
+
 	h := newHarness(t)
 	h.runner.out = porcelain
 
-	if got := h.run(t, `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`); !strings.Contains(got, "(main ↑1)") {
+	if got := h.run(t, workspace); !strings.Contains(got, "(main ↑1)") {
 		t.Errorf("output = %q, want it to show the branch", got)
 	}
-	if diff := cmp.Diff([]runner.Command{{
-		Name: "git",
-		Args: []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"},
-	}}, h.calls()); diff != "" {
+	want := []runner.Command{{Name: "git", Args: []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"}}}
+	if diff := cmp.Diff(want, h.runner.calls); diff != "" {
 		t.Errorf("commands mismatch (-want +got):\n%s", diff)
 	}
 
 	// The five-second cache is what keeps a redraw to one git invocation per
 	// refresh cycle rather than one per render.
 	h.runner.calls = nil
-	h.run(t, `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`)
-	if len(h.calls()) != 0 {
-		t.Errorf("second render ran %v, want nothing", h.calls())
+	h.run(t, workspace)
+	if len(h.runner.calls) != 0 {
+		t.Errorf("second render ran %v, want nothing", h.runner.calls)
 	}
 }
 
 func TestRunOutsideARepository(t *testing.T) {
+	t.Parallel()
+
 	h := newHarness(t)
 	h.runner.err = os.ErrNotExist
 
-	got := h.run(t, `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`)
-
 	// Two lines: no repository and no session id means no middle line at all.
-	if lines := strings.Count(got, "\n"); lines != 2 {
+	if got := h.run(t, workspace); strings.Count(got, "\n") != 2 {
 		t.Errorf("output = %q, want two lines", got)
 	}
 
 	// The failure is cached like any other answer, so a directory outside a
 	// repository is not re-checked on every redraw.
 	h.runner.calls = nil
-	h.run(t, `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`)
-	if len(h.calls()) != 0 {
-		t.Errorf("second render ran %v, want the cached answer to be used", h.calls())
+	h.run(t, workspace)
+	if len(h.runner.calls) != 0 {
+		t.Errorf("second render ran %v, want the cached answer to be used", h.runner.calls)
 	}
 }
 
 func TestRunRefreshes(t *testing.T) {
-	const payload = `{"workspace":{"current_dir":"/w","project_dir":"/w"},` +
-		`"model":{"display_name":"Opus"},"cost":{"total_cost_usd":1.23}}`
+	t.Parallel()
 
 	tests := []struct {
 		name    string
 		payload string
-		// seed writes cache files before the render.
-		seed func(*testing.T, *harness)
+		// seed writes cache records before the render.
+		seed func(t *testing.T, h *harness)
 
 		wantSpawns []string
 	}{
 		{
-			name:    "a first render starts both refreshes",
-			payload: payload,
 			// The order follows the render: the badge is resolved before the
 			// cost segment asks for a rate.
+			name:       "a first render starts both refreshes",
+			payload:    withCost,
 			wantSpawns: []string{RefreshPRCommandName, RefreshFXCommandName},
 		},
 		{
 			// Nothing to convert means nothing to fetch: a session below a cent
 			// should not be making network requests.
 			name:       "no cost means no exchange rate is fetched",
-			payload:    `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`,
+			payload:    workspace,
 			wantSpawns: []string{RefreshPRCommandName},
 		},
 		{
 			name:    "fresh caches start nothing",
-			payload: payload,
+			payload: withCost,
 			seed: func(t *testing.T, h *harness) {
-				writeFile(t, h.cfg.FXCachePath, "1756600000\n162.22\n")
-				writeFile(t, prPath(h), "1756600000\n/w:main\n123 NONE https://e/1")
+				write(t, h.cfg.FXCachePath, "usd-jpy", 162.22)
+				write(t, h.prPath(), "/w:main", prinfo.Info{Number: 123})
 			},
 		},
 		{
 			// A fetch already in flight must not be started again by the render
 			// five seconds later.
 			name:    "a recent attempt starts nothing",
-			payload: payload,
+			payload: withCost,
 			seed: func(t *testing.T, h *harness) {
-				writeFile(t, h.cfg.FXCachePath+".attempt", "1756599990\n")
-				writeFile(t, prPath(h)+".attempt", "1756599990\n")
+				write(t, h.cfg.FXCachePath+".attempt", "attempt", struct{}{})
+				write(t, h.prPath()+".attempt", "attempt", struct{}{})
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := newHarness(t)
 			h.runner.out = porcelain
 			if tt.seed != nil {
@@ -198,9 +199,9 @@ func TestRunRefreshes(t *testing.T) {
 
 			// gh never runs in the foreground: a slow one would hold up the
 			// pipe Claude Code reads the status line from.
-			for _, name := range h.names() {
-				if name == "gh" {
-					t.Errorf("gh ran in the foreground (calls: %v)", h.names())
+			for _, c := range h.runner.calls {
+				if c.Name == "gh" {
+					t.Errorf("gh ran in the foreground (calls: %v)", h.runner.calls)
 				}
 			}
 		})
@@ -208,37 +209,41 @@ func TestRunRefreshes(t *testing.T) {
 }
 
 func TestRunPassesTheParentsValuesToTheChild(t *testing.T) {
+	t.Parallel()
+
 	h := newHarness(t)
 	h.runner.out = porcelain
 
-	h.run(t, `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`)
+	h.run(t, workspace)
 
-	// The parent hands over what it computed rather than letting the child work
-	// it out again: the cache path is cut to a fixed length, and two
-	// derivations of that could disagree about which file to write.
 	// The child is told not to repeat the parent's self-rebuild check, which it
 	// would otherwise race.
 	if diff := cmp.Diff([][]string{selfbuild.ChildEnv()}, h.spawner.envs); diff != "" {
 		t.Errorf("child environment mismatch (-want +got):\n%s", diff)
 	}
 
-	want := []string{
+	// The parent hands over what it computed rather than letting the child work
+	// it out again: the cache path is cut to a fixed length, and two
+	// derivations of that could disagree.
+	want := [][]string{{
 		RefreshPRCommandName,
-		"--now=1756600000",
-		"--cache=" + prPath(h),
+		"--now=" + strconv.FormatInt(now.Unix(), 10),
+		"--cache=" + h.prPath(),
 		"--key=/w:main",
 		"--branch=main",
-	}
-	if diff := cmp.Diff([][]string{want}, h.spawner.calls); diff != "" {
+	}}
+	if diff := cmp.Diff(want, h.spawner.calls); diff != "" {
 		t.Errorf("spawn mismatch (-want +got):\n%s", diff)
 	}
 }
 
 func TestRunSkipsThePullRequestWithoutABranch(t *testing.T) {
+	t.Parallel()
+
 	h := newHarness(t)
 	h.runner.out = "# branch.head (detached)\n"
 
-	h.run(t, `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`)
+	h.run(t, workspace)
 
 	if len(h.spawner.calls) != 0 {
 		t.Errorf("spawned %v, want nothing on a detached head", h.spawner.calls)
@@ -246,24 +251,20 @@ func TestRunSkipsThePullRequestWithoutABranch(t *testing.T) {
 }
 
 func TestRunReportsAFailedSelfRebuild(t *testing.T) {
+	t.Parallel()
+
 	h := newHarness(t)
 	h.runner.err = os.ErrNotExist
 	h.buildError = "internal/x.go:1:2: undefined: nope"
 
-	got := h.run(t, "")
-
-	if !strings.Contains(got, "⚠ ccx build failed: internal/x.go:1:2: undefined: nope") {
+	if got := h.run(t, ""); !strings.Contains(got, "⚠ ccx build failed: internal/x.go:1:2: undefined: nope") {
 		t.Errorf("output = %q, want it to carry the build warning", got)
 	}
 }
 
-func prPath(h *harness) string {
-	return filepath.Join(filepath.Dir(h.cfg.PRCacheBase), "pr-cache-_w:main")
-}
-
-func writeFile(t *testing.T, name, body string) {
+func write[T any](t *testing.T, path, key string, value T) {
 	t.Helper()
-	if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
-		t.Fatalf("write %s: %v", name, err)
+	if err := cache.Write(path, key, now, value); err != nil {
+		t.Fatalf("seed %s: %v", path, err)
 	}
 }

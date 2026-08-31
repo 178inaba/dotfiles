@@ -151,18 +151,21 @@ func writeFile(t *testing.T, name, body string) {
 // binary has to stay usable on a machine where the repository is not stowed.
 func TestRunDoesNothing(t *testing.T) {
 	tests := []struct {
-		name    string
-		setup   func(*harness)
+		name  string
+		setup func(*testing.T, *harness)
+		// deps adjusts what the check is given, for arrangements the
+		// filesystem cannot express.
+		deps    func(*Deps)
 		wantLog string
 	}{
 		{
 			name:    "fresh binary",
-			setup:   func(*harness) {},
+			setup:   func(*testing.T, *harness) {},
 			wantLog: "fresh",
 		},
 		{
 			name: "disabled by environment",
-			setup: func(h *harness) {
+			setup: func(_ *testing.T, h *harness) {
 				h.setStale()
 				h.env[disableEnv] = "0"
 			},
@@ -170,7 +173,7 @@ func TestRunDoesNothing(t *testing.T) {
 		},
 		{
 			name: "already re-execed",
-			setup: func(h *harness) {
+			setup: func(_ *testing.T, h *harness) {
 				h.setStale()
 				h.env[reexecEnv] = "1"
 			},
@@ -178,7 +181,7 @@ func TestRunDoesNothing(t *testing.T) {
 		},
 		{
 			name: "settings.json is not a symlink",
-			setup: func(h *harness) {
+			setup: func(t *testing.T, h *harness) {
 				h.setStale()
 				link := filepath.Join(h.home, ".claude", "settings.json")
 				if err := os.Remove(link); err != nil {
@@ -190,7 +193,7 @@ func TestRunDoesNothing(t *testing.T) {
 		},
 		{
 			name: "the link does not lead to a module",
-			setup: func(h *harness) {
+			setup: func(t *testing.T, h *harness) {
 				h.setStale()
 				if err := os.Remove(filepath.Join(h.root, "go.mod")); err != nil {
 					t.Fatalf("remove: %v", err)
@@ -200,7 +203,7 @@ func TestRunDoesNothing(t *testing.T) {
 		},
 		{
 			name: "the running binary is not an installed target",
-			setup: func(h *harness) {
+			setup: func(t *testing.T, h *harness) {
 				h.setStale()
 				hand := filepath.Join(h.home, "hand-built-ccx")
 				writeFile(t, hand, "binary")
@@ -211,9 +214,10 @@ func TestRunDoesNothing(t *testing.T) {
 		},
 		{
 			name: "no go toolchain on PATH",
-			setup: func(h *harness) {
+			setup: func(_ *testing.T, h *harness) {
 				h.setStale()
 			},
+			deps:    func(d *Deps) { d.LookPath = func(string) (string, error) { return "", os.ErrNotExist } },
 			wantLog: "no go toolchain",
 		},
 	}
@@ -221,14 +225,14 @@ func TestRunDoesNothing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newHarness(t)
-			tt.setup(h)
+			tt.setup(t, h)
 
 			d := h.deps()
-			if tt.wantLog == "no go toolchain" {
-				d.LookPath = func(string) (string, error) { return "", os.ErrNotExist }
+			if tt.deps != nil {
+				tt.deps(&d)
 			}
 
-			got := Run(d)
+			got := Run(t.Context(), d)
 
 			if diff := cmp.Diff(State{}, got); diff != "" {
 				t.Errorf("State mismatch (-want +got):\n%s", diff)
@@ -250,7 +254,7 @@ func TestRunRebuildsAndReExecs(t *testing.T) {
 	h := newHarness(t)
 	h.setStale()
 
-	got := Run(h.deps())
+	got := Run(t.Context(), h.deps())
 
 	if diff := cmp.Diff(State{}, got); diff != "" {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
@@ -294,7 +298,7 @@ func TestRunRecordsBuildFailure(t *testing.T) {
 	h.runner.stderr = "# github.com/178inaba/dotfiles/go/internal/statusline\n" +
 		"internal/statusline/render.go:12:2: undefined: nope\n"
 
-	got := Run(h.deps())
+	got := Run(t.Context(), h.deps())
 
 	want := State{Failed: true, JustFailed: true, FirstError: "internal/statusline/render.go:12:2: undefined: nope"}
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -311,7 +315,7 @@ func TestRunRecordsBuildFailure(t *testing.T) {
 	// is how a hook knows to stay quiet while a status line keeps warning.
 	suppressed := State{Failed: true, FirstError: want.FirstError}
 	h.runner.calls = nil
-	if diff := cmp.Diff(suppressed, Run(h.deps())); diff != "" {
+	if diff := cmp.Diff(suppressed, Run(t.Context(), h.deps())); diff != "" {
 		t.Errorf("second State mismatch (-want +got):\n%s", diff)
 	}
 	if len(h.runner.calls) != 0 {
@@ -327,7 +331,7 @@ func TestRunRetriesAfterTheSourceChanges(t *testing.T) {
 	h.setStale()
 	h.runner.err = os.ErrInvalid
 	h.runner.stderr = "boom\n"
-	Run(h.deps())
+	Run(t.Context(), h.deps())
 
 	// Any edit — including one that only reverts an earlier one — is a
 	// different source state and earns another attempt.
@@ -336,7 +340,7 @@ func TestRunRetriesAfterTheSourceChanges(t *testing.T) {
 	h.runner.calls = nil
 	h.runner.err = nil
 
-	if diff := cmp.Diff(State{}, Run(h.deps())); diff != "" {
+	if diff := cmp.Diff(State{}, Run(t.Context(), h.deps())); diff != "" {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
 	}
 	if len(h.runner.calls) != 1 {
@@ -357,7 +361,7 @@ func TestRunYieldsTheBuildLock(t *testing.T) {
 	}
 	defer release()
 
-	if diff := cmp.Diff(State{}, Run(h.deps())); diff != "" {
+	if diff := cmp.Diff(State{}, Run(t.Context(), h.deps())); diff != "" {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
 	}
 	if len(h.runner.calls) != 0 {
@@ -397,10 +401,8 @@ func mustScan(t *testing.T, root string) source {
 func TestInstallResolvesGOBIN(t *testing.T) {
 	h := newHarness(t)
 	shims := target{pkg: "./cmd/gh", gobin: ".local/shims"}
-	targets = append(targets, shims)
-	t.Cleanup(func() { targets = targets[:len(targets)-1] })
 
-	if _, err := install(h.deps(), h.root); err != nil {
+	if _, err := install(t.Context(), h.deps(), h.root, append(targets(), shims)); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
