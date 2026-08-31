@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
+	"github.com/178inaba/dotfiles/go/internal/statusline/payload"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
@@ -39,7 +40,7 @@ const (
 // Data is everything one render needs: the payload as it was parsed, the state
 // the caches held, and the outcome of the self-rebuild check.
 type Data struct {
-	Fields Fields
+	Fields payload.Fields
 	// Home is what the leading path is abbreviated against.
 	Home string
 	// Current is the working directory the payload named, or the process's own
@@ -211,7 +212,7 @@ func rateLimits(d Data) string {
 // Rounded rather than truncated, unlike the context bar: this one is a figure
 // and not a gauge. The countdown sits outside the reset code so it takes the
 // terminal's own colour rather than the threshold's.
-func window(label string, w rateWindow, now time.Time) string {
+func window(label string, w payload.Window, now time.Time) string {
 	if w.UsedPercentage == nil {
 		return ""
 	}
@@ -228,7 +229,7 @@ func window(label string, w rateWindow, now time.Time) string {
 //
 // The state layer asks before looking the exchange rate up, because a miss
 // there records an attempt and starts a background fetch.
-func showsCost(f Fields) bool {
+func showsCost(f payload.Fields) bool {
 	// The cost hangs off the model segment: with no model named there is no
 	// session to attribute it to.
 	if f.Model.DisplayName == "" {
@@ -277,7 +278,7 @@ func warning(buildError string) string {
 
 // countdown is the time left until a reset, empty once it has passed.
 func countdown(resetsAt *int64, now time.Time) string {
-	at, ok := unixTime(resetsAt)
+	at, ok := payload.UnixTime(resetsAt)
 	if !ok {
 		return ""
 	}

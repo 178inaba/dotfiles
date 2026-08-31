@@ -1,4 +1,4 @@
-package statusline
+package payload
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestParseFields(t *testing.T) {
+func TestParse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -21,22 +21,22 @@ func TestParseFields(t *testing.T) {
 				`"context_window":{"used_percentage":42.5},` +
 				`"rate_limits":{"five_hour":{"used_percentage":35,"resets_at":9999999999},` +
 				`"seven_day":{"used_percentage":73,"resets_at":9999999998}}}`,
-			want: fields(func(f *Fields) {
-				f.SessionID = "b257201c"
-				f.Workspace.CurrentDir, f.Workspace.ProjectDir = "/w", "/p"
-				f.Model.DisplayName = "Opus"
-				f.Cost.TotalUSD, f.Cost.DurationMS = 1.23, 5400000
-				f.ContextWindow.UsedPercentage = new(42.5)
-				f.RateLimits.FiveHour = rateWindow{UsedPercentage: new(35.0), ResetsAt: new(int64(9999999999))}
-				f.RateLimits.SevenDay = rateWindow{UsedPercentage: new(73.0), ResetsAt: new(int64(9999999998))}
-			}),
+			want: Fields{
+				SessionID:     "b257201c",
+				Workspace:     Workspace{CurrentDir: "/w", ProjectDir: "/p"},
+				Model:         Model{DisplayName: "Opus"},
+				Cost:          Cost{TotalUSD: 1.23, DurationMS: 5400000},
+				ContextWindow: ContextWindow{UsedPercentage: new(42.5)},
+				RateLimits: RateLimits{
+					FiveHour: Window{UsedPercentage: new(35.0), ResetsAt: new(int64(9999999999))},
+					SevenDay: Window{UsedPercentage: new(73.0), ResetsAt: new(int64(9999999998))},
+				},
+			},
 		},
 		{
 			name:  "workspace only",
 			stdin: `{"workspace":{"current_dir":"/w","project_dir":"/p"}}`,
-			want: fields(func(f *Fields) {
-				f.Workspace.CurrentDir, f.Workspace.ProjectDir = "/w", "/p"
-			}),
+			want:  Fields{Workspace: Workspace{CurrentDir: "/w", ProjectDir: "/p"}},
 		},
 		{
 			// A zero is a value, not an absent field: a session that has just
@@ -44,10 +44,10 @@ func TestParseFields(t *testing.T) {
 			// at all. That is what the pointers are for.
 			name:  "zero is a value",
 			stdin: `{"context_window":{"used_percentage":0},"rate_limits":{"five_hour":{"used_percentage":0}}}`,
-			want: fields(func(f *Fields) {
-				f.ContextWindow.UsedPercentage = new(0.0)
-				f.RateLimits.FiveHour.UsedPercentage = new(0.0)
-			}),
+			want: Fields{
+				ContextWindow: ContextWindow{UsedPercentage: new(0.0)},
+				RateLimits:    RateLimits{FiveHour: Window{UsedPercentage: new(0.0)}},
+			},
 		},
 		{
 			name:  "null is absent",
@@ -81,18 +81,9 @@ func TestParseFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if diff := cmp.Diff(tt.want, ParseFields([]byte(tt.stdin))); diff != "" {
-				t.Errorf("ParseFields mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.want, Parse([]byte(tt.stdin))); diff != "" {
+				t.Errorf("Parse mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
-}
-
-// fields builds an expected Fields, since its nested structs are unnamed.
-func fields(set func(*Fields)) Fields {
-	var f Fields
-	if set != nil {
-		set(&f)
-	}
-	return f
 }

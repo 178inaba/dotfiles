@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
+	"github.com/178inaba/dotfiles/go/internal/statusline/payload"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
@@ -269,40 +270,40 @@ func TestRateLimits(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		build func(*Fields)
+		build func(*payload.Fields)
 		want  string
 	}{
-		{name: "neither window", build: func(*Fields) {}},
+		{name: "neither window", build: func(*payload.Fields) {}},
 		{
 			name:  "five hour only",
-			build: func(f *Fields) { f.RateLimits.FiveHour.UsedPercentage = new(35.0) },
+			build: func(f *payload.Fields) { f.RateLimits.FiveHour.UsedPercentage = new(35.0) },
 			want:  " \x1b[0;32m5h:35%\x1b[0m",
 		},
 		{
 			name:  "seven day only",
-			build: func(f *Fields) { f.RateLimits.SevenDay.UsedPercentage = new(95.0) },
+			build: func(f *payload.Fields) { f.RateLimits.SevenDay.UsedPercentage = new(95.0) },
 			want:  " \x1b[0;31m7d:95%\x1b[0m",
 		},
 		{
 			// The countdown sits outside the reset code, so it takes the
 			// terminal's colour rather than the threshold's.
 			name: "a countdown follows the percentage",
-			build: func(f *Fields) {
-				f.RateLimits.FiveHour = rateWindow{UsedPercentage: new(35.0), ResetsAt: new(int64(6400))}
+			build: func(f *payload.Fields) {
+				f.RateLimits.FiveHour = payload.Window{UsedPercentage: new(35.0), ResetsAt: new(int64(6400))}
 			},
 			want: " \x1b[0;32m5h:35%\x1b[0m(1h30m)",
 		},
 		{
 			name: "a reset already past shows no countdown",
-			build: func(f *Fields) {
-				f.RateLimits.FiveHour = rateWindow{UsedPercentage: new(35.0), ResetsAt: new(int64(1))}
+			build: func(f *payload.Fields) {
+				f.RateLimits.FiveHour = payload.Window{UsedPercentage: new(35.0), ResetsAt: new(int64(1))}
 			},
 			want: " \x1b[0;32m5h:35%\x1b[0m",
 		},
 		{
 			// Half to even, as C's printf and Go's fmt both round.
 			name: "percentages round half to even",
-			build: func(f *Fields) {
+			build: func(f *payload.Fields) {
 				f.RateLimits.FiveHour.UsedPercentage = new(72.5)
 				f.RateLimits.SevenDay.UsedPercentage = new(89.5)
 			},
@@ -312,7 +313,7 @@ func TestRateLimits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			var f Fields
+			var f payload.Fields
 			tt.build(&f)
 			if got := rateLimits(Data{Fields: f, Now: now}); got != tt.want {
 				t.Errorf("rateLimits = %q, want %q", got, tt.want)

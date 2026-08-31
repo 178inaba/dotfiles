@@ -21,6 +21,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 	"github.com/178inaba/dotfiles/go/internal/statusline/fxrate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
+	"github.com/178inaba/dotfiles/go/internal/statusline/payload"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
@@ -76,8 +77,8 @@ func Default() Config {
 // optional and a missing one simply leaves its segment out, so the command that
 // wraps this always succeeds.
 func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, buildError string) error {
-	payload, _ := io.ReadAll(stdin)
-	fields := ParseFields(payload)
+	in, _ := io.ReadAll(stdin)
+	fields := payload.Parse(in)
 	now := cfg.Now()
 
 	// The payload names the directory; the working directory stands in when it
@@ -152,7 +153,7 @@ func pullRequestInfo(cfg Config, status *gitstate.Status, current string, now ti
 }
 
 // exchangeRate returns the cached rate and starts a refresh when it is stale.
-func exchangeRate(cfg Config, fields Fields, now time.Time) float64 {
+func exchangeRate(cfg Config, fields payload.Fields, now time.Time) float64 {
 	if !showsCost(fields) {
 		// Nothing to convert, so nothing is fetched: a session below a cent
 		// should not be starting network requests.
