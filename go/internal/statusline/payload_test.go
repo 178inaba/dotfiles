@@ -25,7 +25,7 @@ func TestParseFields(t *testing.T) {
 				f.SessionID = "b257201c"
 				f.Workspace.CurrentDir, f.Workspace.ProjectDir = "/w", "/p"
 				f.Model.DisplayName = "Opus"
-				f.Cost.TotalUSD, f.Cost.DurationMS = new(1.23), new(int64(5400000))
+				f.Cost.TotalUSD, f.Cost.DurationMS = 1.23, 5400000
 				f.ContextWindow.UsedPercentage = new(42.5)
 				f.RateLimits.FiveHour = rateWindow{UsedPercentage: new(35.0), ResetsAt: new(int64(9999999999))}
 				f.RateLimits.SevenDay = rateWindow{UsedPercentage: new(73.0), ResetsAt: new(int64(9999999998))}

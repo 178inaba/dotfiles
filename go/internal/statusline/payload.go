@@ -9,14 +9,17 @@ import (
 // Fields is the status line's view of the payload Claude Code writes to its
 // standard input.
 //
-// The numbers are pointers so that an absent field stays distinguishable from a
-// zero. The difference is visible: no rate-limit segment at all versus "5h:0%",
-// and no context bar versus an empty one.
+// The types follow what the payload declares rather than simplifying it.
 //
-// A duration and a reset time are integers and the rest are not, which follows
-// the payload rather than being a simplification of it: Claude Code declares
-// both as integers and rounds the reset time before sending it, while a cost
-// and a percentage are the results of a division.
+// The percentages and the reset times are pointers because Claude Code sends
+// them only sometimes, and the difference is visible: no rate-limit segment at
+// all versus "5h:0%", and no context bar versus an empty one. The cost and the
+// duration are always sent, and an absent one would render exactly as a zero
+// does, so a pointer would be describing a state that cannot arise.
+//
+// A duration and a reset time are integers because that is how Claude Code
+// declares them — it rounds the reset time before sending it — while a cost and
+// a percentage are the results of a division.
 type Fields struct {
 	SessionID string `json:"session_id"`
 	Workspace struct {
@@ -27,8 +30,8 @@ type Fields struct {
 		DisplayName string `json:"display_name"`
 	} `json:"model"`
 	Cost struct {
-		TotalUSD   *float64 `json:"total_cost_usd"`
-		DurationMS *int64   `json:"total_duration_ms"`
+		TotalUSD   float64 `json:"total_cost_usd"`
+		DurationMS int64   `json:"total_duration_ms"`
 	} `json:"cost"`
 	ContextWindow struct {
 		UsedPercentage *float64 `json:"used_percentage"`

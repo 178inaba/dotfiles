@@ -206,7 +206,7 @@ func full() Data {
 	d.Fields.SessionID = "b257201c"
 	d.Fields.Workspace.ProjectDir = "/w"
 	d.Fields.Model.DisplayName = "Opus"
-	d.Fields.Cost.TotalUSD, d.Fields.Cost.DurationMS = new(1.23), new(int64(5400000))
+	d.Fields.Cost.TotalUSD, d.Fields.Cost.DurationMS = 1.23, 5400000
 	d.Fields.ContextWindow.UsedPercentage = new(42.5)
 	d.Fields.RateLimits.FiveHour.UsedPercentage = new(35.0)
 	d.Fields.RateLimits.SevenDay.UsedPercentage = new(95.0)
@@ -337,21 +337,22 @@ func TestCost(t *testing.T) {
 	tests := []struct {
 		name  string
 		model string
-		usd   *float64
+		usd   float64
 		rate  float64
 		want  string
 	}{
-		{name: "no model means no cost", usd: new(1.23), rate: 160},
-		{name: "no cost field", model: "Opus", rate: 160},
+		{name: "no model means no cost", usd: 1.23, rate: 160},
+		// The payload always carries the field, so an absent cost and a zero
+		// one are the same case rather than two.
+		{name: "zero, which is also how an absent field arrives", model: "Opus", rate: 160},
 		// Below a cent the figure would round to zero and say nothing.
-		{name: "below half a cent", model: "Opus", usd: new(0.004), rate: 160},
+		{name: "below half a cent", model: "Opus", usd: 0.004, rate: 160},
 		// Rounded rather than truncated, so this one still shows.
-		{name: "just over half a cent", model: "Opus", usd: new(0.006), rate: 160, want: " ¥1"},
-		{name: "exactly a cent", model: "Opus", usd: new(0.01), rate: 160, want: " ¥2"},
-		{name: "zero", model: "Opus", usd: new(0.0), rate: 160},
-		{name: "converted to yen", model: "Opus", usd: new(1.23), rate: 160, want: " ¥197"},
+		{name: "just over half a cent", model: "Opus", usd: 0.006, rate: 160, want: " ¥1"},
+		{name: "exactly a cent", model: "Opus", usd: 0.01, rate: 160, want: " ¥2"},
+		{name: "converted to yen", model: "Opus", usd: 1.23, rate: 160, want: " ¥197"},
 		// Without a rate the dollars are shown rather than nothing.
-		{name: "dollars without a rate", model: "Opus", usd: new(1.23), want: " $1.23"},
+		{name: "dollars without a rate", model: "Opus", usd: 1.23, want: " $1.23"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

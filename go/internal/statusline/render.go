@@ -233,12 +233,12 @@ func window(label string, w rateWindow, now time.Time) string {
 func showsCost(f Fields) bool {
 	// The cost hangs off the model segment: with no model named there is no
 	// session to attribute it to.
-	if f.Model.DisplayName == "" || f.Cost.TotalUSD == nil {
+	if f.Model.DisplayName == "" {
 		return false
 	}
 	// Anything under a cent would render as zero and say nothing. Rounded to
 	// the nearest cent rather than truncated, so a cost of 0.006 still shows.
-	return math.RoundToEven(*f.Cost.TotalUSD*100) >= 1
+	return math.RoundToEven(f.Cost.TotalUSD*100) >= 1
 }
 
 // cost is the session cost, in yen when a rate is cached and dollars otherwise.
@@ -246,7 +246,7 @@ func cost(d Data) string {
 	if !showsCost(d.Fields) {
 		return ""
 	}
-	usd := *d.Fields.Cost.TotalUSD
+	usd := d.Fields.Cost.TotalUSD
 	if d.Rate == 0 {
 		return fmt.Sprintf(" $%.2f", usd)
 	}
@@ -254,11 +254,8 @@ func cost(d Data) string {
 }
 
 // duration is how long the session has been running.
-func duration(ms *int64) string {
-	if ms == nil {
-		return ""
-	}
-	d := humanDuration(time.Duration(*ms) * time.Millisecond)
+func duration(ms int64) string {
+	d := humanDuration(time.Duration(ms) * time.Millisecond)
 	if d == "" {
 		return ""
 	}
