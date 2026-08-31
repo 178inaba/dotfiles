@@ -106,9 +106,9 @@ func TestBlockMessage(t *testing.T) {
 	got := New().Run(t.Context(), bash("echo waiting"))
 
 	for _, want := range []string{
-		"ターンを終えて",
-		"別の no-op コマンドで置き換える",
-		"Bash ツールの timeout パラメータ",
+		"end the turn",
+		"the same busy-wait",
+		"timeout parameter",
 	} {
 		if !strings.Contains(got.Message, want) {
 			t.Errorf("message does not contain %q:\n%s", want, got.Message)

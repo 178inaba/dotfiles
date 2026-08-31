@@ -53,18 +53,22 @@ var noOpWait = sync.OnceValue(func() *regexp.Regexp {
 
 // message is what the model is told instead. Blocking without saying what to do
 // instead only moves the loop to another no-op.
-const message = `バックグラウンド処理の完了待ちを目的とした no-op コマンドはブロックしています。
+//
+// English, like every other message this module writes and like the two other
+// guards a blocked tool call can produce. The reader is the model, not the
+// user.
+const message = `Blocked: this command does nothing but wait for something else to finish.
 
-実行しようとしたコマンド:
-  %s
+  command: %s
 
-対処:
-  完了待ちはターンを終えて行ってください。バックグラウンドのコマンド・タスク・
-  サブエージェントが完了すると通知が届き、セッションはそこから自動再開します。
-  pwd・git status・true 等、別の no-op コマンドで置き換えるのも同じ busy-wait
-  になるため避けてください。同一ターン内で結果が必要な場合は、バックグラウンド
-  ではなくフォアグラウンドで実行し、Bash ツールの timeout パラメータ
-  （最大 600000ms）で待ち時間の上限を指定してください。
+Fix: end the turn and wait there instead. A background command, task or subagent
+sends a notification when it finishes, and the session resumes from that on its
+own.
+
+Reaching for a different no-op — pwd, git status, true — is the same busy-wait
+and not a way round this. If you need the result within this turn, run the work
+in the foreground rather than the background, and bound the wait with the Bash
+tool's timeout parameter (up to 600000ms).
 `
 
 // Hook is the guard.
