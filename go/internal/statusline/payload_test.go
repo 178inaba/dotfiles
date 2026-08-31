@@ -50,10 +50,11 @@ func TestParseFields(t *testing.T) {
 			stdin: `{"workspace":`,
 		},
 		{
-			// jq refuses to index a string and exits non-zero, which loses
-			// every field and not just the offending one.
+			// One bad shape loses every field, not just its own: the shell ran
+			// all eleven lookups through a single jq program, which prints
+			// nothing once any of them fails.
 			name:  "a scalar where an object belongs",
-			stdin: `{"workspace":"x","session_id":"kept-by-a-typed-decoder"}`,
+			stdin: `{"workspace":"x","session_id":"otherwise-fine"}`,
 		},
 		{
 			name:  "an array where an object belongs",
@@ -67,11 +68,15 @@ func TestParseFields(t *testing.T) {
 			want:  Fields{SessionID: "kept"},
 		},
 		{
-			// // in jq only replaces null and false, so a zero percentage is a
-			// value and really does render as 0%.
-			name:  "zero is a value, null and false are not",
-			stdin: `{"context_window":{"used_percentage":0},"model":{"display_name":null},"session_id":false}`,
-			want:  Fields{ContextUsedPct: "0"},
+			// A zero is a value, not an absent field: a session that has just
+			// started really does render 0%.
+			name:  "zero is a value",
+			stdin: `{"context_window":{"used_percentage":0},"rate_limits":{"five_hour":{"used_percentage":0}}}`,
+			want:  Fields{ContextUsedPct: "0", FiveHourUsedPct: "0"},
+		},
+		{
+			name:  "null is absent",
+			stdin: `{"model":{"display_name":null},"context_window":{"used_percentage":null}}`,
 		},
 		{
 			// tostring hands back the literal the input carried, trailing zero
@@ -81,18 +86,32 @@ func TestParseFields(t *testing.T) {
 			want:  Fields{TotalCostUSD: "1.230", ContextUsedPct: "100.0"},
 		},
 		{
-			// The shell splits the eleven values on newlines, so a value
-			// carrying one shifts every field after it. Reproduced rather than
-			// fixed: a directory name with a newline in it is not worth a
-			// divergence.
-			name:  "a newline in a value shifts the rest",
+			// Known divergence from the shell, and an improvement on it: it
+			// joined the eleven values with newlines and read them back a line
+			// at a time, so a value carrying one shifted every field after it.
+			name:  "a newline in a value stays in that value",
 			stdin: `{"workspace":{"current_dir":"a\nb","project_dir":"/p"},"model":{"display_name":"Opus"}}`,
-			want:  Fields{CurrentDir: "a", ProjectDir: "b", ModelDisplayName: "/p", TotalCostUSD: "Opus"},
+			want:  Fields{CurrentDir: "a\nb", ProjectDir: "/p", ModelDisplayName: "Opus"},
 		},
 		{
-			name:  "a composite value becomes its json text",
+			// The other known divergence: jq's tostring rendered whatever it
+			// found, so these two produced "{\"a\":1}" and "123". Neither
+			// shape occurs — display_name is a string and session_id a UUID —
+			// and the alternative is decoding into any and re-implementing
+			// tostring.
+			name:  "a value of the wrong type loses every field",
 			stdin: `{"model":{"display_name":{"a":1}}}`,
-			want:  Fields{ModelDisplayName: `{"a":1}`},
+		},
+		{
+			name:  "a number where a string belongs loses every field",
+			stdin: `{"session_id":123}`,
+		},
+		{
+			// json.Number accepts a quoted number, which is what jq's tostring
+			// did with one too.
+			name:  "a quoted number is still a number",
+			stdin: `{"context_window":{"used_percentage":"42"}}`,
+			want:  Fields{ContextUsedPct: "42"},
 		},
 		{
 			name:  "a top level null yields nothing",
