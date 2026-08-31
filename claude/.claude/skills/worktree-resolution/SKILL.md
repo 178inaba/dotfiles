@@ -23,7 +23,7 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
   - **切替に `EnterWorktree(path:)` を優先する**のは、session の `workspace.project_dir` を worktree へ切り替えるため（Bash `cd` はプロセス cwd を変えるだけで、project_dir 起点で解決される機構はそのままになる）。ただし**`path:` 切替もエージェント起動時に固定されたプロセス cwd で「現在のリポジトリ」を判定する**（Bash の `cd` では変わらない）ため、対象リポジトリ外の cwd で起動されたサブエージェント（/review-assigned-prs の clone dir 構成等）では "the current directory is not in a git repository" で失敗する（2026-07-07 実測）。該当する場合は EnterWorktree を試行せず Bash `cd` で代替する
   - **スクリプト作成で失われるのは WorktreeCreate hook の発火と終了時の自動クリーンアップ判定のみ**。`.worktreeinclude` コピーは共有 lib `~/.claude/scripts/worktreeinclude-lib.sh` が両スクリプトで再現する（経路ごとに実装を持つとネイティブ挙動の変更時にドリフトするため一本化している）
 - **Bash `cd` 代替は毎回前置する**: 各 Bash 呼び出しに `cd <対象パス> && ...` を前置して作業する（worktree 作成前のリポジトリ操作は対象リポジトリへ、作成後の作業は worktree へ。git 操作は `git -C <対象パス>` でも可、ファイル操作は絶対パスを使用）。毎回前置が必須なのは公式仕様のため: サブエージェントの Bash は cwd を呼び出し間で持ち越さない（許可ディレクトリ内でも起動時 cwd に戻る — 2026-07-24 実測確認）。メインセッションでも project directory / additionalDirectories 外への `cd` は自動リセットされる
-- **EnterWorktree 後の絶対パス**: session cwd は worktree に切り替わるが、Edit/Write に渡す絶対パスは自動変換されない。切替**前**に Read したメインツリー絶対パスを Edit/Write に流用しない（機械的強制: `~/.claude/hooks/worktree-edit-guard.sh` がブロックする）
+- **EnterWorktree 後の絶対パス**: session cwd は worktree に切り替わるが、Edit/Write に渡す絶対パスは自動変換されない。切替**前**に Read したメインツリー絶対パスを Edit/Write に流用しない（機械的強制: `ccx hook worktree-edit-guard` がブロックする）
 
 ## PR worktree 解決手順
 

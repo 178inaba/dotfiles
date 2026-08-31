@@ -24,7 +24,7 @@ $ gh auth login
 `git/.gitconfig` sets `branch.autoSetupMerge = simple`, and older git dies with
 `bad boolean config value` on every command.
 
-`gh`, `jq` and `yq` are required by the Claude Code scripts (hooks and skills).
+`gh`, `jq` and `yq` are required by the Claude Code scripts (shared and skill-bundled).
 Run `gh auth login` to authenticate the GitHub CLI after installing.
 
 `go -C go install ./cmd/ccx` is the only build step, and only the first one:

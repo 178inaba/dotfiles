@@ -26,7 +26,6 @@ import (
 const (
 	// soundBin plays the notification sound. Ghostty rings no bell of its own,
 	// so the terminalSequence lights the tmux tab and this is what is audible.
-	// Named absolutely: a hook's PATH is whatever sh -c inherited.
 	soundBin = "/usr/bin/afplay"
 	// soundFile is macOS's own notification sound.
 	soundFile = "/System/Library/Sounds/Ping.aiff"
