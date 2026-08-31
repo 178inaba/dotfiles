@@ -1,11 +1,11 @@
 ---
 paths:
-  - "**/.claude/statusline.sh"
+  - "**/go/internal/statusline/**"
 ---
 
 # statusline 編集ルール
 
-`~/.claude/statusline.sh`（ソース: `claude/.claude/statusline.sh`）を編集する際のルール。
+`ccx statusline`（ソース: `go/internal/statusline/`）を編集する際のルール。設定は `settings.json` の `statusLine.command`（`~/go/bin/ccx statusline`）が指す。
 
 ## 表示項目の追加前に重複を確認する
 
@@ -27,11 +27,11 @@ stdin JSON にフィールドが存在することは表示する価値がある
 編集時は必ずリグレッションテストを走らせる:
 
 ```bash
-bash claude/.claude/tests/test-statusline.sh
+go -C go test ./internal/statusline/...
 ```
 
 テストは表示ロジックの回帰のみ担保する。表示項目の追加・変更時の重複判断（上記セクション）はテストでは検出できないため、実画面での確認が必須。
 
 ## 設定の整合性
 
-キャッシュ関連の制約（TTL と `statusLine.refreshInterval` の同期、作業ディレクトリ単位のキー設計）は statusline.sh 内の該当コメントを正とする。この文書には重複記載しない（乖離防止のため）。
+キャッシュ関連の制約（TTL と `statusLine.refreshInterval` の同期、作業ディレクトリ単位のキー設計）は `go/internal/statusline/` 配下の該当コメントを正とする。この文書には重複記載しない（乖離防止のため）。

@@ -1,0 +1,35 @@
+version: "2"
+
+# The linter set is enumerated rather than inherited from the running version's
+# own default, so a golangci-lint upgrade changes diagnostics but never which
+# linters are active. revive is here for its exported-doc-comment rule, which
+# is how a required doc comment stops being something to notice by eye.
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      # Informational writes to a diagnostic stream or a hash, and best-effort
+      # cleanup where there is no meaningful recovery from a failure.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - os.Remove
+        - (*os.File).Close
+        - (io.ReadCloser).Close
+
+# `golangci-lint run` reports a formatter's findings as ordinary issues, so the
+# existing lint step already fails on unformatted code and ci.yml needs no gofmt
+# step of its own — nothing else in the job looks at formatting, `go vet`
+# included. Only gofmt is enabled: goimports, gofumpt and golines each impose a
+# style beyond what `go fmt` itself defines.
+formatters:
+  enable:
+    - gofmt

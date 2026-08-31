@@ -22,6 +22,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Go のステップをシェルスイートより前に置くのは、シェル側が Sub 4 で消えたときに
+      # このジョブがそのまま Go 専用ジョブになり、チェック名が変わらないようにするため
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          # モジュールキャッシュの探索先。既定はリポジトリルートの go.sum なので、
+          # 指定しないと毎回ミスして "Restore cache failed" の注釈が付く
+          cache-dependency-path: go/go.sum
+
+      - name: Vet the Go module
+        run: go -C go vet ./...
+
+      # ローカル lint を docker で持たないので、cflio 等の compose.yaml 方式ではなく
+      # ここを単一の正としてピン留めする。golangci-lint は自身のビルドに使われた Go より
+      # 新しい go ディレクティブを拒否するため、go 1.27 には 1.27 でビルドされた
+      # v2.13.0 以降が要る（v2.12.x は 1.26 ビルドで "can't load config" で落ちる）
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          working-directory: go
+
+      - name: Run Go tests
+        run: go -C go test -race ./...
+
       # スイートが実行時に要求する外部コマンド（jq は大半のフック・スキルスクリプト、
       # lsof は cleanup-merged の inuse-lib.sh）。ランナーイメージの内容は変わるため
       # preinstall を信頼せず、欠けているものだけを入れる。どのツールも同じ深さで扱うので、

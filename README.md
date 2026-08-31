@@ -16,6 +16,7 @@ $ eval "$(/opt/homebrew/bin/brew shellenv)"
 $ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq yq
 $ stow tmux git vim zsh claude ghostty shims
 $ zsh -l
+$ go -C go install ./cmd/ccx
 $ gh auth login
 ```
 
@@ -23,8 +24,12 @@ $ gh auth login
 `git/.gitconfig` sets `branch.autoSetupMerge = simple`, and older git dies with
 `bad boolean config value` on every command.
 
-`gh`, `jq` and `yq` are required by the Claude Code scripts (hooks, skills, statusline).
+`gh`, `jq` and `yq` are required by the Claude Code scripts (hooks and skills).
 Run `gh auth login` to authenticate the GitHub CLI after installing.
+
+`go -C go install ./cmd/ccx` is the only build step, and only the first one:
+`ccx` compares its own timestamp with the newest file under `go/` on every
+start and reinstalls itself when it is behind.
 
 ### Optional CLI tools
 
@@ -62,6 +67,10 @@ a judgement that fails silently when it goes wrong — the new files simply neve
 appear. `stow -R` is idempotent and takes milliseconds, so there is no reason to
 make that call.
 
+`ccx` is not on the `stow` line and does not need to be rebuilt by hand: the
+first invocation after a pull notices that the source is newer than the binary
+and reinstalls itself.
+
 ## Packages
 
 - `claude`: Claude Code configuration
@@ -71,6 +80,10 @@ make that call.
 - `tmux`: tmux configuration
 - `vim`: Vim configuration
 - `zsh`: Zsh configuration
+
+`go/` is not a stow package. It is the Go module the Claude Code tooling is
+being moved into, built with `go -C go install ./cmd/ccx`; the binaries it
+produces are never committed.
 
 ## License
 
