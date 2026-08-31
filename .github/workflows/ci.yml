@@ -27,6 +27,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
+          # モジュールキャッシュの探索先。既定はリポジトリルートの go.sum なので、
+          # 指定しないと毎回ミスして "Restore cache failed" の注釈が付く
+          cache-dependency-path: go/go.sum
 
       - name: Vet the Go module
         run: go -C go vet ./...
