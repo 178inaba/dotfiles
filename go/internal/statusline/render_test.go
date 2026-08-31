@@ -123,27 +123,17 @@ func TestRender(t *testing.T) {
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{
-			name: "a pull request without a link is plain text",
-			data: Data{
-				Current: "/w", Home: "/Users/x",
-				Git: &gitstate.Status{Branch: "feat"},
-				PR:  &prinfo.Info{Number: 127, State: prinfo.StateApproved},
-			},
-			want: "\x1b[0;34m/w\x1b[0m\n" +
-				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[0;32m#127\x1b[0m\n" +
-				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
-		},
-		{
 			// A state nobody has seen before must not claim a review is
 			// pending, so it falls back to no colour at all.
 			name: "an unrecognised review state is left uncoloured",
 			data: Data{
 				Current: "/w", Home: "/Users/x",
 				Git: &gitstate.Status{Branch: "feat"},
-				PR:  &prinfo.Info{Number: 135, State: "SOME_FUTURE_VALUE"},
+				PR:  &prinfo.Info{Number: 135, State: "SOME_FUTURE_VALUE", URL: "https://example.test/pull/135"},
 			},
 			want: "\x1b[0;34m/w\x1b[0m\n" +
-				"\x1b[0;32m(feat ↑∅)\x1b[0m PR #135\x1b[0m\n" +
+				"\x1b[0;32m(feat ↑∅)\x1b[0m PR " +
+				"\x1b]8;;https://example.test/pull/135\a\x1b[4m#135\x1b[24m\x1b]8;;\a\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{

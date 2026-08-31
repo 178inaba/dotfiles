@@ -155,13 +155,11 @@ func pullRequest(d Data) string {
 		color = prYellow
 	}
 
-	text := "#" + strconv.Itoa(d.PR.Number)
-	if d.PR.URL != "" {
-		// Only the underlined number is the link, so that what is clickable
-		// looks clickable.
-		text = oscLink + d.PR.URL + bel + underline + text + underlineOff + oscLink + bel
-	}
-	return " PR " + color + text + reset
+	// Only the underlined number is the link, so that what is clickable looks
+	// clickable. There is always one to make: gh reports a url for every pull
+	// request that has a number, and one without a number was returned above.
+	number := underline + "#" + strconv.Itoa(d.PR.Number) + underlineOff
+	return " PR " + color + oscLink + d.PR.URL + bel + number + oscLink + bel + reset
 }
 
 func model(d Data) string {
