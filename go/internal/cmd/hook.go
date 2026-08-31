@@ -11,6 +11,7 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
+	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
 	"github.com/178inaba/dotfiles/go/internal/hooks/terminalbell"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
@@ -41,9 +42,36 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 	c.AddCommand(
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
 			func(*cobra.Command) hook { return slacknotify.New(slacknotify.Default()) }),
+		subagentTrackerCmd(build),
 		leafHookCmd("terminal-bell", "Ring the terminal bell", build,
 			func(*cobra.Command) hook { return terminalbell.New() }),
 	)
+	return c
+}
+
+// subagentTrackerCmd is the one hook registered on three different events, one
+// flag each. cobra rejects a combination rather than picking one, so an entry
+// in settings.json that asks for two of them is a startup error and not a
+// marker quietly written for the wrong event.
+func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
+	var start, stop, sessionEnd bool
+	c := leafHookCmd("subagent-tracker", "Track which subagents are running", build,
+		func(*cobra.Command) hook {
+			mode := subagents.None
+			switch {
+			case start:
+				mode = subagents.Start
+			case stop:
+				mode = subagents.Stop
+			case sessionEnd:
+				mode = subagents.SessionEnd
+			}
+			return subagents.New(subagents.Default(), mode)
+		})
+	c.Flags().BoolVar(&start, "start", false, "a subagent has started")
+	c.Flags().BoolVar(&stop, "stop", false, "a subagent has finished")
+	c.Flags().BoolVar(&sessionEnd, "session-end", false, "the session has ended")
+	c.MarkFlagsMutuallyExclusive("start", "stop", "session-end")
 	return c
 }
 

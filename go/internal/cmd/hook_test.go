@@ -197,6 +197,13 @@ func TestHookCommand(t *testing.T) {
 			bareStdout: true,
 		},
 		{
+			name:       "a hook asked for two events at once fails",
+			args:       []string{"hook", "subagent-tracker", "--start", "--stop"},
+			wantCode:   1,
+			wantStderr: []string{"were all set", "Usage:"},
+			bareStdout: true,
+		},
+		{
 			name:       "the hook list is on the root command",
 			args:       []string{"--help"},
 			wantStdout: "hook",
