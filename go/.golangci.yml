@@ -24,6 +24,7 @@ linters:
         - os.Remove
         - (*os.File).Close
         - (io.ReadCloser).Close
+        - (*github.com/178inaba/dotfiles/go/internal/hooks/state.Store).Close
 
 # `golangci-lint run` reports a formatter's findings as ordinary issues, so the
 # existing lint step already fails on unformatted code and ci.yml needs no gofmt

@@ -55,7 +55,22 @@ type Spawner interface {
 	Spawn(env []string, args ...string) error
 }
 
-// Exec is the real Runner and Spawner.
+// Detacher starts another program that outlives this process.
+type Detacher interface {
+	// Detach returns the child's process id, which is the only handle on it
+	// once this process is gone.
+	Detach(name string, args ...string) (int, error)
+}
+
+// Signaller reaches a process this one need not have started.
+type Signaller interface {
+	// Terminate asks the process to exit.
+	Terminate(pid int) error
+	// Alive reports whether the process exists.
+	Alive(pid int) bool
+}
+
+// Exec is the real Runner, Spawner, Detacher and Signaller.
 type Exec struct {
 	// Executable names the binary Spawn re-runs. Empty means this process,
 	// which is what production wants; a test points it at the test binary so
@@ -84,11 +99,6 @@ func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 // Spawn replaces the shell idiom
 // `( cmd </dev/null >/dev/null 2>&1 & )`: a child that outlives this process,
 // which a goroutine cannot be.
-//
-// Leaving all three standard streams nil wires them to /dev/null. Inheriting
-// stdout would be fatal: the statusline writes to a pipe Claude Code reads to
-// EOF, so a child holding the write end would block the render until its
-// network call finished.
 func (e Exec) Spawn(env []string, args ...string) error {
 	self := e.Executable
 	if self == "" {
@@ -97,8 +107,26 @@ func (e Exec) Spawn(env []string, args ...string) error {
 			return err
 		}
 	}
+	_, err := detach(self, env, args)
+	return err
+}
 
-	cmd := exec.Command(self, args...)
+// Detach implements Detacher. It is Spawn for a program that is not this
+// binary, and it hands back the process id because a caffeinate outlives the
+// hook that started it and only its pid identifies it to the hook that stops
+// it.
+func (Exec) Detach(name string, args ...string) (int, error) {
+	return detach(name, nil, args)
+}
+
+// detach starts name and forgets about it, returning the child's process id.
+//
+// Leaving all three standard streams nil wires them to /dev/null. Inheriting
+// stdout would be fatal: the statusline writes to a pipe Claude Code reads to
+// EOF, so a child holding the write end would block the render until its
+// network call finished.
+func detach(name string, env, args []string) (int, error) {
+	cmd := exec.Command(name, args...)
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
@@ -106,21 +134,47 @@ func (e Exec) Spawn(env []string, args ...string) error {
 	// in the caller's process group: a harness that kills the statusline's
 	// process group on timeout cannot take the refresh down with it.
 	//
-	// syscall rather than golang.org/x/sys, here and at the module's two other
-	// system calls (Flock and Exec, both in selfbuild). The syscall package asks
-	// new code to prefer x/sys "where possible", and this line is where it is
-	// not: exec.Cmd.SysProcAttr is typed *syscall.SysProcAttr, which is why
-	// x/sys declares its own SysProcAttr as an alias for that one. Moving the
-	// other two would leave the module importing both packages for the same
-	// three calls, and neither Flock nor Exec has a higher-level wrapper in os
-	// or gains anything from the newer package.
+	// syscall rather than golang.org/x/sys, here and at the module's four other
+	// system calls (Terminate and Alive below, Flock and Exec in selfbuild). The
+	// syscall package asks new code to prefer x/sys "where possible", and this
+	// line is where it is not: exec.Cmd.SysProcAttr is typed
+	// *syscall.SysProcAttr, which is why x/sys declares its own SysProcAttr as
+	// an alias for that one. Moving the other four would leave the module
+	// importing both packages for the same five calls, and none of them has a
+	// higher-level wrapper in os or gains anything from the newer package.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return err
+		return 0, err
 	}
+	pid := cmd.Process.Pid
 	// Release rather than Wait: nothing here cares about the outcome, and the
 	// child must survive this process.
-	return cmd.Process.Release()
+	return pid, cmd.Process.Release()
+}
+
+// Terminate implements Signaller.
+//
+// SIGTERM rather than os.Process.Kill's SIGKILL, so that a caffeinate releases
+// its power assertion on the way out instead of leaving the machine awake until
+// the kernel notices.
+func (Exec) Terminate(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Signal(syscall.SIGTERM)
+}
+
+// Alive implements Signaller. Signal 0 performs the permission and existence
+// checks and delivers nothing, which is the shell's kill -0: a process owned by
+// somebody else reads as gone, and one that has exited but not been waited for
+// reads as alive. Both are what the hooks have always seen.
+func (Exec) Alive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
 }
 
 // Stderr returns what a failed command wrote to standard error.
@@ -132,6 +186,8 @@ func Stderr(err error) []byte {
 }
 
 var (
-	_ Runner  = Exec{}
-	_ Spawner = Exec{}
+	_ Runner    = Exec{}
+	_ Spawner   = Exec{}
+	_ Detacher  = Exec{}
+	_ Signaller = Exec{}
 )

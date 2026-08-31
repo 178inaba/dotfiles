@@ -10,7 +10,30 @@ import (
 	"syscall"
 )
 
-// sourceRoot derives <repo>/go from the stow symlink at ~/.claude/settings.json.
+// Repo derives the repository from the stow symlink at ~/.claude/settings.json.
+//
+// It is exported for the hooks, which reach for files elsewhere in the
+// repository — the frontmatter checker, until Sub 3 brings it in process — and
+// have no Deps to resolve a home directory from.
+func Repo() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	return repo(home)
+}
+
+// sourceRoot is the module within it.
+func sourceRoot(d Deps) (string, bool) {
+	r, ok := repo(d.Home)
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(r, "go"), true
+}
+
+// repo resolves the symlink and checks that what it found looks like this
+// repository.
 //
 // Deriving it from the settings file rather than the working directory is what
 // keeps a linked worktree from ever becoming the source root: the home symlink
@@ -20,11 +43,11 @@ import (
 // A false second value means the layout does not hold and the caller does
 // nothing at all: the binary has to stay usable on a machine where this
 // repository is not stowed.
-func sourceRoot(d Deps) (string, bool) {
-	if d.Home == "" {
+func repo(home string) (string, bool) {
+	if home == "" {
 		return "", false
 	}
-	settings := filepath.Join(d.Home, ".claude", "settings.json")
+	settings := filepath.Join(home, ".claude", "settings.json")
 
 	fi, err := os.Lstat(settings)
 	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -44,12 +67,11 @@ func sourceRoot(d Deps) (string, bool) {
 		link = filepath.Join(filepath.Dir(settings), link)
 	}
 	// <repo>/claude/.claude/settings.json up three levels is <repo>.
-	repo := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Clean(link))))
-	root := filepath.Join(repo, "go")
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+	found := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Clean(link))))
+	if _, err := os.Stat(filepath.Join(found, "go", "go.mod")); err != nil {
 		return "", false
 	}
-	return root, true
+	return found, true
 }
 
 // binDir is where go install writes: the target's own directory when it has

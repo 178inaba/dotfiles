@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"os"
+	"os/exec"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -105,6 +107,82 @@ func TestSpawnDoesNotWait(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("the spawned child never ran")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestDetachReturnsAPidAndDoesNotWait(t *testing.T) {
+	start := time.Now()
+	pid, err := Exec{}.Detach("sh", "-c", "sleep 30")
+	if err != nil {
+		t.Fatalf("Detach: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+		t.Errorf("Detach blocked for %v, want it to return immediately", elapsed)
+	}
+	if pid <= 0 {
+		t.Fatalf("pid = %d, want a real process id", pid)
+	}
+	t.Cleanup(func() {
+		_ = Exec{}.Terminate(pid)
+		reap(t, pid)
+	})
+
+	if !(Exec{}).Alive(pid) {
+		t.Errorf("Alive(%d) = false, want the process just started to be alive", pid)
+	}
+}
+
+func TestTerminateSendsSIGTERM(t *testing.T) {
+	// SIGTERM rather than SIGKILL is what lets caffeinate release its power
+	// assertion, so the test pins the signal and not merely the death.
+	pid, err := Exec{}.Detach("sh", "-c", "sleep 30")
+	if err != nil {
+		t.Fatalf("Detach: %v", err)
+	}
+	if err := (Exec{}).Terminate(pid); err != nil {
+		t.Fatalf("Terminate: %v", err)
+	}
+
+	status := reap(t, pid)
+	if !status.Signaled() {
+		t.Fatalf("wait status = %v, want the process to have been signalled", status)
+	}
+	if got := status.Signal(); got != syscall.SIGTERM {
+		t.Errorf("signal = %v, want %v", got, syscall.SIGTERM)
+	}
+}
+
+func TestAliveIsFalseForAProcessThatHasGone(t *testing.T) {
+	// Run and reap, so the pid names nothing at all: a terminated child that
+	// nobody has waited for is a zombie, which kill -0 still reports as alive.
+	cmd := exec.Command("sh", "-c", "exit 0")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if (Exec{}).Alive(cmd.Process.Pid) {
+		t.Errorf("Alive(%d) = true, want false for a process that has been reaped", cmd.Process.Pid)
+	}
+}
+
+// reap waits for a detached child of this process and returns how it ended.
+// Nothing in production does this — a hook never starts the caffeinate it
+// later kills — but the test process would otherwise collect zombies.
+func reap(t *testing.T, pid int) syscall.WaitStatus {
+	t.Helper()
+	var status syscall.WaitStatus
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+		if got == pid {
+			return status
+		}
+		if err != nil && err != syscall.EINTR {
+			t.Fatalf("Wait4(%d): %v", pid, err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("process %d never exited", pid)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

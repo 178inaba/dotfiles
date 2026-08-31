@@ -74,7 +74,7 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 
 ### frontmatter の検査
 
-`bash ~/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は自身が属する skills/。検出する違反は `invalid_yaml`（frontmatter が YAML として解析できない）・`missing_field`（`name` / `description` の欠落・空）・`name_mismatch`（`name` がディレクトリ名と不一致）・`unquoted_flow`（値が引用符なしの `[` / `{` で始まる）の4種で、条件と出力契約の正はスクリプトのヘッダーコメント。`tests/test-check-skill-frontmatter.sh` は実リポジトリの skills/ の検査を兼ねる。Edit / Write / NotebookEdit で SKILL.md を保存すると `skill-frontmatter-check.sh`（PostToolUse フック）が同じスクリプトをそのファイルに走らせる。手で実行するのは、skills/ 全体をまとめて検査するときと、Bash 経由（`sed`・heredoc 等）で書き換えたとき（フックが発火しない）。
+`bash ~/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は自身が属する skills/。検出する違反は `invalid_yaml`（frontmatter が YAML として解析できない）・`missing_field`（`name` / `description` の欠落・空）・`name_mismatch`（`name` がディレクトリ名と不一致）・`unquoted_flow`（値が引用符なしの `[` / `{` で始まる）の4種で、条件と出力契約の正はスクリプトのヘッダーコメント。`tests/test-check-skill-frontmatter.sh` は実リポジトリの skills/ の検査を兼ねる。Edit / Write / NotebookEdit で SKILL.md を保存すると `ccx hook skill-frontmatter-check`（PostToolUse フック）が同じスクリプトをそのファイルに走らせる。手で実行するのは、skills/ 全体をまとめて検査するときと、Bash 経由（`sed`・heredoc 等）で書き換えたとき（フックが発火しない）。
 
 ## スキル間参照
 

@@ -38,7 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 
 ### 通知チャンネル
-- `preferredNotifChannel` は `"notifications_disabled"` を指定（組み込み通知を停止）。組み込み通知は「タスク完了・permission prompt」で発火しタイプ別フィルタ不可のため、サブエージェントのバックグラウンド起動でターンを終えた一時的アイドルでも鳴り、`idle-notify.sh` のガード（人間の入力が必要な時だけ通知）を素通りする。通知は Notification フック側（端末ベル `terminal-bell.sh`・Ping 音・Slack）に一本化し、ベルもガード済みタイミングで鳴る（過去の `"terminal_bell"` 指定はこの素通り問題があったため撤去）
+- `preferredNotifChannel` は `"notifications_disabled"` を指定（組み込み通知を停止）。組み込み通知は「タスク完了・permission prompt」で発火しタイプ別フィルタ不可のため、サブエージェントのバックグラウンド起動でターンを終えた一時的アイドルでも鳴り、`ccx hook idle-notify` のガード（人間の入力が必要な時だけ通知）を素通りする。通知は Notification フック側（端末ベル `ccx hook terminal-bell`・Ping 音・Slack）に一本化し、ベルもガード済みタイミングで鳴る（過去の `"terminal_bell"` 指定はこの素通り問題があったため撤去）
 - なお、さらに過去の `"iterm2"` 固定は Ghostty + tmux で通知が届かないバグ（[anthropics/claude-code#19979](https://github.com/anthropics/claude-code/issues/19979)）の回避策で、v2.1.78 の修正（Ghostty popup の tmux パススルー対応）により撤去済み
 - OSC 系の通知・progress bar が tmux 越しに届くには `.tmux.conf` の `allow-passthrough all` が前提（`on` だと非表示 window のペインからの通知が破棄される）。`terminalSequence` 経由の BEL はパススルー不要（tmux 自身が bell として解釈し window flag を立てる）
 
