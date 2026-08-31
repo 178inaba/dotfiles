@@ -2,12 +2,12 @@ package worktreeguard
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -22,9 +22,7 @@ type trees struct {
 // depends on — which tree owns a path — is entirely git's answer.
 func build(t *testing.T) trees {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
+	hooktest.SkipWithoutGit(t)
 
 	base := t.TempDir()
 	w := trees{
@@ -40,29 +38,29 @@ func build(t *testing.T) trees {
 	w.other = filepath.Join(w.main, ".claude", "worktrees", "other-wt")
 	w.manual = filepath.Join(w.main, "wt-manual")
 
-	initRepo(t, w.main)
-	write(t, filepath.Join(w.main, "api", "handler.go"), "package api\n")
-	git(t, w.main, "add", ".")
-	git(t, w.main, "commit", "-qm", "api")
+	hooktest.InitRepo(t, w.main)
+	hooktest.Write(t, filepath.Join(w.main, "api", "handler.go"), "package api\n")
+	hooktest.Git(t, w.main, "add", ".")
+	hooktest.Git(t, w.main, "commit", "-qm", "api")
 
-	git(t, w.main, "worktree", "add", "-b", "wt-feature", w.worktree)
-	git(t, w.main, "worktree", "add", "-b", "wt-other", w.other)
-	git(t, w.main, "worktree", "add", "-b", "wt-manual", w.manual)
-	git(t, w.main, "worktree", "add", "-b", "wt-ext", w.external)
+	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-feature", w.worktree)
+	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-other", w.other)
+	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-manual", w.manual)
+	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-ext", w.external)
 
-	write(t, filepath.Join(w.outside, "notes.md"), "notes\n")
+	hooktest.Write(t, filepath.Join(w.outside, "notes.md"), "notes\n")
 	// A sibling whose name merely starts with the repository's: a guard that
 	// compares strings rather than paths would claim this one.
-	write(t, filepath.Join(base, "repo-extra", "x.txt"), "x\n")
-	write(t, filepath.Join(base, "unrelated.txt"), "x\n")
+	hooktest.Write(t, filepath.Join(base, "repo-extra", "x.txt"), "x\n")
+	hooktest.Write(t, filepath.Join(base, "unrelated.txt"), "x\n")
 	if err := os.Symlink(w.worktree, w.link); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
 
 	bare := filepath.Join(base, "bare.git")
-	git(t, base, "clone", "-q", "--bare", w.main, bare)
-	git(t, bare, "worktree", "add", "-b", "wt-bare1", w.bareOne)
-	git(t, bare, "worktree", "add", "-b", "wt-bare2", w.bareTwo)
+	hooktest.Git(t, base, "clone", "-q", "--bare", w.main, bare)
+	hooktest.Git(t, bare, "worktree", "add", "-b", "wt-bare1", w.bareOne)
+	hooktest.Git(t, bare, "worktree", "add", "-b", "wt-bare2", w.bareTwo)
 	return w
 }
 
@@ -147,13 +145,12 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var stderr strings.Builder
-			got := New(runner.Exec{}).Run(t.Context(), tt.in, &stderr)
+			got := New(runner.Exec{}).Run(t.Context(), tt.in)
 			if got.Decision != tt.want {
-				t.Errorf("Decision = %d, want %d (stderr=%q)", got.Decision, tt.want, stderr.String())
+				t.Errorf("Decision = %d, want %d (message=%q)", got.Decision, tt.want, got.Message)
 			}
-			if tt.want == hooks.Allow && stderr.Len() != 0 {
-				t.Errorf("stderr = %q, want empty", stderr.String())
+			if tt.want == hooks.Allow && got.Message != "" {
+				t.Errorf("message = %q, want none", got.Message)
 			}
 		})
 	}
@@ -189,10 +186,9 @@ func TestBlockMessageSuggestsTheWorktreePath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var stderr strings.Builder
-			New(runner.Exec{}).Run(t.Context(), tt.in, &stderr)
-			if !strings.Contains(stderr.String(), tt.suffix) {
-				t.Errorf("stderr does not suggest %q:\n%s", tt.suffix, stderr.String())
+			got := New(runner.Exec{}).Run(t.Context(), tt.in)
+			if !strings.Contains(got.Message, tt.suffix) {
+				t.Errorf("message does not suggest %q:\n%s", tt.suffix, got.Message)
 			}
 		})
 	}
@@ -204,35 +200,4 @@ func edit(target, dir string) hooks.Payload {
 
 func writeTool(target, dir string) hooks.Payload {
 	return hooks.Payload{ToolName: "Write", FilePath: target, Dir: dir}
-}
-
-func initRepo(t *testing.T, dir string) {
-	t.Helper()
-	write(t, filepath.Join(dir, "file.txt"), "x\n")
-	git(t, dir, "init", "-q")
-	git(t, dir, "config", "user.email", "test@example.com")
-	git(t, dir, "config", "user.name", "test")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-qm", "first")
-}
-
-func write(t *testing.T, name, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-}
-
-func git(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	// Set on the command rather than with t.Setenv so the test stays parallel.
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
 }

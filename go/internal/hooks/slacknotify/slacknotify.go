@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,21 +48,22 @@ type Hook struct{ deps Deps }
 func New(d Deps) Hook { return Hook{deps: d} }
 
 // Run implements the hook contract.
-func (h Hook) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks.Result {
-	if err := h.post(ctx, in); err != nil {
-		fmt.Fprintf(stderr, "ccx: the Slack notification was not delivered: %v\n", err)
-		return hooks.Result{Decision: hooks.Fail}
+func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
+	if err := h.Post(ctx, in); err != nil {
+		return hooks.Result{Decision: hooks.Fail, Message: Undelivered(err) + "\n"}
 	}
 	return hooks.Result{}
 }
 
-// Post sends the payload's message, for idle-notify, which notifies and then
-// rings the bell rather than being a hook of its own.
-func Post(ctx context.Context, d Deps, in hooks.Payload) error {
-	return Hook{deps: d}.post(ctx, in)
+// Undelivered says a notification did not arrive, in the one wording both this
+// hook and idle-notify report it with.
+func Undelivered(err error) string {
+	return fmt.Sprintf("ccx: the Slack notification was not delivered: %v", err)
 }
 
-func (h Hook) post(ctx context.Context, in hooks.Payload) error {
+// Post sends the payload's message. It is exported for idle-notify, which
+// notifies and then rings the bell rather than being a hook of its own.
+func (h Hook) Post(ctx context.Context, in hooks.Payload) error {
 	webhook := h.deps.Getenv(webhookEnv)
 	// A payload with no message is every event that is not a notification, so
 	// there is nothing here to report.
@@ -118,11 +118,12 @@ func (h Hook) project(ctx context.Context, dir string) string {
 	if err != nil {
 		return label(dir, "", "")
 	}
+	// Two paths, in the order they were asked for.
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) < 2 {
 		return label(dir, "", "")
 	}
-	return label(dir, lines[0], lines[len(lines)-1])
+	return label(dir, lines[0], lines[1])
 }
 
 // label names the project a notification came from.

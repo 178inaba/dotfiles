@@ -36,9 +36,9 @@ func TestRunAgainstTheRealChecker(t *testing.T) {
 		skill string
 		lines []string
 		want  hooks.Decision
-		// stderr is what the message has to carry, and is only checked when the
+		// message is what the report has to carry, and is only checked when the
 		// decision is to block.
-		stderr []string
+		message []string
 	}{
 		{
 			name: "a quoted value is fine", skill: "clean",
@@ -48,27 +48,27 @@ func TestRunAgainstTheRealChecker(t *testing.T) {
 			// The violation that went unnoticed in two files and is the reason
 			// this hook exists.
 			name: "an unquoted flow value", skill: "seqhint",
-			lines:  []string{"name: seqhint", "description: a skill", "argument-hint: [--yes]"},
-			want:   hooks.Block,
-			stderr: []string{"unquoted_flow", "argument-hint", "line 4"},
+			lines:   []string{"name: seqhint", "description: a skill", "argument-hint: [--yes]"},
+			want:    hooks.Block,
+			message: []string{"unquoted_flow", "argument-hint", "line 4"},
 		},
 		{
 			name: "frontmatter that will not parse", skill: "badyaml",
-			lines:  []string{"name: badyaml", "description: a skill", "argument-hint: [<a>] [--b]"},
-			want:   hooks.Block,
-			stderr: []string{"invalid_yaml"},
+			lines:   []string{"name: badyaml", "description: a skill", "argument-hint: [<a>] [--b]"},
+			want:    hooks.Block,
+			message: []string{"invalid_yaml"},
 		},
 		{
 			name: "a missing description", skill: "nodesc",
-			lines:  []string{"name: nodesc"},
-			want:   hooks.Block,
-			stderr: []string{"missing_field", "description"},
+			lines:   []string{"name: nodesc"},
+			want:    hooks.Block,
+			message: []string{"missing_field", "description"},
 		},
 		{
 			name: "a name that does not match the directory", skill: "mismatched",
-			lines:  []string{"name: something-else", "description: a skill"},
-			want:   hooks.Block,
-			stderr: []string{"name_mismatch", "mismatched", "something-else"},
+			lines:   []string{"name: something-else", "description: a skill"},
+			want:    hooks.Block,
+			message: []string{"name_mismatch", "mismatched", "something-else"},
 		},
 	}
 
@@ -85,20 +85,19 @@ func TestRunAgainstTheRealChecker(t *testing.T) {
 				t.Fatalf("WriteFile: %v", err)
 			}
 
-			var stderr strings.Builder
-			got := New(realDeps(path)).Run(t.Context(), edit(target), &stderr)
+			got := New(realDeps(path)).Run(t.Context(), edit(target))
 			if got.Decision != tt.want {
-				t.Fatalf("Decision = %d, want %d (stderr=%q)", got.Decision, tt.want, stderr.String())
+				t.Fatalf("Decision = %d, want %d (message=%q)", got.Decision, tt.want, got.Message)
 			}
 			if tt.want == hooks.Allow {
-				if stderr.Len() != 0 {
-					t.Errorf("stderr = %q, want empty", stderr.String())
+				if got.Message != "" {
+					t.Errorf("message = %q, want none", got.Message)
 				}
 				return
 			}
-			for _, want := range append(tt.stderr, target) {
-				if !strings.Contains(stderr.String(), want) {
-					t.Errorf("stderr does not contain %q:\n%s", want, stderr.String())
+			for _, want := range append(tt.message, target) {
+				if !strings.Contains(got.Message, want) {
+					t.Errorf("message does not contain %q:\n%s", want, got.Message)
 				}
 			}
 		})
@@ -106,17 +105,17 @@ func TestRunAgainstTheRealChecker(t *testing.T) {
 
 	t.Run("a file that is not there", func(t *testing.T) {
 		t.Parallel()
-		var stderr strings.Builder
 		target := filepath.Join(t.TempDir(), "ghost", "SKILL.md")
-		if got := New(realDeps(path)).Run(t.Context(), edit(target), &stderr); got.Decision != hooks.Block {
+		got := New(realDeps(path)).Run(t.Context(), edit(target))
+		if got.Decision != hooks.Block {
 			t.Fatalf("Decision = %d, want %d", got.Decision, hooks.Block)
 		}
-		if !strings.Contains(stderr.String(), "was not checked") {
-			t.Errorf("stderr does not say the check did not happen:\n%s", stderr.String())
+		if !strings.Contains(got.Message, "was not checked") {
+			t.Errorf("message does not say the check did not happen:\n%s", got.Message)
 		}
 	})
 }
 
 func realDeps(path string) Deps {
-	return Deps{Runner: runner.Exec{}, Script: func() (string, bool) { return path, true }}
+	return Deps{Runner: runner.Exec{}, Script: path}
 }

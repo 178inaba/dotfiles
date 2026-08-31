@@ -21,9 +21,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
-	"io"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
@@ -35,19 +33,19 @@ import (
 const name = "SKILL.md"
 
 // checker is the script, relative to the repository root.
-var checker = filepath.Join("claude", ".claude", "skills", "skill-authoring", "scripts", "check-skill-frontmatter.sh")
+const checker = "claude/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh"
 
 // Deps are the seams. Use Default for the real ones.
 type Deps struct {
 	Runner runner.Runner
-	// Script locates the checker. False means the repository could not be
-	// found, which is fail-closed here: see Run.
-	Script func() (string, bool)
+	// Script is the checker's path, empty when the repository could not be
+	// found — which is fail-closed here: see Run.
+	Script string
 }
 
 // Default wires the real implementations.
 func Default() Deps {
-	return Deps{Runner: runner.Exec{}, Script: script}
+	return Deps{Runner: runner.Exec{}, Script: script()}
 }
 
 // script derives the checker's path from the repository the configuration is
@@ -58,12 +56,12 @@ func Default() Deps {
 // there. A Go binary has no file to walk up from, so it asks where the
 // repository is; the consequence is that the "Re-check with:" guidance always
 // names the repository copy, which is the one worth editing anyway.
-func script() (string, bool) {
+func script() string {
 	repo, ok := selfbuild.Repo()
 	if !ok {
-		return "", false
+		return ""
 	}
-	return filepath.Join(repo, checker), true
+	return filepath.Join(repo, checker)
 }
 
 // Hook checks the file that was just written.
@@ -79,10 +77,8 @@ func New(d Deps) Hook { return Hook{deps: d} }
 // that found nothing wrong. Everything before the check — the wrong tool, a
 // file that is not a SKILL.md, a payload it cannot read — fails open, since
 // none of those is a check that failed.
-func (h Hook) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks.Result {
-	switch in.ToolName {
-	case "Edit", "Write", "NotebookEdit":
-	default:
+func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
+	if !hooks.IsEditTool(in.ToolName) {
 		return hooks.Result{}
 	}
 	target := in.FilePath
@@ -99,44 +95,47 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks
 		target = filepath.Join(in.Dir, target)
 	}
 
-	path, ok := h.deps.Script()
-	if !ok {
-		fmt.Fprintf(stderr, "The frontmatter of %s was not checked.\n\n"+
+	path := h.deps.Script
+	if path == "" {
+		// Nothing to name means no command to suggest, so the guidance that
+		// usually follows is left out rather than printed with a hole in it.
+		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n"+
 			"This repository could not be located from ~/.claude/settings.json,\n"+
-			"so there was nothing to run the check with.\n", target)
-		return hooks.Result{Decision: hooks.Block}
+			"so there was nothing to run the check with.\n", target))
 	}
 
 	// bash rather than the script directly: it carries no execute bit, and
 	// every script in this repository is started this way.
 	out, err := h.deps.Runner.Run(ctx, runner.Command{Name: "bash", Args: []string{path, target}})
 	if err != nil {
-		fmt.Fprintf(stderr, "The frontmatter of %s was not checked.\n\n"+
+		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n"+
 			"check-skill-frontmatter.sh failed before it could inspect the file:\n%s\n"+
-			"Fix the reported prerequisite.\n", target, indent(runner.Stderr(err)))
-		recheck(stderr, path, target)
-		return hooks.Result{Decision: hooks.Block}
+			"Fix the reported prerequisite.\n", target, indent(runner.Stderr(err))) +
+			recheck(path, target))
 	}
 
 	var result struct {
 		Violations []jsontext.Value `json:"violations"`
 	}
 	if err := json.Unmarshal(out, &result); err != nil {
-		fmt.Fprintf(stderr, "The frontmatter of %s was not checked.\n\n"+
-			"check-skill-frontmatter.sh answered with something that is not its own output:\n  %v\n", target, err)
-		recheck(stderr, path, target)
-		return hooks.Result{Decision: hooks.Block}
+		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n"+
+			"check-skill-frontmatter.sh answered with something that is not its own output:\n  %v\n", target, err) +
+			recheck(path, target))
 	}
 	if len(result.Violations) == 0 {
 		return hooks.Result{}
 	}
 
-	fmt.Fprintf(stderr, "This SKILL.md has invalid frontmatter:\n\n")
+	var b strings.Builder
+	b.WriteString("This SKILL.md has invalid frontmatter:\n\n")
 	for _, raw := range result.Violations {
-		fmt.Fprintf(stderr, "  %s: %s\n", target, describe(raw))
+		fmt.Fprintf(&b, "  %s: %s\n", target, describe(raw))
 	}
-	recheck(stderr, path, target)
-	return hooks.Result{Decision: hooks.Block}
+	return blocked(b.String() + recheck(path, target))
+}
+
+func blocked(message string) hooks.Result {
+	return hooks.Result{Decision: hooks.Block, Message: message}
 }
 
 // violation is one finding. The checker's own header is the contract; the
@@ -174,23 +173,29 @@ func describe(raw jsontext.Value) string {
 	}
 }
 
-// recheck prints the command that runs the same check again. It names the
-// script that was actually invoked, so that editing the checker itself does not
-// leave the guidance pointing at a stale stowed copy.
-func recheck(w io.Writer, path, target string) {
-	fmt.Fprintf(w, "\nRe-check with:\n  bash %s %s\n", shellQuote(path), shellQuote(target))
+// recheck is the command that runs the same check again. It names the script
+// that was actually invoked, so that editing the checker itself does not leave
+// the guidance pointing at a stale stowed copy.
+func recheck(path, target string) string {
+	return fmt.Sprintf("\nRe-check with:\n  bash %s %s\n", shellQuote(path), shellQuote(target))
 }
-
-// bare is every character a shell leaves alone.
-var bare = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
 
 // shellQuote makes a path safe to paste back into a shell, and leaves an
 // ordinary one alone so the guidance stays readable.
 func shellQuote(s string) string {
-	if s != "" && bare.MatchString(s) {
+	if s != "" && !strings.ContainsFunc(s, needsQuote) {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// needsQuote reports whether a character is one a shell would not leave alone.
+func needsQuote(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	}
+	return !strings.ContainsRune(`_@%+=:,./-`, r)
 }
 
 // indent shifts the checker's own diagnostics under the line introducing them.

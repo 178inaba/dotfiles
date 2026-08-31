@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 
@@ -15,16 +14,12 @@ import (
 // stub is a hook whose answer the test chooses.
 type stub struct {
 	result hooks.Result
-	stderr string
 	// got is the payload the dispatcher handed over.
 	got hooks.Payload
 }
 
-func (s *stub) Run(_ context.Context, p hooks.Payload, stderr io.Writer) hooks.Result {
+func (s *stub) Run(_ context.Context, p hooks.Payload) hooks.Result {
 	s.got = p
-	if s.stderr != "" {
-		_, _ = io.WriteString(stderr, s.stderr)
-	}
 	return s.result
 }
 
@@ -62,21 +57,15 @@ func TestRunHook(t *testing.T) {
 			bareStderr: true,
 		},
 		{
-			name: "blocking exits 2 with only the hook's own message",
-			hook: stub{
-				result: hooks.Result{Decision: hooks.Block},
-				stderr: "Blocked: no.\n",
-			},
+			name:       "blocking exits 2 with only the hook's own message",
+			hook:       stub{result: hooks.Result{Decision: hooks.Block, Message: "Blocked: no.\n"}},
 			want:       exitCode(hooks.Block),
 			stderr:     []string{"Blocked: no.\n"},
 			bareStdout: true,
 		},
 		{
-			name: "failing exits 1",
-			hook: stub{
-				result: hooks.Result{Decision: hooks.Fail},
-				stderr: "webhook refused\n",
-			},
+			name:       "failing exits 1",
+			hook:       stub{result: hooks.Result{Decision: hooks.Fail, Message: "webhook refused\n"}},
 			want:       exitCode(hooks.Fail),
 			stderr:     []string{"webhook refused\n"},
 			bareStdout: true,
@@ -100,11 +89,8 @@ func TestRunHook(t *testing.T) {
 			bareStderr: true,
 		},
 		{
-			name: "a build that just failed reaches a blocking hook through stderr",
-			hook: stub{
-				result: hooks.Result{Decision: hooks.Block},
-				stderr: "Blocked: no.\n",
-			},
+			name:       "a build that just failed reaches a blocking hook through stderr",
+			hook:       stub{result: hooks.Result{Decision: hooks.Block, Message: "Blocked: no.\n"}},
 			build:      failed,
 			want:       exitCode(hooks.Block),
 			stderr:     []string{"Blocked: no.\n", compileError},
@@ -201,6 +187,16 @@ func TestHookCommand(t *testing.T) {
 			args:       []string{"hook", "subagent-tracker", "--start", "--stop"},
 			wantCode:   1,
 			wantStderr: []string{"were all set", "Usage:"},
+			bareStdout: true,
+		},
+		{
+			// A registration that lost its flag would otherwise track nothing
+			// and exit 0, and the only symptom would be idle-notify going
+			// quiet — the failure the tracker exists to prevent.
+			name:       "a hook asked for no event at all fails",
+			args:       []string{"hook", "subagent-tracker"},
+			wantCode:   1,
+			wantStderr: []string{"at least one of the flags", "Usage:"},
 			bareStdout: true,
 		},
 		{

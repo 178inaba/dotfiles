@@ -11,7 +11,6 @@ package worktreeguard
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,10 +49,8 @@ func New(r runner.Runner) Hook { return Hook{runner: r} }
 // Every question it cannot answer lets the call through. A guard that starts
 // blocking edits because git was unavailable would be worse than the accident
 // it prevents.
-func (h Hook) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks.Result {
-	switch in.ToolName {
-	case "Edit", "Write", "NotebookEdit":
-	default:
+func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
+	if !hooks.IsEditTool(in.ToolName) {
 		return hooks.Result{}
 	}
 	// The edit tools promise an absolute path. A relative one means this is
@@ -83,8 +80,10 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks
 	}
 
 	suggested := filepath.Join(rootPhys, strings.TrimPrefix(targetPhys, owner+"/"))
-	fmt.Fprintf(stderr, message, in.ToolName, rootPhys, in.FilePath, owner, label, suggested)
-	return hooks.Result{Decision: hooks.Block}
+	return hooks.Result{
+		Decision: hooks.Block,
+		Message:  fmt.Sprintf(message, in.ToolName, rootPhys, in.FilePath, owner, label, suggested),
+	}
 }
 
 // linkedWorktree returns the root of the tree the session is standing in, and

@@ -15,9 +15,9 @@ package noopwait
 import (
 	"context"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 )
@@ -36,7 +36,12 @@ import (
 // and no-ops of other shapes such as pwd or git status, are out of scope: if
 // the shape changes, the answer is to report it to the harness rather than to
 // chase it here.
-var noOpWait = func() *regexp.Regexp {
+//
+// Compiled on first use rather than at init: this is the largest package
+// initialiser in the binary, and every ccx invocation — nine hooks and the
+// status line — would otherwise pay for it to answer one hook's question about
+// Bash calls.
+var noOpWait = sync.OnceValue(func() *regexp.Regexp {
 	const (
 		duration = `([0-9]+(\.[0-9]+)?|\.[0-9]+)[smh]?`
 		word     = `[A-Za-z0-9_-]{1,24}`
@@ -44,7 +49,7 @@ var noOpWait = func() *regexp.Regexp {
 	token := `(` + word + `|'` + word + `'|"` + word + `")`
 	noOp := `((echo|printf)( ` + token + `)?|true|:)`
 	return regexp.MustCompile(`^(sleep ` + duration + `( ?; ?` + noOp + `)?|` + noOp + `)$`)
-}()
+})
 
 // message is what the model is told instead. Blocking without saying what to do
 // instead only moves the loop to another no-op.
@@ -69,7 +74,7 @@ type Hook struct{}
 func New() Hook { return Hook{} }
 
 // Run implements the hook contract.
-func (Hook) Run(_ context.Context, in hooks.Payload, stderr io.Writer) hooks.Result {
+func (Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 	if in.ToolName != "Bash" || in.Command == "" {
 		return hooks.Result{}
 	}
@@ -77,10 +82,9 @@ func (Hook) Run(_ context.Context, in hooks.Payload, stderr io.Writer) hooks.Res
 	// its own line in a longer script still leaves the other lines to fail the
 	// anchors, while splitting `sleep 1;` from `echo w` across a newline stops
 	// being a way around them.
-	if !noOpWait.MatchString(strings.Join(strings.Fields(in.Command), " ")) {
+	if !noOpWait().MatchString(strings.Join(strings.Fields(in.Command), " ")) {
 		return hooks.Result{}
 	}
 
-	fmt.Fprintf(stderr, message, in.Command)
-	return hooks.Result{Decision: hooks.Block}
+	return hooks.Result{Decision: hooks.Block, Message: fmt.Sprintf(message, in.Command)}
 }

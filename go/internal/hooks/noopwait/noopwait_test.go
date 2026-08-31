@@ -47,12 +47,8 @@ func TestRunAllows(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var stderr strings.Builder
-			if got := New().Run(t.Context(), tt.in, &stderr); got.Decision != hooks.Allow {
-				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Allow)
-			}
-			if stderr.Len() != 0 {
-				t.Errorf("stderr = %q, want empty", stderr.String())
+			if got := New().Run(t.Context(), tt.in); got.Decision != hooks.Allow || got.Message != "" {
+				t.Errorf("Result = %+v, want an allow with no message", got)
 			}
 		})
 	}
@@ -91,12 +87,12 @@ func TestRunBlocks(t *testing.T) {
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
 
-			var stderr strings.Builder
-			if got := New().Run(t.Context(), bash(command), &stderr); got.Decision != hooks.Block {
+			got := New().Run(t.Context(), bash(command))
+			if got.Decision != hooks.Block {
 				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Block)
 			}
-			if !strings.Contains(stderr.String(), command) {
-				t.Errorf("stderr does not quote the command:\n%s", stderr.String())
+			if !strings.Contains(got.Message, command) {
+				t.Errorf("message does not quote the command:\n%s", got.Message)
 			}
 		})
 	}
@@ -107,16 +103,15 @@ func TestRunBlocks(t *testing.T) {
 func TestBlockMessage(t *testing.T) {
 	t.Parallel()
 
-	var stderr strings.Builder
-	New().Run(t.Context(), bash("echo waiting"), &stderr)
+	got := New().Run(t.Context(), bash("echo waiting"))
 
 	for _, want := range []string{
 		"ターンを終えて",
 		"別の no-op コマンドで置き換える",
 		"Bash ツールの timeout パラメータ",
 	} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Errorf("stderr does not contain %q:\n%s", want, stderr.String())
+		if !strings.Contains(got.Message, want) {
+			t.Errorf("message does not contain %q:\n%s", want, got.Message)
 		}
 	}
 }

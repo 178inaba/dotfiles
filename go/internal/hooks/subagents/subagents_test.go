@@ -4,12 +4,17 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/state"
+	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+)
+
+// The pids fakeSignaller reports on.
+const (
+	livePID = "111"
+	deadPID = "222"
 )
 
 func TestRun(t *testing.T) {
@@ -80,13 +85,6 @@ func TestRun(t *testing.T) {
 			mode: SessionEnd, in: hooks.Payload{SessionID: session},
 			wantMarkers: nil,
 		},
-		{
-			// A registration with no flag, and the payload a broken input
-			// produces: neither is about a subagent.
-			name: "no mode does nothing",
-			mode: None, in: hooks.Payload{SessionID: session, AgentID: "a1"},
-			wantMarkers: started,
-		},
 	}
 
 	for _, tt := range tests {
@@ -96,28 +94,24 @@ func TestRun(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "ccx")
 			seed(t, dir, session, started)
 
-			var stderr strings.Builder
 			h := New(Deps{
 				Dir:     dir,
 				Runner:  fixedRunner{out: tt.parent},
 				Getppid: func() int { return 4242 },
 			}, tt.mode)
 
-			if got := h.Run(t.Context(), tt.in, &stderr); got.Decision != hooks.Allow {
-				t.Fatalf("Decision = %d, want %d (stderr=%q)", got.Decision, hooks.Allow, stderr.String())
-			}
-			if stderr.Len() != 0 {
-				t.Errorf("stderr = %q, want empty", stderr.String())
+			if got := h.Run(t.Context(), tt.in); got.Decision != hooks.Allow || got.Message != "" {
+				t.Fatalf("Result = %+v, want an allow with no message", got)
 			}
 
-			s := open(t, dir)
-			got := s.Names(state.MarkerDir(session))
+			s := hooktest.OpenStore(t, dir)
+			got := s.Names(markerDir(session))
 			slices.Sort(got)
 			if !slices.Equal(got, tt.wantMarkers) {
 				t.Errorf("markers = %v, want %v", got, tt.wantMarkers)
 			}
 			if tt.mode == Start && tt.in.AgentID != "" {
-				if watched, _ := s.Read(state.Marker(session, tt.in.AgentID)); watched != tt.wantWatched {
+				if watched, _ := s.Read(marker(session, tt.in.AgentID)); watched != tt.wantWatched {
 					t.Errorf("marker contents = %q, want %q", watched, tt.wantWatched)
 				}
 			}
@@ -127,22 +121,12 @@ func TestRun(t *testing.T) {
 
 func seed(t *testing.T, dir, session string, agents []string) {
 	t.Helper()
-	s := open(t, dir)
+	s := hooktest.OpenStore(t, dir)
 	for _, a := range agents {
-		if err := s.Write(state.Marker(session, a), ""); err != nil {
+		if err := s.Write(marker(session, a), ""); err != nil {
 			t.Fatalf("Write(%s): %v", a, err)
 		}
 	}
-}
-
-func open(t *testing.T, dir string) *state.Store {
-	t.Helper()
-	s, err := state.Open(dir)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
 }
 
 // fixedRunner answers ps with one name, or fails when it has none.
@@ -154,3 +138,55 @@ func (f fixedRunner) Run(context.Context, runner.Command) ([]byte, error) {
 	}
 	return []byte(f.out + "\n"), nil
 }
+
+func TestBusy(t *testing.T) {
+	t.Parallel()
+
+	const session = "s1"
+	tests := []struct {
+		name string
+		// markers is agent id to the pid it records.
+		markers map[string]string
+		want    bool
+	}{
+		{name: "no markers at all", markers: nil},
+		{name: "a running agent", markers: map[string]string{"a1": livePID}, want: true},
+		{
+			// A marker whose process is gone is what a crash leaves behind.
+			// Honouring it would keep the session quiet for good.
+			name: "the residue of a crashed session", markers: map[string]string{"a1": deadPID},
+		},
+		{
+			name: "a marker recording no pid", markers: map[string]string{"a1": ""}, want: true,
+		},
+		{
+			name:    "one running agent among stale ones",
+			markers: map[string]string{"a1": deadPID, "a2": livePID}, want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := filepath.Join(t.TempDir(), "ccx")
+			s := hooktest.OpenStore(t, dir)
+			for agent, pid := range tt.markers {
+				if err := s.Write(marker(session, agent), pid); err != nil {
+					t.Fatalf("Write(%s): %v", agent, err)
+				}
+			}
+
+			d := Deps{Dir: dir, Signaller: fakeSignaller{}}
+			if got := Busy(d, session); got != tt.want {
+				t.Errorf("Busy = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+// fakeSignaller knows one live process.
+type fakeSignaller struct{}
+
+func (fakeSignaller) Terminate(int) error { return nil }
+func (fakeSignaller) Alive(pid int) bool  { return pid == 111 }

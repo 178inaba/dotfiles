@@ -14,11 +14,12 @@ package caffeinate
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
@@ -35,25 +36,51 @@ const (
 	lease = 30 * time.Minute
 	// bridgeEnv is set while the session is driven through Remote Control.
 	bridgeEnv = "CLAUDE_CODE_BRIDGE_SESSION_ID"
+
+	// dir holds one pid file per running caffeinate, and running is the suffix
+	// they carry until the subagent that owns one finishes; see Stop.Run.
+	dir     = "caffeinate"
+	running = ".pid"
+	done    = ".done"
 )
+
+// sessionPID names the pid file of the caffeinate held for a whole session.
+func sessionPID(session string) string { return path.Join(dir, session+running) }
+
+// agentPID names the pid file of the caffeinate held for one running subagent.
+//
+// The session and the agent are joined by a hyphen with nothing to tell them
+// apart, so a session literally named "<other session>-<agent>" would collide
+// with that agent's file. Claude Code issues both as fixed-length ids, which
+// leaves no way to write one that is another with an agent appended.
+func agentPID(session, agent string) string {
+	return path.Join(dir, session+"-"+agent+running)
+}
+
+// agentDone names the same file after the subagent has finished.
+func agentDone(session, agent string) string {
+	return strings.TrimSuffix(agentPID(session, agent), running) + done
+}
+
+// Proc is everything these hooks need of the machine's processes.
+type Proc interface {
+	runner.Runner
+	runner.Detacher
+	runner.Signaller
+}
 
 // Deps are the seams. Use Default for the real ones.
 type Deps struct {
 	// Dir is the state tree; see state.Dir.
-	Dir       string
-	Runner    runner.Runner
-	Detacher  runner.Detacher
-	Signaller runner.Signaller
-	Getppid   func() int
-	Getenv    func(string) string
+	Dir     string
+	Proc    Proc
+	Getppid func() int
+	Getenv  func(string) string
 }
 
 // Default wires the real implementations.
 func Default() Deps {
-	return Deps{
-		Dir: state.Dir, Runner: runner.Exec{}, Detacher: runner.Exec{},
-		Signaller: runner.Exec{}, Getppid: os.Getppid, Getenv: os.Getenv,
-	}
+	return Deps{Dir: state.Dir, Proc: runner.Exec{}, Getppid: os.Getppid, Getenv: os.Getenv}
 }
 
 // Start begins or renews the suppression.
@@ -64,30 +91,39 @@ type Start struct{ deps Deps }
 func NewStart(d Deps) Start { return Start{deps: d} }
 
 // Run implements the hook contract.
-func (s Start) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks.Result {
+func (s Start) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 	store, err := state.Open(s.deps.Dir)
 	if err != nil {
-		return failed(stderr, err)
+		return failed(err)
 	}
 	defer store.Close()
 
-	name := state.SessionPID(in.SessionID)
+	name := sessionPID(in.SessionID)
 	if in.AgentID != "" {
-		name = state.AgentPID(in.SessionID, in.AgentID)
+		name = agentPID(in.SessionID, in.AgentID)
 	}
+	old, _ := store.Read(name)
 
+	// Two ps invocations, and a fork costs more than everything else this hook
+	// does put together. They ask independent questions, so they wait together.
+	var args []string
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		args = s.args(ctx, in)
+	}()
 	// Renewal is a replacement: the old process holds the remainder of its own
 	// lease and nothing can extend it in place.
-	if pid, ok := store.Read(name); ok {
-		terminate(ctx, s.deps, pid)
-	}
+	terminate(ctx, s.deps, old)
+	wg.Wait()
 
-	pid, err := s.deps.Detacher.Detach(bin, s.args(ctx, in)...)
+	pid, err := s.deps.Proc.Detach(bin, args...)
 	if err != nil {
-		return failed(stderr, err)
+		return failed(err)
 	}
 	if err := store.Write(name, strconv.Itoa(pid)); err != nil {
-		return failed(stderr, err)
+		return failed(err)
 	}
 	return hooks.Result{}
 }
@@ -99,7 +135,7 @@ func (s Start) args(ctx context.Context, in hooks.Payload) []string {
 	// -w ties the caffeinate to Claude Code itself, so a crash or a SIGKILL
 	// takes it down too. Only when the parent really is Claude Code: pointing
 	// it at a short-lived parent would end the suppression immediately.
-	if pid := s.deps.Getppid(); s.isClaude(ctx, pid) {
+	if pid := s.deps.Getppid(); hooks.IsClaude(ctx, s.deps.Proc, pid) {
 		args = append(args, "-w", strconv.Itoa(pid))
 	}
 
@@ -112,21 +148,6 @@ func (s Start) args(ctx context.Context, in hooks.Payload) []string {
 		args = append(args, "-t", strconv.Itoa(int(lease.Seconds())))
 	}
 	return args
-}
-
-// isClaude reports whether a process is Claude Code itself.
-func (s Start) isClaude(ctx context.Context, pid int) bool {
-	out, err := s.deps.Runner.Run(ctx, runner.Command{
-		Name: "ps", Args: []string{"-o", "comm=", "-p", strconv.Itoa(pid)},
-	})
-	if err != nil {
-		return false
-	}
-	switch strings.TrimSpace(strings.ReplaceAll(string(out), " ", "")) {
-	case "claude", "node":
-		return true
-	}
-	return false
 }
 
 // Mode is which of the events a stop hook was registered on.
@@ -152,10 +173,17 @@ type Stop struct {
 func NewStop(d Deps, mode Mode) Stop { return Stop{deps: d, mode: mode} }
 
 // Run implements the hook contract.
-func (s Stop) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks.Result {
+func (s Stop) Run(ctx context.Context, in hooks.Payload) hooks.Result {
+	// Decided before the state tree is opened: an event that names no agent
+	// gives this nothing to do, and creating a directory to discover that is
+	// work for nothing on a hook that runs constantly.
+	if s.mode == AgentDone && in.AgentID == "" {
+		return hooks.Result{}
+	}
+
 	store, err := state.Open(s.deps.Dir)
 	if err != nil {
-		return failed(stderr, err)
+		return failed(err)
 	}
 	defer store.Close()
 
@@ -163,13 +191,10 @@ func (s Stop) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks
 		// Marked, not killed. The parent is still reading the agent's result,
 		// and the machine sleeping in the middle of that is the gap this
 		// closes; the parent's next Stop collects it.
-		if in.AgentID == "" {
-			return hooks.Result{}
-		}
-		from := state.AgentPID(in.SessionID, in.AgentID)
+		from := agentPID(in.SessionID, in.AgentID)
 		if _, ok := store.Read(from); ok {
-			if err := store.Rename(from, state.AgentDone(in.SessionID, in.AgentID)); err != nil {
-				return failed(stderr, err)
+			if err := store.Rename(from, agentDone(in.SessionID, in.AgentID)); err != nil {
+				return failed(err)
 			}
 		}
 		return hooks.Result{}
@@ -178,34 +203,40 @@ func (s Stop) Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks
 	// The Remote Control exception, and the one thing that overrides it: at
 	// the end of the session there is no reply left to wait for.
 	if s.mode == Force || s.deps.Getenv(bridgeEnv) == "" {
-		s.collect(ctx, store, state.SessionPID(in.SessionID))
+		s.collect(ctx, store, sessionPID(in.SessionID))
 	}
 
 	// Finished subagents are collected either way: their work is over, so
-	// holding sleep off for them protects nothing.
-	suffixes := []string{".done"}
+	// holding sleep off for them protects nothing. The ones still running keep
+	// theirs unless the session itself is ending.
+	suffixes := []string{done}
 	if s.mode == Force {
-		suffixes = append(suffixes, ".pid")
+		suffixes = append(suffixes, running)
 	}
-	for _, suffix := range suffixes {
-		for _, name := range s.agentFiles(store, in.SessionID, suffix) {
-			s.collect(ctx, store, name)
-		}
+	for _, name := range agentFiles(store, in.SessionID, suffixes) {
+		s.collect(ctx, store, name)
 	}
 	return hooks.Result{}
 }
 
-// agentFiles lists one session's per-agent pid files, sorted so that what a
-// stop does is the same from one run to the next.
-func (s Stop) agentFiles(store *state.Store, session, suffix string) []string {
+// agentFiles lists one session's per-agent pid files, in suffix order and
+// sorted within it, so that what a stop does is the same from one run to the
+// next. The directory is read once however many suffixes are asked for.
+func agentFiles(store *state.Store, session string, suffixes []string) []string {
 	prefix := session + "-"
+	entries := store.Names(dir)
+
 	var found []string
-	for _, name := range store.Names(state.CaffeinateDir) {
-		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix) {
-			found = append(found, state.CaffeinateDir+"/"+name)
+	for _, suffix := range suffixes {
+		var batch []string
+		for _, name := range entries {
+			if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix) {
+				batch = append(batch, path.Join(dir, name))
+			}
 		}
+		slices.Sort(batch)
+		found = append(found, batch...)
 	}
-	slices.Sort(found)
 	return found
 }
 
@@ -232,7 +263,7 @@ func terminate(ctx context.Context, d Deps, pid string) {
 	if pid == "" {
 		return
 	}
-	out, err := d.Runner.Run(ctx, runner.Command{
+	out, err := d.Proc.Run(ctx, runner.Command{
 		Name: "ps", Args: []string{"-o", "command=", "-p", pid},
 	})
 	if err != nil || !strings.Contains(string(out), bin) {
@@ -243,10 +274,12 @@ func terminate(ctx context.Context, d Deps, pid string) {
 		return
 	}
 	// Best effort: the process may have exited between the check and here.
-	_ = d.Signaller.Terminate(n)
+	_ = d.Proc.Terminate(n)
 }
 
-func failed(stderr io.Writer, err error) hooks.Result {
-	fmt.Fprintf(stderr, "ccx: the sleep suppression was not updated: %v\n", err)
-	return hooks.Result{Decision: hooks.Fail}
+func failed(err error) hooks.Result {
+	return hooks.Result{
+		Decision: hooks.Fail,
+		Message:  fmt.Sprintf("ccx: the sleep suppression was not updated: %v\n", err),
+	}
 }

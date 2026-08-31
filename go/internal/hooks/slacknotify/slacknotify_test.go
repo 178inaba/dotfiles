@@ -2,15 +2,12 @@ package slacknotify
 
 import (
 	"context"
-	"encoding/json/v2"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -122,29 +119,28 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			srv := newWebhook(t, http.StatusOK)
+			srv := hooktest.NewWebhook(t, http.StatusOK)
 			webhook := srv.URL
 			if tt.webhook == "-" {
 				webhook = ""
 			}
 
-			var stderr strings.Builder
 			h := New(Deps{
 				Client: srv.Client(),
 				Runner: fixedRunner{toplevel: "/r/myrepo", common: "/r/myrepo/.git"},
 				Getenv: func(string) string { return webhook },
 			})
-			if got := h.Run(t.Context(), tt.in, &stderr); got.Decision != tt.want {
-				t.Errorf("Decision = %d, want %d (stderr=%q)", got.Decision, tt.want, stderr.String())
+			if got := h.Run(t.Context(), tt.in); got.Decision != tt.want {
+				t.Errorf("Decision = %d, want %d (message=%q)", got.Decision, tt.want, got.Message)
 			}
 
 			if tt.text == "" {
-				if got := srv.posts(); len(got) != 0 {
+				if got := srv.Posts(); len(got) != 0 {
 					t.Errorf("posted %q, want nothing", got)
 				}
 				return
 			}
-			got := srv.posts()
+			got := srv.Posts()
 			if len(got) != 1 {
 				t.Fatalf("posted %d times, want once", len(got))
 			}
@@ -160,54 +156,20 @@ func TestRun(t *testing.T) {
 func TestRunReportsARefusedWebhook(t *testing.T) {
 	t.Parallel()
 
-	srv := newWebhook(t, http.StatusForbidden)
-	var stderr strings.Builder
+	srv := hooktest.NewWebhook(t, http.StatusForbidden)
 	h := New(Deps{
 		Client: srv.Client(),
 		Runner: fixedRunner{},
 		Getenv: func(string) string { return srv.URL },
 	})
 
-	got := h.Run(t.Context(), hooks.Payload{Message: "hello"}, &stderr)
+	got := h.Run(t.Context(), hooks.Payload{Message: "hello"})
 	if got.Decision != hooks.Fail {
 		t.Errorf("Decision = %d, want %d", got.Decision, hooks.Fail)
 	}
-	if !strings.Contains(stderr.String(), "403") {
-		t.Errorf("stderr does not name the status:\n%s", stderr.String())
+	if !strings.Contains(got.Message, "403") {
+		t.Errorf("message does not name the status:\n%s", got.Message)
 	}
-}
-
-// webhook records what was posted to it.
-type webhook struct {
-	*httptest.Server
-	mu   sync.Mutex
-	text []string
-}
-
-func newWebhook(t *testing.T, status int) *webhook {
-	t.Helper()
-	w := &webhook{}
-	w.Server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Text string `json:"text"`
-		}
-		if err := json.UnmarshalRead(io.LimitReader(r.Body, 1<<16), &body); err != nil {
-			rw.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.mu.Lock()
-		w.text = append(w.text, body.Text)
-		w.mu.Unlock()
-		rw.WriteHeader(status)
-	}))
-	t.Cleanup(w.Close)
-	return w
-}
-
-func (w *webhook) posts() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.text
 }
 
 // fixedRunner answers every git invocation with the same two paths, or with a

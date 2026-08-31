@@ -40,13 +40,9 @@ func TestRunAllows(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var stderr strings.Builder
-			got := New(deps(&fakeRunner{out: `{"violations":[]}`})).Run(t.Context(), tt.in, &stderr)
-			if got.Decision != hooks.Allow {
-				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Allow)
-			}
-			if stderr.Len() != 0 {
-				t.Errorf("stderr = %q, want empty", stderr.String())
+			got := New(deps(&fakeRunner{out: `{"violations":[]}`})).Run(t.Context(), tt.in)
+			if got.Decision != hooks.Allow || got.Message != "" {
+				t.Errorf("Result = %+v, want an allow with no message", got)
 			}
 		})
 	}
@@ -87,16 +83,15 @@ func TestRunReportsViolations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var stderr strings.Builder
-			got := New(deps(&fakeRunner{out: tt.out})).Run(t.Context(), edit(target), &stderr)
+			got := New(deps(&fakeRunner{out: tt.out})).Run(t.Context(), edit(target))
 			if got.Decision != hooks.Block {
 				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Block)
 			}
 			// The payload's own path, not the checker's <skill>/SKILL.md: that
 			// form does not say where in the repository the file is.
 			for _, want := range append(tt.want, target, "Re-check with:", scriptPath) {
-				if !strings.Contains(stderr.String(), want) {
-					t.Errorf("stderr does not contain %q:\n%s", want, stderr.String())
+				if !strings.Contains(got.Message, want) {
+					t.Errorf("message does not contain %q:\n%s", want, got.Message)
 				}
 			}
 		})
@@ -108,7 +103,7 @@ func TestRunResolvesARelativePath(t *testing.T) {
 
 	r := &fakeRunner{out: `{"violations":[]}`}
 	in := relative("skills/x/SKILL.md", "/r/claude/.claude")
-	if got := New(deps(r)).Run(t.Context(), in, &strings.Builder{}); got.Decision != hooks.Allow {
+	if got := New(deps(r)).Run(t.Context(), in); got.Decision != hooks.Allow {
 		t.Fatalf("Decision = %d, want %d", got.Decision, hooks.Allow)
 	}
 	// Left relative, the checker would look for it from wherever the hook
@@ -139,10 +134,7 @@ func TestRunBlocksWhenTheCheckCannotRun(t *testing.T) {
 			// Nothing to name means no command to suggest, so the guidance is
 			// left out rather than printed with a hole in it.
 			name: "the repository cannot be located",
-			deps: Deps{
-				Runner: &fakeRunner{out: `{"violations":[]}`},
-				Script: func() (string, bool) { return "", false },
-			},
+			deps: Deps{Runner: &fakeRunner{out: `{"violations":[]}`}},
 			want: []string{"was not checked"}, notWant: "Re-check with:",
 		},
 	}
@@ -151,18 +143,17 @@ func TestRunBlocksWhenTheCheckCannotRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var stderr strings.Builder
-			got := New(tt.deps).Run(t.Context(), edit(target), &stderr)
+			got := New(tt.deps).Run(t.Context(), edit(target))
 			if got.Decision != hooks.Block {
 				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Block)
 			}
 			for _, want := range tt.want {
-				if !strings.Contains(stderr.String(), want) {
-					t.Errorf("stderr does not contain %q:\n%s", want, stderr.String())
+				if !strings.Contains(got.Message, want) {
+					t.Errorf("message does not contain %q:\n%s", want, got.Message)
 				}
 			}
-			if tt.notWant != "" && strings.Contains(stderr.String(), tt.notWant) {
-				t.Errorf("stderr contains %q:\n%s", tt.notWant, stderr.String())
+			if tt.notWant != "" && strings.Contains(got.Message, tt.notWant) {
+				t.Errorf("message contains %q:\n%s", tt.notWant, got.Message)
 			}
 		})
 	}
@@ -186,7 +177,7 @@ func TestShellQuote(t *testing.T) {
 }
 
 func deps(r runner.Runner) Deps {
-	return Deps{Runner: r, Script: func() (string, bool) { return scriptPath, true }}
+	return Deps{Runner: r, Script: scriptPath}
 }
 
 func edit(target string) hooks.Payload {

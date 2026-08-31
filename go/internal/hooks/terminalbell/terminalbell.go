@@ -9,7 +9,6 @@ package terminalbell
 
 import (
 	"context"
-	"io"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 )
@@ -24,12 +23,12 @@ type Hook struct{}
 func New() Hook { return Hook{} }
 
 // Run implements the hook contract. It reads no input and cannot fail.
-func (Hook) Run(context.Context, hooks.Payload, io.Writer) hooks.Result {
+func (Hook) Run(context.Context, hooks.Payload) hooks.Result {
 	return hooks.Result{Directive: Ring()}
 }
 
-// Ring is the directive on its own, for idle-notify, which rings the bell as
-// the last step of a notification rather than as a hook of its own.
+// Ring is the directive on its own, for a caller that rings the bell as one
+// step of something larger.
 func Ring() hooks.Directive {
 	return hooks.Directive{TerminalSequence: bel}
 }

@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/hooks/state"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -54,15 +54,15 @@ func TestStart(t *testing.T) {
 			// No -w: the parent is not Claude Code, and tying the lifetime to
 			// a short-lived parent would end the suppression at once.
 			wantArgs: []string{"-di", "-t", "1800"},
-			wantFile: state.SessionPID(session),
+			wantFile: sessionPID(session),
 		},
 		{
 			// Every tool call renews the lease, which is what makes an Escape
 			// or an API error expire rather than suppress sleep for ever.
 			name: "a renewal replaces the process that was running",
 			in:   hooks.Payload{SessionID: session},
-			seed: map[string]string{state.SessionPID(session): "111"}, running: []int{111},
-			wantArgs: []string{"-di", "-t", "1800"}, wantFile: state.SessionPID(session),
+			seed: map[string]string{sessionPID(session): "111"}, running: []int{111},
+			wantArgs: []string{"-di", "-t", "1800"}, wantFile: sessionPID(session),
 			wantKilled: []int{111},
 		},
 		{
@@ -70,22 +70,22 @@ func TestStart(t *testing.T) {
 			// then the number may belong to something else entirely.
 			name:     "a pid that is no longer caffeinate is left alone",
 			in:       hooks.Payload{SessionID: session},
-			seed:     map[string]string{state.SessionPID(session): "111"},
-			wantArgs: []string{"-di", "-t", "1800"}, wantFile: state.SessionPID(session),
+			seed:     map[string]string{sessionPID(session): "111"},
+			wantArgs: []string{"-di", "-t", "1800"}, wantFile: sessionPID(session),
 		},
 		{
 			name:     "a Claude Code parent ties the lifetime to the session",
 			in:       hooks.Payload{SessionID: session},
 			parent:   "claude",
 			wantArgs: []string{"-di", "-w", strconv.Itoa(claudePI), "-t", "1800"},
-			wantFile: state.SessionPID(session),
+			wantFile: sessionPID(session),
 		},
 		{
 			name:     "a node parent counts as Claude Code too",
 			in:       hooks.Payload{SessionID: session},
 			parent:   "node",
 			wantArgs: []string{"-di", "-w", strconv.Itoa(claudePI), "-t", "1800"},
-			wantFile: state.SessionPID(session),
+			wantFile: sessionPID(session),
 		},
 		{
 			// A host that sleeps drops the remote session about ten minutes
@@ -93,7 +93,7 @@ func TestStart(t *testing.T) {
 			// for as long as it is connected.
 			name: "Remote Control leaves the session's caffeinate with no lease",
 			in:   hooks.Payload{SessionID: session}, bridge: true,
-			wantArgs: []string{"-di"}, wantFile: state.SessionPID(session),
+			wantArgs: []string{"-di"}, wantFile: sessionPID(session),
 		},
 		{
 			// A subagent runs on past the parent's Stop, so it holds its own.
@@ -101,12 +101,12 @@ func TestStart(t *testing.T) {
 			// so this one is always leased.
 			name: "a subagent gets its own leased caffeinate even under Remote Control",
 			in:   hooks.Payload{SessionID: session, AgentID: agent}, bridge: true,
-			wantArgs: []string{"-di", "-t", "1800"}, wantFile: state.AgentPID(session, agent),
+			wantArgs: []string{"-di", "-t", "1800"}, wantFile: agentPID(session, agent),
 		},
 		{
 			name:     "a payload with no session still has somewhere to write",
 			in:       hooks.Payload{SessionID: "unknown"},
-			wantArgs: []string{"-di", "-t", "1800"}, wantFile: state.SessionPID("unknown"),
+			wantArgs: []string{"-di", "-t", "1800"}, wantFile: sessionPID("unknown"),
 		},
 	}
 
@@ -114,14 +114,13 @@ func TestStart(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			dir := filepath.Join(t.TempDir(), "ccx")
-			seed(t, dir, tt.seed)
+			root := filepath.Join(t.TempDir(), "ccx")
+			seed(t, root, tt.seed)
 			p := &fakeProc{parent: tt.parent, running: tt.running}
 
-			var stderr strings.Builder
-			got := NewStart(deps(dir, p, tt.bridge)).Run(t.Context(), tt.in, &stderr)
-			if got.Decision != hooks.Allow || stderr.Len() != 0 {
-				t.Fatalf("Decision = %d, stderr = %q, want %d and nothing", got.Decision, stderr.String(), hooks.Allow)
+			got := NewStart(deps(root, p, tt.bridge)).Run(t.Context(), tt.in)
+			if got.Decision != hooks.Allow || got.Message != "" {
+				t.Fatalf("Result = %+v, want an allow with no message", got)
 			}
 
 			if !slices.Equal(p.detached, tt.wantArgs) {
@@ -130,7 +129,7 @@ func TestStart(t *testing.T) {
 			if !slices.Equal(p.killed, tt.wantKilled) {
 				t.Errorf("killed = %v, want %v", p.killed, tt.wantKilled)
 			}
-			if pid, ok := open(t, dir).Read(tt.wantFile); !ok || pid != strconv.Itoa(started) {
+			if pid, ok := hooktest.OpenStore(t, root).Read(tt.wantFile); !ok || pid != strconv.Itoa(started) {
 				t.Errorf("%s = %q, %t, want %q, true", tt.wantFile, pid, ok, strconv.Itoa(started))
 			}
 		})
@@ -141,10 +140,10 @@ func TestStop(t *testing.T) {
 	t.Parallel()
 
 	var (
-		sessionFile = state.SessionPID(session)
-		liveFile    = state.AgentPID(session, "live")
-		doneFile    = state.AgentDone(session, "done")
-		otherFile   = state.SessionPID("other")
+		sessionFile = sessionPID(session)
+		liveFile    = agentPID(session, "live")
+		doneFile    = agentDone(session, "done")
+		otherFile   = sessionPID("other")
 	)
 	// One session with its own caffeinate, one subagent still running and one
 	// that has finished, plus another session that must not be touched.
@@ -217,20 +216,19 @@ func TestStop(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			dir := filepath.Join(t.TempDir(), "ccx")
-			seed(t, dir, tt.seed)
+			root := filepath.Join(t.TempDir(), "ccx")
+			seed(t, root, tt.seed)
 			p := &fakeProc{running: allRunning}
 
-			var stderr strings.Builder
-			got := NewStop(deps(dir, p, tt.bridge), tt.mode).Run(t.Context(), tt.in, &stderr)
-			if got.Decision != hooks.Allow || stderr.Len() != 0 {
-				t.Fatalf("Decision = %d, stderr = %q, want %d and nothing", got.Decision, stderr.String(), hooks.Allow)
+			got := NewStop(deps(root, p, tt.bridge), tt.mode).Run(t.Context(), tt.in)
+			if got.Decision != hooks.Allow || got.Message != "" {
+				t.Fatalf("Result = %+v, want an allow with no message", got)
 			}
 
 			if !slices.Equal(p.killed, tt.wantKilled) {
 				t.Errorf("killed = %v, want %v", p.killed, tt.wantKilled)
 			}
-			left := open(t, dir).Names(state.CaffeinateDir)
+			left := hooktest.OpenStore(t, root).Names(dir)
 			slices.Sort(left)
 			if !slices.Equal(left, tt.wantLeft) {
 				t.Errorf("pid files left = %v, want %v", left, tt.wantLeft)
@@ -239,9 +237,9 @@ func TestStop(t *testing.T) {
 	}
 }
 
-func deps(dir string, p *fakeProc, bridge bool) Deps {
+func deps(root string, p *fakeProc, bridge bool) Deps {
 	return Deps{
-		Dir: dir, Runner: p, Detacher: p, Signaller: p,
+		Dir: root, Proc: p,
 		Getppid: func() int { return claudePI },
 		Getenv: func(string) string {
 			if bridge {
@@ -252,24 +250,14 @@ func deps(dir string, p *fakeProc, bridge bool) Deps {
 	}
 }
 
-func seed(t *testing.T, dir string, files map[string]string) {
+func seed(t *testing.T, root string, files map[string]string) {
 	t.Helper()
-	s := open(t, dir)
+	s := hooktest.OpenStore(t, root)
 	for name, pid := range files {
 		if err := s.Write(name, pid); err != nil {
 			t.Fatalf("Write(%s): %v", name, err)
 		}
 	}
-}
-
-func open(t *testing.T, dir string) *state.Store {
-	t.Helper()
-	s, err := state.Open(dir)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
 }
 
 // fakeProc stands in for ps, for starting a caffeinate and for signalling one.

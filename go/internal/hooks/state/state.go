@@ -12,50 +12,12 @@ package state
 import (
 	"os"
 	"path"
-	"strings"
 )
 
 // Dir is where the state lives. Literally /tmp and not os.TempDir, which on
 // macOS names a per-user directory under /var/folders that dirhelper does not
 // sweep the same way.
 const Dir = "/tmp/ccx"
-
-// CaffeinateDir holds one pid file per running caffeinate.
-const CaffeinateDir = "caffeinate"
-
-// subagentDir holds one directory per session, holding one marker per subagent.
-const subagentDir = "subagents"
-
-// SessionPID names the pid file of the caffeinate held for a whole session.
-func SessionPID(session string) string {
-	return path.Join(CaffeinateDir, session+".pid")
-}
-
-// AgentPID names the pid file of the caffeinate held for one running subagent.
-//
-// The session and the agent are joined by a hyphen with nothing to tell them
-// apart, so a session literally named "<other session>-<agent>" would collide
-// with that agent's file. Claude Code issues both as fixed-length ids, which
-// leaves no way to write one that is another with an agent appended.
-func AgentPID(session, agent string) string {
-	return path.Join(CaffeinateDir, session+"-"+agent+".pid")
-}
-
-// AgentDone names the same file after the subagent has finished and its
-// caffeinate is waiting for the parent's next stop to collect it.
-func AgentDone(session, agent string) string {
-	return strings.TrimSuffix(AgentPID(session, agent), ".pid") + ".done"
-}
-
-// MarkerDir names the directory holding one session's subagent markers.
-func MarkerDir(session string) string {
-	return path.Join(subagentDir, session)
-}
-
-// Marker names the file whose existence says a subagent is running.
-func Marker(session, agent string) string {
-	return path.Join(MarkerDir(session), agent)
-}
 
 // Store is the state tree. Every path it is given is relative to the root and
 // resolved by os.Root, so a symlink planted in world-writable /tmp cannot
@@ -81,26 +43,25 @@ func Open(dir string) (*Store, error) {
 // Close releases the tree.
 func (s *Store) Close() error { return s.root.Close() }
 
-// Read returns a file's contents without its trailing newline, and whether
-// there was one to read. A file that cannot be read is a file that is not
-// there: every caller's next step is the same either way.
+// Read returns a file's contents, and whether there was one to read. A file
+// that cannot be read is a file that is not there: every caller's next step is
+// the same either way.
 func (s *Store) Read(name string) (string, bool) {
 	b, err := s.root.ReadFile(name)
 	if err != nil {
 		return "", false
 	}
-	return strings.TrimRight(string(b), "\n"), true
+	return string(b), true
 }
 
-// Write stores a line, creating the parent directory. The trailing newline is
-// what the shell's printf wrote and what makes the files readable by hand.
-func (s *Store) Write(name, line string) error {
+// Write stores a value, creating the parent directory.
+func (s *Store) Write(name, value string) error {
 	if dir := path.Dir(name); dir != "." {
 		if err := s.root.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
 	}
-	return s.root.WriteFile(name, []byte(line+"\n"), 0o600)
+	return s.root.WriteFile(name, []byte(value), 0o600)
 }
 
 // Remove deletes a file, and reports nothing for one that has already gone.

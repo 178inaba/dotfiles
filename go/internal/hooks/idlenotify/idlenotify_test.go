@@ -2,27 +2,20 @@ package idlenotify
 
 import (
 	"context"
-	"encoding/json/v2"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
-	"github.com/178inaba/dotfiles/go/internal/hooks/state"
+	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-const (
-	session   = "s1"
-	livePID   = "111"
-	deadPID   = "222"
-	wantSlack = "[proj] (idle_prompt) hello"
-)
+const session = "s1"
 
 func payload() hooks.Payload {
 	return hooks.Payload{
@@ -37,9 +30,8 @@ func TestRun(t *testing.T) {
 	tests := []struct {
 		name string
 		in   hooks.Payload
-		// markers is agent id to the pid it records, "" for one that records
-		// nothing.
-		markers map[string]string
+		// agent is a subagent to record as running, if any.
+		agent bool
 
 		wantSound bool
 		wantSlack string
@@ -48,33 +40,20 @@ func TestRun(t *testing.T) {
 		{
 			name:      "nothing is running, so the human is the one waiting",
 			in:        payload(),
-			wantSound: true, wantSlack: wantSlack, wantBell: true,
+			wantSound: true, wantSlack: "[proj] (idle_prompt) hello", wantBell: true,
 		},
 		{
 			// The parent is only waiting for the agent it started, and will be
 			// woken by its completion; there is nothing here for a human.
+			// Which markers count as running is subagents' own test.
 			name: "a running subagent keeps the session quiet",
-			in:   payload(), markers: map[string]string{"a1": livePID},
-		},
-		{
-			// A marker whose process is gone is what a crash leaves behind.
-			// Honouring it would silence the session for good.
-			name: "the residue of a crashed session does not silence anything",
-			in:   payload(), markers: map[string]string{"a1": deadPID},
-			wantSound: true, wantSlack: wantSlack, wantBell: true,
-		},
-		{
-			name: "a marker that records no pid counts as running",
-			in:   payload(), markers: map[string]string{"a1": ""},
-		},
-		{
-			name: "one running agent among stale ones is enough",
-			in:   payload(), markers: map[string]string{"a1": deadPID, "a2": livePID},
+			in:   payload(), agent: true,
 		},
 		{
 			// What the dispatcher hands over when the input would not parse.
-			// Notifying is the direction that cannot lose a prompt.
-			name:      "an unreadable payload still notifies",
+			// Notifying is the direction that cannot lose a prompt, and an
+			// empty message is nothing for Slack to carry.
+			name:      "an unreadable payload still rings",
 			in:        hooks.Payload{SessionID: "unknown"},
 			wantSound: true, wantBell: true,
 		},
@@ -85,23 +64,25 @@ func TestRun(t *testing.T) {
 			t.Parallel()
 
 			dir := filepath.Join(t.TempDir(), "ccx")
-			seed(t, dir, tt.markers)
-			srv := newWebhook(t, http.StatusOK)
-			sound := &recordingRunner{}
+			if tt.agent {
+				s := hooktest.OpenStore(t, dir)
+				// A marker recording nothing is the plainest "still running".
+				if err := s.Write("subagents/"+session+"/a1", ""); err != nil {
+					t.Fatalf("Write: %v", err)
+				}
+			}
+			srv := hooktest.NewWebhook(t, http.StatusOK)
+			sound := &recordingDetacher{}
 
-			var stderr strings.Builder
-			got := New(deps(dir, srv, sound)).Run(t.Context(), tt.in, &stderr)
+			got := New(deps(dir, srv, sound)).Run(t.Context(), tt.in)
 
 			if got.Decision != hooks.Allow {
 				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Allow)
 			}
-			if stderr.Len() != 0 {
-				t.Errorf("stderr = %q, want empty", stderr.String())
-			}
 			if played := sound.played(); played != tt.wantSound {
-				t.Errorf("afplay run = %t, want %t", played, tt.wantSound)
+				t.Errorf("sound played = %t, want %t", played, tt.wantSound)
 			}
-			if posts := srv.posts(); tt.wantSlack == "" {
+			if posts := srv.Posts(); tt.wantSlack == "" {
 				if len(posts) != 0 {
 					t.Errorf("posted %q, want nothing", posts)
 				}
@@ -125,12 +106,8 @@ func TestRunRingsTheBellWhenSlackFails(t *testing.T) {
 	t.Parallel()
 
 	dir := filepath.Join(t.TempDir(), "ccx")
-	seed(t, dir, nil)
-	srv := newWebhook(t, http.StatusForbidden)
-	sound := &recordingRunner{}
-
-	var stderr strings.Builder
-	got := New(deps(dir, srv, sound)).Run(t.Context(), payload(), &stderr)
+	srv := hooktest.NewWebhook(t, http.StatusForbidden)
+	got := New(deps(dir, srv, &recordingDetacher{})).Run(t.Context(), payload())
 
 	if got.Decision != hooks.Allow {
 		// Anything else and Claude Code stops reading the directive, which is
@@ -145,94 +122,46 @@ func TestRunRingsTheBellWhenSlackFails(t *testing.T) {
 	}
 }
 
-func deps(dir string, srv *webhook, sound runner.Runner) Deps {
+func deps(dir string, srv *hooktest.Webhook, sound runner.Detacher) Deps {
 	return Deps{
-		Dir:       dir,
-		Runner:    sound,
-		Signaller: fakeSignaller{},
-		Slack: slacknotify.Deps{
+		Sound:  sound,
+		Agents: subagents.Deps{Dir: dir, Signaller: deadSignaller{}},
+		Slack: slacknotify.New(slacknotify.Deps{
 			Client: srv.Client(),
 			Runner: gitRunner{},
 			Getenv: func(string) string { return srv.URL },
-		},
+		}),
 	}
 }
 
-func seed(t *testing.T, dir string, markers map[string]string) {
-	t.Helper()
-	s, err := state.Open(dir)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	for agent, pid := range markers {
-		if err := s.Write(state.Marker(session, agent), pid); err != nil {
-			t.Fatalf("Write(%s): %v", agent, err)
-		}
-	}
+// recordingDetacher remembers whether the sound was started.
+type recordingDetacher struct {
+	mu      sync.Mutex
+	started bool
 }
 
-// fakeSignaller knows one live process.
-type fakeSignaller struct{}
-
-func (fakeSignaller) Terminate(int) error { return nil }
-func (fakeSignaller) Alive(pid int) bool  { return pid == 111 }
-
-// recordingRunner remembers whether the sound was played.
-type recordingRunner struct {
-	mu   sync.Mutex
-	runs []string
-}
-
-func (r *recordingRunner) Run(_ context.Context, c runner.Command) ([]byte, error) {
+func (r *recordingDetacher) Detach(string, ...string) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.runs = append(r.runs, c.Name)
-	return nil, nil
+	r.started = true
+	return 1, nil
 }
 
-func (r *recordingRunner) played() bool {
+func (r *recordingDetacher) played() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.runs) > 0
+	return r.started
 }
+
+// deadSignaller reports every process as gone.
+type deadSignaller struct{}
+
+func (deadSignaller) Terminate(int) error { return nil }
+func (deadSignaller) Alive(int) bool      { return false }
 
 // gitRunner answers the project label's rev-parse.
 type gitRunner struct{}
 
 func (gitRunner) Run(context.Context, runner.Command) ([]byte, error) {
 	return []byte("/r/proj\n/r/proj/.git\n"), nil
-}
-
-// webhook records what was posted to it.
-type webhook struct {
-	*httptest.Server
-	mu   sync.Mutex
-	text []string
-}
-
-func newWebhook(t *testing.T, status int) *webhook {
-	t.Helper()
-	w := &webhook{}
-	w.Server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Text string `json:"text"`
-		}
-		if err := json.UnmarshalRead(io.LimitReader(r.Body, 1<<16), &body); err != nil {
-			rw.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.mu.Lock()
-		w.text = append(w.text, body.Text)
-		w.mu.Unlock()
-		rw.WriteHeader(status)
-	}))
-	t.Cleanup(w.Close)
-	return w
-}
-
-func (w *webhook) posts() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.text
 }

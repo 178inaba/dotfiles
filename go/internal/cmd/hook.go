@@ -22,16 +22,11 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
-// hook is one entry in settings.json.
-//
-// There is no error return. A hook that cannot do its job has already decided
-// what that means for the event it was asked about — a guard that cannot read
-// its input lets the call through, a check that cannot run blocks — so a second
-// channel would only leave the caller guessing which of the two answers wins.
-// Errors inside a hook are ordinary Go errors; Run is where they become one of
-// these.
+// hook is one entry in settings.json. Errors inside a hook are ordinary Go
+// errors; Run is where they become a hooks.Result, whose single answer is the
+// whole of what a hook has to say.
 type hook interface {
-	Run(ctx context.Context, in hooks.Payload, stderr io.Writer) hooks.Result
+	Run(ctx context.Context, in hooks.Payload) hooks.Result
 }
 
 // exitCode is a status a subcommand reached rather than a failure it suffered.
@@ -47,21 +42,21 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
 		leafHookCmd("start-caffeinate", "Hold the machine awake while Claude Code works", build,
-			func(*cobra.Command) hook { return caffeinate.NewStart(caffeinate.Default()) }),
+			func() hook { return caffeinate.NewStart(caffeinate.Default()) }),
 		stopCaffeinateCmd(build),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", build,
-			func(*cobra.Command) hook { return idlenotify.New(idlenotify.Default()) }),
+			func() hook { return idlenotify.New(idlenotify.Default()) }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", build,
-			func(*cobra.Command) hook { return noopwait.New() }),
+			func() hook { return noopwait.New() }),
 		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", build,
-			func(*cobra.Command) hook { return skillcheck.New(skillcheck.Default()) }),
+			func() hook { return skillcheck.New(skillcheck.Default()) }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
-			func(*cobra.Command) hook { return slacknotify.New(slacknotify.Default()) }),
+			func() hook { return slacknotify.New(slacknotify.Default()) }),
 		subagentTrackerCmd(build),
 		leafHookCmd("worktree-edit-guard", "Block an edit that leaves the current worktree", build,
-			func(*cobra.Command) hook { return worktreeguard.New(runner.Exec{}) }),
+			func() hook { return worktreeguard.New(runner.Exec{}) }),
 		leafHookCmd("terminal-bell", "Ring the terminal bell", build,
-			func(*cobra.Command) hook { return terminalbell.New() }),
+			func() hook { return terminalbell.New() }),
 	)
 	return c
 }
@@ -72,7 +67,7 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 func stopCaffeinateCmd(build selfbuild.State) *cobra.Command {
 	var agentDone, force bool
 	c := leafHookCmd("stop-caffeinate", "Let the machine sleep again", build,
-		func(*cobra.Command) hook {
+		func() hook {
 			mode := caffeinate.Session
 			switch {
 			case agentDone:
@@ -89,17 +84,15 @@ func stopCaffeinateCmd(build selfbuild.State) *cobra.Command {
 }
 
 // subagentTrackerCmd is the one hook registered on three different events, one
-// flag each. cobra rejects a combination rather than picking one, so an entry
-// in settings.json that asks for two of them is a startup error and not a
-// marker quietly written for the wrong event.
+// flag each. cobra rejects a wrong number of them rather than picking one, so
+// an entry in settings.json that asks for two, or for none, is a startup error
+// and not a marker quietly written for the wrong event.
 func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
 	var start, stop, sessionEnd bool
 	c := leafHookCmd("subagent-tracker", "Track which subagents are running", build,
-		func(*cobra.Command) hook {
-			mode := subagents.None
+		func() hook {
+			mode := subagents.Start
 			switch {
-			case start:
-				mode = subagents.Start
 			case stop:
 				mode = subagents.Stop
 			case sessionEnd:
@@ -111,19 +104,24 @@ func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
 	c.Flags().BoolVar(&stop, "stop", false, "a subagent has finished")
 	c.Flags().BoolVar(&sessionEnd, "session-end", false, "the session has ended")
 	c.MarkFlagsMutuallyExclusive("start", "stop", "session-end")
+	// And one is required. A registration that lost its flag would otherwise
+	// track nothing and exit 0, and the only symptom would be idle-notify
+	// falling silent — the failure this pair exists to prevent.
+	c.MarkFlagsOneRequired("start", "stop", "session-end")
 	return c
 }
 
 // leafHookCmd wires one hook into the tree. The hook is built at run time
-// rather than passed in, so that a hook with flags can read the values cobra
-// parsed into the closure the caller registered them on.
-func leafHookCmd(use, short string, build selfbuild.State, make func(*cobra.Command) hook) *cobra.Command {
+// rather than passed in, so that one with flags sees the values cobra has by
+// then parsed into the variables its registration closed over — and so that
+// eight discarded subcommands construct no dependencies.
+func leafHookCmd(use, short string, build selfbuild.State, make func() hook) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runHook(c.Context(), make(c), build,
+			return runHook(c.Context(), make(), build,
 				c.InOrStdin(), c.OutOrStdout(), c.ErrOrStderr())
 		},
 	}
@@ -137,23 +135,27 @@ func leafHookCmd(use, short string, build selfbuild.State, make func(*cobra.Comm
 // nothing has consumed it; see selfbuild.Run.
 func runHook(ctx context.Context, h hook, build selfbuild.State, stdin io.Reader, stdout, stderr io.Writer) error {
 	in, _ := io.ReadAll(stdin)
-	result := h.Run(ctx, hooks.Parse(in), stderr)
+	result := h.Run(ctx, hooks.Parse(in))
 
 	// Only on the invocation that ran the build. A broken tree otherwise
 	// produces one message per hook per tool call until somebody fixes it.
+	// Which channel it goes to follows the decision, because Claude Code only
+	// parses the standard output of a hook that exited 0.
 	if build.JustFailed {
 		if result.Decision == hooks.Allow {
 			result.Directive.SystemMessage = join(result.Directive.SystemMessage, buildFailure(build))
 		} else {
-			fmt.Fprintln(stderr, buildFailure(build))
+			result.Message += buildFailure(build) + "\n"
 		}
 	}
 
+	if result.Message != "" {
+		fmt.Fprint(stderr, result.Message)
+	}
 	if !result.Directive.IsEmpty() {
-		b, err := json.Marshal(result.Directive)
-		if err != nil {
-			return silent(err)
-		}
+		// Two strings and two tags: there is no value of Directive that fails
+		// to marshal, so this is not a third thing that can go wrong.
+		b, _ := json.Marshal(result.Directive)
 		fmt.Fprintf(stdout, "%s\n", b)
 	}
 	if result.Decision != hooks.Allow {
