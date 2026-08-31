@@ -26,18 +26,15 @@ jobs:
       # このジョブがそのまま Go 専用ジョブになり、チェック名が変わらないようにするため
       - uses: actions/setup-go@v7
         with:
-          # パッチリリースに追従させるため go/go.mod の go ディレクティブから読む
           go-version-file: go/go.mod
 
       - name: Vet the Go module
         run: go -C go vet ./...
 
-      # cflio・rdsh・slio はバージョンを compose.yaml に持たせて CI から読ませているが、
-      # このリポジトリは docker でのローカル lint を持たないため、単一の正である
-      # ここに直接ピン留めする（上げるときはこの行だけを触る）。
-      # golangci-lint は自身のビルドに使われた Go より新しい go ディレクティブを
-      # 拒否するため、go.mod の go 1.27 に対しては 1.27 でビルドされた版が要る
-      # （v2.13.0 以降。v2.12.x は 1.26 ビルドで "can't load config" で落ちる）
+      # ローカル lint を docker で持たないので、cflio 等の compose.yaml 方式ではなく
+      # ここを単一の正としてピン留めする。golangci-lint は自身のビルドに使われた Go より
+      # 新しい go ディレクティブを拒否するため、go 1.27 には 1.27 でビルドされた
+      # v2.13.0 以降が要る（v2.12.x は 1.26 ビルドで "can't load config" で落ちる）
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
