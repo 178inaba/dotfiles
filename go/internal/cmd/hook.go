@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/terminalbell"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
@@ -38,6 +39,8 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 func newHookCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
+		leafHookCmd("slack-notify", "Post the notification to Slack", build,
+			func(*cobra.Command) hook { return slacknotify.New(slacknotify.Default()) }),
 		leafHookCmd("terminal-bell", "Ring the terminal bell", build,
 			func(*cobra.Command) hook { return terminalbell.New() }),
 	)
