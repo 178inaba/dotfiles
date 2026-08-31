@@ -124,30 +124,41 @@ func (h Hook) owner(ctx context.Context, dir, self, target string) (string, stri
 	}
 
 	var root, label string
-	for i, tree := range parse(string(out)) {
-		phys := physical(tree)
+	for _, t := range parse(string(out)) {
+		phys := physical(t.path)
 		if phys == self || !within(target, phys) || len(phys) <= len(root) {
 			continue
 		}
 		root = phys
-		// The listing leads with the main worktree, when there is one.
-		if i == 0 {
+		label = "another worktree"
+		if t.main {
 			label = "the main tree"
-		} else {
-			label = "another worktree"
 		}
 	}
 	return root, label, root != ""
 }
 
+// tree is one entry of the worktree listing.
+type tree struct {
+	path string
+	// main marks the repository's main worktree, which is the first entry —
+	// and which a bare repository does not have at all. Tracked rather than
+	// inferred from the position in the result, because dropping the bare
+	// entry would otherwise promote the first linked worktree into its place
+	// and have the guard call it the main tree.
+	main bool
+}
+
 // parse reads the worktree list, dropping the bare entry: it holds no files,
 // so nothing can be edited in it.
-func parse(out string) []string {
-	var trees []string
+func parse(out string) []tree {
+	var trees []tree
+	first := true
 	for line := range strings.Lines(out) {
 		switch line = strings.TrimSpace(line); {
 		case strings.HasPrefix(line, "worktree "):
-			trees = append(trees, strings.TrimPrefix(line, "worktree "))
+			trees = append(trees, tree{path: strings.TrimPrefix(line, "worktree "), main: first})
+			first = false
 		case line == "bare" && len(trees) > 0:
 			trees = trees[:len(trees)-1]
 		}
@@ -179,9 +190,9 @@ func physical(path string) string {
 		suffix = "/" + filepath.Base(path) + suffix
 		path = parent
 	}
-	real, err := filepath.EvalSymlinks(path)
+	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return path + suffix
 	}
-	return real + suffix
+	return resolved + suffix
 }

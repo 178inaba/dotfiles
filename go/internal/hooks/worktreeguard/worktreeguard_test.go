@@ -163,8 +163,10 @@ func TestBlockMessageSuggestsTheWorktreePath(t *testing.T) {
 	w := build(t)
 
 	tests := []struct {
-		name   string
-		in     hooks.Payload
+		name string
+		in   hooks.Payload
+		// suffix is what the message has to contain: the path it suggests, or
+		// the name it gives the owning tree.
 		suffix string
 	}{
 		{
@@ -179,6 +181,14 @@ func TestBlockMessageSuggestsTheWorktreePath(t *testing.T) {
 			name:   "a sibling inside the main tree is remapped from the sibling",
 			in:     edit(filepath.Join(w.manual, "file.txt"), w.worktree),
 			suffix: "/.claude/worktrees/feature-test/file.txt",
+		},
+		{
+			// A bare repository has no main worktree, so neither of its
+			// worktrees may be described as one. Dropping the bare entry from
+			// the listing used to promote the first worktree into its place.
+			name:   "neither worktree of a bare repository is the main tree",
+			in:     edit(filepath.Join(w.bareOne, "file.txt"), w.bareTwo),
+			suffix: "another worktree",
 		},
 	}
 

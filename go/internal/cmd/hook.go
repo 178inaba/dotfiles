@@ -115,13 +115,13 @@ func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
 // rather than passed in, so that one with flags sees the values cobra has by
 // then parsed into the variables its registration closed over — and so that
 // eight discarded subcommands construct no dependencies.
-func leafHookCmd(use, short string, build selfbuild.State, make func() hook) *cobra.Command {
+func leafHookCmd(use, short string, build selfbuild.State, newHook func() hook) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runHook(c.Context(), make(), build,
+			return runHook(c.Context(), newHook(), build,
 				c.InOrStdin(), c.OutOrStdout(), c.ErrOrStderr())
 		},
 	}
