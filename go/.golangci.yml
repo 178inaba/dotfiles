@@ -24,3 +24,12 @@ linters:
         - os.Remove
         - (*os.File).Close
         - (io.ReadCloser).Close
+
+# `golangci-lint run` reports a formatter's findings as ordinary issues, so the
+# existing lint step already fails on unformatted code and ci.yml needs no gofmt
+# step of its own — nothing else in the job looks at formatting, `go vet`
+# included. Only gofmt is enabled: goimports, gofumpt and golines each impose a
+# style beyond what `go fmt` itself defines.
+formatters:
+  enable:
+    - gofmt
