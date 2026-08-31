@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/caffeinate"
 	"github.com/178inaba/dotfiles/go/internal/hooks/idlenotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
@@ -41,6 +42,9 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 func newHookCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
+		leafHookCmd("start-caffeinate", "Hold the machine awake while Claude Code works", build,
+			func(*cobra.Command) hook { return caffeinate.NewStart(caffeinate.Default()) }),
+		stopCaffeinateCmd(build),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", build,
 			func(*cobra.Command) hook { return idlenotify.New(idlenotify.Default()) }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
@@ -49,6 +53,28 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 		leafHookCmd("terminal-bell", "Ring the terminal bell", build,
 			func(*cobra.Command) hook { return terminalbell.New() }),
 	)
+	return c
+}
+
+// stopCaffeinateCmd is the stop half, registered on four events with two
+// flags between them. Neither flag is the ordinary end of a turn, which is why
+// the mode with no flag is the one that stops the session's own caffeinate.
+func stopCaffeinateCmd(build selfbuild.State) *cobra.Command {
+	var agentDone, force bool
+	c := leafHookCmd("stop-caffeinate", "Let the machine sleep again", build,
+		func(*cobra.Command) hook {
+			mode := caffeinate.Session
+			switch {
+			case agentDone:
+				mode = caffeinate.AgentDone
+			case force:
+				mode = caffeinate.Force
+			}
+			return caffeinate.NewStop(caffeinate.Default(), mode)
+		})
+	c.Flags().BoolVar(&agentDone, "agent-done", false, "a subagent has finished")
+	c.Flags().BoolVar(&force, "force", false, "the session has ended")
+	c.MarkFlagsMutuallyExclusive("agent-done", "force")
 	return c
 }
 
