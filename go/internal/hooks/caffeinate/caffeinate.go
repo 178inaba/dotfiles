@@ -63,6 +63,10 @@ func agentDone(session, agent string) string {
 }
 
 // Proc is everything these hooks need of the machine's processes.
+//
+// Implementations must be safe for concurrent use: Start asks two independent
+// questions of it at once, since a fork costs more than everything else the
+// hook does put together.
 type Proc interface {
 	runner.Runner
 	runner.Detacher
@@ -102,20 +106,19 @@ func (s Start) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 	if in.AgentID != "" {
 		name = agentPID(in.SessionID, in.AgentID)
 	}
-	old, _ := store.Read(name)
+	old, hadOld := store.Read(name)
 
-	// Two ps invocations, and a fork costs more than everything else this hook
-	// does put together. They ask independent questions, so they wait together.
+	// The two ps invocations ask independent questions, so they wait together.
 	var args []string
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		args = s.args(ctx, in)
-	}()
+	wg.Go(func() { args = s.args(ctx, in) })
 	// Renewal is a replacement: the old process holds the remainder of its own
 	// lease and nothing can extend it in place.
-	terminate(ctx, s.deps, old)
+	if hadOld {
+		if pid, ok := parsePID(old); ok {
+			terminate(ctx, s.deps, pid)
+		}
+	}
 	wg.Wait()
 
 	pid, err := s.deps.Proc.Detach(bin, args...)
@@ -224,7 +227,10 @@ func (s Stop) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 // next. The directory is read once however many suffixes are asked for.
 func agentFiles(store *state.Store, session string, suffixes []string) []string {
 	prefix := session + "-"
-	entries := store.Names(dir)
+	// Discarded deliberately: a listing that fails leaves the pid files behind
+	// for the next stop, and their leases expire regardless. Reporting it would
+	// turn a stop hook that has nothing to collect into one that failed.
+	entries, _ := store.Names(dir)
 
 	var found []string
 	for _, suffix := range suffixes {
@@ -245,36 +251,40 @@ func agentFiles(store *state.Store, session string, suffixes []string) []string 
 // The file goes first, so that a kill that fails leaves no record pointing at
 // a process nobody will try again to stop.
 func (s Stop) collect(ctx context.Context, store *state.Store, name string) {
-	pid, ok := store.Read(name)
+	raw, ok := store.Read(name)
 	if !ok {
 		return
 	}
 	// Best effort: the file is on its way out either way, and a removal that
-	// fails costs one stale record that dirhelper will sweep.
+	// fails costs one stale record that dirhelper will sweep. It goes even when
+	// the contents make no sense, since no later run could act on them either.
 	_ = store.Remove(name)
-	terminate(ctx, s.deps, pid)
+	if pid, ok := parsePID(raw); ok {
+		terminate(ctx, s.deps, pid)
+	}
+}
+
+// parsePID reads what a pid file holds. Nothing but this package writes these,
+// so a value that is not a number is a truncated write rather than a format to
+// accommodate — and there is no process to go looking for.
+func parsePID(raw string) (int, bool) {
+	pid, err := strconv.Atoi(strings.TrimSpace(raw))
+	return pid, err == nil
 }
 
 // terminate stops a process, but only once ps has confirmed it really is the
 // caffeinate this pid file was written for. A lease that expired on its own
 // leaves the file behind, and by the time anything reads it the number may name
 // something else entirely.
-func terminate(ctx context.Context, d Deps, pid string) {
-	if pid == "" {
-		return
-	}
+func terminate(ctx context.Context, d Deps, pid int) {
 	out, err := d.Proc.Run(ctx, runner.Command{
-		Name: "ps", Args: []string{"-o", "command=", "-p", pid},
+		Name: "ps", Args: []string{"-o", "command=", "-p", strconv.Itoa(pid)},
 	})
 	if err != nil || !strings.Contains(string(out), bin) {
 		return
 	}
-	n, err := strconv.Atoi(pid)
-	if err != nil {
-		return
-	}
 	// Best effort: the process may have exited between the check and here.
-	_ = d.Proc.Terminate(n)
+	_ = d.Proc.Terminate(pid)
 }
 
 func failed(err error) hooks.Result {

@@ -134,6 +134,8 @@ func leafHookCmd(use, short string, build selfbuild.State, newHook func() hook) 
 // re-exec this process, and the replacement inherits the pipe only as far as
 // nothing has consumed it; see selfbuild.Run.
 func runHook(ctx context.Context, h hook, build selfbuild.State, stdin io.Reader, stdout, stderr io.Writer) error {
+	// A read that fails leaves the same empty payload as input that said
+	// nothing, which every hook already handles; see hooks.Parse.
 	in, _ := io.ReadAll(stdin)
 	result := h.Run(ctx, hooks.Parse(in))
 

@@ -100,12 +100,12 @@ func TestRun(t *testing.T) {
 				Getppid: func() int { return 4242 },
 			}, tt.mode)
 
-			if got := h.Run(t.Context(), tt.in); got.Decision != hooks.Allow || got.Message != "" {
-				t.Fatalf("Result = %+v, want an allow with no message", got)
+			if got, want := h.Run(t.Context(), tt.in), (hooks.Result{}); got != want {
+				t.Fatalf("Run() = %+v, want %+v", got, want)
 			}
 
 			s := hooktest.OpenStore(t, dir)
-			got := s.Names(markerDir(session))
+			got := hooktest.Names(t, s, markerDir(session))
 			slices.Sort(got)
 			if !slices.Equal(got, tt.wantMarkers) {
 				t.Errorf("markers = %v, want %v", got, tt.wantMarkers)

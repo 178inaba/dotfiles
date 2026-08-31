@@ -79,7 +79,14 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 		return hooks.Result{}
 	}
 
-	suggested := filepath.Join(rootPhys, strings.TrimPrefix(targetPhys, owner+"/"))
+	// filepath.Rel rather than trimming the prefix off by hand: within has
+	// already established one, so this cannot fail, and it is the operation
+	// being asked for rather than a spelling of it.
+	rel, err := filepath.Rel(owner, targetPhys)
+	if err != nil {
+		return hooks.Result{}
+	}
+	suggested := filepath.Join(rootPhys, rel)
 	return hooks.Result{
 		Decision: hooks.Block,
 		Message:  fmt.Sprintf(message, in.ToolName, rootPhys, in.FilePath, owner, label, suggested),
@@ -155,11 +162,13 @@ func parse(out string) []tree {
 	var trees []tree
 	first := true
 	for line := range strings.Lines(out) {
-		switch line = strings.TrimSpace(line); {
-		case strings.HasPrefix(line, "worktree "):
-			trees = append(trees, tree{path: strings.TrimPrefix(line, "worktree "), main: first})
+		line = strings.TrimSpace(line)
+		if p, ok := strings.CutPrefix(line, "worktree "); ok {
+			trees = append(trees, tree{path: p, main: first})
 			first = false
-		case line == "bare" && len(trees) > 0:
+			continue
+		}
+		if line == "bare" && len(trees) > 0 {
 			trees = trees[:len(trees)-1]
 		}
 	}

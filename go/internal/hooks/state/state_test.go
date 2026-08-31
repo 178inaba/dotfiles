@@ -117,14 +117,14 @@ func TestListNames(t *testing.T) {
 		}
 	}
 
-	got := s.Names("caffeinate")
+	got := names(t, s, "caffeinate")
 	slices.Sort(got)
 	want := []string{"s1.done", "s1.pid", "s2.pid"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}
 
-	if got := s.Names("subagents/nothing"); len(got) != 0 {
+	if got := names(t, s, "subagents/nothing"); len(got) != 0 {
 		t.Errorf("Names of a missing directory = %v, want none", got)
 	}
 }
@@ -139,7 +139,7 @@ func TestRemoveAll(t *testing.T) {
 	if err := s.RemoveAll(markerDir); err != nil {
 		t.Fatalf("RemoveAll: %v", err)
 	}
-	if got := s.Names(markerDir); len(got) != 0 {
+	if got := names(t, s, markerDir); len(got) != 0 {
 		t.Errorf("Names = %v, want the directory to be gone", got)
 	}
 	if err := s.RemoveAll(markerDir); err != nil {
@@ -188,4 +188,15 @@ func openAt(t *testing.T, dir string) *Store {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
+}
+
+// names lists a directory, failing the test if it cannot be read. This package
+// cannot use hooktest, which is built on it.
+func names(t *testing.T, s *Store, dir string) []string {
+	t.Helper()
+	got, err := s.Names(dir)
+	if err != nil {
+		t.Fatalf("Names(%q): %v", dir, err)
+	}
+	return got
 }

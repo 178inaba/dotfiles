@@ -120,7 +120,10 @@ func Busy(d Deps, session string) bool {
 	}
 	defer s.Close()
 
-	for _, agent := range s.Names(markerDir(session)) {
+	// Discarded deliberately: Busy answers a question about notifying, and
+	// anything it cannot determine already counts as not busy.
+	markers, _ := s.Names(markerDir(session))
+	for _, agent := range markers {
 		watched, ok := s.Read(marker(session, agent))
 		if !ok {
 			continue

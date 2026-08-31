@@ -119,8 +119,8 @@ func TestStart(t *testing.T) {
 			p := &fakeProc{parent: tt.parent, running: tt.running}
 
 			got := NewStart(deps(root, p, tt.bridge)).Run(t.Context(), tt.in)
-			if got.Decision != hooks.Allow || got.Message != "" {
-				t.Fatalf("Result = %+v, want an allow with no message", got)
+			if want := (hooks.Result{}); got != want {
+				t.Fatalf("Start.Run() = %+v, want %+v", got, want)
 			}
 
 			if !slices.Equal(p.detached, tt.wantArgs) {
@@ -221,14 +221,14 @@ func TestStop(t *testing.T) {
 			p := &fakeProc{running: allRunning}
 
 			got := NewStop(deps(root, p, tt.bridge), tt.mode).Run(t.Context(), tt.in)
-			if got.Decision != hooks.Allow || got.Message != "" {
-				t.Fatalf("Result = %+v, want an allow with no message", got)
+			if want := (hooks.Result{}); got != want {
+				t.Fatalf("Stop.Run() = %+v, want %+v", got, want)
 			}
 
 			if !slices.Equal(p.killed, tt.wantKilled) {
 				t.Errorf("killed = %v, want %v", p.killed, tt.wantKilled)
 			}
-			left := hooktest.OpenStore(t, root).Names(dir)
+			left := hooktest.Names(t, hooktest.OpenStore(t, root), dir)
 			slices.Sort(left)
 			if !slices.Equal(left, tt.wantLeft) {
 				t.Errorf("pid files left = %v, want %v", left, tt.wantLeft)

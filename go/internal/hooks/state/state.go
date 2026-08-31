@@ -10,6 +10,8 @@
 package state
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path"
 )
@@ -78,22 +80,29 @@ func (s *Store) RemoveAll(name string) error { return s.root.RemoveAll(name) }
 // Rename moves a file within the tree.
 func (s *Store) Rename(from, to string) error { return s.root.Rename(from, to) }
 
-// Names lists the entries of a directory, in no particular order. A directory
-// that is not there has no entries, which is the state every hook starts from.
-func (s *Store) Names(dir string) []string {
+// Names lists the entries of a directory, in no particular order.
+//
+// A directory that is not there has no entries and no error: that is the state
+// every hook starts from. A directory that is there and cannot be listed is a
+// different thing, and what to do about it is the caller's to decide — folding
+// the two together would have a stop hook collect nothing and say nothing.
+func (s *Store) Names(dir string) ([]string, error) {
 	f, err := s.root.Open(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer f.Close()
 
 	entries, err := f.ReadDir(-1)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	return names
+	return names, nil
 }

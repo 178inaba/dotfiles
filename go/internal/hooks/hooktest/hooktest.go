@@ -67,6 +67,16 @@ func OpenStore(t *testing.T, dir string) *state.Store {
 	return s
 }
 
+// Names lists a directory in the store, failing the test if it cannot be read.
+func Names(t *testing.T, s *state.Store, dir string) []string {
+	t.Helper()
+	names, err := s.Names(dir)
+	if err != nil {
+		t.Fatalf("Names(%q): %v", dir, err)
+	}
+	return names
+}
+
 // InitRepo makes a repository with one commit in it.
 func InitRepo(t *testing.T, dir string) {
 	t.Helper()
