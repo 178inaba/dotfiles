@@ -105,6 +105,15 @@ func (e Exec) Spawn(env []string, args ...string) error {
 	// Setsid detaches further than the shell original did, which left the child
 	// in the caller's process group: a harness that kills the statusline's
 	// process group on timeout cannot take the refresh down with it.
+	//
+	// syscall rather than golang.org/x/sys, here and at the module's two other
+	// system calls (Flock and Exec, both in selfbuild). The syscall package asks
+	// new code to prefer x/sys "where possible", and this line is where it is
+	// not: exec.Cmd.SysProcAttr is typed *syscall.SysProcAttr, which is why
+	// x/sys declares its own SysProcAttr as an alias for that one. Moving the
+	// other two would leave the module importing both packages for the same
+	// three calls, and neither Flock nor Exec has a higher-level wrapper in os
+	// or gains anything from the newer package.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err

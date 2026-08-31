@@ -123,7 +123,6 @@ func (h *harness) deps() Deps {
 			h.touched[p] = mod
 			return os.Chtimes(p, mod, mod)
 		},
-		Now: func() time.Time { return h.now },
 		Run: h.runner,
 		ReExec: func(argv0 string, argv, env []string) error {
 			h.reexec = reexec{called: true, argv0: argv0, argv: argv, env: env}

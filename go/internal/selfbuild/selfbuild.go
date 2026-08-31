@@ -111,7 +111,6 @@ type Deps struct {
 	// can be arranged in a test.
 	LookPath func(string) (string, error)
 	Chtimes  func(string, time.Time, time.Time) error
-	Now      func() time.Time
 	Run      runner.Runner
 	// ReExec replaces this process. It only returns on failure.
 	ReExec func(argv0 string, argv, env []string) error
@@ -131,7 +130,6 @@ func NewDeps(args []string) Deps {
 		Environ:  os.Environ,
 		LookPath: exec.LookPath,
 		Chtimes:  os.Chtimes,
-		Now:      time.Now,
 		Run:      runner.Exec{},
 		ReExec:   reExec,
 		Debug:    io.Discard,
