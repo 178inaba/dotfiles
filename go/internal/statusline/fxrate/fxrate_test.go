@@ -134,14 +134,22 @@ func TestRefresh(t *testing.T) {
 			defer srv.Close()
 
 			dir := filepath.Join(t.TempDir(), "usd-jpy")
-			Refresh(t.Context(), srv.Client(), srv.URL, dir, now)
+			err := Refresh(t.Context(), srv.Client(), srv.URL, dir, now)
 
 			rec, ok := cache.Read[float64](dir, cacheKey)
 			if tt.want == 0 {
+				// The rate keeps rendering either way; the error is what a
+				// hand-run refresh has to say for itself.
+				if err == nil {
+					t.Error("Refresh reported no error")
+				}
 				if ok {
 					t.Errorf("cache written as %v, want no record", rec.Value)
 				}
 				return
+			}
+			if err != nil {
+				t.Fatalf("Refresh: %v", err)
 			}
 			if !ok {
 				t.Fatal("no record written")
@@ -164,7 +172,9 @@ func TestRefreshSurvivesAnUnreachableServer(t *testing.T) {
 	srv.Close()
 
 	dir := filepath.Join(t.TempDir(), "usd-jpy")
-	Refresh(t.Context(), http.DefaultClient, url, dir, now)
+	if err := Refresh(t.Context(), http.DefaultClient, url, dir, now); err == nil {
+		t.Error("Refresh reported no error")
+	}
 
 	if _, ok := cache.Read[float64](dir, cacheKey); ok {
 		t.Error("a record was written for a failed fetch")

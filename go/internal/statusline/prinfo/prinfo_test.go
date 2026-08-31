@@ -193,7 +193,9 @@ func TestRefresh(t *testing.T) {
 		},
 		{
 			// gh reports no pull request, no network and no credentials with
-			// the same exit status, and all three mean the same thing here.
+			// the same exit status, and all three mean the same thing here. The
+			// loop below requires a nil error for every row, this one included:
+			// caching "no pull request" is the answer, not a failure to get one.
 			name:   "a gh failure is cached as no pull request",
 			branch: "feat",
 			out:    map[string]string{"git symbolic-ref": "origin/main\n"},
@@ -209,7 +211,9 @@ func TestRefresh(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "pr")
 			r := &fakeRunner{out: tt.out, fail: tt.fail}
 
-			Refresh(t.Context(), r, dir, key, tt.branch, now)
+			if err := Refresh(t.Context(), r, dir, key, tt.branch, now); err != nil {
+				t.Fatalf("Refresh: %v", err)
+			}
 
 			rec, ok := cache.Read[Info](dir, key)
 			if !ok {

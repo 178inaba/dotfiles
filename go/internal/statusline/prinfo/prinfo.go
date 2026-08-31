@@ -60,13 +60,14 @@ func Lookup(dir, key string, now time.Time) (Info, bool) {
 	return rec.Value, cache.ShouldAttempt(dir, now, retryInterval)
 }
 
-// Refresh asks gh about the current branch and stores the answer. It is meant
-// to run detached and reports nothing.
+// Refresh asks gh about the current branch and stores the answer.
 //
 // A failure of any kind — no pull request, offline, not authenticated, all of
-// which gh reports the same way — is cached as "no pull request". That is what
-// keeps an offline machine from calling gh on every redraw.
-func Refresh(ctx context.Context, r runner.Runner, dir, key, branch string, now time.Time) {
+// which gh reports the same way — is cached as "no pull request" rather than
+// reported. That is a result and not an error: caching it is what keeps an
+// offline machine from calling gh on every redraw. The error is the failure to
+// store, which is the only way this can leave nothing behind.
+func Refresh(ctx context.Context, r runner.Runner, dir, key, branch string, now time.Time) error {
 	var info Info
 	// The default branch may be the head of a release pull request, but it is
 	// not a branch-specific working context, so it is skipped before gh is even
@@ -74,8 +75,7 @@ func Refresh(ctx context.Context, r runner.Runner, dir, key, branch string, now 
 	if !isDefaultBranch(ctx, r, branch) {
 		info = fetch(ctx, r)
 	}
-	// Best effort: a write that fails leaves the previous record in place.
-	_ = cache.Write(dir, key, now, info)
+	return cache.Write(dir, key, now, info)
 }
 
 // fetch returns the current branch's pull request, or the zero Info when there

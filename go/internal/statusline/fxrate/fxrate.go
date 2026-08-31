@@ -9,6 +9,7 @@ package fxrate
 import (
 	"context"
 	"encoding/json/v2"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -55,32 +56,32 @@ func Lookup(dir string, now time.Time) (float64, bool) {
 	return rate, cache.ShouldAttempt(dir, now, retryInterval)
 }
 
-// Refresh fetches the rate and stores it. It is meant to run detached, so it
-// reports nothing: a failure simply leaves the previous cache in place.
-func Refresh(ctx context.Context, client *http.Client, url, dir string, now time.Time) {
-	rate, ok := fetch(ctx, client, url)
-	if !ok {
-		return
+// Refresh fetches the rate and stores it. Whatever went wrong, the previous
+// cache is left in place and the old rate keeps rendering; the error is for
+// whoever runs this by hand, since the detached child's streams go nowhere.
+func Refresh(ctx context.Context, client *http.Client, url, dir string, now time.Time) error {
+	rate, err := fetch(ctx, client, url)
+	if err != nil {
+		return err
 	}
-	// Best effort: a write that fails leaves the previous rate rendering.
-	_ = cache.Write(dir, cacheKey, now, rate)
+	return cache.Write(dir, cacheKey, now, rate)
 }
 
-func fetch(ctx context.Context, client *http.Client, url string) (float64, bool) {
+func fetch(ctx context.Context, client *http.Client, url string) (float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, false
+		return 0, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, false
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, false
+		return 0, fmt.Errorf("%s: %s", url, resp.Status)
 	}
 
 	var body struct {
@@ -89,12 +90,12 @@ func fetch(ctx context.Context, client *http.Client, url string) (float64, bool)
 		} `json:"rates"`
 	}
 	if err := json.UnmarshalRead(io.LimitReader(resp.Body, 1<<16), &body); err != nil {
-		return 0, false
+		return 0, err
 	}
-	// A missing or nonsensical rate is treated as no answer, so the previous
-	// one keeps rendering rather than being replaced by zero.
+	// A missing or nonsensical rate is no answer at all, so the previous one
+	// keeps rendering rather than being replaced by zero.
 	if body.Rates.JPY <= 0 {
-		return 0, false
+		return 0, fmt.Errorf("%s: no usable JPY rate", url)
 	}
-	return body.Rates.JPY, true
+	return body.Rates.JPY, nil
 }

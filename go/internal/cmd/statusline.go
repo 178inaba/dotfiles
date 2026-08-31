@@ -19,19 +19,16 @@ func newStatuslineCmd(build selfbuild.State) *cobra.Command {
 		Short: "Render the Claude Code status line",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			err := statusline.Run(c.Context(), statusline.Default(),
-				c.InOrStdin(), c.OutOrStdout(), build.FirstError)
-			if err != nil {
-				return silent(err)
-			}
-			return nil
+			return silent(statusline.Run(c.Context(), statusline.Default(),
+				c.InOrStdin(), c.OutOrStdout(), build.FirstError))
 		},
 	}
 }
 
 // newRefreshCmds are the detached children a redraw starts. They are hidden:
-// running one by hand does nothing useful, and the status line's own contract
-// is what defines their arguments.
+// the status line's own contract is what defines their arguments. A failure is
+// reported the ordinary way, which reaches nobody when the child is detached
+// and is the only account of what went wrong when one is run by hand.
 func newRefreshCmds() []*cobra.Command {
 	var (
 		now                      int64
@@ -44,8 +41,7 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			statusline.RefreshFX(c.Context(), cacheDir, time.Unix(now, 0))
-			return nil
+			return silent(statusline.RefreshFX(c.Context(), cacheDir, time.Unix(now, 0)))
 		},
 	}
 	pr := &cobra.Command{
@@ -54,8 +50,7 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			statusline.RefreshPR(c.Context(), runner.Exec{}, cacheDir, cacheKey, head, time.Unix(now, 0))
-			return nil
+			return silent(statusline.RefreshPR(c.Context(), runner.Exec{}, cacheDir, cacheKey, head, time.Unix(now, 0)))
 		},
 	}
 

@@ -24,8 +24,15 @@ type silentError struct{ error }
 // Unwrap keeps errors.Is and errors.As working through the wrapper.
 func (e silentError) Unwrap() error { return e.error }
 
-// silent wraps err so run prints it on its own.
-func silent(err error) error { return silentError{err} }
+// silent wraps err so run prints it on its own. A nil stays nil: wrapping one
+// would produce a non-nil error interface around nothing, and every command
+// that succeeded would report a failure with no message.
+func silent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return silentError{err}
+}
 
 // Execute runs the tree and returns the process exit status. The self-rebuild
 // check runs first, before anything reads stdin; see selfbuild.Run.
