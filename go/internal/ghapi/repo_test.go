@@ -137,7 +137,7 @@ func TestCurrentRepo(t *testing.T) {
 			}))
 
 			run := &fakeRunner{out: tc.remotes}
-			got, err := c.CurrentRepo(t.Context(), run)
+			got, err := c.CurrentRepo(t.Context(), run, "/repo")
 			if err != nil {
 				t.Fatalf("CurrentRepo: %v", err)
 			}
@@ -148,7 +148,7 @@ func TestCurrentRepo(t *testing.T) {
 			if gotPath != tc.wantPath {
 				t.Errorf("CurrentRepo looked up %q, want %q", gotPath, tc.wantPath)
 			}
-			wantCalls := [][]string{{"git", "remote", "-v"}}
+			wantCalls := [][]string{{"git", "-C", "/repo", "remote", "-v"}}
 			if diff := cmp.Diff(wantCalls, run.calls); diff != "" {
 				t.Errorf("commands run (-want +got):\n%s", diff)
 			}
@@ -167,7 +167,7 @@ func TestCurrentRepoPrefersTheApiName(t *testing.T) {
 		fmt.Fprint(w, `{"name":"dotfiles","owner":{"login":"178inaba"}}`)
 	}))
 
-	got, err := c.CurrentRepo(t.Context(), &fakeRunner{out: "origin\tgit@github.com:178INABA/DotFiles.git (fetch)\n"})
+	got, err := c.CurrentRepo(t.Context(), &fakeRunner{out: "origin\tgit@github.com:178INABA/DotFiles.git (fetch)\n"}, "/repo")
 	if err != nil {
 		t.Fatalf("CurrentRepo: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestCurrentRepoFailures(t *testing.T) {
 				fmt.Fprint(w, `{"message":"Not Found"}`)
 			}))
 
-			got, err := c.CurrentRepo(t.Context(), &fakeRunner{out: tc.remotes, fail: tc.gitFail})
+			got, err := c.CurrentRepo(t.Context(), &fakeRunner{out: tc.remotes, fail: tc.gitFail}, "/repo")
 			if err == nil {
 				t.Fatalf("CurrentRepo = %v, want an error", got)
 			}

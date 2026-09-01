@@ -175,7 +175,7 @@ func TestPullRequestForCurrentBranch(t *testing.T) {
 			c := ghapitest.New(t, graphQL(t, body, &vars))
 
 			run := &fakeRunner{out: "feature/121-port-scripts-to-ccx\n"}
-			got, err := c.PullRequestForCurrentBranch(t.Context(), run, repo)
+			got, err := c.PullRequestForCurrentBranch(t.Context(), run, "/repo", repo)
 			if err != nil {
 				t.Fatalf("PullRequestForCurrentBranch: %v", err)
 			}
@@ -186,7 +186,7 @@ func TestPullRequestForCurrentBranch(t *testing.T) {
 			if got, want := vars["headRefName"], "feature/121-port-scripts-to-ccx"; got != want {
 				t.Errorf("headRefName = %v, want %q", got, want)
 			}
-			wantCalls := [][]string{{"git", "branch", "--show-current"}}
+			wantCalls := [][]string{{"git", "-C", "/repo", "branch", "--show-current"}}
 			if diff := cmp.Diff(wantCalls, run.calls); diff != "" {
 				t.Errorf("commands run (-want +got):\n%s", diff)
 			}
@@ -224,7 +224,7 @@ func TestPullRequestForCurrentBranchFailures(t *testing.T) {
 			body := `{"data":{"repository":{"pullRequests":{"nodes":[` + strings.Join(tc.nodes, ",") + `]}}}}`
 			c := ghapitest.New(t, graphQL(t, body, nil))
 
-			got, err := c.PullRequestForCurrentBranch(t.Context(), &fakeRunner{out: tc.branch, fail: tc.fail}, repo)
+			got, err := c.PullRequestForCurrentBranch(t.Context(), &fakeRunner{out: tc.branch, fail: tc.fail}, "/repo", repo)
 			if err == nil {
 				t.Fatalf("PullRequestForCurrentBranch = %v, want an error", got)
 			}

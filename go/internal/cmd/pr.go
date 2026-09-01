@@ -123,7 +123,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 // different problem from being unauthenticated, and a message that hides which
 // one it was sends the reader to debug the wrong thing.
 func currentRepo(ctx context.Context, client *ghapi.Client) (ghapi.Repo, error) {
-	repo, err := client.CurrentRepo(ctx, runner.Exec{})
+	repo, err := client.CurrentRepo(ctx, runner.Exec{}, ".")
 	if err != nil {
 		return ghapi.Repo{}, fmt.Errorf("failed to resolve the repository: %w", err)
 	}
@@ -137,7 +137,7 @@ func currentRepo(ctx context.Context, client *ghapi.Client) (ghapi.Repo, error) 
 // is another, where naming a number is the way forward.
 func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, number int) (ghapi.PullRequest, error) {
 	if number == 0 {
-		pr, err := client.PullRequestForCurrentBranch(ctx, runner.Exec{}, repo)
+		pr, err := client.PullRequestForCurrentBranch(ctx, runner.Exec{}, ".", repo)
 		if err != nil {
 			return ghapi.PullRequest{}, fmt.Errorf("could not infer PR from current branch; specify <pr-number> explicitly")
 		}

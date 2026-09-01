@@ -73,7 +73,7 @@ func targetRepo(ctx context.Context, c *ghapi.Client, name string) (ghapi.Repo, 
 	if name != "" {
 		return ghapi.ParseRepo(name)
 	}
-	repo, err := c.CurrentRepo(ctx, runner.Exec{})
+	repo, err := c.CurrentRepo(ctx, runner.Exec{}, ".")
 	if err != nil {
 		return ghapi.Repo{}, fmt.Errorf("failed to resolve the current repository (run inside a GitHub repository or pass -R owner/repo): %w", err)
 	}

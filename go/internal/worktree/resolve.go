@@ -136,7 +136,7 @@ func Resolve(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 // naming a number explicitly is the way out.
 func resolvePR(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, dir string, number int) (ghapi.PullRequest, error) {
 	if number == 0 {
-		pr, err := c.PullRequestForCurrentBranch(ctx, dirRunner{r: r, dir: dir}, repo)
+		pr, err := c.PullRequestForCurrentBranch(ctx, r, dir, repo)
 		if err != nil {
 			return ghapi.PullRequest{}, fmt.Errorf(
 				"could not infer the PR from the current branch (no PR, unauthenticated, or network error); pass <pr-number> explicitly")
@@ -276,20 +276,4 @@ func syncWithOrigin(ctx context.Context, r runner.Runner, dir, branch string) (R
 		return ResolveBehindDirty, false, nil
 	}
 	return ResolveOK, true, nil
-}
-
-// dirRunner runs a command in a fixed directory, which is how the branch that
-// infers a pull request is read from the repository this call is about rather
-// than from wherever the process happens to be.
-type dirRunner struct {
-	r   runner.Runner
-	dir string
-}
-
-// Run implements runner.Runner.
-func (d dirRunner) Run(ctx context.Context, c runner.Command) ([]byte, error) {
-	if c.Dir == "" {
-		c.Dir = d.dir
-	}
-	return d.r.Run(ctx, c)
 }

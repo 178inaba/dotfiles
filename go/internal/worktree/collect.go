@@ -189,7 +189,7 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 	merged, _ := c.git(ctx, "branch", "--merged", mergedBase, "--format=%(refname:lstrip=2)")
 	c.mergedInto = lineSet(merged)
 
-	if c.repo, err = c.c.CurrentRepo(ctx, dirRunner{r: c.r, dir: c.dir}); err != nil {
+	if c.repo, err = c.c.CurrentRepo(ctx, c.r, c.dir); err != nil {
 		c.degraded = true
 		c.warn("gh が利用できないためオフライン判定（PR 情報なし）")
 	}

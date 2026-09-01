@@ -59,7 +59,7 @@ func RepoFromAPIURL(apiURL string) (Repo, error) {
 	return Repo{Owner: parts[len(parts)-2], Name: parts[len(parts)-1]}, nil
 }
 
-// CurrentRepo names the repository the working directory belongs to.
+// CurrentRepo names the repository dir belongs to.
 //
 // This is the `gh repo view --json nameWithOwner` that three of the ported
 // commands opened with. gh answers it from the git remotes and so does this;
@@ -71,8 +71,8 @@ func RepoFromAPIURL(apiURL string) (Repo, error) {
 // written in the wrong case or naming a repository that has since been renamed
 // still resolves to the name the API uses. Every later round trip in a command
 // is built from that name, so it has to be the one the API agrees with.
-func (c *Client) CurrentRepo(ctx context.Context, r runner.Runner) (Repo, error) {
-	candidate, err := remoteRepo(ctx, r)
+func (c *Client) CurrentRepo(ctx context.Context, r runner.Runner, dir string) (Repo, error) {
+	candidate, err := remoteRepo(ctx, r, dir)
 	if err != nil {
 		return Repo{}, err
 	}
@@ -94,15 +94,15 @@ func (c *Client) CurrentRepo(ctx context.Context, r runner.Runner) (Repo, error)
 // Whether a remote points at GitHub at all is left to the lookup that follows:
 // a host this module cannot reach fails there anyway, and deciding it here
 // would mean keeping a second opinion about which host that is.
-func remoteRepo(ctx context.Context, r runner.Runner) (Repo, error) {
-	out, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"remote", "-v"}})
+func remoteRepo(ctx context.Context, r runner.Runner, dir string) (Repo, error) {
+	out, err := runner.Git(ctx, r, dir, "remote", "-v")
 	if err != nil {
 		return Repo{}, fmt.Errorf("list the git remotes: %w", err)
 	}
 
 	best, bestRank := Repo{}, -1
 	seen := make(map[string]bool)
-	for line := range strings.SplitSeq(string(out), "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		// Two lines per remote, fetch before push; only the first is read
 		// because the two differ only where a repository is pushed somewhere
 		// other than it is read from, and it is the source that identifies it.

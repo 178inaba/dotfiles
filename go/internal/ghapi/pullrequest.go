@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -134,7 +133,12 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 }
 
 // PullRequestForCurrentBranch is `gh pr view` with no argument: the pull
-// request whose head is the branch checked out here.
+// request whose head is the branch checked out in dir.
+//
+// dir is explicit rather than inherited from the process, because a caller that
+// was given a repository to work on has to be able to say so — and because a
+// default of the process's own directory is one a test forgets to override and
+// then passes against whatever repository the test binary happens to run in.
 //
 // An open pull request wins over a closed or merged one with the same head, so
 // that a branch reused after its first one merged resolves to the one being
@@ -142,8 +146,8 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 // local branch name is taken to be the head ref, where gh also reads
 // branch.<name>.merge — the two differ only for a branch that `gh pr checkout`
 // created from a fork.
-func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runner, repo Repo) (PullRequest, error) {
-	branch, err := currentBranch(ctx, r)
+func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runner, dir string, repo Repo) (PullRequest, error) {
+	branch, err := currentBranch(ctx, r, dir)
 	if err != nil {
 		return PullRequest{}, err
 	}
@@ -177,14 +181,13 @@ func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runne
 }
 
 // currentBranch returns the branch a pull request is inferred from.
-func currentBranch(ctx context.Context, r runner.Runner) (string, error) {
-	out, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"branch", "--show-current"}})
+func currentBranch(ctx context.Context, r runner.Runner, dir string) (string, error) {
+	branch, err := runner.Git(ctx, r, dir, "branch", "--show-current")
 	if err != nil {
 		return "", fmt.Errorf("read the current branch: %w", err)
 	}
 	// Empty output is how git reports a detached head, and there is no branch
 	// to infer a pull request from then.
-	branch := strings.TrimSpace(string(out))
 	if branch == "" {
 		return "", errors.New("no branch is checked out, so no pull request can be inferred")
 	}

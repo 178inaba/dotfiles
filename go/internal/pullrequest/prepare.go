@@ -96,7 +96,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 
 	// Probed before anything is fetched, so that "there is no pull request" is
 	// settled apart from "the fetch failed".
-	pr, err := probe(ctx, r, c, repo, o.Number)
+	pr, err := probe(ctx, r, c, repo, dir, o.Number)
 	switch {
 	case err != nil && o.Number != 0:
 		return Preparation{}, err
@@ -167,9 +167,9 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 }
 
 // probe settles which pull request is meant without fetching anything.
-func probe(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, number int) (ghapi.PullRequest, error) {
+func probe(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, dir string, number int) (ghapi.PullRequest, error) {
 	if number == 0 {
-		return c.PullRequestForCurrentBranch(ctx, r, repo)
+		return c.PullRequestForCurrentBranch(ctx, r, dir, repo)
 	}
 	pr, err := c.PullRequest(ctx, repo, number)
 	if err != nil || pr.HeadRefName == "" {
