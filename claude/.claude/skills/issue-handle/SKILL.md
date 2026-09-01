@@ -47,7 +47,7 @@ disable-model-invocation: true
 
 ### Issue 階層の扱い（Issue番号指定時）
 
-Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力（`kind` / `parent` / `sub_issues` / `siblings` / `all_sub_issues_closed` / `all_siblings_closed` / `blocked_by` / `blockers_closed` / `warnings`。契約の正は `go/internal/issue/` のパッケージドキュメント）で分岐する。取得できていなければ `ccx issue tree <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
+Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力の `kind` で分岐する（出力の読み方は `ccx issue tree --help`）。取得できていなければ `ccx issue tree <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
 
 - **`standalone`**: 従来どおり単独の Issue として進める
 - **`sub`（親あり・Sub なし）**: 実装対象。以下を要件確認に加える
@@ -135,7 +135,7 @@ PlanモードではBashが使えないため、以下を**移行前に**必ず�
   ccx worktree create <worktree-name> <branch> <base-branch>
   ```
   （`<worktree-name>` は Step 4 の sanitized 名、`<branch>` は Step 4 の完全形式のブランチ名）
-- 出力 JSON のうち本手順で使うフィールド（契約の正は `go/internal/worktree/` のパッケージドキュメント）: `status` / `worktree_path` / `start_ref` / `warnings[]`
+- 出力の読み方は `ccx worktree create --help` にある
   - `status: ok` → Step 6 へ。`warnings[]` が空でなければ報告に併記し、`start_ref` がローカル base の場合はその旨も報告する
   - `status: branch_exists` / `path_exists` → **停止**してユーザー判断を仰ぐ（過去作業の残骸の可能性があり、破棄はユーザー確認なしに行わない。Step 3 の再開検出に掛からない片割れ残骸 — branch だけ・ディレクトリだけ — が典型）
   - 非ゼロ exit（base 不在等）→ stderr を提示して abort
