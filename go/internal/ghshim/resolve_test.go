@@ -33,7 +33,7 @@ func ghTree(t *testing.T, mode os.FileMode) string {
 func TestReal(t *testing.T) {
 	t.Parallel()
 
-	real := ghTree(t, 0o755)
+	realDir := ghTree(t, 0o755)
 	self := ghTree(t, 0o755)
 	notExecutable := ghTree(t, 0o644)
 	empty := t.TempDir()
@@ -47,38 +47,38 @@ func TestReal(t *testing.T) {
 	}{
 		{
 			name:     "GH_BIN names a path outside this directory",
-			ghBin:    filepath.Join(real, "gh"),
+			ghBin:    filepath.Join(realDir, "gh"),
 			pathList: []string{empty},
-			want:     filepath.Join(real, "gh"),
+			want:     filepath.Join(realDir, "gh"),
 		},
 		{
 			// The shell case: GH_BIN pointing at the shim falls back to PATH.
 			name:     "GH_BIN pointing at the shim falls back to PATH",
 			ghBin:    filepath.Join(self, "gh"),
-			pathList: []string{self, real},
-			want:     filepath.Join(real, "gh"),
+			pathList: []string{self, realDir},
+			want:     filepath.Join(realDir, "gh"),
 		},
 		{
 			name:     "GH_BIN without a separator is looked up on PATH",
 			ghBin:    "gh",
-			pathList: []string{real},
-			want:     filepath.Join(real, "gh"),
+			pathList: []string{realDir},
+			want:     filepath.Join(realDir, "gh"),
 		},
 		{
 			name:     "a GH_BIN that resolves to nothing falls back to PATH",
 			ghBin:    filepath.Join(empty, "gh"),
-			pathList: []string{real},
-			want:     filepath.Join(real, "gh"),
+			pathList: []string{realDir},
+			want:     filepath.Join(realDir, "gh"),
 		},
 		{
 			name:     "PATH is walked in order, skipping this directory",
-			pathList: []string{empty, self, real},
-			want:     filepath.Join(real, "gh"),
+			pathList: []string{empty, self, realDir},
+			want:     filepath.Join(realDir, "gh"),
 		},
 		{
 			name:     "a file with no execute bit is not a candidate",
-			pathList: []string{notExecutable, real},
-			want:     filepath.Join(real, "gh"),
+			pathList: []string{notExecutable, realDir},
+			want:     filepath.Join(realDir, "gh"),
 		},
 		{
 			// The shell case: a missing real gh does not silently succeed.

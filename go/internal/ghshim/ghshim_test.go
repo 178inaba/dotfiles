@@ -44,18 +44,18 @@ func (h *handOff) exec(argv0 string, argv, env []string) error {
 func realGH(t *testing.T) (path, pathList, selfDir string) {
 	t.Helper()
 
-	real := ghTree(t, 0o755)
+	realDir := ghTree(t, 0o755)
 	self := ghTree(t, 0o755)
-	return filepath.Join(real, "gh"), real + string(filepath.ListSeparator) + self, self
+	return filepath.Join(realDir, "gh"), realDir + string(filepath.ListSeparator) + self, self
 }
 
 func testDeps(t *testing.T, h *handOff) deps {
 	t.Helper()
 
-	real, pathList, selfDir := realGH(t)
+	realPath, pathList, selfDir := realGH(t)
 	t.Cleanup(func() {
-		if h.called && h.argv0 != real {
-			t.Errorf("handed off to %q, want %q", h.argv0, real)
+		if h.called && h.argv0 != realPath {
+			t.Errorf("handed off to %q, want %q", h.argv0, realPath)
 		}
 	})
 	return deps{
