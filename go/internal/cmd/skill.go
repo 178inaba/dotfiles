@@ -14,7 +14,7 @@ import (
 // SKILL.md files themselves.
 func newSkillCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("skill", "Check the SKILL.md files a skill is defined by")
-	c.AddCommand(skillFrontmatterCmd(build))
+	c.AddCommand(skillFrontmatterCmd(build), skillRefsCmd(build))
 	return c
 }
 
@@ -59,4 +59,35 @@ func skillsDir() (string, error) {
 		return "", fmt.Errorf("this repository could not be located, so there is no default target to check")
 	}
 	return filepath.Join(repo, "claude", ".claude", "skills"), nil
+}
+
+// skillRefsCmd builds `ccx skill refs`.
+//
+// A `@` reference attaches its target one level only, and nothing says so when
+// a second hop goes unattached — which is how a verification once ran with its
+// convergence protocol unread.
+func skillRefsCmd(build selfbuild.State) *cobra.Command {
+	return &cobra.Command{
+		Use:   "refs [<skills-dir>]",
+		Short: "Check the @ references between skills",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			target := ""
+			if len(args) == 1 {
+				target = args[0]
+			}
+			if target == "" {
+				var err error
+				if target, err = skillsDir(); err != nil {
+					return silent(err)
+				}
+			}
+			checked, err := skill.CheckRefs(target)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), checked))
+		},
+	}
 }
