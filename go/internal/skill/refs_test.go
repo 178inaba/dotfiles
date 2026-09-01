@@ -116,7 +116,7 @@ func TestCheckRefs(t *testing.T) {
 			t.Parallel()
 
 			root := tree(t, tc.files)
-			got, err := skill.CheckRefs(root)
+			got, err := skill.CheckRefs(root, skill.Contract{})
 			if err != nil {
 				t.Fatalf("CheckRefs: %v", err)
 			}
@@ -147,7 +147,7 @@ func TestCheckRefsReadsBeyondSkillFiles(t *testing.T) {
 		"c/SKILL.md":     skillFile("c", "nothing\n"),
 	})
 
-	got, err := skill.CheckRefs(root)
+	got, err := skill.CheckRefs(root, skill.Contract{})
 	if err != nil {
 		t.Fatalf("CheckRefs: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestCheckRefsFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := skill.CheckRefs(tc.target)
+			got, err := skill.CheckRefs(tc.target, skill.Contract{})
 			if err == nil {
 				t.Fatalf("CheckRefs = %+v, want an error mentioning %q", got, tc.wantErr)
 			}
@@ -202,7 +202,7 @@ func TestCheckRefsOnThisRepository(t *testing.T) {
 		t.Skipf("the repository's skills are not there: %v", err)
 	}
 
-	got, err := skill.CheckRefs(skills)
+	got, err := skill.CheckRefs(skills, skill.Contract{})
 	if err != nil {
 		t.Fatalf("CheckRefs: %v", err)
 	}

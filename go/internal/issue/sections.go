@@ -130,6 +130,18 @@ var ErrEmptyInput = errors.New("input file is empty")
 // It takes no locale: the callers are consumers, which accept a heading in
 // either language because they do not know which one the issue they are
 // reading was written in.
+// Keys is every section key, in the order the schema declares them.
+//
+// The keys are as much a part of the contract as any field name: `ccx issue
+// sections schema` takes one, and the skills that read an issue body name them.
+func Keys() []string {
+	out := make([]string, 0, len(table))
+	for _, s := range table {
+		out = append(out, s.Key)
+	}
+	return out
+}
+
 func Schema(key string) (Section, error) {
 	s, ok := row(key)
 	if !ok {

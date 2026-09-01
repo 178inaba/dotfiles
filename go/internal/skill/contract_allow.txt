@@ -1,0 +1,15 @@
+# Tokens in a SKILL.md that read like a ccx contract identifier and are not.
+#
+# Each line is the token, then why nothing any command publishes is called
+# that. A line here is a claim, so it is worth the sentence: without one the
+# next reader cannot tell a deliberate exception from a name that was renamed
+# out of the contract and left behind.
+
+run_in_background a parameter of the Bash tool, not of any ccx command
+subagent_type     a parameter of the Agent tool, not of any ccx command
+link_sub_issue    a shell function github-sub-issues defines, not a field
+link_blocked_by   a shell function github-sub-issues defines, not a field
+sub_issue_id      a field of GitHub's own REST API, not of any ccx command
+issue_id          a field of GitHub's own REST API, not of any ccx command
+node_id           a field of GitHub's own REST API, not of any ccx command
+project_dir       part of a Claude Code session, not of any ccx command

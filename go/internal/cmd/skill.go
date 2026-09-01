@@ -82,7 +82,7 @@ func skillRefsCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			checked, err := skill.CheckRefs(target)
+			checked, err := skill.CheckRefs(target, published())
 			if err != nil {
 				return silent(err)
 			}

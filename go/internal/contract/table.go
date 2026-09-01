@@ -31,3 +31,6 @@ var std = Table{Fields: genFields, Types: genTypes, Enums: genEnums, EnumDocs: g
 
 // Render describes t as the plain text a --help prints.
 func Render(t reflect.Type, mode Mode) (string, error) { return std.Render(t, mode) }
+
+// Identifiers is every name t's contract publishes.
+func Identifiers(t reflect.Type) ([]string, error) { return std.Identifiers(t) }

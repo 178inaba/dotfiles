@@ -130,6 +130,29 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 	return b.String(), nil
 }
 
+// Identifiers is every name a contract publishes: the JSON keys, the members
+// of every value set, and the keys of any nested document.
+//
+// A skill may name one of these where it acts on it, and naming anything else
+// that looks like one is a reference to something that no longer exists. The
+// walk is the same one the help is rendered from, so the two cannot disagree
+// about what the contract contains.
+func (tb Table) Identifiers(t reflect.Type) ([]string, error) {
+	rows, err := tb.walk(t, Output, 0, map[reflect.Type]bool{})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.name)
+		// The members of a value set are named by a skill branching on them,
+		// so they are identifiers too — including the sets the help lists
+		// inline because nobody wrote down what their members mean.
+		out = append(out, r.enum...)
+	}
+	return out, nil
+}
+
 // row is one field, flattened out of the nesting so that every name in the
 // block shares one column.
 type row struct {
@@ -137,6 +160,10 @@ type row struct {
 	name  string
 	kind  string
 	doc   string
+	// enum is the field's value set, whether or not the members were
+	// explained. The rendering shows it only where they were; Identifiers
+	// wants it either way.
+	enum []string
 }
 
 func (r row) indent() string { return strings.Repeat("  ", r.depth+1) }
@@ -169,7 +196,11 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 		if err != nil {
 			return nil, err
 		}
-		rows = append(rows, row{depth: depth, name: name, kind: kind, doc: tb.Fields[key(t, f.Name)]})
+		rows = append(rows, row{
+			depth: depth, name: name, kind: kind,
+			doc:  tb.Fields[key(t, f.Name)],
+			enum: tb.Enums[typeKey(enumOf(f.Type))],
+		})
 
 		// A value set whose members are explained is listed one to a line
 		// rather than run together, since the meaning is the half a caller
@@ -221,14 +252,21 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 	return base, nil
 }
 
-// values lists an enum's members with what each of them means, for the value
-// sets that say. One whose members carry no explanation stays as the inline
-// list in the kind.
-func (tb Table) values(t reflect.Type, depth int) []row {
+// enumOf is the named type behind a field, past any pointer or list, which is
+// where a value set is declared.
+func enumOf(t reflect.Type) reflect.Type {
 	t = deref(t)
 	for t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
 		t = deref(t.Elem())
 	}
+	return t
+}
+
+// values lists an enum's members with what each of them means, for the value
+// sets that say. One whose members carry no explanation stays as the inline
+// list in the kind.
+func (tb Table) values(t reflect.Type, depth int) []row {
+	t = enumOf(t)
 	if t.Kind() != reflect.String || !tb.documented(t) {
 		return nil
 	}

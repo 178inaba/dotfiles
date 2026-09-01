@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"maps"
 	"reflect"
+	"slices"
+
+	"github.com/178inaba/dotfiles/go/internal/contract"
 
 	"github.com/178inaba/dotfiles/go/internal/issue"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
@@ -347,6 +351,41 @@ configuration is stowed from.`,
 		blocks:   []block{prints(reflect.TypeFor[skill.Refs]())},
 		statuses: with(),
 	},
+}
+
+// published is what the ccx commands publish, as `ccx skill refs` needs to see
+// it: the command paths, and every identifier any contract carries.
+//
+// Built from the same table the help is rendered from, so a field that is gone
+// from the contract is gone from here in the same commit. It is handed to the
+// check rather than imported by it, because internal/cmd already imports
+// internal/skill.
+func published() skill.Contract {
+	out := skill.Contract{
+		Commands: slices.Sorted(maps.Keys(contracts)),
+		// The section keys are contract too: `ccx issue sections schema` takes
+		// one, and the skills that read an issue body name them.
+		Identifiers: issue.Keys(),
+	}
+	for _, h := range contracts {
+		for _, blk := range h.blocks {
+			ids, err := contract.Identifiers(blk.typ)
+			if err != nil {
+				// A type that cannot be walked is reported by the help tests;
+				// leaving its names out here would only turn that into a
+				// second, more confusing failure in the skills.
+				continue
+			}
+			out.Identifiers = append(out.Identifiers, ids...)
+		}
+		for _, s := range h.statuses {
+			if s.symbol != "" {
+				out.Identifiers = append(out.Identifiers, s.symbol)
+			}
+		}
+	}
+	slices.Sort(out.Identifiers)
+	return skill.Contract{Commands: out.Commands, Identifiers: slices.Compact(out.Identifiers)}
 }
 
 // longFor is a command's help text, or empty where none is registered.
