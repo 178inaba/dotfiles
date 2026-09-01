@@ -20,7 +20,7 @@ import (
 // newPRCmd builds `ccx pr`, the commands that work from a pull request.
 func newPRCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
-	c.AddCommand(prContextCmd(build), prFreshnessCmd(build))
+	c.AddCommand(prContextCmd(build), prFreshnessCmd(build), prPostReviewCmd(build), prReplyThreadsCmd(build))
 	return c
 }
 
@@ -193,4 +193,108 @@ func contextLimits() (pullrequest.Limits, error) {
 		*l.out = n
 	}
 	return limits, nil
+}
+
+// prPostReviewCmd builds `ccx pr post-review`.
+func prPostReviewCmd(build selfbuild.State) *cobra.Command {
+	return &cobra.Command{
+		Use:   "post-review <pr-context.json> <review-file>",
+		Short: "Post a review, after checking every comment still anchors to the diff",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			contextFile, reviewFile := args[0], args[1]
+			context, err := readFile(contextFile, "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			review, err := readFile(reviewFile, "review file")
+			if err != nil {
+				return silent(err)
+			}
+			target, err := pullrequest.ParseTarget([]byte(context))
+			if err != nil {
+				return silent(fmt.Errorf("%v in %s", err, contextFile))
+			}
+			// The directory check comes before the contents: a comment
+			// anchored to the wrong pull request is caught by the line check
+			// only when there are comments, and where the file sits is what
+			// stops it structurally.
+			if err := pullrequest.RequireInWorkDir(reviewFile, "review_path", contextFile); err != nil {
+				return silent(err)
+			}
+
+			submission, err := pullrequest.ParseSubmission([]byte(review), filepath.Dir(reviewFile), reviewFile)
+			if err != nil {
+				return silent(err)
+			}
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			posted, err := pullrequest.Post(c.Context(), runner.Exec{}, client, ".", target, submission)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), posted))
+		},
+	}
+}
+
+// prReplyThreadsCmd builds `ccx pr reply-threads`.
+func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
+	return &cobra.Command{
+		Use:   "reply-threads <pr-context.json> <threads-file>",
+		Short: "Reply to and resolve the review threads awaiting our confirmation",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			contextFile, threadsFile := args[0], args[1]
+			context, err := readFile(contextFile, "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			threads, err := readFile(threadsFile, "threads file")
+			if err != nil {
+				return silent(err)
+			}
+
+			eligible, headOID, err := pullrequest.ParseEligible([]byte(context))
+			if err != nil {
+				return silent(fmt.Errorf("%v in %s", err, contextFile))
+			}
+			if err := pullrequest.RequireInWorkDir(threadsFile, "threads_path", contextFile); err != nil {
+				return silent(err)
+			}
+			if err := pullrequest.RequireHead(c.Context(), runner.Exec{}, ".", headOID, "replying or resolving"); err != nil {
+				return silent(err)
+			}
+
+			actions, err := pullrequest.ParseThreadActions([]byte(threads), threadsFile)
+			if err != nil {
+				return silent(err)
+			}
+			if err := pullrequest.ValidateThreadActions(actions, eligible, contextFile, threadsFile); err != nil {
+				return silent(err)
+			}
+			// Nothing to do is an ordinary answer, and the one exit of this
+			// command that renders indented rather than compact.
+			if len(actions) == 0 {
+				return silent(renderJSON(c.OutOrStdout(), pullrequest.ThreadReplies{
+					Replied: []pullrequest.RepliedThread{}, Resolved: []string{},
+					ResolveFailed: []pullrequest.FailedResolve{}, Warnings: []string{},
+				}))
+			}
+
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			replies, err := pullrequest.Reply(c.Context(), client, actions, threadsFile)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderCompactJSON(c.OutOrStdout(), replies))
+		},
+	}
 }
