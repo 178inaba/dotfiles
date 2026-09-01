@@ -39,6 +39,15 @@ type PullRequest struct {
 	HeadRefName string
 	BaseRefName string
 	HeadRefOid  string
+	// ReviewDecision is GitHub's summary of the review state: APPROVED,
+	// CHANGES_REQUESTED, REVIEW_REQUIRED, or empty where no review is required.
+	// A plain string because GraphQL leaves the set open and it is nullable, so
+	// a value this module has never heard of arrives intact rather than as an
+	// error, and a null arrives as the empty string.
+	ReviewDecision string
+	// IsDraft reports a pull request that is not asking to be reviewed yet.
+	// Separate from ReviewDecision because a draft has one of its own.
+	IsDraft bool
 }
 
 // prFields is the selection both queries make.
@@ -57,6 +66,8 @@ const prFields = `
       headRefName
       baseRefName
       headRefOid
+      reviewDecision
+      isDraft
 `
 
 const prByNumberQuery = `
@@ -94,6 +105,8 @@ type prNode struct {
 	HeadRefName         string `json:"headRefName"`
 	BaseRefName         string `json:"baseRefName"`
 	HeadRefOid          string `json:"headRefOid"`
+	ReviewDecision      string `json:"reviewDecision"`
+	IsDraft             bool   `json:"isDraft"`
 	HeadRepositoryOwner struct {
 		Login string `json:"login"`
 	} `json:"headRepositoryOwner"`
@@ -101,15 +114,17 @@ type prNode struct {
 
 func (n prNode) pullRequest() PullRequest {
 	return PullRequest{
-		Number:      n.Number,
-		Title:       n.Title,
-		Body:        n.Body,
-		URL:         n.URL,
-		State:       PRState(n.State),
-		Author:      n.Author.Login,
-		HeadRefName: n.HeadRefName,
-		BaseRefName: n.BaseRefName,
-		HeadRefOid:  n.HeadRefOid,
+		Number:         n.Number,
+		Title:          n.Title,
+		Body:           n.Body,
+		URL:            n.URL,
+		State:          PRState(n.State),
+		Author:         n.Author.Login,
+		HeadRefName:    n.HeadRefName,
+		BaseRefName:    n.BaseRefName,
+		HeadRefOid:     n.HeadRefOid,
+		ReviewDecision: n.ReviewDecision,
+		IsDraft:        n.IsDraft,
 	}
 }
 

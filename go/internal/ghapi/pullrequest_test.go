@@ -53,6 +53,8 @@ func node(number int, state, headOwner string) string {
 		"headRefName": "feature/121-port-scripts-to-ccx",
 		"baseRefName": "main",
 		"headRefOid": "379223e",
+		"reviewDecision": "APPROVED",
+		"isDraft": true,
 		"headRepositoryOwner": {"login": %q}
 	}`, number, number, state, headOwner)
 }
@@ -68,6 +70,10 @@ func wantPR(number int, state ghapi.PRState) ghapi.PullRequest {
 		HeadRefName: "feature/121-port-scripts-to-ccx",
 		BaseRefName: "main",
 		HeadRefOid:  "379223e",
+		// The badge is the one reader of these two, and it needs them from
+		// whichever query the caller took, so the fixture carries them on both.
+		ReviewDecision: "APPROVED",
+		IsDraft:        true,
 	}
 }
 
