@@ -17,6 +17,7 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 // message is what the model is shown, and the path it should have used.
@@ -123,56 +124,30 @@ func (h Hook) linkedWorktree(ctx context.Context, dir string) (string, bool) {
 // outside the repository directory, classify correctly. A worktree can live
 // inside the main tree, so the longest matching prefix wins.
 func (h Hook) owner(ctx context.Context, dir, self, target string) (string, string, bool) {
-	out, err := h.runner.Run(ctx, runner.Command{
-		Name: "git", Args: []string{"-C", dir, "worktree", "list", "--porcelain"},
-	})
+	entries, err := worktree.List(ctx, h.runner, dir)
 	if err != nil {
 		return "", "", false
 	}
 
 	var root, label string
-	for _, t := range parse(string(out)) {
-		phys := physical(t.path)
+	for _, e := range entries {
+		// A bare repository holds no files, so nothing can be edited in it —
+		// and skipping it is also what keeps the first linked worktree from
+		// being promoted into a main tree it does not have.
+		if e.Bare {
+			continue
+		}
+		phys := physical(e.Path)
 		if phys == self || !within(target, phys) || len(phys) <= len(root) {
 			continue
 		}
 		root = phys
 		label = "another worktree"
-		if t.main {
+		if e.Main {
 			label = "the main tree"
 		}
 	}
 	return root, label, root != ""
-}
-
-// tree is one entry of the worktree listing.
-type tree struct {
-	path string
-	// main marks the repository's main worktree, which is the first entry —
-	// and which a bare repository does not have at all. Tracked rather than
-	// inferred from the position in the result, because dropping the bare
-	// entry would otherwise promote the first linked worktree into its place
-	// and have the guard call it the main tree.
-	main bool
-}
-
-// parse reads the worktree list, dropping the bare entry: it holds no files,
-// so nothing can be edited in it.
-func parse(out string) []tree {
-	var trees []tree
-	first := true
-	for line := range strings.Lines(out) {
-		line = strings.TrimSpace(line)
-		if p, ok := strings.CutPrefix(line, "worktree "); ok {
-			trees = append(trees, tree{path: p, main: first})
-			first = false
-			continue
-		}
-		if line == "bare" && len(trees) > 0 {
-			trees = trees[:len(trees)-1]
-		}
-	}
-	return trees
 }
 
 // within reports whether a path is the tree or inside it.
