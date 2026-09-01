@@ -13,7 +13,7 @@ This is my dotfiles.
 $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
 $ eval "$(/opt/homebrew/bin/brew shellenv)"
-$ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq yq 178inaba/tap/cflio 178inaba/tap/rdsh 178inaba/tap/slio
+$ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq 178inaba/tap/cflio 178inaba/tap/rdsh 178inaba/tap/slio
 $ stow tmux git vim zsh claude ghostty
 $ zsh -l
 $ go -C go install ./cmd/ccx
@@ -29,7 +29,13 @@ $ slio auth login
 `git/.gitconfig` sets `branch.autoSetupMerge = simple`, and older git dies with
 `bad boolean config value` on every command.
 
-`gh`, `jq` and `yq` are required by the Claude Code scripts (shared and skill-bundled).
+Three commands are required at run time. `gh` is not run for the GitHub API —
+that goes through go-gh in process — but go-gh reads the OAuth token `gh auth
+login` stores, and the shim in `~/.local/shims` hands the real one everything
+it does not refuse. `jq` is what the skills read `ccx`'s JSON output with.
+`lsof` is how `ccx worktree collect` and `ccx worktree delete` find the
+processes sitting in a worktree, so that removing one does not kill a running
+session; it ships with macOS and is not on the `brew install` line.
 
 The two `go install` lines are the only build step, and only the first one:
 each binary compares its own timestamp with the newest file under `go/` on

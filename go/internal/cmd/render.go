@@ -16,15 +16,13 @@ import (
 // values and never see an io.Writer, so there is one place that decides what
 // the output looks like and one place to test it.
 //
-// What it looks like is what `jq -n` and `jq -nc` produced, byte for byte. That
-// is not a contract anyone depends on — the readers are a model and the `jq`
-// invocations in SKILL.md, both of which ignore whitespace — but it lets the
-// output recorded from each shell script serve as the specification of its
-// replacement. Three of jq's defaults are load-bearing for that: no HTML
-// escaping, keys in the order the value declares them rather than sorted, and
-// a trailing newline. encoding/json/v2 agrees on all three, so the parity costs
-// nothing; if it ever stopped being free, the goldens would go rather than the
-// design.
+// What it looks like started as what `jq -n` and `jq -nc` produced, byte for
+// byte, which is what let the output recorded from each shell script serve as
+// the specification of its replacement. That job is done — the last shell
+// script is gone — and it was never a contract anyone depends on, since the
+// readers are a model and the `jq` invocations in SKILL.md, both of which
+// ignore whitespace. What the goldens hold is now simply the format, and
+// TestRenderJSON is what keeps it from drifting.
 
 // renderJSON writes v as the indented JSON `jq -n` produced.
 func renderJSON(w io.Writer, v any) error {

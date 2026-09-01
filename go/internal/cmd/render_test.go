@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"flag"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -89,60 +88,6 @@ func TestRenderJSON(t *testing.T) {
 			}
 			if diff := cmp.Diff(string(want), got.String()); diff != "" {
 				t.Errorf("render(fixture) differs from %s (-want +got):\n%s", tt.golden, diff)
-			}
-		})
-	}
-}
-
-// TestGoldensAreJQShaped is the half of the parity claim that a committed file
-// cannot make on its own: it checks that the goldens are what jq itself would
-// print. Feeding a golden back through jq has to be a fixed point, since jq
-// reformats whatever it reads — so if the indent, the escaping or the trailing
-// newline ever stopped matching, this fails while the goldens still agree with
-// the Go output.
-//
-// It reads the goldens rather than the Go output so that there is no second
-// jq program to keep in step with the fixture, and it skips where jq is absent:
-// this repository is removing its last runtime dependency on jq, and the other
-// test is what guards the format everywhere.
-func TestGoldensAreJQShaped(t *testing.T) {
-	t.Parallel()
-
-	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("jq is not installed")
-	}
-
-	pretty := filepath.Join("testdata", "render.golden")
-	tree := filepath.Join("testdata", "issue-tree.golden")
-	annotated := filepath.Join("testdata", "issue-tree-annotated.golden")
-	tests := []struct {
-		name   string
-		args   []string
-		golden string
-	}{
-		{name: "indented", args: []string{".", pretty}, golden: pretty},
-		{name: "compact", args: []string{"-c", ".", pretty}, golden: filepath.Join("testdata", "render-compact.golden")},
-		// The subcommands' own goldens go through the same fixed point, so a
-		// contract recorded from a shell script stays comparable with what jq
-		// would have printed for it.
-		{name: "issue tree", args: []string{".", tree}, golden: tree},
-		{name: "issue tree annotated", args: []string{".", annotated}, golden: annotated},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			out, err := exec.CommandContext(t.Context(), "jq", tt.args...).Output()
-			if err != nil {
-				t.Fatalf("jq %v: %v", tt.args, err)
-			}
-			want, err := os.ReadFile(tt.golden)
-			if err != nil {
-				t.Fatalf("ReadFile(%q): %v", tt.golden, err)
-			}
-			if diff := cmp.Diff(string(want), string(out)); diff != "" {
-				t.Errorf("jq %v differs from %s (-want +got):\n%s", tt.args, tt.golden, diff)
 			}
 		})
 	}
