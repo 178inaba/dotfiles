@@ -142,7 +142,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		BaseRef: fetched.PR.BaseRef, IsOwnPR: fetched.IsOwnPR,
 	})
 	if err != nil {
-		return Preparation{}, fmt.Errorf("the freshness check failed")
+		return Preparation{}, fmt.Errorf("the freshness check failed: %v", err)
 	}
 	p.Freshness = &freshness
 
@@ -220,7 +220,7 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 	limits, raised := raisedLimits(fetched)
 	if raised {
 		if fetched, err = Fetch(ctx, c, repo, pr, limits); err != nil {
-			return Context{}, "", fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun")
+			return Context{}, "", fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun: %v", err)
 		}
 	}
 	path, err := store(fetched)

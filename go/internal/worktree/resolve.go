@@ -181,7 +181,7 @@ func evacuate(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.
 		return fmt.Errorf("failed to determine default branch for main repository evacuation")
 	}
 	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", main, "switch", "-q", branch}}); err != nil {
-		return fmt.Errorf("failed to switch main repository to %s", branch)
+		return fmt.Errorf("failed to switch main repository to %s: %v", branch, err)
 	}
 	return nil
 }
@@ -226,12 +226,12 @@ func Checkout(ctx context.Context, r runner.Runner, root, name, headRef string) 
 	if _, err := r.Run(ctx, runner.Command{
 		Name: "git", Args: []string{"-C", root, "worktree", "add", "-q", "--detach", path},
 	}); err != nil {
-		return CheckedOut{}, fmt.Errorf("git worktree add failed for %s", path)
+		return CheckedOut{}, fmt.Errorf("git worktree add failed for %s: %v", path, err)
 	}
 	if _, err := r.Run(ctx, runner.Command{
 		Name: "git", Args: []string{"-C", path, "switch", "-q", headRef},
 	}); err != nil {
-		return CheckedOut{}, fmt.Errorf("git switch %s failed inside %s", headRef, path)
+		return CheckedOut{}, fmt.Errorf("git switch %s failed inside %s: %v", headRef, path, err)
 	}
 
 	status, synced, err := syncWithOrigin(ctx, r, path, headRef)

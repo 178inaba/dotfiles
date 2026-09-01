@@ -109,7 +109,7 @@ func Create(ctx context.Context, r runner.Runner, root, name, branch, base strin
 		Name: "git",
 		Args: []string{"-C", root, "worktree", "add", "--quiet", path, "-b", branch, startRef},
 	}); err != nil {
-		return Created{}, fmt.Errorf("git worktree add failed for %s", path)
+		return Created{}, fmt.Errorf("git worktree add failed for %s: %v", path, err)
 	}
 
 	copied, copyWarnings, err := copyWorktreeInclude(ctx, r, root, path)

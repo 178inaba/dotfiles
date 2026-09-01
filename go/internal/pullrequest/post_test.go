@@ -148,6 +148,38 @@ func diffRepo(t *testing.T) string {
 	return repo
 }
 
+// TestPostKeepsTheAPIsRefusal is the regression guard for the message the shell
+// version got for free: it never suppressed gh's standard error, so a 422 from
+// the review endpoint — the one that says which line GitHub would not accept —
+// reached the operator alongside the script's own wording. Reporting only the
+// fixed sentence sends them to debug a request they cannot see.
+func TestPostKeepsTheAPIsRefusal(t *testing.T) {
+	t.Parallel()
+
+	repo := diffRepo(t)
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		fmt.Fprint(w, `{"message":"pull_request_review.line must be part of the diff"}`)
+	}))
+
+	sub := pullrequest.Submission{
+		Assessment: pullrequest.AssessmentChanges,
+		Body:       "needs work",
+		Comments:   []pullrequest.SubmissionComment{{Path: "file.txt", Line: 4, Body: "this one"}},
+	}
+	_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target, sub)
+	if err == nil {
+		t.Fatal("Post succeeded, want the refusal reported")
+	}
+	for _, want := range []string{"failed to post review", "422", "must be part of the diff"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to mention %q", err, want)
+		}
+	}
+}
+
 func TestPost(t *testing.T) {
 	t.Parallel()
 

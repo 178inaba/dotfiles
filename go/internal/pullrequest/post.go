@@ -214,7 +214,7 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 		HTMLURL string `json:"html_url"`
 	}
 	if err := c.Post(ctx, fmt.Sprintf("repos/%s/pulls/%d/reviews", target.Repo, target.Number), payload, &response); err != nil {
-		return Posted{}, fmt.Errorf("failed to post review (gh api)")
+		return Posted{}, fmt.Errorf("failed to post review (gh api): %v", err)
 	}
 	if response.HTMLURL == "" {
 		return Posted{}, fmt.Errorf("review posted but html_url missing in the API response")
@@ -236,7 +236,7 @@ func checkAnchors(ctx context.Context, r runner.Runner, dir, baseRef string, com
 		Args: []string{"-C", dir, "-c", "color.diff=false", "diff", "--no-ext-diff", span},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to read the diff for %s", span)
+		return fmt.Errorf("failed to read the diff for %s: %v", span, err)
 	}
 
 	lines := diffLines(string(out))

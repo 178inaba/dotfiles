@@ -160,7 +160,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 	}
 	var b body
 	if err := c.GraphQL(ctx, bodyQuery, vars, &b); err != nil {
-		return Context{}, fmt.Errorf("failed to fetch PR comments/reviews/threads (GraphQL)")
+		return Context{}, fmt.Errorf("failed to fetch PR comments/reviews/threads (GraphQL): %v", err)
 	}
 
 	me := b.Viewer.Login
@@ -171,7 +171,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			var page body
 			vars := map[string]any{"owner": repo.Owner, "name": repo.Name, "number": pr.Number, "cursor": cursor}
 			if err := c.GraphQL(ctx, commentsPageQuery, vars, &page); err != nil {
-				return nil, pageInfo{}, fmt.Errorf("failed to fetch PR comments page (GraphQL)")
+				return nil, pageInfo{}, fmt.Errorf("failed to fetch PR comments page (GraphQL): %v", err)
 			}
 			return page.Repository.PullRequest.Comments.Nodes, page.Repository.PullRequest.Comments.PageInfo, nil
 		})
@@ -184,7 +184,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			var page body
 			vars := map[string]any{"owner": repo.Owner, "name": repo.Name, "number": pr.Number, "cursor": cursor}
 			if err := c.GraphQL(ctx, threadsPageQuery, vars, &page); err != nil {
-				return nil, pageInfo{}, fmt.Errorf("failed to fetch review threads page (GraphQL)")
+				return nil, pageInfo{}, fmt.Errorf("failed to fetch review threads page (GraphQL): %v", err)
 			}
 			return page.Repository.PullRequest.ReviewThreads.Nodes, page.Repository.PullRequest.ReviewThreads.PageInfo, nil
 		})
@@ -261,7 +261,7 @@ func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwn
 			}
 			vars := map[string]any{"threadId": n.ID, "cursor": cursor}
 			if err := c.GraphQL(ctx, threadCommentsPageQuery, vars, &page); err != nil {
-				return nil, pageInfo{}, fmt.Errorf("failed to fetch review thread comments page (GraphQL)")
+				return nil, pageInfo{}, fmt.Errorf("failed to fetch review thread comments page (GraphQL): %v", err)
 			}
 			return page.Node.Comments.Nodes, page.Node.Comments.PageInfo, nil
 		})

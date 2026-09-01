@@ -145,7 +145,7 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 	}
 	pr, err := client.PullRequest(ctx, repo, number)
 	if err != nil {
-		return ghapi.PullRequest{}, fmt.Errorf("failed to fetch PR #%d", number)
+		return ghapi.PullRequest{}, fmt.Errorf("failed to fetch PR #%d: %v", number, err)
 	}
 	return pr, nil
 }

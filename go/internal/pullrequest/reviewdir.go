@@ -116,9 +116,16 @@ func ParseTarget(b []byte) (Target, error) {
 // thread resolved against a diff that has since been undone is worse, because
 // nothing rejects that.
 func RequireHead(ctx context.Context, r runner.Runner, dir, headOID, before string) error {
+	// Two calls rather than one, as the shell version had: reading HEAD fails
+	// both for a directory that is no repository and for a repository with no
+	// commits, and answering the second with the first's wording sends the
+	// reader somewhere there is nothing to find.
+	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--git-dir"); err != nil {
+		return fmt.Errorf("not inside a git repository")
+	}
 	local, err := runner.Git(ctx, r, dir, "rev-parse", "HEAD")
 	if err != nil {
-		return fmt.Errorf("not inside a git repository")
+		return fmt.Errorf("failed to read HEAD in %s: %v", dir, err)
 	}
 	if local != headOID {
 		return fmt.Errorf("local HEAD (%s) differs from PR head (%s); rerun the freshness check before %s", local, headOID, before)
