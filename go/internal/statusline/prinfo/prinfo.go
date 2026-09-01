@@ -63,26 +63,19 @@ func Lookup(cacheDir, key string, now time.Time) (Info, bool) {
 
 // Refresh asks GitHub about a branch and stores the answer.
 //
-// newClient is called at most once, and only where the answer needs GitHub.
-// Building the client eagerly would undo what this is for: go-gh resolves its
-// options in both of the clients ghapi.New builds, and for a token in the
-// system keyring that resolution runs `gh auth token`, so a default branch —
-// which is answered from git alone — would start two processes to learn
-// nothing.
+// newClient is called at most once, and only where the answer needs GitHub:
+// ghapi.New resolves go-gh's options twice, and for a token in the system
+// keyring that resolution execs `gh auth token`, which a default branch —
+// answered from git alone — must not pay.
 //
-// A failure of any kind is cached as "no pull request" rather than reported: no
-// pull request on the branch, no network, no credentials, and now a client that
-// could not be built all end in the zero Info. That is a result and not an
-// error, and caching it is what keeps an offline machine from trying again on
-// every redraw. The error is the failure to store, which is the only way this
-// can leave nothing behind — skipping the write would strand whatever badge is
-// already on screen.
+// Every failure is cached as "no pull request" rather than reported, which is
+// what keeps an offline machine from asking again on every redraw. The one
+// returned error is the failure to store: skipping the write would strand
+// whatever badge is already on screen.
 //
-// dir is the repository the badge is about, and cacheDir is where the answer is
-// filed; they are different directories and only the first is ever handed to
-// git. dir is passed rather than inherited from the process because the record
-// is keyed by it: an answer computed somewhere else would be filed under a
-// directory it does not describe.
+// dir is passed rather than inherited from the process because the record is
+// keyed by it — an answer computed elsewhere would be filed under a directory
+// it does not describe.
 func Refresh(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client, error),
 	cacheDir, key, branch, dir string, now time.Time,
 ) error {
@@ -97,23 +90,18 @@ func badge(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client
 	// The default branch may be the head of a release pull request, but it is
 	// not a branch-specific working context, so it is skipped before GitHub is
 	// reached — and origin/HEAD answers that from git alone, which is what
-	// keeps the common case free of both a request and a client. Empty is
-	// "origin/HEAD says nothing", which is the case GitHub is asked about
-	// below rather than an answer.
+	// keeps the common case free of both a request and a client.
 	def := worktree.DefaultBranch(ctx, r, dir)
 	if def != "" && def == branch {
 		return Info{}
 	}
 
-	// The remotes name the repository; ghapi.CurrentRepo would confirm the name
-	// against the API, which this does not need. Nothing here renders a
-	// repository name, and the one query that follows is answered for a
-	// miscased or since-renamed one anyway.
+	// Not ghapi.CurrentRepo: nothing here renders a repository name, and the
+	// one query that follows is answered for a miscased or since-renamed one
+	// anyway, so its canonicalising round trip buys nothing.
 	repo, err := ghapi.RemoteRepo(ctx, r, dir)
 	if err != nil {
-		// A repository with no usable remote fails both of the lookups below,
-		// so it ends here rather than at each of them. `gh pr view` failed on
-		// the same condition.
+		// `gh pr view` failed on this condition too.
 		return Info{}
 	}
 	c, err := newClient()
@@ -132,8 +120,6 @@ func badge(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client
 	return fetch(ctx, c, r, dir, repo, branch)
 }
 
-// fetch returns the branch's pull request, or the zero Info when there is none
-// to show.
 func fetch(ctx context.Context, c *ghapi.Client, r runner.Runner, dir string, repo ghapi.Repo, branch string) Info {
 	pr, err := c.PullRequestForBranch(ctx, r, dir, repo, branch)
 	if err != nil {

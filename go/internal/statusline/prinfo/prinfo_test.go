@@ -26,10 +26,6 @@ const (
 )
 
 // fakeRunner answers by git subcommand and records the whole argv.
-//
-// Keying on the subcommand rather than on the first argument is what runner.Git
-// forces: it puts `-C <dir>` in front of everything, so the first argument is
-// the same for every call.
 type fakeRunner struct {
 	out   map[string]string
 	fail  map[string]bool
@@ -64,9 +60,8 @@ func (f *fakeRunner) gitOnly(t *testing.T) {
 	}
 }
 
-// dirOf returns the directory a recorded call was made in, so a test can check
-// that the passed directory reached git rather than the process's own. The
-// recorded argv has the command name prepended, hence one past runner.Git's.
+// dirOf returns the directory a recorded call was made in. The recorded argv
+// has the command name prepended, hence one past runner.Git's index.
 func dirOf(call []string) string { return call[2] }
 
 const prNode = `{
@@ -83,8 +78,7 @@ type github struct {
 	rest, graphQL int
 	// node is the pull request the branch query answers with, or empty for a
 	// branch that has none.
-	node string
-	// defaultBranch is what the repository lookup reports.
+	node          string
 	defaultBranch string
 	// vars captures the GraphQL variables, which is how a test checks which
 	// head ref was asked about.
@@ -247,8 +241,6 @@ func TestRefresh(t *testing.T) {
 			wantGraphQL: 1,
 		},
 		{
-			// The default branch is not a branch-specific context, so nothing
-			// is asked and no client is even built.
 			name:   "the default branch is skipped without asking GitHub",
 			branch: "main",
 			out:    originHEAD,
@@ -321,9 +313,7 @@ func TestRefresh(t *testing.T) {
 			if gh.graphQL != tt.wantGraphQL {
 				t.Errorf("pull request lookups = %d, want %d", gh.graphQL, tt.wantGraphQL)
 			}
-			// The client is built only where GitHub is actually reached, which
-			// is what keeps the default branch free of go-gh's option
-			// resolution and the `gh auth token` it can run.
+			// Refresh's doc has why this matters.
 			if wantBuilt := tt.wantREST + tt.wantGraphQL; (built > 0) != (wantBuilt > 0) {
 				t.Errorf("client built %d times, want it built only when GitHub is reached (%d requests)", built, wantBuilt)
 			}
@@ -337,10 +327,8 @@ func TestRefresh(t *testing.T) {
 	}
 }
 
-// TestRefreshWithoutAClient covers the machine that go-gh cannot build a client
-// for, which is an unauthenticated one. The record still has to be written:
-// leaving it out would strand whatever badge is on screen, where today a
-// failure clears it.
+// TestRefreshWithoutAClient is the unauthenticated machine, where go-gh cannot
+// build a client at all. The record still has to be written.
 func TestRefreshWithoutAClient(t *testing.T) {
 	t.Parallel()
 
@@ -396,7 +384,6 @@ func TestState(t *testing.T) {
 	}
 }
 
-// graphQLVars reads the variables out of a GraphQL request body.
 func graphQLVars(t *testing.T, r *http.Request) map[string]any {
 	t.Helper()
 

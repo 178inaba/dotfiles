@@ -40,15 +40,11 @@ type PullRequest struct {
 	HeadRefName string
 	BaseRefName string
 	HeadRefOid  string
-	// ReviewDecision is GitHub's summary of the review state: APPROVED,
-	// CHANGES_REQUESTED, REVIEW_REQUIRED, or empty where no review is required.
-	// A plain string because GraphQL leaves the set open and it is nullable, so
-	// a value this module has never heard of arrives intact rather than as an
-	// error, and a null arrives as the empty string.
+	// ReviewDecision is APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty.
+	// A plain string because GraphQL leaves the set open and nullable: an
+	// unknown value arrives intact rather than as an error, a null as empty.
 	ReviewDecision string
-	// IsDraft reports a pull request that is not asking to be reviewed yet.
-	// Separate from ReviewDecision because a draft has one of its own.
-	IsDraft bool
+	IsDraft        bool
 }
 
 // prFields is the selection both queries make.
@@ -171,10 +167,8 @@ func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runne
 // PullRequestForBranch returns the pull request whose head is branch, as
 // checked out in dir.
 //
-// The branch is the caller's rather than something git is asked for, which is
-// what a caller that already knows it — and files the answer under it — needs.
-// Beyond that this is the whole of `gh pr view` with no argument, including the
-// part PullRequestForCurrentBranch leaves out: branch.<name>.merge and
+// This is the whole of `gh pr view` with no argument, including the part
+// PullRequestForCurrentBranch leaves out: branch.<name>.merge and
 // branch.<name>.remote, which `gh pr checkout` writes for a pull request from a
 // fork and without which such a branch resolves to nothing.
 func (c *Client) PullRequestForBranch(ctx context.Context, r runner.Runner, dir string, repo Repo, branch string) (PullRequest, error) {
@@ -183,10 +177,8 @@ func (c *Client) PullRequestForBranch(ctx context.Context, r runner.Runner, dir 
 }
 
 // head returns the ref to look a pull request up by and the account its head
-// has to belong to.
-//
-// branch.<name>.merge names the ref on the remote, which the local branch may
-// not be called; branch.<name>.remote names where that remote is.
+// has to belong to. branch.<name>.merge names the ref on the remote, which the
+// local branch may not be called.
 //
 // The owner narrowing is lifted only for a remote that resolves to some other
 // repository, because it is what keeps a fork's branch of the same name from

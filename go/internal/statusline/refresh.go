@@ -50,12 +50,8 @@ func RefreshFX(ctx context.Context, cacheDir string, now time.Time) error {
 	return fxrate.Refresh(ctx, http.DefaultClient, fxrate.APIURL, cacheDir, now)
 }
 
-// RefreshPR asks GitHub about a branch's pull request.
-//
-// The client is handed over as a constructor rather than built here: prinfo
-// calls it only where the answer needs GitHub, and a default branch is answered
-// from git alone. dir is the directory the badge is about, which the parent
-// resolved.
+// RefreshPR asks GitHub about a branch's pull request. The client is a
+// constructor rather than a client for the reason prinfo.Refresh documents.
 func RefreshPR(ctx context.Context, r runner.Runner, cacheDir, cacheKey, branch, dir string, now time.Time) error {
 	newClient := func() (*ghapi.Client, error) { return ghapi.New(ghapi.Options{}) }
 	return prinfo.Refresh(ctx, r, newClient, cacheDir, cacheKey, branch, dir, now)

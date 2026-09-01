@@ -273,8 +273,6 @@ func TestPullRequestForBranch(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			// The ordinary branch, with no tracking configuration at all: the
-			// local name is the head ref and the head has to be ours.
 			name:      "no branch config uses the local name",
 			headOwner: "178inaba",
 			wantRef:   branch,
@@ -289,8 +287,7 @@ func TestPullRequestForBranch(t *testing.T) {
 			wantRef:   "their-branch",
 		},
 		{
-			// A remote naming this repository keeps the narrowing, so a fork's
-			// branch of the same name cannot answer for the local one.
+			// Otherwise a fork's branch of the same name could answer for it.
 			name: "a remote pointing at this repository keeps the narrowing",
 			settings: map[string]string{
 				"branch." + branch + ".merge":  "refs/heads/" + branch + "\n",
@@ -302,8 +299,6 @@ func TestPullRequestForBranch(t *testing.T) {
 			wantErr:   true,
 		},
 		{
-			// The remote is named rather than spelled as a url, and resolving
-			// it needs the second lookup.
 			name: "a named remote is resolved through its url",
 			settings: map[string]string{
 				"branch." + branch + ".merge":  "refs/heads/their-branch\n",
@@ -314,8 +309,7 @@ func TestPullRequestForBranch(t *testing.T) {
 			wantRef:   "their-branch",
 		},
 		{
-			// Pushed with no remote recorded: the ref is still the one merge
-			// names, but nothing says the head is elsewhere.
+			// The ref is still the one merge names; nothing says it is elsewhere.
 			name: "merge without a remote keeps the narrowing",
 			settings: map[string]string{
 				"branch." + branch + ".merge": "refs/heads/their-branch\n",
@@ -325,8 +319,6 @@ func TestPullRequestForBranch(t *testing.T) {
 			wantErr:   true,
 		},
 		{
-			// merge can name a tag or a non-branch ref, which is not a head to
-			// look a pull request up by.
 			name: "a merge that is not a branch ref is ignored",
 			settings: map[string]string{
 				"branch." + branch + ".merge":  "refs/tags/v1\n",
@@ -336,8 +328,6 @@ func TestPullRequestForBranch(t *testing.T) {
 			wantRef:   branch,
 		},
 		{
-			// A remote that cannot be resolved keeps the narrowing rather than
-			// widening on ignorance.
 			name: "an unresolvable remote keeps the narrowing",
 			settings: map[string]string{
 				"branch." + branch + ".merge":  "refs/heads/their-branch\n",
