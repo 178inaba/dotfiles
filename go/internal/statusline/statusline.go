@@ -108,10 +108,10 @@ func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, bui
 // in, or nil when it is not in one.
 //
 // The cache is keyed by directory so that parallel sessions do not overwrite
-// each other's. git runs in the process working directory rather than in the
-// one the payload named, which holds only because Claude Code starts the
-// command there. The refresh child is told the directory outright, so the two
-// can disagree; #133 reconciles them here.
+// each other's, and git is asked about that same directory rather than about
+// wherever the process happens to be standing. Everything the status line
+// publishes is about one directory: the rendered path, both cache keys, the
+// refresh child's --dir and this.
 func repository(ctx context.Context, cfg Config, current string, now time.Time) *gitstate.Status {
 	dir := cache.Path(cfg.GitCacheDir, current)
 	if rec, ok := cache.Read[*gitstate.Status](dir, current); ok && cache.Fresh(now, rec.At, gitMaxAge) {
@@ -119,9 +119,9 @@ func repository(ctx context.Context, cfg Config, current string, now time.Time) 
 	}
 
 	var status *gitstate.Status
-	out, err := cfg.Runner.Run(ctx, runner.Command{Name: "git", Args: gitstate.StatusArgs()})
+	out, err := runner.Git(ctx, cfg.Runner, current, gitstate.StatusArgs()...)
 	if err == nil {
-		parsed := gitstate.Parse(string(out))
+		parsed := gitstate.Parse(out)
 		status = &parsed
 	}
 
