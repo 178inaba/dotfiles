@@ -314,6 +314,28 @@ func TestPullRequestForBranch(t *testing.T) {
 			wantRef:   "their-branch",
 		},
 		{
+			// Pushed with no remote recorded: the ref is still the one merge
+			// names, but nothing says the head is elsewhere.
+			name: "merge without a remote keeps the narrowing",
+			settings: map[string]string{
+				"branch." + branch + ".merge": "refs/heads/their-branch\n",
+			},
+			headOwner: "someone",
+			wantRef:   "their-branch",
+			wantErr:   true,
+		},
+		{
+			// merge can name a tag or a non-branch ref, which is not a head to
+			// look a pull request up by.
+			name: "a merge that is not a branch ref is ignored",
+			settings: map[string]string{
+				"branch." + branch + ".merge":  "refs/tags/v1\n",
+				"branch." + branch + ".remote": "git@github.com:someone/dotfiles.git\n",
+			},
+			headOwner: "178inaba",
+			wantRef:   branch,
+		},
+		{
 			// A remote that cannot be resolved keeps the narrowing rather than
 			// widening on ignorance.
 			name: "an unresolvable remote keeps the narrowing",
