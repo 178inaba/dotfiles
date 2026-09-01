@@ -184,6 +184,27 @@ func TestRunFailsClosedOnAPanic(t *testing.T) {
 	}
 }
 
+// TestRunFaultDoesNotStopReads is the other half of the shell pair: failing
+// closed must not turn into failing at everything. A read never reaches the
+// part of the judgement a fault could come from, so it is handed off as usual.
+func TestRunFaultDoesNotStopReads(t *testing.T) {
+	t.Parallel()
+
+	var h handOff
+	d := testDeps(t, &h)
+	d.env.Dir = func() string { panic("injected fault") }
+	var stderr bytes.Buffer
+
+	run([]string{"pr", "view", "1"}, &stderr, d)
+
+	if !h.called {
+		t.Fatalf("the real gh was not run; stderr = %q", stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing", stderr.String())
+	}
+}
+
 func TestRunReportsAFailedBuildOnce(t *testing.T) {
 	t.Parallel()
 

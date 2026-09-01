@@ -84,8 +84,18 @@ func executable(path string) bool {
 	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
 }
 
-// resolvedDir is the directory of path with its symlinks resolved. The file
-// itself is not followed, which is what the shell's cd -P on the dirname did.
+// resolvedDir is the directory of path, made absolute and with its symlinks
+// resolved. The file itself is not followed, which is what the shell's cd -P on
+// the dirname did.
+//
+// Absolute first, because a relative path resolves to a relative one and would
+// never equal selfDir: a GH_BIN of ./gh, or a relative PATH entry, would then
+// fail to be recognised as this program and hand off to itself for ever. The
+// shell could not have that, since cd -P and pwd -P always answered absolutely.
 func resolvedDir(path string) (string, error) {
-	return filepath.EvalSymlinks(filepath.Dir(path))
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(filepath.Dir(abs))
 }

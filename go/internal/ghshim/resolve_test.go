@@ -112,3 +112,24 @@ func TestReal(t *testing.T) {
 		})
 	}
 }
+
+// TestRealRecognisesItselfThroughARelativePath is the recursion the shell
+// guarded against, reached the other way. A GH_BIN of ./gh naming this program
+// has to be seen as this program: resolving it as written would compare a
+// relative directory against an absolute one, never match, and hand off to
+// itself for ever.
+//
+// Not parallel, because it has to run from a directory of its own.
+func TestRealRecognisesItselfThroughARelativePath(t *testing.T) {
+	realDir := ghTree(t, 0o755)
+	self := ghTree(t, 0o755)
+	t.Chdir(self)
+
+	got, err := Real("./gh", realDir, self)
+	if err != nil {
+		t.Fatalf("Real: %v", err)
+	}
+	if want := filepath.Join(realDir, "gh"); got != want {
+		t.Errorf("Real = %q, want %q", got, want)
+	}
+}
