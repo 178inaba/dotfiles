@@ -78,14 +78,14 @@ func DefaultBranch(ctx context.Context, r runner.Runner, dir string) string {
 //
 // The common git directory is what makes that work: every worktree shares one,
 // and it sits inside the main worktree.
+//
+// An empty dir asks about the process working directory, which is what every
+// caller in cmd/ passes: the command was started somewhere in the repository it
+// is about.
 func MainRoot(ctx context.Context, r runner.Runner, dir string) (string, error) {
-	out, err := r.Run(ctx, runner.Command{
-		Dir:  dir,
-		Name: "git",
-		Args: []string{"rev-parse", "--path-format=absolute", "--git-common-dir"},
-	})
+	out, err := runner.Git(ctx, r, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return "", fmt.Errorf("not inside a git repository")
 	}
-	return filepath.Dir(strings.TrimSpace(string(out))), nil
+	return filepath.Dir(out), nil
 }

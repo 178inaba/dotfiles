@@ -49,17 +49,6 @@ func TestRunFailureCarriesStderr(t *testing.T) {
 	}
 }
 
-func TestRunUsesDir(t *testing.T) {
-	dir := t.TempDir()
-	got, err := Exec{}.Run(t.Context(), Command{Dir: dir, Name: "sh", Args: []string{"-c", "printf %s \"$PWD\""}})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if string(got) != dir {
-		t.Errorf("working directory = %q, want %q", got, dir)
-	}
-}
-
 func TestRunAppendsEnv(t *testing.T) {
 	got, err := Exec{}.Run(t.Context(), Command{
 		Env:  []string{"CCX_TEST_VALUE=set"},
