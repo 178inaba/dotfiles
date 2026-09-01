@@ -77,6 +77,7 @@ func newRootCmd(build selfbuild.State) *cobra.Command {
 
 	root.AddCommand(newStatuslineCmd(build))
 	root.AddCommand(newHookCmd(build))
+	root.AddCommand(newIssueCmd(build))
 	root.AddCommand(newRefreshCmds()...)
 	return root
 }
