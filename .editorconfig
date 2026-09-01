@@ -10,11 +10,7 @@ insert_final_newline = true
 indent_style = space
 indent_size = 2
 
-[{*.sh,.zshrc,.zprofile}]
-indent_style = space
-indent_size = 2
-
-[shims/.local/shims/*]
+[{.zshrc,.zprofile}]
 indent_style = space
 indent_size = 2
 

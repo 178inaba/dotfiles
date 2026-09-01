@@ -22,8 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Go のステップをシェルスイートより前に置くのは、シェル側が Sub 4 で消えたときに
-      # このジョブがそのまま Go 専用ジョブになり、チェック名が変わらないようにするため
       - uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
@@ -64,8 +62,3 @@ jobs:
 
       - name: Run Go tests
         run: go -C go test -race ./...
-
-      # スイートは claude/.claude/ の外（stow パッケージ shims/）にもあるため、
-      # ランナーの既定ルートに任せず全ルートを明示する
-      - name: Run shell test suites
-        run: bash claude/.claude/tests/run-all.sh claude/.claude shims

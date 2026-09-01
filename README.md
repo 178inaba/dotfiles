@@ -14,9 +14,11 @@ $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
 $ eval "$(/opt/homebrew/bin/brew shellenv)"
 $ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq yq 178inaba/tap/cflio 178inaba/tap/rdsh 178inaba/tap/slio
-$ stow tmux git vim zsh claude ghostty shims
+$ stow tmux git vim zsh claude ghostty
 $ zsh -l
 $ go -C go install ./cmd/ccx
+$ mkdir -p ~/.local/shims
+$ GOBIN=~/.local/shims go -C go install ./cmd/gh
 $ gh auth login
 $ cflio auth login
 $ rdsh auth login
@@ -29,9 +31,13 @@ $ slio auth login
 
 `gh`, `jq` and `yq` are required by the Claude Code scripts (shared and skill-bundled).
 
-`go -C go install ./cmd/ccx` is the only build step, and only the first one:
-`ccx` compares its own timestamp with the newest file under `go/` on every
-start and reinstalls itself when it is behind.
+The two `go install` lines are the only build step, and only the first one:
+each binary compares its own timestamp with the newest file under `go/` on
+every start and reinstalls both when it is behind. `~/.local/shims` holds the
+`gh` shim, which `zsh/.zprofile` puts ahead of Homebrew on PATH; the directory
+is filled by `go install` rather than by `stow`, and it is not `~/go/bin`
+because that is a shared namespace where `go install
+github.com/cli/cli/v2/cmd/gh@latest` would overwrite the shim.
 
 ### Claude Code plugins
 
@@ -52,7 +58,7 @@ Applying changes on a machine that is already set up:
 ```zsh
 $ cd ~/.dotfiles
 $ git pull
-$ stow -R tmux git vim zsh claude ghostty shims
+$ stow -R tmux git vim zsh claude ghostty
 ```
 
 Always restow. Some pulls need it and some do not, and telling the two apart is
@@ -60,23 +66,22 @@ a judgement that fails silently when it goes wrong — the new files simply neve
 appear. `stow -R` is idempotent and takes milliseconds, so there is no reason to
 make that call.
 
-`ccx` is not on the `stow` line and does not need to be rebuilt by hand: the
-first invocation after a pull notices that the source is newer than the binary
-and reinstalls itself.
+`ccx` and the `gh` shim are not on the `stow` line and do not need to be
+rebuilt by hand: the first invocation of either after a pull notices that the
+source is newer than the binary and reinstalls both.
 
 ## Packages
 
 - `claude`: Claude Code configuration
 - `ghostty`: Ghostty terminal configuration
 - `git`: Git configuration
-- `shims`: PATH shims that wrap installed commands (currently `gh`)
 - `tmux`: tmux configuration
 - `vim`: Vim configuration
 - `zsh`: Zsh configuration
 
-`go/` is not a stow package. It is the Go module the Claude Code tooling is
-being moved into, built with `go -C go install ./cmd/ccx`; the binaries it
-produces are never committed.
+`go/` is not a stow package. It is the Go module the Claude Code tooling lives
+in — `ccx` for the status line, the hooks and the skill plumbing, and `gh` for
+the shim — and the binaries it produces are never committed.
 
 ## License
 
