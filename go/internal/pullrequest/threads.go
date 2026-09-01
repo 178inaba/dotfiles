@@ -2,8 +2,8 @@ package pullrequest
 
 import (
 	"context"
-	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -53,47 +53,57 @@ type ThreadReplies struct {
 	Warnings      []string        `json:"warnings"`
 }
 
+// ThreadsFile is the document `ccx pr reply-threads` reads.
+type ThreadsFile struct {
+	// The threads to act on. Only ids the pull request context flagged as
+	// awaiting our confirmation are accepted, so that one run cannot resolve
+	// somebody else's remark or reopen a settled one.
+	Threads []ThreadsFileEntry `json:"threads" contract:"required"`
+}
+
+// ThreadsFileEntry is one thread's reply, its resolve, or both.
+type ThreadsFileEntry struct {
+	ID *string `json:"id" contract:"required"`
+	// The reply. Leave it out to resolve without replying, which is how a
+	// repeated run avoids saying the same thing twice and how a resolve is
+	// retried where the reply already landed.
+	Body *string `json:"body"`
+	// Whether to mark the thread resolved. Required even when it is false,
+	// since an entry that neither replies nor resolves does nothing.
+	Resolve *bool `json:"resolve" contract:"required"`
+}
+
 // ParseThreadActions reads the threads file.
-//
-// The fields are read as raw JSON and checked by hand, so that a resolve
-// written as a string is answered with what the field should have held rather
-// than with a decoder's complaint about it.
 func ParseThreadActions(b []byte, file string) ([]ThreadAction, error) {
-	var wire struct {
-		Threads jsontext.Value `json:"threads"`
-	}
+	notArray := fmt.Errorf("threads must be an array in %s", file)
+	shape := fmt.Errorf("threads must be an array of {id: string, resolve: boolean, body?: string} in %s", file)
+
+	var wire ThreadsFile
 	if err := json.Unmarshal(b, &wire); err != nil {
+		// The fields carry their real types so that the contract can be
+		// rendered from them; mapping the decoder's pointer back is what keeps
+		// the field's own message rather than the decoder's.
+		var se *json.SemanticError
+		if errors.As(err, &se) && firstToken(se.JSONPointer) == "threads" {
+			if se.JSONPointer == "/threads" {
+				return nil, notArray
+			}
+			return nil, shape
+		}
 		return nil, fmt.Errorf("invalid JSON in %s (%v)", file, err)
 	}
-	if wire.Threads.Kind() != '[' {
-		return nil, fmt.Errorf("threads must be an array in %s", file)
+	// Absent and null both arrive as nil, and neither says there are no
+	// threads: an empty array does.
+	if wire.Threads == nil {
+		return nil, notArray
 	}
 
-	var entries []struct {
-		ID      jsontext.Value `json:"id"`
-		Body    jsontext.Value `json:"body"`
-		Resolve jsontext.Value `json:"resolve"`
-	}
-	shape := fmt.Errorf("threads must be an array of {id: string, resolve: boolean, body?: string} in %s", file)
-	if err := json.Unmarshal(wire.Threads, &entries); err != nil {
-		return nil, shape
-	}
-
-	out := make([]ThreadAction, 0, len(entries))
-	for _, e := range entries {
-		resolve := e.Resolve.Kind()
-		if e.ID.Kind() != '"' || (resolve != 't' && resolve != 'f') {
+	out := make([]ThreadAction, 0, len(wire.Threads))
+	for _, e := range wire.Threads {
+		if e.ID == nil || e.Resolve == nil {
 			return nil, shape
 		}
-		if len(e.Body) > 0 && e.Body.Kind() != '"' {
-			return nil, shape
-		}
-		action := ThreadAction{ID: text(e.ID), Resolve: resolve == 't'}
-		if len(e.Body) > 0 {
-			body := text(e.Body)
-			action.Body = &body
-		}
-		out = append(out, action)
+		out = append(out, ThreadAction{ID: *e.ID, Body: e.Body, Resolve: *e.Resolve})
 	}
 	return out, nil
 }

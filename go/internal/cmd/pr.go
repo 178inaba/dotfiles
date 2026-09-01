@@ -110,9 +110,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			return silent(renderJSON(c.OutOrStdout(), struct {
-				Path string `json:"path"`
-			}{path}))
+			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{Path: path}))
 		},
 	}
 }

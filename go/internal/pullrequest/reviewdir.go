@@ -22,6 +22,16 @@ import (
 // working files a review makes for itself as well as the two this command
 // hands out.
 
+// Stored is where a fetched context was written.
+//
+// The document itself never goes to standard output: on a pull request with a
+// busy conversation it runs to hundreds of kilobytes, and the caller reads it
+// with a tool that takes a path.
+type Stored struct {
+	// The absolute path of the file holding the context document.
+	Path string `json:"path"`
+}
+
 // ContextFileName is what a fetched context is stored as.
 //
 // The owner and the name are separated by an @, which neither may contain:
