@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -109,13 +108,13 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	}
 
 	if !p.PRExists {
-		return p.localOnly(ctx, r, dir), nil
+		return p.localOnly(ctx, r, dir, o), nil
 	}
 
 	// Only where the number was given and no worktree was resolved: the
 	// inferred path matches by construction, and so does a resolved worktree.
 	if o.Number != 0 && !o.Worktree {
-		branch, err := run(ctx, r, dir, "rev-parse", "--abbrev-ref", "HEAD")
+		branch, err := runner.Git(ctx, r, dir, "rev-parse", "--abbrev-ref", "HEAD")
 		if err != nil {
 			return Preparation{}, err
 		}
@@ -143,7 +142,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		BaseRef: fetched.PR.BaseRef, IsOwnPR: fetched.IsOwnPR,
 	})
 	if err != nil {
-		return Preparation{}, fmt.Errorf("check-pr-freshness.sh failed")
+		return Preparation{}, fmt.Errorf("the freshness check failed")
 	}
 	p.Freshness = &freshness
 
@@ -175,16 +174,15 @@ func probe(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Rep
 	pr, err := c.PullRequest(ctx, repo, number)
 	if err != nil || pr.HeadRefName == "" {
 		return ghapi.PullRequest{}, fmt.Errorf(
-			"gh pr view failed for PR #%d (not found, unauthenticated, or network error)", number)
+			"failed to look up PR #%d (not found, unauthenticated, or network error)", number)
 	}
 	return pr, nil
 }
 
 // localOnly is the degradation to reviewing against the default branch, which
 // is what a branch with no pull request gets.
-func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string) Preparation {
-	def, _ := run(ctx, r, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "--short")
-	branch := strings.TrimPrefix(def, "origin/")
+func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string, o Options) Preparation {
+	branch := worktree.DefaultBranch(ctx, r, dir)
 	if branch == "" {
 		branch = "main"
 	}
@@ -197,7 +195,7 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string)
 	}
 	base := "origin/" + branch
 	p.BaseBranch = &base
-	p.Modes = modesFor(false, false, Options{LocalOnly: p.Flags.LocalOnly, NoAutofix: p.Flags.NoAutofix})
+	p.Modes = modesFor(false, false, o)
 	p.Status = "ok"
 	return p
 }
@@ -213,36 +211,38 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits)
 	if err != nil {
 		return Context{}, "", fmt.Errorf(
-			"fetch-pr-context.sh failed while the PR exists; fix the environment issue instead of falling back to a no-PR review")
+			"failed to fetch the pull request context while the PR exists; fix the environment issue instead of falling back to a no-PR review")
+	}
+
+	// Whether anything was cut short is answered from the value in hand, so
+	// the document is stored once: writing the truncated one first would put
+	// hundreds of kilobytes on disk only to replace them.
+	limits, raised := raisedLimits(fetched)
+	if raised {
+		if fetched, err = Fetch(ctx, c, repo, pr, limits); err != nil {
+			return Context{}, "", fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun")
+		}
 	}
 	path, err := store(fetched)
 	if err != nil {
 		return Context{}, "", err
 	}
-
-	limits, raised := raisedLimits(fetched)
 	if !raised {
 		return fetched, path, nil
-	}
-	if fetched, err = Fetch(ctx, c, repo, pr, limits); err != nil {
-		return Context{}, "", fmt.Errorf("fetch-pr-context.sh failed on the raised-limit rerun")
-	}
-	if path, err = store(fetched); err != nil {
-		return Context{}, "", err
 	}
 
 	if fetched.CommentsTruncated {
 		p.Warnings = append(p.Warnings, fmt.Sprintf(
-			"comments still truncated after raising MAX_COMMENTS to %d; rerun fetch-pr-context.sh with a larger MAX_COMMENTS before reading comments", limits.Comments))
+			"comments still truncated after raising MAX_COMMENTS to %d; rerun `ccx pr context` with a larger MAX_COMMENTS before reading comments", limits.Comments))
 	}
 	if fetched.ThreadsTruncated {
 		p.Warnings = append(p.Warnings, fmt.Sprintf(
-			"review threads still truncated after raising MAX_THREADS to %d; rerun fetch-pr-context.sh with a larger MAX_THREADS before reading review_threads", limits.Threads))
+			"review threads still truncated after raising MAX_THREADS to %d; rerun `ccx pr context` with a larger MAX_THREADS before reading review_threads", limits.Threads))
 	}
 	for _, thread := range fetched.ReviewThreads {
 		if thread.CommentsTruncated {
 			p.Warnings = append(p.Warnings, fmt.Sprintf(
-				"thread comments still truncated after raising MAX_THREAD_COMMENTS to %d; rerun fetch-pr-context.sh with a larger MAX_THREAD_COMMENTS before reading review_threads", limits.ThreadComments))
+				"thread comments still truncated after raising MAX_THREAD_COMMENTS to %d; rerun `ccx pr context` with a larger MAX_THREAD_COMMENTS before reading review_threads", limits.ThreadComments))
 			break
 		}
 	}
@@ -288,13 +288,4 @@ func modesFor(prExists, isOwn bool, o Options) *Modes {
 		m.Autofix = false
 	}
 	return &m
-}
-
-// run is one git command whose single line of output is the answer.
-func run(ctx context.Context, r runner.Runner, dir string, args ...string) (string, error) {
-	out, err := r.Run(ctx, runner.Command{Name: "git", Args: append([]string{"-C", dir}, args...)})
-	if err != nil {
-		return "", fmt.Errorf("git %s in %s: %w", strings.Join(args, " "), dir, err)
-	}
-	return strings.TrimSpace(string(out)), nil
 }

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -175,6 +176,19 @@ func (Exec) Alive(pid int) bool {
 		return false
 	}
 	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// Git runs one git command in dir and returns its single line of output.
+//
+// Every command in this module that asks git a question asks it this way: -C
+// rather than a working directory, because the answer is about one repository
+// and not about wherever the process happens to be standing.
+func Git(ctx context.Context, r Runner, dir string, args ...string) (string, error) {
+	out, err := r.Run(ctx, Command{Name: "git", Args: append([]string{"-C", dir}, args...)})
+	if err != nil {
+		return "", fmt.Errorf("git %s in %s: %w", strings.Join(args, " "), dir, err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Stderr returns what a failed command wrote to standard error.

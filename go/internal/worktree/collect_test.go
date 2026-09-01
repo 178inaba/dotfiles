@@ -78,10 +78,8 @@ func cleanupFixture(t *testing.T) (repo string, prs map[string]string) {
 	base := t.TempDir()
 	bare := filepath.Join(base, "origin.git")
 	repo = filepath.Join(base, "repo")
-	gittest.Run(t, base, "init", "-q", "--bare", "-b", "main", bare)
-	gittest.Run(t, base, "clone", "-q", bare, repo)
-	gittest.Run(t, repo, "config", "user.email", "test@example.com")
-	gittest.Run(t, repo, "config", "user.name", "test")
+	gittest.Init(t, bare, "--bare", "-b", "main")
+	gittest.Clone(t, bare, repo)
 	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
 	gittest.Run(t, repo, "push", "-q", "-u", "origin", "main")
 	gittest.Run(t, repo, "remote", "set-head", "origin", "main")
@@ -103,7 +101,7 @@ func cleanupFixture(t *testing.T) (repo string, prs map[string]string) {
 		}
 		gittest.Run(t, repo, "switch", "-q", "main")
 	}
-	oid := func(branch string) string { return ref(t, repo, "refs/heads/"+branch) }
+	oid := func(branch string) string { return gittest.Rev(t, repo, "refs/heads/"+branch) }
 
 	prs = map[string]string{}
 
@@ -402,7 +400,7 @@ func TestCollect(t *testing.T) {
 		if !ok {
 			t.Fatal("closedpr is not a candidate")
 		}
-		if want := ref(t, repo, "refs/heads/closedpr"); b.HeadOID != want {
+		if want := gittest.Rev(t, repo, "refs/heads/closedpr"); b.HeadOID != want {
 			t.Errorf("head_oid = %q, want %q", b.HeadOID, want)
 		}
 	})
@@ -547,12 +545,9 @@ func TestCollectUnderABareRepository(t *testing.T) {
 
 	base := t.TempDir()
 	bare := filepath.Join(base, "bare.git")
-	gittest.Run(t, base, "init", "-q", "--bare", "-b", "main", bare)
+	gittest.Init(t, bare, "--bare", "-b", "main")
 
-	seed := filepath.Join(base, "seed")
-	gittest.Run(t, base, "clone", "-q", bare, seed)
-	gittest.Run(t, seed, "config", "user.email", "test@example.com")
-	gittest.Run(t, seed, "config", "user.name", "test")
+	seed := gittest.Clone(t, bare, filepath.Join(base, "seed"))
 	gittest.Run(t, seed, "commit", "-q", "--allow-empty", "-m", "init")
 	gittest.Run(t, seed, "push", "-q", "-u", "origin", "main")
 

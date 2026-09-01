@@ -71,7 +71,10 @@ func TestParseThreadActions(t *testing.T) {
 	}
 }
 
-func TestValidateThreadActions(t *testing.T) {
+// TestReplyRefuses drives the checks through Reply with a client that fails the
+// test if it is reached: that a refusal happens is the point, but that nothing
+// was posted first is what the all-or-nothing promise is made of.
+func TestReplyRefuses(t *testing.T) {
 	t.Parallel()
 
 	body, blank := "fixed", "   "
@@ -84,10 +87,6 @@ func TestValidateThreadActions(t *testing.T) {
 		posted  []string
 		wantErr string
 	}{
-		{
-			name:    "a reply to an eligible thread",
-			actions: []pullrequest.ThreadAction{{ID: "PRRT_ok", Body: &body, Resolve: true}},
-		},
 		{
 			name:    "a body of only whitespace",
 			actions: []pullrequest.ThreadAction{{ID: "PRRT_ok", Body: &blank, Resolve: true}},
@@ -135,15 +134,16 @@ func TestValidateThreadActions(t *testing.T) {
 				}
 			}
 
-			err := pullrequest.ValidateThreadActions(tc.actions, eligible, "context.json", threadsFile)
-			if tc.wantErr == "" {
-				if err != nil {
-					t.Fatalf("ValidateThreadActions: %v", err)
-				}
-				return
-			}
+			// Only the refusals reach here; the accepting case is covered by
+			// TestReply, which does let the mutations through.
+			unreachable := ghapitest.New(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Error("a mutation was sent despite the refusal")
+			}))
+			_, err := pullrequest.Reply(t.Context(), unreachable, pullrequest.ReplyRequest{
+				Actions: tc.actions, Eligible: eligible, ContextFile: "context.json", ThreadsFile: threadsFile,
+			})
 			if err == nil {
-				t.Fatalf("ValidateThreadActions succeeded, want an error mentioning %q", tc.wantErr)
+				t.Fatalf("Reply succeeded, want an error mentioning %q", tc.wantErr)
 			}
 			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
@@ -241,7 +241,9 @@ func TestReply(t *testing.T) {
 		{ID: "PRRT_2", Resolve: true},
 	}
 
-	got, err := pullrequest.Reply(t.Context(), m.client(t), actions, file)
+	got, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
+		Actions: actions, Eligible: []string{"PRRT_1", "PRRT_2"}, ThreadsFile: file,
+	})
 	if err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
@@ -275,10 +277,14 @@ func TestReplyDegradesOnResolve(t *testing.T) {
 
 	body := "confirmed"
 	m := &mutations{failResolve: "PRRT_1"}
-	got, err := pullrequest.Reply(t.Context(), m.client(t), []pullrequest.ThreadAction{
-		{ID: "PRRT_1", Body: &body, Resolve: true},
-		{ID: "PRRT_2", Body: &body, Resolve: true},
-	}, threadsFile(t))
+	got, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
+		Actions: []pullrequest.ThreadAction{
+			{ID: "PRRT_1", Body: &body, Resolve: true},
+			{ID: "PRRT_2", Body: &body, Resolve: true},
+		},
+		Eligible:    []string{"PRRT_1", "PRRT_2"},
+		ThreadsFile: threadsFile(t),
+	})
 	if err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
@@ -336,7 +342,9 @@ func TestReplyStops(t *testing.T) {
 			t.Parallel()
 
 			file := threadsFile(t)
-			_, err := pullrequest.Reply(t.Context(), tc.m.client(t), actions, file)
+			_, err := pullrequest.Reply(t.Context(), tc.m.client(t), pullrequest.ReplyRequest{
+				Actions: actions, Eligible: []string{"PRRT_1", "PRRT_2", "PRRT_3"}, ThreadsFile: file,
+			})
 			if err == nil {
 				t.Fatal("Reply succeeded, want it to stop")
 			}

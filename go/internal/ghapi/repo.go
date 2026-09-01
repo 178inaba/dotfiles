@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
@@ -38,6 +39,24 @@ func ParseRepo(s string) (Repo, error) {
 		return Repo{}, fmt.Errorf("parse repository %q: %w", s, err)
 	}
 	return Repo{Owner: r.Owner, Name: r.Name}, nil
+}
+
+// RepoFromAPIURL reads a repository out of the api url GitHub puts on an issue
+// or a pull request as repository_url.
+//
+// The object itself is what carries it: the repository object is not required
+// by the issue schema, but this url is, which is why it is what the two
+// commands reading cross-repository references go by.
+func RepoFromAPIURL(apiURL string) (Repo, error) {
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return Repo{}, fmt.Errorf("parse repository url %q: %w", apiURL, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return Repo{}, fmt.Errorf("not a repository url: %s", apiURL)
+	}
+	return Repo{Owner: parts[len(parts)-2], Name: parts[len(parts)-1]}, nil
 }
 
 // CurrentRepo names the repository the working directory belongs to.

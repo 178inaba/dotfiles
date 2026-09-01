@@ -1,6 +1,6 @@
 ---
 name: skill-authoring
-description: ~/.claude/skills/ 配下のスキルを作成・編集する際の規約（frontmatter の要件、スクリプト同梱パターン、スキル間参照、配置・命名規則、サイズ上限）。スキルの新規作成・修正・レビューのタスク時に自動ロードされる知識スキル
+description: ~/.claude/skills/ 配下のスキルを作成・編集する際の規約（frontmatter の要件、配管の分離、スキル間参照、配置・命名規則、サイズ上限）。スキルの新規作成・修正・レビューのタスク時に自動ロードされる知識スキル
 ---
 
 # /skill-authoring
@@ -36,9 +36,9 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 2. **必要最小限**: 関連コマンド・更新履歴等の冗長なセクションは避ける
 3. **実用性**: 実際の使用時に必要な情報のみを含める
 4. **一貫性**: 全スキル間でフォーマットを統一
-5. **サイズ上限の目安**: SKILL.md 本文は500行以下（[Anthropic の Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) 準拠）。超えそうなら分離する — 決定的配管はスクリプトへ（「スクリプト同梱パターン」）、条件付き詳細は参照ファイルへ。ただし参照ファイルには読み飛ばしリスク（公式も "missed connections" として既知の失敗モードに挙げる）があるため、常時必要な判断規律は本文に置く
+5. **サイズ上限の目安**: SKILL.md 本文は500行以下（[Anthropic の Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) 準拠）。超えそうなら分離する — 決定的配管は `ccx` のサブコマンドへ（「配管の分離」）、条件付き詳細は参照ファイルへ。ただし参照ファイルには読み飛ばしリスク（公式も "missed connections" として既知の失敗モードに挙げる）があるため、常時必要な判断規律は本文に置く
 
-## スクリプト同梱パターン（コード処理とAI処理の分離）
+## 配管の分離（コード処理とAI処理の分離）
 
 決定的な処理はスクリプトに落とし、判断が必要な処理だけを SKILL.md の指示（AI処理）として残す。モデルが毎回コマンドを組み立て直すことによる揺れ・遅さ・トークン消費を排除するため。公式ベストプラクティスの degrees of freedom 原則と同型 — 一歩間違うと壊れる脆弱な手順ほど低自由度（コード）に、文脈が形を決める判断ほど高自由度（プロンプト）に置く。
 
@@ -94,8 +94,6 @@ SKILL.md 本文の `@~/.claude/skills/<skill>/SKILL.md` は、そのスキルの
 ~/.claude/skills/
 ├── skill-name/
 │   ├── SKILL.md          # メイン定義（必須）
-│   ├── scripts/          # 決定的処理のスクリプト（オプション、「スクリプト同梱パターン」参照）
-│   ├── tests/            # scripts/ のリグレッションテスト（scripts/ があるなら必須）
 │   └── references/       # 条件付き詳細・例示の参照ファイル（オプション）
 │       └── <topic>.md    # 内容が分かる名前を付ける
 └── ...

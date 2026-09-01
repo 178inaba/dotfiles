@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -23,10 +22,6 @@ import (
 // because the thing being reproduced is a single native behaviour and two
 // copies of it would drift apart the next time it changes.
 const includeFile = ".worktreeinclude"
-
-// worktreesDir holds the worktrees of a repository, and never supplies a file
-// to copy: what lives there belongs to another worktree.
-const worktreesDir = ".claude/worktrees/"
 
 // copyWorktreeInclude copies the files includeFile names from srcRoot into the
 // worktree, and returns how many arrived along with whatever it refused to do.
@@ -63,7 +58,9 @@ func copyWorktreeInclude(ctx context.Context, r runner.Runner, srcRoot, worktree
 	var warnings []string
 	copied := 0
 	for _, file := range files {
-		if strings.HasPrefix(file, worktreesDir) {
+		// What lives under the worktree directory belongs to another worktree, and
+		// is never a file to copy out of this one.
+		if strings.HasPrefix(file, worktreesUnder+"/") {
 			continue
 		}
 		// A symlink among the sources would be copied as whatever it points
@@ -109,14 +106,26 @@ func included(ctx context.Context, r runner.Runner, srcRoot, list string) ([]str
 	if err != nil {
 		return nil, err
 	}
-	ignored, err := lsFiles(ctx, r, srcRoot, "--exclude-standard")
+	if len(matching) == 0 {
+		return nil, nil
+	}
+
+	// Limited to the candidates rather than asked of the whole tree: without
+	// the pathspec this walks every ignored file in the repository, which in
+	// one with a large build directory is seconds spent to answer a question
+	// about a handful of paths.
+	ignored, err := lsFiles(ctx, r, srcRoot, "--exclude-standard", append([]string{"--"}, matching...)...)
 	if err != nil {
 		return nil, err
+	}
+	isIgnored := make(map[string]bool, len(ignored))
+	for _, file := range ignored {
+		isIgnored[file] = true
 	}
 
 	var out []string
 	for _, file := range matching {
-		if slices.Contains(ignored, file) {
+		if isIgnored[file] {
 			out = append(out, file)
 		}
 	}
@@ -124,12 +133,12 @@ func included(ctx context.Context, r runner.Runner, srcRoot, list string) ([]str
 }
 
 // lsFiles lists the untracked files of srcRoot that the given exclude source
-// covers.
-func lsFiles(ctx context.Context, r runner.Runner, srcRoot, exclude string) ([]string, error) {
-	out, err := r.Run(ctx, runner.Command{
-		Name: "git",
-		Args: []string{"-C", srcRoot, "ls-files", "-z", "--others", "--ignored", exclude},
-	})
+// covers, optionally limited to a pathspec.
+func lsFiles(ctx context.Context, r runner.Runner, srcRoot, exclude string, pathspec ...string) ([]string, error) {
+	// --literal-pathspecs, because these are file names read back from git and
+	// one holding a * would otherwise be taken for a glob.
+	args := []string{"-C", srcRoot, "--literal-pathspecs", "ls-files", "-z", "--others", "--ignored", exclude}
+	out, err := r.Run(ctx, runner.Command{Name: "git", Args: append(args, pathspec...)})
 	if err != nil {
 		return nil, fmt.Errorf("list the files %s covers in %s: %w", exclude, srcRoot, err)
 	}

@@ -21,16 +21,7 @@ const base = "include"
 func clone(t *testing.T, bare string) string {
 	t.Helper()
 
-	dir := filepath.Join(t.TempDir(), "repo")
-	gittest.Run(t, t.TempDir(), "clone", "-q", bare, dir)
-	gittest.Run(t, dir, "config", "user.email", "test@example.com")
-	gittest.Run(t, dir, "config", "user.name", "test")
-	return dir
-}
-
-func ref(t *testing.T, repo, rev string) string {
-	t.Helper()
-	return strings.TrimSpace(gittest.Run(t, repo, "rev-parse", rev))
+	return gittest.Clone(t, bare, filepath.Join(t.TempDir(), "repo"))
 }
 
 func TestCreate(t *testing.T) {
@@ -40,7 +31,7 @@ func TestCreate(t *testing.T) {
 	repo := clone(t, bare)
 	gittest.Write(t, filepath.Join(repo, ".env"), "SECRET=1\n")
 
-	beforeHead := ref(t, repo, "HEAD")
+	beforeHead := gittest.Rev(t, repo, "HEAD")
 	beforeBranch := strings.TrimSpace(gittest.Run(t, repo, "branch", "--show-current"))
 
 	got, err := Create(t.Context(), runner.Exec{}, repo, "wt", "feature/42-x", base)
@@ -59,7 +50,7 @@ func TestCreate(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Create (-want +got):\n%s", diff)
 	}
-	if got, want := ref(t, path, "HEAD"), ref(t, repo, "origin/"+base); got != want {
+	if got, want := gittest.Rev(t, path, "HEAD"), gittest.Rev(t, repo, "origin/"+base); got != want {
 		t.Errorf("the worktree is at %s, want %s", got, want)
 	}
 	if got := strings.TrimSpace(gittest.Run(t, path, "branch", "--show-current")); got != "feature/42-x" {
@@ -67,7 +58,7 @@ func TestCreate(t *testing.T) {
 	}
 	// The whole reason this exists rather than EnterWorktree(name:): the main
 	// tree keeps its head and its branch.
-	if got := ref(t, repo, "HEAD"); got != beforeHead {
+	if got := gittest.Rev(t, repo, "HEAD"); got != beforeHead {
 		t.Errorf("the main worktree moved to %s, want it left at %s", got, beforeHead)
 	}
 	if got := strings.TrimSpace(gittest.Run(t, repo, "branch", "--show-current")); got != beforeBranch {
@@ -169,7 +160,7 @@ func TestCreateStartRef(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWarnings, got.Warnings); diff != "" {
 				t.Errorf("warnings (-want +got):\n%s", diff)
 			}
-			if got, want := ref(t, filepath.Join(repo, ".claude", "worktrees", "wt"), "HEAD"), ref(t, repo, tc.wantStartRef); got != want {
+			if got, want := gittest.Rev(t, filepath.Join(repo, ".claude", "worktrees", "wt"), "HEAD"), gittest.Rev(t, repo, tc.wantStartRef); got != want {
 				t.Errorf("the worktree is at %s, want %s", got, want)
 			}
 		})
@@ -346,9 +337,9 @@ func TestParseList(t *testing.T) {
 		"worktree /repo/.claude/worktrees/detached\nHEAD 789abc\ndetached\n\n"
 
 	want := []Entry{
-		{Path: "/repo", Head: "abc123", Branch: "main", Main: true},
-		{Path: "/repo/.claude/worktrees/wt", Head: "def456", Branch: "feature/42-x"},
-		{Path: "/repo/.claude/worktrees/detached", Head: "789abc"},
+		{Path: "/repo", Branch: "main", Main: true},
+		{Path: "/repo/.claude/worktrees/wt", Branch: "feature/42-x"},
+		{Path: "/repo/.claude/worktrees/detached"},
 	}
 	if diff := cmp.Diff(want, parseList(out)); diff != "" {
 		t.Errorf("parseList (-want +got):\n%s", diff)

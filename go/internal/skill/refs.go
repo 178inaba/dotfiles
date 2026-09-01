@@ -80,16 +80,9 @@ func CheckRefs(skillsDir string) (Refs, error) {
 		return Refs{}, err
 	}
 
-	entries, err := os.ReadDir(root)
+	queue, _, err := skillFiles(root)
 	if err != nil {
 		return Refs{}, fmt.Errorf("skills directory not found: %s", skillsDir)
-	}
-	var queue []string
-	for _, e := range entries {
-		rel := filepath.Join(e.Name(), "SKILL.md")
-		if info, err := os.Stat(filepath.Join(root, rel)); err == nil && !info.IsDir() {
-			queue = append(queue, rel)
-		}
 	}
 	if len(queue) == 0 {
 		return Refs{}, fmt.Errorf("no */SKILL.md found under %s", root)
@@ -166,37 +159,23 @@ func refViolations(refs []reference) []RefFinding {
 
 	out := []RefFinding{}
 	for _, r := range refs {
-		if r.inCode {
+		switch {
+		case r.inCode:
 			out = append(out, RefFinding{Type: RefInCode, File: r.file, Line: r.line, Ref: r.ref})
-		}
-	}
-	for _, r := range refs {
-		if !r.exists {
+		case !r.exists:
 			out = append(out, RefFinding{Type: MissingTarget, File: r.file, Line: r.line, Ref: r.ref})
-		}
-	}
-	for _, r := range refs {
-		if r.inCode || !r.exists {
-			continue
-		}
-		for _, nested := range deps[r.ref] {
-			// A file referencing back to the referring one is not a second hop
-			// that goes unattached.
-			if nested == r.file || slices.Contains(deps[r.file], nested) {
-				continue
+		default:
+			for _, nested := range deps[r.ref] {
+				// A file referencing back to the referring one is not a second
+				// hop that goes unattached.
+				if nested == r.file || slices.Contains(deps[r.file], nested) {
+					continue
+				}
+				out = append(out, RefFinding{Type: UncoveredNested, File: r.file, Line: r.line, Ref: r.ref, Nested: nested})
 			}
-			out = append(out, RefFinding{Type: UncoveredNested, File: r.file, Line: r.line, Ref: r.ref, Nested: nested})
 		}
 	}
 
-	slices.SortStableFunc(out, func(a, b RefFinding) int {
-		if a.File != b.File {
-			return strings.Compare(a.File, b.File)
-		}
-		if a.Line != b.Line {
-			return a.Line - b.Line
-		}
-		return strings.Compare(string(a.Type), string(b.Type))
-	})
+	sortFindings(out, func(f RefFinding) (string, int, string) { return f.File, f.Line, string(f.Type) })
 	return out
 }

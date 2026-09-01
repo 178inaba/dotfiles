@@ -25,10 +25,8 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 	base := t.TempDir()
 	bare := filepath.Join(base, "origin.git")
 	repo = filepath.Join(base, "repo")
-	gittest.Run(t, base, "init", "-q", "--bare", "-b", "main", bare)
-	gittest.Run(t, base, "clone", "-q", bare, repo)
-	gittest.Run(t, repo, "config", "user.email", "test@example.com")
-	gittest.Run(t, repo, "config", "user.name", "test")
+	gittest.Init(t, bare, "--bare", "-b", "main")
+	gittest.Clone(t, bare, repo)
 	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
 	gittest.Run(t, repo, "push", "-q", "-u", "origin", "main")
 	gittest.Run(t, repo, "remote", "set-head", "origin", "main")
@@ -36,7 +34,7 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 	gittest.Run(t, repo, "switch", "-qc", "feature/x")
 	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
 	gittest.Run(t, repo, "push", "-q", "-u", "origin", "feature/x")
-	return repo, strings.TrimSpace(gittest.Run(t, repo, "rev-parse", "HEAD"))
+	return repo, gittest.Rev(t, repo, "HEAD")
 }
 
 // prepareGitHub answers the probe and the body query for one pull request.
@@ -302,11 +300,14 @@ func TestPrepareRaisesTheLimits(t *testing.T) {
 		t.Fatalf("Prepare: %v", err)
 	}
 
-	if len(seen) != 2 {
-		t.Errorf("the context was fetched %d times, want twice", len(seen))
+	// Stored once, though it was fetched twice: writing the truncated document
+	// first would put hundreds of kilobytes on disk only to replace them.
+	if len(seen) != 1 {
+		t.Errorf("the context was stored %d times, want once", len(seen))
 	}
-	// The rerun answered the same way, so the caller is told rather than kept
-	// waiting on a third attempt.
+	// The warning only comes from the rerun path, so its presence is what says
+	// the second fetch happened — and that the rerun answered the same way, so
+	// the caller is told rather than kept waiting on a third attempt.
 	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "MAX_THREADS to 400") {
 		t.Errorf("warnings = %v, want one naming the raised limit", got.Warnings)
 	}

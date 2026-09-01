@@ -2,9 +2,6 @@ package worktree
 
 import (
 	"context"
-	"encoding/json/v2"
-	"fmt"
-	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -60,48 +57,6 @@ type FreshnessReport struct {
 	LocalHead string `json:"local_head"`
 }
 
-// ParsePullRequest reads the four fields of a pull request context that the
-// freshness check depends on.
-//
-// A subset of what `ccx pr context` writes, deliberately: this is a consumer of
-// that contract, and naming only what it reads keeps a field it never looks at
-// from becoming a reason this fails.
-func ParsePullRequest(b []byte) (PullRequest, error) {
-	var wire struct {
-		PR struct {
-			HeadOID string `json:"head_oid"`
-			HeadRef string `json:"head_ref"`
-			BaseRef string `json:"base_ref"`
-		} `json:"pr"`
-		// A pointer, because false is a meaningful answer and its absence is
-		// not: reading a missing flag as false would treat the author's own
-		// unpushed commits as somebody else's history.
-		IsOwnPR *bool `json:"is_own_pr"`
-	}
-	if err := json.Unmarshal(b, &wire); err != nil {
-		return PullRequest{}, fmt.Errorf("decode the pull request context: %w", err)
-	}
-
-	for _, field := range []struct{ name, value string }{
-		{"pr.head_oid", wire.PR.HeadOID},
-		{"pr.head_ref", wire.PR.HeadRef},
-		{"pr.base_ref", wire.PR.BaseRef},
-	} {
-		if field.value == "" {
-			return PullRequest{}, fmt.Errorf("%s missing", field.name)
-		}
-	}
-	if wire.IsOwnPR == nil {
-		return PullRequest{}, fmt.Errorf("is_own_pr missing")
-	}
-	return PullRequest{
-		HeadRef: wire.PR.HeadRef,
-		HeadOID: wire.PR.HeadOID,
-		BaseRef: wire.PR.BaseRef,
-		IsOwnPR: *wire.IsOwnPR,
-	}, nil
-}
-
 // CheckFreshness compares the checkout in dir with the pull request's head, and
 // brings it up to date where that costs nothing.
 //
@@ -126,7 +81,7 @@ func CheckFreshness(ctx context.Context, r runner.Runner, dir string, pr PullReq
 	// A detached head answers with the literal HEAD, which matches no branch
 	// name and so stops here too — as it should, since nothing says which
 	// branch the commits belong to.
-	branch, err := run(ctx, r, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	branch, err := runner.Git(ctx, r, dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return FreshnessReport{}, err
 	}
@@ -157,14 +112,5 @@ func CheckFreshness(ctx context.Context, r runner.Runner, dir string, pr PullReq
 
 // head returns the commit dir has checked out.
 func head(ctx context.Context, r runner.Runner, dir string) (string, error) {
-	return run(ctx, r, dir, "rev-parse", "HEAD")
-}
-
-// run is one git command whose single line of output is the answer.
-func run(ctx context.Context, r runner.Runner, dir string, args ...string) (string, error) {
-	out, err := r.Run(ctx, runner.Command{Name: "git", Args: append([]string{"-C", dir}, args...)})
-	if err != nil {
-		return "", fmt.Errorf("git %s in %s: %w", strings.Join(args, " "), dir, err)
-	}
-	return strings.TrimSpace(string(out)), nil
+	return runner.Git(ctx, r, dir, "rev-parse", "HEAD")
 }

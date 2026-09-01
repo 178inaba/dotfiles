@@ -14,8 +14,10 @@ import (
 
 // Resolving a review thread takes it off the author's list of things to answer,
 // and it is not something to undo. Which threads may be touched is therefore
-// settled here rather than in a prompt: everything is checked before the first
-// mutation, so a run either acts on all of its input or on none of it.
+// settled here rather than in a prompt: Reply checks its whole request before
+// it sends anything, so a run either acts on all of its input or on none of
+// it. The checking is inside Reply rather than beside it precisely so that no
+// caller can leave it out.
 
 // ThreadAction is one thread to reply to, to resolve, or both.
 type ThreadAction struct {
@@ -96,14 +98,24 @@ func ParseThreadActions(b []byte, file string) ([]ThreadAction, error) {
 	return out, nil
 }
 
-// ValidateThreadActions rejects everything that would make a run act wrongly,
-// before any of it is acted on.
-//
-// eligible is what the pull request context flagged as awaiting our
-// confirmation: the judgement of whose thread this is, and whether it is still
-// open, belongs to whatever produced that file rather than being made again
-// here from different information.
-func ValidateThreadActions(actions []ThreadAction, eligible []string, contextFile, threadsFile string) error {
+// ReplyRequest is one run's whole input.
+type ReplyRequest struct {
+	Actions []ThreadAction
+	// Eligible is what the pull request context flagged as awaiting our
+	// confirmation: the judgement of whose thread this is, and whether it is
+	// still open, belongs to whatever produced that file rather than being
+	// made again here from different information.
+	Eligible []string
+	// ContextFile and ThreadsFile are named in the refusals, because what a
+	// caller does about one is to edit the file it names. ThreadsFile also
+	// decides where the record of what has been posted lives.
+	ContextFile string
+	ThreadsFile string
+}
+
+// validate rejects everything that would make a run act wrongly, before any of
+// it is acted on.
+func validate(actions []ThreadAction, eligible []string, contextFile, threadsFile string) error {
 	var blank, noop, dupes []string
 	seen := map[string]bool{}
 	for _, a := range actions {
@@ -133,9 +145,9 @@ func ValidateThreadActions(actions []ThreadAction, eligible []string, contextFil
 	// file again would pass every check and reply twice. The record of what was
 	// posted is what stops that.
 	log := PostedLog(threadsFile)
-	if resent := intersection(postedIDs(log), actions); resent != "" {
+	if resent := alreadyPosted(log, actions); len(resent) > 0 {
 		return fmt.Errorf("thread(s) already replied to in an earlier run of this file: %s\nremove them from %s (resending would post duplicate replies); the record is in %s",
-			resent, threadsFile, log)
+			strings.Join(resent, ","), threadsFile, log)
 	}
 
 	var ineligible []string
@@ -188,11 +200,15 @@ func (e *AbortedReply) Error() string { return e.Message }
 // permission error take the replies beside it down, and there would be no way
 // to tell how much of it had applied; the number of threads in a real run is a
 // single digit.
-func Reply(ctx context.Context, c *ghapi.Client, actions []ThreadAction, threadsFile string) (ThreadReplies, error) {
-	out := ThreadReplies{Replied: []RepliedThread{}, Resolved: []string{}, ResolveFailed: []FailedResolve{}, Warnings: []string{}}
-	log := PostedLog(threadsFile)
+func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplies, error) {
+	if err := validate(req.Actions, req.Eligible, req.ContextFile, req.ThreadsFile); err != nil {
+		return ThreadReplies{}, err
+	}
 
-	for _, a := range actions {
+	out := ThreadReplies{Replied: []RepliedThread{}, Resolved: []string{}, ResolveFailed: []FailedResolve{}, Warnings: []string{}}
+	log := PostedLog(req.ThreadsFile)
+
+	for _, a := range req.Actions {
 		if a.Body != nil {
 			var reply struct {
 				AddPullRequestReviewThreadReply struct {
@@ -203,7 +219,7 @@ func Reply(ctx context.Context, c *ghapi.Client, actions []ThreadAction, threads
 			}
 			vars := map[string]any{"threadId": a.ID, "body": *a.Body}
 			if err := c.GraphQL(ctx, replyMutation, vars, &reply); err != nil {
-				return ThreadReplies{}, abort(a.ID, err.Error(), log, actions)
+				return ThreadReplies{}, abort(a.ID, err.Error(), log, req.Actions)
 			}
 			// Recorded before anything else can fail, so that a run which
 			// stops after this still refuses to resend it.
@@ -211,7 +227,7 @@ func Reply(ctx context.Context, c *ghapi.Client, actions []ThreadAction, threads
 				return ThreadReplies{}, err
 			}
 			if reply.AddPullRequestReviewThreadReply.Comment.URL == "" {
-				return ThreadReplies{}, abort(a.ID, "reply was posted but comment url is missing in the API response", log, actions)
+				return ThreadReplies{}, abort(a.ID, "reply was posted but comment url is missing in the API response", log, req.Actions)
 			}
 			out.Replied = append(out.Replied, RepliedThread{ID: a.ID, URL: reply.AddPullRequestReviewThreadReply.Comment.URL})
 		}
@@ -246,13 +262,13 @@ func Reply(ctx context.Context, c *ghapi.Client, actions []ThreadAction, threads
 
 // abort builds the message a stopped run leaves behind.
 func abort(id, reason, log string, actions []ThreadAction) error {
-	done := intersection(postedIDs(log), actions)
+	done := alreadyPosted(log, actions)
 	var b strings.Builder
 	fmt.Fprintf(&b, "failed to reply to thread %s:\n%s\n", id, reason)
-	if done != "" {
-		fmt.Fprintf(&b, "already replied (do NOT resend on retry): %s\n", done)
+	if len(done) > 0 {
+		fmt.Fprintf(&b, "already replied (do NOT resend on retry): %s\n", strings.Join(done, ","))
 	}
-	fmt.Fprintf(&b, "not processed: %s\n", remaining(done, actions))
+	fmt.Fprintf(&b, "not processed: %s\n", strings.Join(remaining(done, actions), ","))
 	return &AbortedReply{Message: strings.TrimSuffix(b.String(), "\n")}
 }
 
@@ -284,30 +300,29 @@ func postedIDs(log string) []string {
 	return ids
 }
 
-// intersection is the ids of actions that the log already holds, sorted and
-// comma-joined.
-func intersection(posted []string, actions []ThreadAction) string {
+// alreadyPosted is the ids of actions the log already holds, sorted and
+// deduplicated.
+func alreadyPosted(log string, actions []ThreadAction) []string {
 	var found []string
-	for _, id := range posted {
+	for _, id := range postedIDs(log) {
 		if slices.ContainsFunc(actions, func(a ThreadAction) bool { return a.ID == id }) {
 			found = append(found, id)
 		}
 	}
 	slices.Sort(found)
-	return strings.Join(slices.Compact(found), ",")
+	return slices.Compact(found)
 }
 
 // remaining is the ids of actions the log does not hold, in the order they were
 // given.
-func remaining(done string, actions []ThreadAction) string {
-	posted := strings.Split(done, ",")
+func remaining(done []string, actions []ThreadAction) []string {
 	var left []string
 	for _, a := range actions {
-		if !slices.Contains(posted, a.ID) {
+		if !slices.Contains(done, a.ID) {
 			left = append(left, a.ID)
 		}
 	}
-	return strings.Join(left, ",")
+	return left
 }
 
 // ParseEligible reads the threads a context flags as awaiting our confirmation,

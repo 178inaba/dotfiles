@@ -19,7 +19,7 @@ func TestCheck(t *testing.T) {
 		kind    issue.Kind
 		mapping []issue.Mapping
 		// wantCodes is the class of each violation, in the order reported.
-		wantCodes []int
+		wantClasses []issue.Class
 		// wantIn are fragments each message must name, so that a reader can
 		// tell which heading or key is at fault.
 		wantIn []string
@@ -35,15 +35,15 @@ func TestCheck(t *testing.T) {
 			// English: rule 2 knows the heading, so only rule 4 fires.
 			name:  "one heading in the other language is a locale mismatch",
 			draft: swap(jaLeaf, "要件", "Requirements"), locale: issue.JA, kind: issue.Leaf,
-			wantCodes: []int{issue.HeadingLocaleMismatch},
-			wantIn:    []string{"Requirements", "requirements"},
+			wantClasses: []issue.Class{issue.HeadingLocaleMismatch},
+			wantIn:      []string{"Requirements", "requirements"},
 		},
 		{
 			name:   "a required section the draft lacks",
 			draft:  strings.Replace(jaLeaf, "## 受け入れ条件\n\n- [ ] 通る\n\n", "", 1),
 			locale: issue.JA, kind: issue.Leaf,
-			wantCodes: []int{issue.MissingSection},
-			wantIn:    []string{"acceptance", "受け入れ条件"},
+			wantClasses: []issue.Class{issue.MissingSection},
+			wantIn:      []string{"acceptance", "受け入れ条件"},
 		},
 		{
 			// A repository template may rename a section, and then its heading
@@ -57,17 +57,17 @@ func TestCheck(t *testing.T) {
 			draft: swap(jaLeaf, "受け入れ条件", "Definition of Done"), locale: issue.JA, kind: issue.Leaf,
 			// The renamed heading is unknown, and the section it renamed is
 			// therefore missing.
-			wantCodes: []int{issue.MissingSection, issue.UnknownHeading},
-			wantIn:    []string{"acceptance", "Definition of Done"},
+			wantClasses: []issue.Class{issue.MissingSection, issue.UnknownHeading},
+			wantIn:      []string{"acceptance", "Definition of Done"},
 		},
 		{
 			// depends_on is machine-consumed: other skills find it by its
 			// heading, so a template may not rename it.
 			name:  "mapping a machine-consumed key is refused",
 			draft: jaLeaf, locale: issue.JA, kind: issue.Leaf,
-			mapping:   []issue.Mapping{{Key: "depends_on", Heading: "Prerequisites"}},
-			wantCodes: []int{issue.MappedMachineKey},
-			wantIn:    []string{"depends_on", "Prerequisites"},
+			mapping:     []issue.Mapping{{Key: "depends_on", Heading: "Prerequisites"}},
+			wantClasses: []issue.Class{issue.MappedMachineKey},
+			wantIn:      []string{"depends_on", "Prerequisites"},
 		},
 		{
 			name:   "headings inside a fence declare nothing",
@@ -82,8 +82,8 @@ func TestCheck(t *testing.T) {
 				strings.Replace(jaLeaf, "## 受け入れ条件\n\n- [ ] 通る\n\n", "", 1),
 				"要件", "Requirements") + "\n## 知らない見出し\n\nx\n",
 			locale: issue.JA, kind: issue.Leaf,
-			wantCodes: []int{issue.MissingSection, issue.UnknownHeading, issue.HeadingLocaleMismatch},
-			wantIn:    []string{"acceptance", "知らない見出し", "Requirements"},
+			wantClasses: []issue.Class{issue.MissingSection, issue.UnknownHeading, issue.HeadingLocaleMismatch},
+			wantIn:      []string{"acceptance", "知らない見出し", "Requirements"},
 		},
 	}
 
@@ -96,13 +96,13 @@ func TestCheck(t *testing.T) {
 				t.Fatalf("Check: %v", err)
 			}
 
-			var gotCodes []int
+			var gotClasses []issue.Class
 			var messages []string
 			for _, v := range got {
-				gotCodes = append(gotCodes, v.Code)
+				gotClasses = append(gotClasses, v.Class)
 				messages = append(messages, v.Message)
 			}
-			if diff := cmp.Diff(tt.wantCodes, gotCodes); diff != "" {
+			if diff := cmp.Diff(tt.wantClasses, gotClasses); diff != "" {
 				t.Errorf("Check codes (-want +got):\n%s\nmessages: %q", diff, messages)
 			}
 
@@ -124,33 +124,42 @@ func TestCheck(t *testing.T) {
 	}
 }
 
-func TestCode(t *testing.T) {
+func TestWorst(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		in   []issue.Violation
-		want int
+		name      string
+		in        []issue.Violation
+		want      issue.Class
+		wantFound bool
 	}{
-		{name: "no violations is success", in: nil, want: 0},
+		{name: "no violations is success", in: nil},
 		{
-			// The lowest class present, not the first reported, so that the
-			// status does not depend on the order the rules ran in.
-			name: "the lowest class present",
+			// The earliest class present, not the first reported, so that the
+			// answer does not depend on the order the rules ran in.
+			name: "the earliest class present",
 			in: []issue.Violation{
-				{Code: issue.HeadingLocaleMismatch}, {Code: issue.UnknownHeading},
+				{Class: issue.HeadingLocaleMismatch}, {Class: issue.UnknownHeading},
 			},
-			want: issue.UnknownHeading,
+			want: issue.UnknownHeading, wantFound: true,
 		},
-		{name: "a single class is itself", in: []issue.Violation{{Code: issue.MappedMachineKey}}, want: issue.MappedMachineKey},
+		{
+			name: "a single class is itself",
+			in:   []issue.Violation{{Class: issue.MappedMachineKey}},
+			want: issue.MappedMachineKey, wantFound: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := issue.Code(tt.in); got != tt.want {
-				t.Errorf("Code(%v) = %d, want %d", tt.in, got, tt.want)
+			got, found := issue.Worst(tt.in)
+			if found != tt.wantFound {
+				t.Fatalf("Worst(%v) found = %v, want %v", tt.in, found, tt.wantFound)
+			}
+			if found && got != tt.want {
+				t.Errorf("Worst(%v) = %d, want %d", tt.in, got, tt.want)
 			}
 		})
 	}

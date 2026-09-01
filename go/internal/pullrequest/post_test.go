@@ -132,10 +132,8 @@ func diffRepo(t *testing.T) string {
 	base := t.TempDir()
 	bare := filepath.Join(base, "origin.git")
 	repo := filepath.Join(base, "repo")
-	gittest.Run(t, base, "init", "-q", "--bare", "-b", "main", bare)
-	gittest.Run(t, base, "clone", "-q", bare, repo)
-	gittest.Run(t, repo, "config", "user.email", "test@example.com")
-	gittest.Run(t, repo, "config", "user.name", "test")
+	gittest.Init(t, bare, "--bare", "-b", "main")
+	gittest.Clone(t, bare, repo)
 	gittest.Write(t, filepath.Join(repo, "file.txt"), "one\ntwo\nthree\n")
 	gittest.Run(t, repo, "add", "file.txt")
 	gittest.Run(t, repo, "commit", "-qm", "init")
@@ -149,16 +147,11 @@ func diffRepo(t *testing.T) string {
 	return repo
 }
 
-func head(t *testing.T, repo string) string {
-	t.Helper()
-	return strings.TrimSpace(gittest.Run(t, repo, "rev-parse", "HEAD"))
-}
-
 func TestPost(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: head(t, repo)}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
 
 	var gotPath, gotBody string
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +221,7 @@ func TestPostMapsTheAssessment(t *testing.T) {
 	}
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: head(t, repo)}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
 	for _, tc := range tests {
 		t.Run(string(tc.assessment), func(t *testing.T) {
 			t.Parallel()
@@ -261,7 +254,7 @@ func TestPostRefuses(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	at := head(t, repo)
+	at := gittest.Rev(t, repo, "HEAD")
 
 	tests := []struct {
 		name    string
@@ -335,7 +328,7 @@ func TestPostWithoutAURL(t *testing.T) {
 		fmt.Fprint(w, `{}`)
 	}))
 
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: head(t, repo)}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
 	_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target,
 		pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: "x"})
 	if err == nil || !strings.Contains(err.Error(), "html_url missing") {

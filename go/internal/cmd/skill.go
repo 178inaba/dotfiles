@@ -25,15 +25,9 @@ func skillFrontmatterCmd(build selfbuild.State) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
-			target := ""
-			if len(args) == 1 {
-				target = args[0]
-			}
-			if target == "" {
-				var err error
-				if target, err = skillsDir(); err != nil {
-					return silent(err)
-				}
+			target, err := skillTarget(args)
+			if err != nil {
+				return silent(err)
 			}
 			// Violations are not a failure of the check: the caller reads them
 			// and decides. Only being unable to check at all is.
@@ -44,6 +38,15 @@ func skillFrontmatterCmd(build selfbuild.State) *cobra.Command {
 			return silent(renderJSON(c.OutOrStdout(), checked))
 		},
 	}
+}
+
+// skillTarget is the one positional argument, or the default where it was left
+// out.
+func skillTarget(args []string) (string, error) {
+	if len(args) == 1 && args[0] != "" {
+		return args[0], nil
+	}
+	return skillsDir()
 }
 
 // skillsDir is the default target: the skills of the repository this
@@ -73,15 +76,9 @@ func skillRefsCmd(build selfbuild.State) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
-			target := ""
-			if len(args) == 1 {
-				target = args[0]
-			}
-			if target == "" {
-				var err error
-				if target, err = skillsDir(); err != nil {
-					return silent(err)
-				}
+			target, err := skillTarget(args)
+			if err != nil {
+				return silent(err)
 			}
 			checked, err := skill.CheckRefs(target)
 			if err != nil {

@@ -24,9 +24,7 @@ func deleteFixture(t *testing.T) string {
 
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
-	gittest.Run(t, base, "init", "-q", "-b", "main", repo)
-	gittest.Run(t, repo, "config", "user.email", "test@example.com")
-	gittest.Run(t, repo, "config", "user.name", "test")
+	gittest.Init(t, repo, "-b", "main")
 	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
 
 	branch := func(name string) {
@@ -76,10 +74,10 @@ func TestDelete(t *testing.T) {
 		},
 		Branches: []BranchCandidate{
 			{Branch: "fake-merged", Verdict: VerdictMergedNoPR},
-			{Branch: "closed-br", Verdict: VerdictPRClosed, HeadOID: ref(t, repo, "refs/heads/closed-br")},
+			{Branch: "closed-br", Verdict: VerdictPRClosed, HeadOID: gittest.Rev(t, repo, "refs/heads/closed-br")},
 			// A head that is not the branch's, standing in for a commit made
 			// between the verdict and the approval.
-			{Branch: "closed-stale", Verdict: VerdictPRClosed, HeadOID: ref(t, repo, "main")},
+			{Branch: "closed-stale", Verdict: VerdictPRClosed, HeadOID: gittest.Rev(t, repo, "main")},
 			{Branch: "live-br", Verdict: VerdictMergedNoPR},
 			{Branch: "merged-br", Verdict: VerdictMergedNoPR},
 		},
@@ -144,12 +142,12 @@ func TestDelete(t *testing.T) {
 	}
 
 	for _, branch := range []string{"closed-stale", "fake-merged", "live-br"} {
-		if _, err := run(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+		if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
 			t.Errorf("%s was deleted despite its failure", branch)
 		}
 	}
 	for _, branch := range []string{"wt-del", "closed-br", "merged-br"} {
-		if _, err := run(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
 			t.Errorf("%s survived its deletion", branch)
 		}
 	}

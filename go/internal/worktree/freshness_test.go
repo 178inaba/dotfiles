@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
-
 	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -21,13 +19,8 @@ func prOrigin(t *testing.T) (bare, head, previous string) {
 	gittest.SkipWithoutGit(t)
 
 	base := t.TempDir()
-	bare = filepath.Join(base, "origin.git")
-	gittest.Run(t, base, "init", "-q", "--bare", "-b", "main", bare)
-
-	seed := filepath.Join(base, "seed")
-	gittest.Run(t, base, "clone", "-q", bare, seed)
-	gittest.Run(t, seed, "config", "user.email", "test@example.com")
-	gittest.Run(t, seed, "config", "user.name", "test")
+	bare = gittest.Init(t, filepath.Join(base, "origin.git"), "--bare", "-b", "main")
+	seed := gittest.Clone(t, bare, filepath.Join(base, "seed"))
 	gittest.Write(t, filepath.Join(seed, "file.txt"), "base\n")
 	// The ignore rules belong to the repository as a whole, so they go on the
 	// default branch; the list of what to carry into a worktree belongs to the
@@ -46,7 +39,7 @@ func prOrigin(t *testing.T) (bare, head, previous string) {
 	gittest.Run(t, seed, "commit", "-qam", "two")
 	gittest.Run(t, seed, "push", "-q", "origin", headRef)
 
-	return bare, ref(t, seed, headRef), ref(t, seed, headRef+"^")
+	return bare, gittest.Rev(t, seed, headRef), gittest.Rev(t, seed, headRef+"^")
 }
 
 // checkoutOf clones the origin onto the head branch, which is where every case
@@ -150,7 +143,7 @@ func TestCheckFreshness(t *testing.T) {
 			if tc.setUp != nil {
 				tc.setUp(t, repo)
 			}
-			before := ref(t, repo, "HEAD")
+			before := gittest.Rev(t, repo, "HEAD")
 
 			want := tc.headRef
 			if want == "" {
@@ -169,7 +162,7 @@ func TestCheckFreshness(t *testing.T) {
 			if got.HeadRef != want || got.HeadOID != head {
 				t.Errorf("report = %+v, want it to echo %s at %s", got, want, head)
 			}
-			after := ref(t, repo, "HEAD")
+			after := gittest.Rev(t, repo, "HEAD")
 			if got.LocalHead != after {
 				t.Errorf("local_head = %s, want the checkout's own head %s", got.LocalHead, after)
 			}
@@ -206,59 +199,5 @@ func TestCheckFreshnessKeepsDirtyWork(t *testing.T) {
 	}
 	if content := gittest.Run(t, repo, "diff", "--name-only"); !strings.Contains(content, "file.txt") {
 		t.Errorf("the uncommitted change is gone; git diff says %q", content)
-	}
-}
-
-func TestParsePullRequest(t *testing.T) {
-	t.Parallel()
-
-	const full = `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"},"is_own_pr":true}`
-
-	tests := []struct {
-		name    string
-		in      string
-		want    PullRequest
-		wantErr string
-	}{
-		{
-			name: "every field",
-			in:   full,
-			want: PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
-		},
-		{
-			// false is an answer, and reading its absence as one would treat a
-			// reviewer's checkout as the author's.
-			name: "is_own_pr false",
-			in:   `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"},"is_own_pr":false}`,
-			want: PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main"},
-		},
-		{name: "no head_oid", in: `{"pr":{"head_ref":"feature/x","base_ref":"main"},"is_own_pr":true}`, wantErr: "pr.head_oid missing"},
-		{name: "no head_ref", in: `{"pr":{"head_oid":"abc123","base_ref":"main"},"is_own_pr":true}`, wantErr: "pr.head_ref missing"},
-		{name: "no base_ref", in: `{"pr":{"head_oid":"abc123","head_ref":"feature/x"},"is_own_pr":true}`, wantErr: "pr.base_ref missing"},
-		{name: "no is_own_pr", in: `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"}}`, wantErr: "is_own_pr missing"},
-		{name: "not json at all", in: `not json`, wantErr: "decode"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := ParsePullRequest([]byte(tc.in))
-			if tc.wantErr != "" {
-				if err == nil {
-					t.Fatalf("ParsePullRequest = %+v, want an error mentioning %q", got, tc.wantErr)
-				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Errorf("ParsePullRequest error = %q, want it to mention %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ParsePullRequest: %v", err)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ParsePullRequest (-want +got):\n%s", diff)
-			}
-		})
 	}
 }

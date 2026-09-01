@@ -37,7 +37,7 @@ func prFreshnessCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			pr, err := worktree.ParsePullRequest([]byte(content))
+			pr, err := pullrequest.ParseCheckout([]byte(content))
 			if err != nil {
 				// The package reports the field without naming the file,
 				// because the path is the caller's; a message that says which
@@ -92,9 +92,9 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			repo, err := client.CurrentRepo(c.Context(), runner.Exec{})
+			repo, err := currentRepo(c.Context(), client)
 			if err != nil {
-				return silent(fmt.Errorf("failed to resolve repository (gh repo view)"))
+				return silent(err)
 			}
 			meta, err := contextPR(c.Context(), client, repo, number)
 			if err != nil {
@@ -106,7 +106,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			path, err := storeContext(outDir)(fetched)
+			path, err := storeContext(outDir, repo)(fetched)
 			if err != nil {
 				return silent(err)
 			}
@@ -115,6 +115,19 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			}{path}))
 		},
 	}
+}
+
+// currentRepo names the repository these commands work on.
+//
+// The wrapped failure is kept: "no git remote names a repository" is a
+// different problem from being unauthenticated, and a message that hides which
+// one it was sends the reader to debug the wrong thing.
+func currentRepo(ctx context.Context, client *ghapi.Client) (ghapi.Repo, error) {
+	repo, err := client.CurrentRepo(ctx, runner.Exec{})
+	if err != nil {
+		return ghapi.Repo{}, fmt.Errorf("failed to resolve the repository: %w", err)
+	}
+	return repo, nil
 }
 
 // contextPR resolves the pull request the context is about.
@@ -140,13 +153,11 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 // storeContext writes a fetched context into outDir and answers with its path.
 //
 // Through a temporary file in the same directory, so that a run interrupted
-// halfway leaves no partial document where a complete one is expected. The name
-// separates the owner from the repository with an @, which neither may contain:
-// with a hyphen, a-b/c and a/b-c would collapse onto one name, and the
-// uniqueness this file's whole purpose rests on would have a hole in it.
-func storeContext(outDir string) pullrequest.Store {
+// halfway leaves no partial document where a complete one is expected. What the
+// file is called is pullrequest's, since that is what takes the name apart
+// again to find the review's work directory.
+func storeContext(outDir string, repo ghapi.Repo) pullrequest.Store {
 	return func(c pullrequest.Context) (string, error) {
-		owner, name, _ := strings.Cut(c.Repo, "/")
 		tmp, err := os.CreateTemp(outDir, ".pr-context.*")
 		if err != nil {
 			return "", err
@@ -160,7 +171,7 @@ func storeContext(outDir string) pullrequest.Store {
 		if err := tmp.Close(); err != nil {
 			return "", err
 		}
-		path := filepath.Join(outDir, fmt.Sprintf("pr-context-%s@%s-%d.json", owner, name, c.PR.Number))
+		path := filepath.Join(outDir, pullrequest.ContextFileName(repo, c.PR.Number))
 		if err := os.Rename(tmp.Name(), path); err != nil {
 			return "", err
 		}
@@ -196,16 +207,16 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			repo, err := client.CurrentRepo(c.Context(), runner.Exec{})
+			repo, err := currentRepo(c.Context(), client)
 			if err != nil {
-				return silent(fmt.Errorf("failed to resolve repository (gh repo view)"))
+				return silent(err)
 			}
 
 			options := pullrequest.Options{
 				Number: number, Issue: issue,
 				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
 			}
-			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext(scratch))
+			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext(scratch, repo))
 			if err != nil {
 				return silent(err)
 			}
@@ -240,7 +251,7 @@ func contextLimits() (pullrequest.Limits, error) {
 			continue
 		}
 		n, err := strconv.Atoi(value)
-		if err != nil || n < 0 || strings.ContainsFunc(value, func(r rune) bool { return r < '0' || r > '9' }) {
+		if err != nil || strings.ContainsFunc(value, func(r rune) bool { return r < '0' || r > '9' }) {
 			return pullrequest.Limits{}, fmt.Errorf("invalid %s: %s", l.name, value)
 		}
 		*l.out = n
@@ -327,9 +338,6 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			if err := pullrequest.ValidateThreadActions(actions, eligible, contextFile, threadsFile); err != nil {
-				return silent(err)
-			}
 			// Nothing to do is an ordinary answer, and the one exit of this
 			// command that renders indented rather than compact.
 			if len(actions) == 0 {
@@ -343,7 +351,9 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			replies, err := pullrequest.Reply(c.Context(), client, actions, threadsFile)
+			replies, err := pullrequest.Reply(c.Context(), client, pullrequest.ReplyRequest{
+				Actions: actions, Eligible: eligible, ContextFile: contextFile, ThreadsFile: threadsFile,
+			})
 			if err != nil {
 				return silent(err)
 			}

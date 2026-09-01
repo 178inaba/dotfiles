@@ -143,7 +143,7 @@ func (c *collector) warn(format string, a ...any) {
 }
 
 func (c *collector) git(ctx context.Context, args ...string) (string, error) {
-	return run(ctx, c.r, c.dir, args...)
+	return runner.Git(ctx, c.r, c.dir, args...)
 }
 
 func (c *collector) collect(ctx context.Context) (Collection, error) {
@@ -151,10 +151,9 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 		return Collection{}, fmt.Errorf("not a git repository")
 	}
 
-	// What origin/HEAD says, and main where a repository has no origin/HEAD at
-	// all — the same fallback the skill's prose has always assumed.
-	head, _ := c.git(ctx, "symbolic-ref", "refs/remotes/origin/HEAD")
-	c.defaultBranch = strings.TrimPrefix(head, "refs/remotes/origin/")
+	// main where a repository has no origin/HEAD at all — the same fallback
+	// the skill's prose has always assumed.
+	c.defaultBranch = DefaultBranch(ctx, c.r, c.dir)
 	if c.defaultBranch == "" {
 		c.defaultBranch = "main"
 	}
@@ -221,7 +220,7 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 		j := c.judge(ctx, e.Branch)
 		if j.skip != "" {
 			out.Skipped = append(out.Skipped, Skipped{
-				Type: KindWorktree, Target: e.Path, Branch: e.Branch, Reason: j.skip, Detail: j.skipDetail,
+				Type: KindWorktree, Target: e.Path, Branch: e.Branch, Reason: j.skip, Detail: j.detail,
 			})
 			continue
 		}
@@ -230,7 +229,17 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 		}
 
 		isCurrent := e.Path == currentWorktree
-		reason, detail := c.worktreeSafety(ctx, e.Path, j.verdict)
+		// Untracked files count here and nowhere else in this package: this is
+		// about to delete the directory they are in, not fast-forward past
+		// them. It is also the last dirty guard on the path that deletes with
+		// -D, so it comes before the closed pull request's exemption.
+		var reason SkipReason
+		var detail string
+		if status, _ := runner.Git(ctx, c.r, e.Path, "status", "--porcelain"); status != "" {
+			reason, detail = SkipUncommittedChanges, skipDetails[SkipUncommittedChanges]
+		} else {
+			reason, detail = c.safety(ctx, e.Path, "HEAD", j.verdict)
+		}
 		// The caller's own worktree is exempt from the in-use check, since the
 		// session asking the question is the process holding it. The procedure
 		// is to leave first, and Delete checks again at the moment of removal.
@@ -266,14 +275,14 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 		j := c.judge(ctx, branch)
 		if j.skip != "" {
 			out.Skipped = append(out.Skipped, Skipped{
-				Type: KindBranch, Target: branch, Reason: j.skip, Detail: j.skipDetail,
+				Type: KindBranch, Target: branch, Reason: j.skip, Detail: j.detail,
 			})
 			continue
 		}
 		if j.verdict == "" {
 			continue
 		}
-		if reason, detail := c.branchSafety(ctx, branch, j.verdict); reason != "" {
+		if reason, detail := c.safety(ctx, c.dir, branch, j.verdict); reason != "" {
 			out.Skipped = append(out.Skipped, Skipped{
 				Type: KindBranch, Target: branch, Reason: reason, Detail: detail,
 			})
@@ -298,11 +307,12 @@ func (c *collector) protected(branch string) bool {
 // verdict with no skip means work still in flight, which belongs in neither
 // list.
 type judgement struct {
-	verdict    Verdict
-	detail     string
-	skip       SkipReason
-	skipDetail string
-	headOID    string
+	verdict Verdict
+	skip    SkipReason
+	// detail belongs to whichever of the two above is set; skip is what says
+	// which, and they are never both filled.
+	detail  string
+	headOID string
 }
 
 func (c *collector) judge(ctx context.Context, branch string) judgement {
@@ -375,11 +385,11 @@ func (c *collector) judgeMerged(ctx context.Context, branch string, pr branchPR)
 
 	j := judgement{skip: SkipCommitsBeyondMergedPR}
 	if pr.HeadRefOID == "" {
-		j.skipDetail = fmt.Sprintf("PR #%d MERGED だがマージされた head (不明) がローカルに存在しない", pr.Number)
+		j.detail = fmt.Sprintf("PR #%d MERGED だがマージされた head (不明) がローカルに存在しない", pr.Number)
 		return j
 	}
 	if _, err := c.git(ctx, "rev-parse", "--verify", "--quiet", pr.HeadRefOID+"^{commit}"); err != nil {
-		j.skipDetail = fmt.Sprintf("PR #%d MERGED だがマージされた head (%s) がローカルに存在しない", pr.Number, pr.HeadRefOID)
+		j.detail = fmt.Sprintf("PR #%d MERGED だがマージされた head (%s) がローカルに存在しない", pr.Number, pr.HeadRefOID)
 		return j
 	}
 
@@ -390,7 +400,7 @@ func (c *collector) judgeMerged(ctx context.Context, branch string, pr branchPR)
 	if n, err := strconv.Atoi(count); err == nil && n > maxBeyond {
 		beyond += fmt.Sprintf(", 他 %d 件", n-maxBeyond)
 	}
-	j.skipDetail = fmt.Sprintf("PR #%d MERGED だがマージされた head より先の commit あり: %s", pr.Number, beyond)
+	j.detail = fmt.Sprintf("PR #%d MERGED だがマージされた head より先の commit あり: %s", pr.Number, beyond)
 	return j
 }
 
@@ -410,18 +420,19 @@ func (c *collector) judgeClosed(ctx context.Context, branch string, pr branchPR)
 		}
 	}
 	return judgement{
-		skip:       SkipLocalCommitsBeyondPR,
-		skipDetail: fmt.Sprintf("PR #%d CLOSED（未マージ）だが PR head と不一致（ローカル限定 commit あり）", pr.Number),
+		skip:   SkipLocalCommitsBeyondPR,
+		detail: fmt.Sprintf("PR #%d CLOSED（未マージ）だが PR head と不一致（ローカル限定 commit あり）", pr.Number),
 	}
 }
 
-// worktreeSafety is the last look at a worktree before it becomes a candidate.
-func (c *collector) worktreeSafety(ctx context.Context, path string, verdict Verdict) (SkipReason, string) {
-	// Untracked files count here, unlike everywhere else in this package: this
-	// is about to delete the directory they are in, not fast-forward past them.
-	if status, _ := run(ctx, c.r, path, "status", "--porcelain"); status != "" {
-		return SkipUncommittedChanges, skipDetails[SkipUncommittedChanges]
-	}
+// safety is the last look before something becomes a candidate: are there
+// commits here that deleting it would be the end of.
+//
+// dir is where git runs and rev is what it is asked about — a worktree asks
+// about its own HEAD, a bare branch about itself from the repository. The two
+// were one procedure in the shell as well, and keeping them one is what stops
+// a fix landing on the branch path and not the worktree path.
+func (c *collector) safety(ctx context.Context, dir, rev string, verdict Verdict) (SkipReason, string) {
 	// A closed pull request has already been checked against its head, which
 	// is the same worry the unpushed checks have — and its remote branch is
 	// usually gone, so no_upstream_with_commits would fire on every one of
@@ -429,28 +440,14 @@ func (c *collector) worktreeSafety(ctx context.Context, path string, verdict Ver
 	if verdict == VerdictPRClosed {
 		return "", ""
 	}
-	if log, _ := run(ctx, c.r, path, "log", "@{u}..HEAD", "--oneline"); log != "" {
+	if log, _ := runner.Git(ctx, c.r, dir, "log", rev+"@{u}.."+rev, "--oneline"); log != "" {
 		return SkipUnpushedCommits, skipDetails[SkipUnpushedCommits]
 	}
-	if _, err := run(ctx, c.r, path, "rev-parse", "--abbrev-ref", "@{u}"); err != nil {
-		if log, _ := run(ctx, c.r, path, "log", c.defaultBranch+"..HEAD", "--oneline"); log != "" {
-			return SkipNoUpstreamWithCommits, skipDetails[SkipNoUpstreamWithCommits]
-		}
-	}
-	return "", ""
-}
-
-// branchSafety is the same look at a branch with no worktree, which has no
-// working tree to be dirty.
-func (c *collector) branchSafety(ctx context.Context, branch string, verdict Verdict) (SkipReason, string) {
-	if verdict == VerdictPRClosed {
-		return "", ""
-	}
-	if log, _ := c.git(ctx, "log", branch+"@{u}.."+branch, "--oneline"); log != "" {
-		return SkipUnpushedCommits, skipDetails[SkipUnpushedCommits]
-	}
-	if _, err := c.git(ctx, "rev-parse", "--abbrev-ref", branch+"@{u}"); err != nil {
-		if log, _ := c.git(ctx, "log", c.defaultBranch+".."+branch, "--oneline"); log != "" {
+	// With no upstream the check above has nothing to compare against and
+	// passes in silence, so a branch that was never pushed needs the default
+	// branch as its yardstick instead.
+	if _, err := runner.Git(ctx, c.r, dir, "rev-parse", "--abbrev-ref", rev+"@{u}"); err != nil {
+		if log, _ := runner.Git(ctx, c.r, dir, "log", c.defaultBranch+".."+rev, "--oneline"); log != "" {
 			return SkipNoUpstreamWithCommits, skipDetails[SkipNoUpstreamWithCommits]
 		}
 	}

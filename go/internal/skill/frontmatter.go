@@ -93,7 +93,9 @@ func CheckFrontmatter(target string) (Frontmatter, error) {
 			Violations: checkFile(path, filepath.Join(filepath.Base(dir), filepath.Base(target))),
 			Warnings:   []string{},
 		}
-		sortViolations(out.Violations)
+		sortFindings(out.Violations, func(v Violation) (string, int, string) {
+			return v.File, v.Line, string(v.Type)
+		})
 		return out, nil
 	}
 
@@ -101,40 +103,64 @@ func CheckFrontmatter(target string) (Frontmatter, error) {
 	if err != nil {
 		return Frontmatter{}, err
 	}
-	entries, err := os.ReadDir(root)
+	found, missing, err := skillFiles(root)
 	if err != nil {
 		return Frontmatter{}, fmt.Errorf("target not found: %s", target)
 	}
+	if len(found) == 0 {
+		return Frontmatter{}, fmt.Errorf("no */SKILL.md found under %s", root)
+	}
 
 	out := Frontmatter{Target: root, Violations: []Violation{}, Warnings: []string{}}
+	for _, name := range missing {
+		out.Warnings = append(out.Warnings, "no SKILL.md in "+name+"/")
+	}
+	for _, rel := range found {
+		out.Violations = append(out.Violations, checkFile(filepath.Join(root, rel), rel)...)
+	}
+	sortFindings(out.Violations, func(v Violation) (string, int, string) {
+		return v.File, v.Line, string(v.Type)
+	})
+	return out, nil
+}
+
+// skillFiles lists the SKILL.md files directly under root, and the directories
+// that have none.
+//
+// Both checks read the same tree, and a directory without a SKILL.md is worth
+// reporting rather than skipping in silence: it went unchecked.
+func skillFiles(root string) (found, missing []string, err error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 		rel := filepath.Join(e.Name(), "SKILL.md")
 		if info, err := os.Stat(filepath.Join(root, rel)); err != nil || info.IsDir() {
-			out.Warnings = append(out.Warnings, "no SKILL.md in "+e.Name()+"/")
+			missing = append(missing, e.Name())
 			continue
 		}
-		out.Violations = append(out.Violations, checkFile(filepath.Join(root, rel), rel)...)
+		found = append(found, rel)
 	}
-	if len(out.Violations) == 0 && len(out.Warnings) == len(entries) && len(entries) > 0 {
-		return Frontmatter{}, fmt.Errorf("no */SKILL.md found under %s", root)
-	}
-	sortViolations(out.Violations)
-	return out, nil
+	return found, missing, nil
 }
 
-// sortViolations puts the findings in the order the contract publishes them.
-func sortViolations(v []Violation) {
-	slices.SortStableFunc(v, func(a, b Violation) int {
-		if a.File != b.File {
-			return strings.Compare(a.File, b.File)
+// sortFindings puts findings in the order both contracts publish them: by file,
+// then by line, then by kind, so that two runs over one tree read the same way.
+func sortFindings[T any](findings []T, key func(T) (file string, line int, kind string)) {
+	slices.SortStableFunc(findings, func(a, b T) int {
+		aFile, aLine, aKind := key(a)
+		bFile, bLine, bKind := key(b)
+		if aFile != bFile {
+			return strings.Compare(aFile, bFile)
 		}
-		if a.Line != b.Line {
-			return a.Line - b.Line
+		if aLine != bLine {
+			return aLine - bLine
 		}
-		return strings.Compare(string(a.Type), string(b.Type))
+		return strings.Compare(aKind, bKind)
 	})
 }
 

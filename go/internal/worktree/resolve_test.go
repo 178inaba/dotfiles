@@ -104,7 +104,7 @@ func TestResolveWithoutAWorktree(t *testing.T) {
 			}
 			// The fetch is the point of this branch of the command: Checkout
 			// builds on the remote-tracking ref it leaves behind.
-			if got := ref(t, repo, "refs/remotes/origin/"+headRef); got != head {
+			if got := gittest.Rev(t, repo, "refs/remotes/origin/"+headRef); got != head {
 				t.Errorf("origin/%s is at %s, want %s", headRef, got, head)
 			}
 		})
@@ -159,7 +159,7 @@ func TestResolveWithAnExistingWorktree(t *testing.T) {
 			if tc.setUp != nil {
 				tc.setUp(t, path)
 			}
-			before := ref(t, path, "HEAD")
+			before := gittest.Rev(t, path, "HEAD")
 
 			got, err := Resolve(t.Context(), runner.Exec{}, github(t, headRef), prRepo, repo, 42)
 			if err != nil {
@@ -174,7 +174,7 @@ func TestResolveWithAnExistingWorktree(t *testing.T) {
 				t.Errorf("Resolve (-want +got):\n%s", diff)
 			}
 
-			after := ref(t, path, "HEAD")
+			after := gittest.Rev(t, path, "HEAD")
 			if tc.wantMoved && after != head {
 				t.Errorf("the worktree is at %s, want it fast-forwarded to %s", after, head)
 			}
@@ -314,7 +314,7 @@ func TestCheckout(t *testing.T) {
 			if tc.setUp != nil {
 				tc.setUp(t, repo)
 			}
-			mainBefore := ref(t, repo, "HEAD")
+			mainBefore := gittest.Rev(t, repo, "HEAD")
 
 			got, err := Checkout(t.Context(), runner.Exec{}, repo, "feature-x", headRef)
 			if err != nil {
@@ -332,7 +332,7 @@ func TestCheckout(t *testing.T) {
 				t.Errorf("the worktree is on %q, want %q", branch, headRef)
 			}
 			if tc.wantAtHead {
-				if got := ref(t, path, "HEAD"); got != head {
+				if got := gittest.Rev(t, path, "HEAD"); got != head {
 					t.Errorf("the worktree is at %s, want %s", got, head)
 				}
 			}
@@ -341,7 +341,7 @@ func TestCheckout(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
 				t.Errorf("the worktree was not created: %v", err)
 			}
-			if got := ref(t, repo, "HEAD"); got != mainBefore {
+			if got := gittest.Rev(t, repo, "HEAD"); got != mainBefore {
 				t.Errorf("the main repository moved to %s, want it left at %s", got, mainBefore)
 			}
 		})

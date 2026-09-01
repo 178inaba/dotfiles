@@ -12,9 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
@@ -84,7 +82,9 @@ func ListPending(ctx context.Context, c *ghapi.Client) (Pending, error) {
 	out := Pending{PRs: []PR{}}
 	for _, item := range found.Items {
 		pr := PR{Number: item.Number, URL: item.HTMLURL}
-		pr.Owner, pr.Repo = ownerRepoOf(item.RepositoryURL)
+		if from, err := ghapi.RepoFromAPIURL(item.RepositoryURL); err == nil {
+			pr.Owner, pr.Repo = from.Owner, from.Name
+		}
 
 		// A deleted account leaves no author to exclude, and without one every
 		// reply the author left would count as somebody else's review. Failing
@@ -262,19 +262,6 @@ func currentUser(ctx context.Context, c *ghapi.Client, ttl time.Duration) (strin
 	return user.Login, nil
 }
 
-// ownerRepoOf reads the owner and the name out of a repository's api url.
-func ownerRepoOf(apiURL string) (owner, name string) {
-	u, err := url.Parse(apiURL)
-	if err != nil {
-		return "", ""
-	}
-	parts := splitPath(u.Path)
-	if len(parts) < 2 {
-		return "", ""
-	}
-	return parts[len(parts)-2], parts[len(parts)-1]
-}
-
 // specPattern is the <owner>/<repo>#<number> the caller names a pull request
 // with. Neither a slash nor a hash nor whitespace may appear inside a name, so
 // the three separators stay unambiguous.
@@ -291,9 +278,4 @@ func ParseSpec(s string) (Spec, error) {
 		return Spec{}, fmt.Errorf("invalid PR spec: %s (expected <owner>/<repo>#<number>)", s)
 	}
 	return Spec{Owner: m[1], Repo: m[2], Number: n}, nil
-}
-
-// splitPath returns a url path's non-empty segments.
-func splitPath(p string) []string {
-	return slices.Collect(strings.SplitSeq(strings.Trim(p, "/"), "/"))
 }

@@ -62,7 +62,7 @@ func ParseCandidates(b []byte) (Candidates, error) {
 // exactly that. And the choice between -d and -D belongs somewhere it can be
 // tested.
 func Delete(ctx context.Context, r runner.Runner, dir string, candidates Candidates) (Deletion, error) {
-	if _, err := run(ctx, r, dir, "rev-parse", "--git-dir"); err != nil {
+	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--git-dir"); err != nil {
 		return Deletion{}, fmt.Errorf("not a git repository")
 	}
 	// git will remove a worktree somebody is sitting in — it succeeds, and
@@ -131,7 +131,7 @@ func (d *deleter) deleteBranch(ctx context.Context, branch string, verdict Verdi
 	flag := "-d"
 	if verdict == VerdictPRClosed {
 		flag = "-D"
-		current, _ := run(ctx, d.r, d.dir, "rev-parse", "refs/heads/"+branch)
+		current, _ := runner.Git(ctx, d.r, d.dir, "rev-parse", "refs/heads/"+branch)
 		if headOID == "" || current != headOID {
 			d.fail(KindBranch, branch, fmt.Sprintf(
 				"refusing -D: branch head no longer matches verified PR head (expected %s, got %s)",

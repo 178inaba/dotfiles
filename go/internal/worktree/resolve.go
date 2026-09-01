@@ -132,14 +132,14 @@ func resolvePR(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi
 		pr, err := c.PullRequestForCurrentBranch(ctx, dirRunner{r: r, dir: dir}, repo)
 		if err != nil {
 			return ghapi.PullRequest{}, fmt.Errorf(
-				"gh pr view failed to infer the PR from current branch (no PR, unauthenticated, or network error); pass <pr-number> explicitly")
+				"could not infer the PR from the current branch (no PR, unauthenticated, or network error); pass <pr-number> explicitly")
 		}
 		return pr, nil
 	}
 	pr, err := c.PullRequest(ctx, repo, number)
 	if err != nil || pr.HeadRefName == "" {
 		return ghapi.PullRequest{}, fmt.Errorf(
-			"gh pr view failed to get the head branch of PR #%d (not found, unauthenticated, or network error)", number)
+			"failed to get the head branch of PR #%d (not found, unauthenticated, or network error)", number)
 	}
 	return pr, nil
 }
@@ -161,11 +161,11 @@ func linkedWorktreeOn(entries []Entry, branch string) string {
 // evacuate moves the main repository off the pull request's branch, so that the
 // worktree can have it: git allows one checkout of a branch at a time.
 func evacuate(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, dir, main string) error {
-	// What a clone sets up, and the only thing a repository whose remote was
-	// added by hand is missing.
-	def, err := run(ctx, r, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "--short")
-	branch := strings.TrimPrefix(def, "origin/")
-	if err != nil || branch == "" {
+	// origin/HEAD first, and the API only where a repository has none —
+	// evacuation has to land somewhere real, so this one cannot assume main.
+	branch := DefaultBranch(ctx, r, dir)
+	if branch == "" {
+		var err error
 		if branch, err = c.DefaultBranch(ctx, repo); err != nil {
 			branch = ""
 		}
@@ -210,10 +210,7 @@ type CheckedOut struct {
 // somebody may well want to work in it as it stands; deciding otherwise would
 // mean deleting a checkout on their behalf.
 func Checkout(ctx context.Context, r runner.Runner, root, name, headRef string) (CheckedOut, error) {
-	if _, err := r.Run(ctx, runner.Command{
-		Name: "git",
-		Args: []string{"-C", root, "rev-parse", "-q", "--verify", "refs/remotes/origin/" + headRef},
-	}); err != nil {
+	if !hasRef(ctx, r, root, "refs/remotes/origin/"+headRef) {
 		return CheckedOut{}, fmt.Errorf(
 			"origin/%s not found locally; run the resolve subcommand first (it fetches the head branch)", headRef)
 	}
@@ -248,7 +245,7 @@ func Checkout(ctx context.Context, r runner.Runner, root, name, headRef string) 
 // here that cannot be reconstructed, so its presence stops everything, even
 // when the branch is behind as well.
 func syncWithOrigin(ctx context.Context, r runner.Runner, dir, branch string) (ResolveStatus, bool, error) {
-	counts, err := run(ctx, r, dir, "rev-list", "--left-right", "--count", branch+"...origin/"+branch)
+	counts, err := runner.Git(ctx, r, dir, "rev-list", "--left-right", "--count", branch+"...origin/"+branch)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to compare %s with origin/%s", branch, branch)
 	}

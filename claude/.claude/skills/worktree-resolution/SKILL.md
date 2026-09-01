@@ -8,7 +8,7 @@ user-invocable: false
 
 PR・ブランチに対応する worktree を解決（既存検索・切替・新規作成）するための共通規約と手順。`/issue-handle`・`/review-response`・`/deep-review` の `--worktree` から参照される。PR を対象にレビュー・修正を行うスキルが共有する鮮度確認サブ手順もここに置く（こちらは worktree の有無に関わらず参照される）。
 
-決定的な配管（PR 番号確定・worktree 名計算・既存検索・同期・退避・作成・作成後の switch）は `scripts/` の2本が実行し、AI 判断に残るのは session 切替プリミティブの分岐（session 状態はスクリプトから観測できない）と、停止 status 時のユーザー対応のみ。
+決定的な配管（PR 番号確定・worktree 名計算・既存検索・同期・退避・作成・作成後の switch）は `ccx worktree resolve` / `ccx worktree checkout` が実行し、AI 判断に残るのは session 切替プリミティブの分岐（session 状態はコマンドから観測できない）と、停止 status 時のユーザー対応のみ。
 
 ## 共通規約
 

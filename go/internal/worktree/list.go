@@ -16,8 +16,6 @@ import (
 // format is one thing and three readings of it drift.
 type Entry struct {
 	Path string
-	// Head is the commit the worktree has checked out.
-	Head string
 	// Branch is the short branch name, empty on a detached head.
 	Branch string
 	// Main says this is the repository's own worktree rather than a linked
@@ -46,8 +44,6 @@ func parseList(out string) []Entry {
 			switch key {
 			case "worktree":
 				e.Path = value
-			case "HEAD":
-				e.Head = value
 			case "branch":
 				// Always a full ref here; the short name is what every caller
 				// compares against.
@@ -61,6 +57,20 @@ func parseList(out string) []Entry {
 		entries = append(entries, e)
 	}
 	return entries
+}
+
+// DefaultBranch is what origin/HEAD says the repository's default branch is,
+// or empty where it says nothing.
+//
+// A clone sets origin/HEAD; a repository whose remote was added by hand has
+// none. What to do about that differs by caller — one falls back to main, one
+// asks the API — so this reports the absence rather than choosing.
+func DefaultBranch(ctx context.Context, r runner.Runner, dir string) string {
+	out, err := runner.Git(ctx, r, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "--short")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(out, "origin/")
 }
 
 // MainRoot returns the root of the repository dir belongs to, from a linked

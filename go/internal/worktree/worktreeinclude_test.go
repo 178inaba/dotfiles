@@ -27,12 +27,9 @@ func origin(t *testing.T) (bare, outside string) {
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	gittest.Run(t, base, "init", "-q", "--bare", "-b", "main", bare)
+	gittest.Init(t, bare, "--bare", "-b", "main")
 
-	seed := filepath.Join(base, "seed")
-	gittest.Run(t, base, "clone", "-q", bare, seed)
-	gittest.Run(t, seed, "config", "user.email", "test@example.com")
-	gittest.Run(t, seed, "config", "user.name", "test")
+	seed := gittest.Clone(t, bare, filepath.Join(base, "seed"))
 	gittest.Run(t, seed, "commit", "-q", "--allow-empty", "-m", "initial")
 
 	// The ignore rules belong to the repository being copied out of, so they
@@ -103,8 +100,7 @@ func checkout(t *testing.T, bare, ref string) (srcRoot, worktreePath string) {
 	t.Helper()
 
 	base := t.TempDir()
-	srcRoot = filepath.Join(base, "src")
-	gittest.Run(t, base, "clone", "-q", bare, srcRoot)
+	srcRoot = gittest.Clone(t, bare, filepath.Join(base, "src"))
 
 	worktreePath = filepath.Join(srcRoot, ".claude", "worktrees", "wt")
 	gittest.Run(t, srcRoot, "worktree", "add", "-q", "--detach", worktreePath, "origin/"+ref)

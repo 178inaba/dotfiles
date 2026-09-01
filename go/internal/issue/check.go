@@ -7,28 +7,34 @@ import (
 
 // Violation is one thing wrong with a draft.
 //
-// Code exists because the caller reports the classes apart: the shell exited
-// with the lowest code present, so that a script could tell "a required section
-// is missing" from "a heading is in the wrong language" without parsing the
-// messages.
+// Class exists because the caller reports the classes apart: it exits with the
+// status of the earliest one present, so that a script can tell "a required
+// section is missing" from "a heading is in the wrong language" without parsing
+// the messages.
 type Violation struct {
-	Code    int
+	Class   Class
 	Message string
 }
 
-// The violation classes, in the order Check reports them and in the order the
-// exit status prefers.
+// Class is what kind of violation a check found.
+//
+// Not a status: turning one into a number a process exits with is a boundary
+// this package does not sit on, and internal/cmd owns that mapping. The
+// declaration order is how early each class stops a draft from being usable,
+// which is what lets one answer stand for a set of them.
+type Class int
+
 const (
 	// MissingSection is a section the kind requires and the draft lacks.
-	MissingSection = 2
+	MissingSection Class = iota
 	// UnknownHeading is a `## ` heading that is in neither the table nor the
 	// template mapping.
-	UnknownHeading = 3
+	UnknownHeading
 	// MappedMachineKey is a template renaming a heading that other skills find
 	// by its text.
-	MappedMachineKey = 4
+	MappedMachineKey
 	// HeadingLocaleMismatch is a canonical heading in the other language.
-	HeadingLocaleMismatch = 5
+	HeadingLocaleMismatch
 )
 
 // Mapping is one entry of a repository issue template's heading mapping: the
@@ -164,15 +170,17 @@ func Check(draft string, l Locale, k Kind, mapping []Mapping) ([]Violation, erro
 	return out, nil
 }
 
-// Code returns the status a set of violations reports, which is the lowest
-// class present: the classes are ordered by how early they stop a draft from
-// being usable, and one status has to stand for all of them.
-func Code(vs []Violation) int {
-	code := 0
-	for _, v := range vs {
-		if code == 0 || v.Code < code {
-			code = v.Code
+// Worst returns the class a set of violations reports as a whole, which is the
+// earliest present, and whether there were any at all.
+func Worst(vs []Violation) (Class, bool) {
+	if len(vs) == 0 {
+		return 0, false
+	}
+	worst := vs[0].Class
+	for _, v := range vs[1:] {
+		if v.Class < worst {
+			worst = v.Class
 		}
 	}
-	return code
+	return worst, true
 }

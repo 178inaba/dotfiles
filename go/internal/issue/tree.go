@@ -437,7 +437,14 @@ type issueWire struct {
 }
 
 func (w issueWire) ref(repo ghapi.Repo) Ref {
-	r := repoOf(w.RepositoryURL)
+	// An unparseable url leaves the repository empty, which reads as "not this
+	// one" — the safe direction, since a caller that cannot name the
+	// repository writes owner/repo#N rather than a bare #N.
+	from, _ := ghapi.RepoFromAPIURL(w.RepositoryURL)
+	r := from.String()
+	if from == (ghapi.Repo{}) {
+		r = ""
+	}
 	return Ref{
 		Number:   w.Number,
 		Title:    w.Title,
@@ -450,16 +457,6 @@ func (w issueWire) ref(repo ghapi.Repo) Ref {
 
 func (w issueWire) subIssue() SubIssue {
 	return SubIssue{Number: w.Number, Title: w.Title, State: w.State, URL: w.HTMLURL}
-}
-
-// repoOf reads the repository out of an issue's repository_url, which is the
-// api url of the repository and nothing else.
-func repoOf(apiURL string) string {
-	parts := strings.Split(strings.TrimSuffix(apiURL, "/"), "/")
-	if len(parts) < 2 {
-		return ""
-	}
-	return strings.Join(parts[len(parts)-2:], "/")
 }
 
 // issuePath turns an issue's html url into its api path, so that a sub-issue in
