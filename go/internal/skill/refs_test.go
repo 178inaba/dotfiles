@@ -191,22 +191,3 @@ func TestCheckRefsFails(t *testing.T) {
 		})
 	}
 }
-
-// TestCheckRefsOnThisRepository is the case the fixtures cannot make: the
-// references actually written between this repository's skills hold together.
-func TestCheckRefsOnThisRepository(t *testing.T) {
-	t.Parallel()
-
-	skills := filepath.Join("..", "..", "..", "claude", ".claude", "skills")
-	if _, err := os.Stat(skills); err != nil {
-		t.Skipf("the repository's skills are not there: %v", err)
-	}
-
-	got, err := skill.CheckRefs(skills, skill.Contract{})
-	if err != nil {
-		t.Fatalf("CheckRefs: %v", err)
-	}
-	if len(got.Violations) != 0 {
-		t.Errorf("this repository's own skills have reference violations: %+v", got.Violations)
-	}
-}

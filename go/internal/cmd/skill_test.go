@@ -1,6 +1,12 @@
 package cmd
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/178inaba/dotfiles/go/internal/skill"
+)
 
 // TestPublishedNamesTheContract keeps the set the skills are checked against
 // from quietly emptying: a change that made it so would turn `ccx skill refs`
@@ -27,4 +33,26 @@ func contains(all []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestSkillRefsOnThisRepository is the case a fixture cannot make: the
+// references and the contract identifiers actually written in this
+// repository's skills hold together.
+//
+// It lives here rather than beside CheckRefs because the contract it checks
+// against is assembled here — internal/cmd is the only place that knows which
+// command publishes which type.
+func TestSkillRefsOnThisRepository(t *testing.T) {
+	skills := filepath.Join("..", "..", "..", "claude", ".claude", "skills")
+	if _, err := os.Stat(skills); err != nil {
+		t.Skipf("the repository's skills are not there: %v", err)
+	}
+
+	got, err := skill.CheckRefs(skills, published())
+	if err != nil {
+		t.Fatalf("CheckRefs: %v", err)
+	}
+	for _, v := range got.Violations {
+		t.Errorf("%s:%d %s %s", v.File, v.Line, v.Type, v.Ref)
+	}
 }
