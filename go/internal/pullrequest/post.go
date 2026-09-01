@@ -199,16 +199,6 @@ func resolveBody(body, file *string, workDir string) (string, error) {
 	return string(content), nil
 }
 
-// text unquotes a JSON string, and hands back anything else as it was written
-// so that an error naming it says what the file actually holds.
-func text(v jsontext.Value) string {
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return string(v)
-	}
-	return s
-}
-
 // Posted is where the review ended up.
 type Posted struct {
 	URL string `json:"url"`

@@ -26,8 +26,8 @@ type pkg struct {
 // looked up by name at render time.
 type docs struct {
 	// Fields is keyed "<import path>.<Type>.<Field>". A field with no doc
-	// comment is present with an empty value, so that the renderer can tell a
-	// field it knows about from one the table has never heard of.
+	// comment is absent: the renderer prints nothing for it either way, and
+	// keeping the empties made two thirds of the generated table noise.
 	Fields map[string]string
 	// Types is keyed "<import path>.<Type>" and holds the type's own doc
 	// comment, for the sentences that are about the document as a whole rather
@@ -41,6 +41,10 @@ type docs struct {
 	// constant's doc comment. What a value means is as much a part of the
 	// contract as the value itself.
 	EnumDocs map[string]string
+	// Packages is every import path that was read. Without it a type from a
+	// package nobody added to the source list would render with every
+	// description blank and nothing would say why.
+	Packages []string
 }
 
 // extract reads every package and merges the result.
@@ -50,6 +54,7 @@ func extract(pkgs []pkg) (docs, error) {
 		if err := extractPkg(p, out); err != nil {
 			return docs{}, err
 		}
+		out.Packages = append(out.Packages, p.path)
 	}
 	return out, nil
 }
@@ -130,10 +135,10 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 		}
 		// A single-spec declaration keeps its doc comment on the declaration;
 		// one inside a parenthesised block keeps it on the spec.
-		if doc := docText(ts.Doc); doc != "" {
+		if doc := docText(ts.Doc, ts.Name.Name); doc != "" {
 			out.Types[path+"."+ts.Name.Name] = doc
-		} else if len(gd.Specs) == 1 {
-			out.Types[path+"."+ts.Name.Name] = docText(gd.Doc)
+		} else if doc := docText(gd.Doc, ts.Name.Name); doc != "" && len(gd.Specs) == 1 {
+			out.Types[path+"."+ts.Name.Name] = doc
 		}
 
 		for _, field := range st.Fields.List {
@@ -143,7 +148,9 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 				continue
 			}
 			for _, name := range field.Names {
-				out.Fields[path+"."+ts.Name.Name+"."+name.Name] = docText(field.Doc)
+				if doc := docText(field.Doc, name.Name); doc != "" {
+					out.Fields[path+"."+ts.Name.Name+"."+name.Name] = doc
+				}
 			}
 		}
 	}
@@ -174,7 +181,9 @@ func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, out
 				continue
 			}
 			out.Enums[path+"."+current] = append(out.Enums[path+"."+current], s)
-			out.EnumDocs[path+"."+current+"."+s] = docText(vs.Doc)
+			if doc := docText(vs.Doc, name(vs)); doc != "" {
+				out.EnumDocs[path+"."+current+"."+s] = doc
+			}
 		}
 	}
 }
@@ -184,14 +193,37 @@ func isStringIdent(e ast.Expr) bool {
 	return ok && id.Name == "string"
 }
 
-// docText flattens a doc comment to one line.
+// name is a value specification's first declared name, which is what its doc
+// comment opens with.
+func name(vs *ast.ValueSpec) string {
+	if len(vs.Names) == 0 {
+		return ""
+	}
+	return vs.Names[0].Name
+}
+
+// docText flattens a doc comment to one line and drops the Go name it opens
+// with.
+//
+// Two readers, one comment. Go convention is to open with the declaration's
+// own name; the reader of a --help has no such name in front of them, and
+// "HeadOID is the head" is worse there than "The head". Stripping it by the
+// exact name rather than by a general pattern keeps a sentence that genuinely
+// starts with a capitalised word intact.
 //
 // Help is rendered into a column whose width is decided at render time, so the
 // comment's own line breaks would fight it; they are joined here and the
 // renderer wraps.
-func docText(g *ast.CommentGroup) string {
+func docText(g *ast.CommentGroup, decl string) string {
 	if g == nil {
 		return ""
 	}
-	return strings.Join(strings.Fields(g.Text()), " ")
+	text := strings.Join(strings.Fields(g.Text()), " ")
+	for _, verb := range []string{" is ", " are ", " says ", " counts "} {
+		if prefix := decl + verb; strings.HasPrefix(text, prefix) {
+			rest := text[len(prefix):]
+			return strings.ToUpper(rest[:1]) + rest[1:]
+		}
+	}
+	return text
 }

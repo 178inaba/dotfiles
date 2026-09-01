@@ -30,7 +30,6 @@ func prFreshnessCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "freshness <pr-context.json>",
 		Short: "Compare the checkout here with the pull request's head",
-		Long:  longFor("pr freshness"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -70,7 +69,6 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "context <out-dir> [<pr-number>]",
 		Short: "Fetch a pull request's comments, reviews and threads into a file",
-		Long:  longFor("pr context"),
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -188,7 +186,6 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "prepare-review <scratchpad-dir> [<pr-number>]",
 		Short: "Settle everything a review needs before it starts",
-		Long:  longFor("pr prepare-review"),
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -234,6 +231,11 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 // contextLimits reads the three caps a caller raises when a pull request was
 // cut short.
 //
+// limitVars are the environment variables that raise them, in the order the
+// limits are read. Named here so that the help lists the same three rather
+// than a copy of them.
+var limitVars = [3]string{"MAX_COMMENTS", "MAX_THREADS", "MAX_THREAD_COMMENTS"}
+
 // They stay environment variables rather than becoming flags: the only time
 // anybody sets one is to run the same command again with more room, and the
 // command line belongs to the skill.
@@ -243,9 +245,9 @@ func contextLimits() (pullrequest.Limits, error) {
 		name string
 		out  *int
 	}{
-		{"MAX_COMMENTS", &limits.Comments},
-		{"MAX_THREADS", &limits.Threads},
-		{"MAX_THREAD_COMMENTS", &limits.ThreadComments},
+		{limitVars[0], &limits.Comments},
+		{limitVars[1], &limits.Threads},
+		{limitVars[2], &limits.ThreadComments},
 	} {
 		value := os.Getenv(l.name)
 		if value == "" {
@@ -264,7 +266,6 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "post-review <pr-context.json> <review-file>",
 		Short: "Post a review, after checking every comment still anchors to the diff",
-		Long:  longFor("pr post-review"),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -310,7 +311,6 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "reply-threads <pr-context.json> <threads-file>",
 		Short: "Reply to and resolve the review threads awaiting our confirmation",
-		Long:  longFor("pr reply-threads"),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)

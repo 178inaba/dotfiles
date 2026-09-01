@@ -16,7 +16,11 @@ import (
 //
 // Away from wherever the user keeps their own checkout, so that a worktree
 // created for a review never appears in the repository they are working in.
-const workspace = "claude-review-prs"
+// Workspace is the directory every review clone lives under.
+//
+// Exported so that the help stating where they go reads the same value the
+// clone is put at, rather than a copy of it.
+const Workspace = "claude-review-prs"
 
 // OwnerRepo is a repository named as exactly owner/repo.
 //
@@ -80,7 +84,7 @@ type Clone struct {
 // than replacing it. macOS has no flock(1), and a lock built out of mkdir plus
 // stale detection would cost more than the one wasted clone it saves.
 func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo OwnerRepo) (Clone, error) {
-	parent := filepath.Join(o.DataHome, workspace, repo.Owner)
+	parent := filepath.Join(o.DataHome, Workspace, repo.Owner)
 	path := filepath.Join(parent, repo.Name)
 
 	if isRepo(path) {

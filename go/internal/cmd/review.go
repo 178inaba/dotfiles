@@ -26,7 +26,6 @@ func reviewPendingCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "pending",
 		Short: "List the pull requests waiting for this user's review",
-		Long:  longFor("review pending"),
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, build)
@@ -47,7 +46,6 @@ func reviewVerifyCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "verify <owner>/<repo>#<number>...",
 		Short: "Check that this user's review reached each pull request",
-		Long:  longFor("review verify"),
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -77,7 +75,6 @@ func reviewCloneCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "clone <owner>/<repo>",
 		Short: "Make a review clone of a repository available",
-		Long:  longFor("review clone"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)

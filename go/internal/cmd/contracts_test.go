@@ -1,17 +1,17 @@
 package cmd
 
 import (
+	"bytes"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
+
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
-
-// helpWidth is what a rendered contract is allowed to reach. The renderer
-// wraps to it; a status line is written by hand and is checked here.
-const helpWidth = 88
 
 // TestContractsRender is the guard behind the degradation in help.String: a
 // type that cannot be rendered produces a help saying so rather than a panic,
@@ -23,42 +23,49 @@ func TestContractsRender(t *testing.T) {
 			t.Errorf("%s: %s", path, text)
 		}
 		for _, line := range strings.Split(text, "\n") {
-			if len([]rune(line)) > helpWidth {
-				t.Errorf("%s: line is %d wide, over %d:\n%s", path, len([]rune(line)), helpWidth, line)
+			if len([]rune(line)) > contract.LineWidth {
+				t.Errorf("%s: line is %d wide, over %d:\n%s", path, len([]rune(line)), contract.LineWidth, line)
 			}
 		}
 	}
 }
 
 // TestContractsNameRealCommands keeps the table honest in the direction the
-// help cannot show: a key that matches no command is a contract nobody prints,
-// and a command wired to a missing key prints its Short and nothing else.
+// help cannot show: a key that matches no command is a contract nobody prints.
+//
+// The binding is the key itself, since the help hook looks a command up by its
+// path when help is asked for. A key that matches nothing is therefore the
+// only way a contract can go unprinted.
 func TestContractsNameRealCommands(t *testing.T) {
 	root := newRootCmd(selfbuild.State{})
 
-	paths := map[string]*cobra.Command{}
+	paths := map[string]bool{}
 	var walk func(*cobra.Command)
 	walk = func(c *cobra.Command) {
 		for _, sub := range c.Commands() {
-			paths[strings.TrimPrefix(sub.CommandPath(), "ccx ")] = sub
+			paths[commandPath(sub)] = true
 			walk(sub)
 		}
 	}
 	walk(root)
 
 	for path := range contracts {
-		c, ok := paths[path]
-		if !ok {
+		if !paths[path] {
 			t.Errorf("contracts has %q, which is not a command", path)
-			continue
-		}
-		if c.Long == "" {
-			t.Errorf("%q has a contract but does not use it; add Long: longFor(%q)", path, path)
 		}
 	}
-	for path, c := range paths {
-		if c.Long != "" && contracts[path].intro == "" {
-			t.Errorf("%q has a Long that came from somewhere other than the contract table", path)
+}
+
+// TestHelpRendersTheContract is the other half: asking a command for help has
+// to reach the table, which is what the hook on the root is for.
+func TestHelpRendersTheContract(t *testing.T) {
+	var out bytes.Buffer
+	if code := run(t.Context(), []string{"worktree", "collect", "--help"}, nil, &out, io.Discard, selfbuild.State{}); code != 0 {
+		t.Fatalf("--help exited %d", code)
+	}
+	for _, want := range []string{"Output (JSON on standard output)", "in_use_by_process", "Exit status:"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("help does not carry %q", want)
 		}
 	}
 }

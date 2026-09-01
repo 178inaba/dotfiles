@@ -130,6 +130,14 @@ var ErrEmptyInput = errors.New("input file is empty")
 // It takes no locale: the callers are consumers, which accept a heading in
 // either language because they do not know which one the issue they are
 // reading was written in.
+func Schema(key string) (Section, error) {
+	s, ok := row(key)
+	if !ok {
+		return Section{}, unknownKey(key)
+	}
+	return s, nil
+}
+
 // Keys is every section key, in the order the schema declares them.
 //
 // The keys are as much a part of the contract as any field name: `ccx issue
@@ -140,14 +148,6 @@ func Keys() []string {
 		out = append(out, s.Key)
 	}
 	return out
-}
-
-func Schema(key string) (Section, error) {
-	s, ok := row(key)
-	if !ok {
-		return Section{}, unknownKey(key)
-	}
-	return s, nil
 }
 
 // ListedSection is one row as the drafting side needs it, with the heading

@@ -1,5 +1,5 @@
-  Detection is whether an issue already has a worktree, which is how a skill tells
-  starting from resuming.
+  Whether an issue already has a worktree, which is how a skill tells starting from
+  resuming.
 
   found          boolean
   worktree_path  string (may be null)

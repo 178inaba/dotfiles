@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/skill"
@@ -20,19 +21,10 @@ func TestPublishedNamesTheContract(t *testing.T) {
 	// One from each of the places an identifier comes from: a field, a value
 	// of a set, a section key, and an exit status's symbol.
 	for _, want := range []string{"head_oid", "in_use_by_process", "release_manual_steps", "missing_section"} {
-		if !contains(got.Identifiers, want) {
+		if !slices.Contains(got.Identifiers, want) {
 			t.Errorf("published does not name %q", want)
 		}
 	}
-}
-
-func contains(all []string, want string) bool {
-	for _, s := range all {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
 
 // TestSkillRefsOnThisRepository is the case a fixture cannot make: the

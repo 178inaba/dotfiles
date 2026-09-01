@@ -1,6 +1,6 @@
-  Preparation is everything a review needs settled before it starts. Most of the fields
-  are null on a stopping status, because each is only established as the step that
-  produces it succeeds.
+  Everything a review needs settled before it starts. Most of the fields are null on a
+  stopping status, because each is only established as the step that produces it
+  succeeds.
 
   status               string
                        ok, branch_mismatch, or whichever freshness status stopped the
@@ -37,18 +37,14 @@
                        The whole freshness report, so that a caller stopping on one can
                        say what it compared.
     status             string, one of:
-      ok               FreshnessOK is a checkout already at the pull request's head.
-      synced           FreshnessSynced is the same checkout after this command moved it
-                       there.
-      ahead_own        FreshnessAheadOwn is the author's own checkout with commits not
-                       pushed yet, which is ordinary rather than stale.
-      behind_dirty     FreshnessBehindDirty is a stale checkout with uncommitted changes
-                       in it, which is for a person to resolve rather than for this
-                       command.
-      diverged         FreshnessDiverged is the same, with commits the remote has never
-                       seen.
-      branch_mismatch  FreshnessBranchMismatch is a checkout of something else entirely,
-                       a detached head included.
+      ok               A checkout already at the pull request's head.
+      synced           The same checkout after this command moved it there.
+      ahead_own        The author's own checkout with commits not pushed yet, which is
+                       ordinary rather than stale.
+      behind_dirty     A stale checkout with uncommitted changes in it, which is for a
+                       person to resolve rather than for this command.
+      diverged         The same, with commits the remote has never seen.
+      branch_mismatch  A checkout of something else entirely, a detached head included.
       fetch_failed     FreshnessFetchFailed most often means the head branch is not on
                        origin at all, which is what a pull request from a fork looks
                        like from here.

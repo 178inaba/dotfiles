@@ -21,7 +21,9 @@ import (
 	json "encoding/json/v2"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // marshalerInterfaces are the two ways a type takes its own serialisation over.
@@ -61,6 +63,10 @@ type Table struct {
 	// EnumDocs is keyed "<import path>.<Type>.<value>" and holds what one
 	// constant means, which is as much a part of a contract as the value.
 	EnumDocs map[string]string
+	// Packages is every import path the table was read from. A type from
+	// anywhere else stops the render rather than describing every one of its
+	// fields as having no explanation.
+	Packages []string
 	// Marshalers is how a type that serialises itself says what it serialises
 	// as. A type with a custom marshaler that is not in here stops the render:
 	// walking its Go fields would describe a shape that never reaches the wire,
@@ -83,7 +89,10 @@ type Marshaled struct {
 // anything that does not fit beside a name wraps under the description column.
 const (
 	minNameColumn = 12
-	lineWidth     = 88
+	// LineWidth is what a rendered contract is laid out to. Exported so that a
+	// caller checking its own hand-written text against the same column does
+	// not restate the number.
+	LineWidth = 88
 )
 
 // Render describes t as the plain text a --help prints.
@@ -104,7 +113,7 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 	// The type's own doc comment first: a sentence like "most of the fields
 	// are null on a stopping status" is about the document rather than about
 	// any one field, and there is nowhere else for it to go.
-	for _, line := range wrap(tb.Types[typeKey(deref(t))], lineWidth-2) {
+	for _, line := range wrap(tb.Types[typeKey(deref(t))], LineWidth-2) {
 		b.WriteString("  " + line + "\n")
 	}
 	if b.Len() > 0 {
@@ -116,14 +125,14 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 		head := r.indent() + r.name
 		// The kind wraps like the doc does: a value set with six members runs
 		// well past a terminal, and a name column is no reason to let it.
-		for i, line := range wrap(r.kind, lineWidth-width) {
+		for i, line := range wrap(r.kind, LineWidth-width) {
 			if i == 0 {
 				b.WriteString(head + pad[len(head):] + line + "\n")
 				continue
 			}
 			b.WriteString(pad + line + "\n")
 		}
-		for _, line := range wrap(r.doc, lineWidth-width) {
+		for _, line := range wrap(r.doc, LineWidth-width) {
 			b.WriteString(pad + line + "\n")
 		}
 	}
@@ -178,6 +187,9 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 	if t.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("contract: %s is not a struct", t)
 	}
+	if len(tb.Packages) > 0 && !slices.Contains(tb.Packages, t.PkgPath()) {
+		return nil, fmt.Errorf("contract: %s is in %s, which the doc table was not read from", t, t.PkgPath())
+	}
 	if seen[t] {
 		return nil, nil
 	}
@@ -210,8 +222,8 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 		// The fields of a struct the command nests are part of the same
 		// contract, and a reader given "object" and nothing else has to go
 		// looking for what is in it.
-		if inner := tb.nested(f.Type); inner != nil {
-			nested, err := tb.walk(*inner, mode, depth+1, seen)
+		if inner, ok := tb.nested(f.Type); ok {
+			nested, err := tb.walk(inner, mode, depth+1, seen)
 			if err != nil {
 				return nil, err
 			}
@@ -252,8 +264,8 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 	return base, nil
 }
 
-// enumOf is the named type behind a field, past any pointer or list, which is
-// where a value set is declared.
+// enumOf is the named type behind a field, past any pointer or list: where a
+// value set is declared, and where a nested document's fields are.
 func enumOf(t reflect.Type) reflect.Type {
 	t = deref(t)
 	for t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
@@ -353,29 +365,15 @@ func jsonName(f reflect.StructField) (name, opts string, ok bool) {
 	return name, opts, name != ""
 }
 
-// nested is the struct whose fields belong under a field, or nil where there
-// is none. A type that serialises itself says which one it is, since its own
-// fields are not what reaches the wire.
-func (tb Table) nested(t reflect.Type) *reflect.Type {
+// nested is the struct whose fields belong under a field. A type that
+// serialises itself says which one it is, since its own fields are not what
+// reaches the wire.
+func (tb Table) nested(t reflect.Type) (reflect.Type, bool) {
 	if over, ok := tb.Marshalers[deref(t)]; ok {
-		if over.Elem == nil {
-			return nil
-		}
-		return &over.Elem
+		return over.Elem, over.Elem != nil
 	}
-	return elem(t)
-}
-
-// elem is the struct a field ultimately holds, or nil where it holds none.
-func elem(t reflect.Type) *reflect.Type {
-	t = deref(t)
-	for t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
-		t = deref(t.Elem())
-	}
-	if t.Kind() != reflect.Struct {
-		return nil
-	}
-	return &t
+	inner := enumOf(t)
+	return inner, inner.Kind() == reflect.Struct
 }
 
 func deref(t reflect.Type) reflect.Type {
@@ -394,7 +392,7 @@ func typeKey(t reflect.Type) string { return t.PkgPath() + "." + t.Name() }
 // Exported because a hand-written intro that is built rather than typed — the
 // schema's key list, say — has the same column to stay inside, and the layout
 // is this package's to decide.
-func Wrap(text string) string { return strings.Join(wrap(text, lineWidth), "\n") }
+func Wrap(text string) string { return strings.Join(wrap(text, LineWidth), "\n") }
 
 // wrap breaks text to width, counting runes, since a doc comment may hold an
 // em dash and a column is measured in what a terminal shows.
@@ -403,16 +401,17 @@ func wrap(text string, width int) []string {
 		return nil
 	}
 	var lines []string
-	line := ""
+	line, n := "", 0
 	for _, word := range strings.Fields(text) {
+		w := utf8.RuneCountInString(word)
 		switch {
 		case line == "":
-			line = word
-		case len([]rune(line))+1+len([]rune(word)) <= width:
-			line += " " + word
+			line, n = word, w
+		case n+1+w <= width:
+			line, n = line+" "+word, n+1+w
 		default:
 			lines = append(lines, line)
-			line = word
+			line, n = word, w
 		}
 	}
 	return append(lines, line)

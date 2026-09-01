@@ -41,7 +41,6 @@ func worktreeDetectCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "detect <issue-number>",
 		Short: "Find the worktree an issue is already being worked on in",
-		Long:  longFor("worktree detect"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -66,7 +65,6 @@ func worktreeCreateCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "create <worktree-name> <branch> <base-branch>",
 		Short: "Create a worktree for a new branch off a base branch",
-		Long:  longFor("worktree create"),
 		Args:  cobra.ExactArgs(3),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -91,7 +89,6 @@ func worktreeResolveCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "resolve [<pr-number>]",
 		Short: "Find the worktree for a pull request, or prepare to make one",
-		Long:  longFor("worktree resolve"),
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -127,7 +124,6 @@ func worktreeCheckoutCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "checkout <worktree-name> <head-ref>",
 		Short: "Make a worktree at a pull request's head branch",
-		Long:  longFor("worktree checkout"),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -151,7 +147,6 @@ func worktreeCollectCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "collect",
 		Short: "List the worktrees and branches whose work is finished",
-		Long:  longFor("worktree collect"),
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, build)
@@ -172,7 +167,6 @@ func worktreeDeleteCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete",
 		Short: "Delete the approved worktrees and branches read from standard input",
-		Long:  longFor("worktree delete"),
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, build)

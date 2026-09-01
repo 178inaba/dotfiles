@@ -67,12 +67,13 @@ func TestExtract(t *testing.T) {
 		t.Fatalf("extract: %v", err)
 	}
 
+	// The Go name each comment opens with is dropped: the reader of a --help
+	// has no such name in front of them. A field with no comment is absent
+	// rather than present and empty, since the renderer prints nothing either
+	// way and the empties were two thirds of the real table.
 	wantFields := map[string]string{
-		"example.com/sample.Thing.Name":   "Name is what it is called.",
-		"example.com/sample.Thing.Parent": "Parent is null when there is none, and also when it could not be read — the warning tells those apart.",
-		"example.com/sample.Ref.Number":   "",
-		"example.com/sample.Thing.Count":  "",
-		"example.com/sample.Thing.Kind":   "",
+		"example.com/sample.Thing.Name":   "What it is called.",
+		"example.com/sample.Thing.Parent": "Null when there is none, and also when it could not be read — the warning tells those apart.",
 	}
 	if diff := cmp.Diff(wantFields, got.Fields); diff != "" {
 		t.Errorf("fields (-want +got):\n%s", diff)
@@ -84,6 +85,13 @@ func TestExtract(t *testing.T) {
 	wantEnums := map[string][]string{"example.com/sample.Kind": {"alpha", "beta"}}
 	if diff := cmp.Diff(wantEnums, got.Enums); diff != "" {
 		t.Errorf("enums (-want +got):\n%s", diff)
+	}
+	wantEnumDocs := map[string]string{"example.com/sample.Kind.alpha": "The first."}
+	if diff := cmp.Diff(wantEnumDocs, got.EnumDocs); diff != "" {
+		t.Errorf("enum docs (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"example.com/sample"}, got.Packages); diff != "" {
+		t.Errorf("packages (-want +got):\n%s", diff)
 	}
 }
 

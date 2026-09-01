@@ -3,8 +3,8 @@ package skill
 import (
 	_ "embed"
 	"regexp"
-	"slices"
 	"strings"
+	"sync"
 )
 
 // Contract is what the ccx commands publish, as this check needs to see it.
@@ -22,6 +22,16 @@ type Contract struct {
 	// field of a command it does not run itself, because it delegates the
 	// running to another skill's procedure, and those references are correct.
 	Identifiers []string
+}
+
+// set is the identifiers as a lookup, since the scan asks about every
+// snake_case word in every backticked span of every file.
+func (c Contract) set() map[string]bool {
+	out := make(map[string]bool, len(c.Identifiers))
+	for _, id := range c.Identifiers {
+		out[id] = true
+	}
+	return out
 }
 
 // contractIdentifier is what a reference to a contract looks like in prose:
@@ -48,7 +58,7 @@ var allowFile string
 // Each line is a token, then whitespace, then why it is not one. A line here
 // is a claim that nothing in any command publishes the name, so it is worth
 // the sentence.
-func allowed() map[string]bool {
+var allowed = sync.OnceValue(func() map[string]bool {
 	out := map[string]bool{}
 	for line := range strings.Lines(allowFile) {
 		line = strings.TrimSpace(line)
@@ -59,7 +69,7 @@ func allowed() map[string]bool {
 		out[token] = true
 	}
 	return out
-}
+})
 
 // invokesCommand reports whether a file runs any ccx command.
 //
@@ -80,13 +90,13 @@ func contractFindings(file, content string, c Contract) []RefFinding {
 	if len(c.Identifiers) == 0 || !invokesCommand(content, c.Commands) {
 		return nil
 	}
-	known := allowed()
+	known, published := allowed(), c.set()
 
 	var out []RefFinding
 	for i, line := range strings.Split(content, "\n") {
 		for _, span := range backticked(line) {
 			for _, token := range notIdentifier.Split(span, -1) {
-				if !contractIdentifier.MatchString(token) || known[token] || slices.Contains(c.Identifiers, token) {
+				if !contractIdentifier.MatchString(token) || known[token] || published[token] {
 					continue
 				}
 				out = append(out, RefFinding{Type: UnknownContractField, File: file, Line: i + 1, Ref: token})

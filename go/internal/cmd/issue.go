@@ -34,7 +34,6 @@ func newTreeCmd(build selfbuild.State) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "tree <issue-number>",
 		Short: "Resolve an issue's parent, sub-issues and blockers",
-		Long:  longFor("issue tree"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -112,7 +111,6 @@ func sectionsSchemaCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "schema <key>",
 		Short: "Print one section's row of the schema",
-		Long:  longFor("issue sections schema"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -132,7 +130,6 @@ func sectionsListCmd(build selfbuild.State) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list",
 		Short: "Print every section for a locale and issue kind",
-		Long:  longFor("issue sections list"),
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, build)
@@ -159,7 +156,6 @@ func sectionsCheckCmd(build selfbuild.State) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "check <draft-file>",
 		Short: "Check a draft's headings against the schema",
-		Long:  longFor("issue sections check"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -205,7 +201,6 @@ func sectionsFindCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "find <file> <key>",
 		Short: "Print one section of an issue body",
-		Long:  longFor("issue sections find"),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)

@@ -48,7 +48,7 @@ Takes no locale, because its callers are consumers: they accept a heading in
 either language, since they do not know which one the issue they are reading
 was written in.
 
-` + sectionKeys() + ``,
+` + sectionKeys(),
 		blocks:   []block{prints(reflect.TypeFor[issue.Section]())},
 		statuses: with(),
 	},
@@ -61,7 +61,7 @@ chosen and the requirement already decided. Both flags are required: neither
 has a defensible default, and a wrong guess would report every heading as
 being in the wrong language.
 
-` + sectionKeys() + ``,
+` + sectionKeys(),
 		blocks:   []block{prints(reflect.TypeFor[issue.Listing]())},
 		statuses: with(),
 	},
@@ -97,15 +97,10 @@ threads on the diff — and asking for one of them is how a review misses what
 was already said. All three are fetched at once and normalised into one
 document.
 
-Standard output is the path and nothing else. On a pull request with a busy
-conversation the document runs to hundreds of kilobytes, which is a size to
-read with a tool that takes a path rather than to pass back through a
-redirection. <out-dir> has to exist. <pr-number> may be left out, in which case
-the pull request is inferred from the branch checked out here.
+<out-dir> has to exist. <pr-number> may be left out, in which case the pull
+request is inferred from the branch checked out here.
 
-MAX_COMMENTS, MAX_THREADS and MAX_THREAD_COMMENTS raise the fetch limits; each
-takes a plain non-negative integer, and the truncated flags below say when one
-of them was reached.`,
+` + limitSentence(),
 		blocks: []block{
 			prints(reflect.TypeFor[pullrequest.Stored]()),
 			writes("The document written to that path", reflect.TypeFor[pullrequest.Context]()),
@@ -116,11 +111,11 @@ of them was reached.`,
 	"pr freshness": {
 		intro: `Compare the checkout here with the pull request's head.
 
-Takes the path of a file written by ` + "`ccx pr context`" + `, and reads pr.head_oid,
-pr.head_ref, pr.base_ref and is_own_pr out of it. Both branches are fetched
-first, so no fetch is needed beforehand. A fast-forward that is safe — behind
-only, with nothing uncommitted — is taken, and everything else is reported
-rather than acted on.
+Takes the path of a file written by ` + "`ccx pr context`" + `, and reads the pull
+request's head, its two branches and whether it is ours out of it. Both
+branches are fetched first, so no fetch is needed beforehand. A fast-forward
+that is safe — behind only, with nothing uncommitted — is taken, and everything
+else is reported rather than acted on.
 
 Runs against the working directory, so the answer is about the checkout the
 caller is standing in.`,
@@ -129,7 +124,7 @@ caller is standing in.`,
 	},
 
 	"pr prepare-review": {
-		intro: `Settle everything a review needs before it starts.
+		intro: `Settle what a review needs before it starts, in one call.
 
 Flag validation, the pull request probe, the branch check, the context fetch,
 the three-mode decision, the freshness check and the base branch, in one call:
@@ -189,10 +184,9 @@ The output is compact rather than indented, except when there is nothing to do.`
 	"worktree detect": {
 		intro: `Find the worktree an issue is already being worked on in.
 
-This is how a skill tells starting from resuming. Two namings match: the
-current one, <type>/<issue>-<slug>, and the one the harness produced before
-these commands took over creating worktrees, since the worktrees it made are
-still on disk.
+Two namings match: the current one, <type>/<issue>-<slug>, and the one the
+harness produced before these commands took over creating worktrees, since the
+worktrees it made are still on disk.
 
 Runs from anywhere inside the repository and looks at the main worktree's
 linked ones, because the caller may be standing in a worktree already.`,
@@ -317,7 +311,7 @@ Each argument names one pull request as <owner>/<repo>#<number>.`,
 
 Reviews are done in a workspace of their own, at
 
-    $XDG_DATA_HOME/claude-review-prs/<owner>/<repo>
+    $XDG_DATA_HOME/` + reviewprs.Workspace + `/<owner>/<repo>
 
 with $XDG_DATA_HOME defaulting to ~/.local/share. Away from wherever the user
 keeps their own checkout, so that a worktree created for a review never turns
@@ -396,7 +390,16 @@ func published() skill.Contract {
 		}
 	}
 	slices.Sort(out.Identifiers)
-	return skill.Contract{Commands: out.Commands, Identifiers: slices.Compact(out.Identifiers)}
+	out.Identifiers = slices.Compact(out.Identifiers)
+	return out
+}
+
+// limitSentence names the environment variables that raise the fetch limits,
+// read from the list the command itself uses.
+func limitSentence() string {
+	return contract.Wrap(strings.Join(limitVars[:2], ", ") + " and " + limitVars[2] +
+		" raise the fetch limits; each takes a plain non-negative integer, and the " +
+		"truncated flags below say when one of them was reached.")
 }
 
 // sectionKeys is the schema's key column, wrapped into a sentence.

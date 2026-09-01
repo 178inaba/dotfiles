@@ -1,36 +1,30 @@
-  Skipped is something that was judged finished and is being left alone anyway.
+  Something that was judged finished and is being left alone anyway.
 
   type                        string, one of:
-    worktree                  KindWorktree is a checkout with a directory of its own,
-                              which has to be left before it can be removed.
-    branch                    KindBranch is a branch with no worktree, which needs no
-                              evacuation.
+    worktree                  A checkout with a directory of its own, which has to be
+                              left before it can be removed.
+    branch                    A branch with no worktree, which needs no evacuation.
   target                      string
   branch                      string (absent when empty)
-                              Branch is absent for a bare branch, whose name is already
-                              the target.
+                              Absent for a bare branch, whose name is already the
+                              target.
   reason                      string, one of:
-    uncommitted_changes       SkipUncommittedChanges is work that exists nowhere but
-                              this checkout.
-    unpushed_commits          SkipUnpushedCommits is work that exists nowhere but this
-                              clone.
-    no_upstream_with_commits  SkipNoUpstreamWithCommits is a branch with commits and
-                              nowhere to have pushed them, which the unpushed check
-                              cannot see because it needs an upstream to compare
-                              against.
-    commits_beyond_merged_pr  SkipCommitsBeyondMergedPR is a branch pushed to after its
-                              pull request merged, or diverged from it, or whose merged
-                              head is not here at all. Nothing else catches it: the
-                              commits are on the remote, so every unpushed check passes
-                              and `git branch -d` agrees to delete. detail lists the
-                              commits beyond the merge, or says the merged head is
-                              missing locally where that is why.
-    local_commits_beyond_pr   SkipLocalCommitsBeyondPR is a branch whose pull request
-                              closed unmerged and which carries commits the pull request
-                              never had.
-    in_use_by_process         SkipInUseByProcess is a worktree some process is still
-                              standing in — another Claude Code session, a shell. detail
-                              names the process and its pid. The worktree the caller is
-                              standing in is exempt from the check and becomes an
-                              is_current candidate instead.
+    uncommitted_changes       Work that exists nowhere but this checkout.
+    unpushed_commits          Work that exists nowhere but this clone.
+    no_upstream_with_commits  A branch with commits and nowhere to have pushed them,
+                              which the unpushed check cannot see because it needs an
+                              upstream to compare against.
+    commits_beyond_merged_pr  A branch pushed to after its pull request merged, or
+                              diverged from it, or whose merged head is not here at all.
+                              Nothing else catches it: the commits are on the remote, so
+                              every unpushed check passes and `git branch -d` agrees to
+                              delete. detail lists the commits beyond the merge, or says
+                              the merged head is missing locally where that is why.
+    local_commits_beyond_pr   A branch whose pull request closed unmerged and which
+                              carries commits the pull request never had.
+    in_use_by_process         A worktree some process is still standing in — another
+                              Claude Code session, a shell. detail names the process and
+                              its pid. The worktree the caller is standing in is exempt
+                              from the check and becomes an is_current candidate
+                              instead.
   detail                      string

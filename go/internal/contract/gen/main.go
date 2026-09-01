@@ -51,7 +51,7 @@ func run(contractDir string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(contractDir, outputFile), out, 0o600)
+	return os.WriteFile(filepath.Join(contractDir, outputFile), out, 0o644)
 }
 
 // generate is run without the write, so that a test can ask whether the file
@@ -97,6 +97,12 @@ func render(d docs) ([]byte, error) {
 			b.WriteString(strconv.Quote(v))
 		}
 		b.WriteString("},\n")
+	}
+	b.WriteString("}\n\n")
+
+	b.WriteString("// genPackages is every package the table was read from.\nvar genPackages = []string{\n")
+	for _, p := range d.Packages {
+		fmt.Fprintf(&b, "\t%s,\n", strconv.Quote(p))
 	}
 	b.WriteString("}\n\n")
 
