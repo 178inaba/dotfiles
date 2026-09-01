@@ -39,9 +39,9 @@ type Status struct {
 }
 
 // Parse reads a porcelain v2 report.
-func Parse(out []byte) Status {
+func Parse(out string) Status {
 	var s Status
-	for line := range strings.SplitSeq(string(out), "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		switch {
 		case strings.HasPrefix(line, "# branch.head "):
 			s.Branch = strings.TrimPrefix(line, "# branch.head ")

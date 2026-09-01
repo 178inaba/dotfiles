@@ -109,7 +109,7 @@ func TestParse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if diff := cmp.Diff(tt.want, Parse([]byte(tt.out))); diff != "" {
+			if diff := cmp.Diff(tt.want, Parse(tt.out)); diff != "" {
 				t.Errorf("Parse mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -148,7 +148,7 @@ func TestStatusSegment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Parse([]byte(tt.out)).Segment(); got != tt.want {
+			if got := Parse(tt.out).Segment(); got != tt.want {
 				t.Errorf("Segment() = %q, want %q", got, tt.want)
 			}
 		})

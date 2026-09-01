@@ -17,11 +17,13 @@ import (
 )
 
 // Command is one external invocation.
+//
+// There is no working directory to set, deliberately: every command started
+// here answers a question that does not depend on where the process is standing
+// — either because the program ignores it (ps, lsof) or because the directory
+// is named in the arguments (git -C, go -C). A field for it is what let the
+// status line read one directory and describe another.
 type Command struct {
-	// Dir is the working directory. Empty inherits the caller's, which the
-	// statusline relies on: the shell implementation ran git in the process
-	// working directory and used the current_dir field only as a cache key.
-	Dir string
 	// Env holds extra KEY=VALUE entries appended to the process environment.
 	Env  []string
 	Name string
@@ -82,7 +84,6 @@ type Exec struct {
 // Run implements Runner.
 func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
-	cmd.Dir = c.Dir
 	if len(c.Env) > 0 {
 		cmd.Env = append(os.Environ(), c.Env...)
 	}
@@ -176,11 +177,13 @@ func (Exec) Alive(pid int) bool {
 	return p.Signal(syscall.Signal(0)) == nil
 }
 
-// Git runs one git command in dir and returns its single line of output.
+// Git runs one git command in dir and returns its trimmed output.
 //
-// Every command in this module that asks git a question asks it this way: -C
-// rather than a working directory, because the answer is about one repository
-// and not about wherever the process happens to be standing.
+// git is asked with -C rather than a working directory, because the answer is
+// about one repository and not about wherever the process happens to be
+// standing. The callers this does not cover are the ones reading a porcelain
+// format, whose leading spaces and NUL separators the trim would destroy; they
+// spell out the same -C themselves.
 func Git(ctx context.Context, r Runner, dir string, args ...string) (string, error) {
 	out, err := r.Run(ctx, Command{Name: "git", Args: append([]string{"-C", dir}, args...)})
 	if err != nil {

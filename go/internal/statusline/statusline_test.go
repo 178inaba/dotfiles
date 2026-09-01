@@ -14,6 +14,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/cache"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
+	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
@@ -56,10 +57,13 @@ func newHarness(t *testing.T) *harness {
 	dir := t.TempDir()
 	h := &harness{runner: &fakeRunner{}, spawner: &fakeSpawner{}}
 	h.cfg = Config{
-		Runner:      h.runner,
-		Spawner:     h.spawner,
-		Now:         func() time.Time { return now },
-		Getwd:       func() (string, error) { return "/w", nil },
+		Runner:  h.runner,
+		Spawner: h.spawner,
+		Now:     func() time.Time { return now },
+		// Deliberately not the payload's directory: every test that sends one
+		// then asserts that the payload is what the status line describes,
+		// rather than passing because the two agree.
+		Getwd:       func() (string, error) { return "/cwd", nil },
 		Home:        "/home/nobody",
 		GitCacheDir: filepath.Join(dir, "git"),
 		PRCacheDir:  filepath.Join(dir, "pr"),
@@ -82,6 +86,17 @@ func (h *harness) prDir() string {
 	return cache.Path(h.cfg.PRCacheDir, "/w", "main")
 }
 
+// gitCalls is the whole command list a render makes when it reads the
+// repository, which is one git invocation naming dir. Only the directory is
+// spelled out: it is what these tests are about, and the flags belong to
+// gitstate.
+func gitCalls(dir string) []runner.Command {
+	return []runner.Command{{
+		Name: "git",
+		Args: append([]string{"-C", dir}, gitstate.StatusArgs()...),
+	}}
+}
+
 const (
 	porcelain = "# branch.head main\n# branch.upstream origin/main\n# branch.ab +1 -0\n"
 	workspace = `{"workspace":{"current_dir":"/w","project_dir":"/w"}}`
@@ -98,8 +113,7 @@ func TestRunCachesTheRepositoryState(t *testing.T) {
 	if got := h.run(t, workspace); !strings.Contains(got, "(main ↑1)") {
 		t.Errorf("output = %q, want it to show the branch", got)
 	}
-	want := []runner.Command{{Name: "git", Args: []string{"--no-optional-locks", "status", "--porcelain=v2", "--branch"}}}
-	if diff := cmp.Diff(want, h.runner.calls); diff != "" {
+	if diff := cmp.Diff(gitCalls("/w"), h.runner.calls); diff != "" {
 		t.Errorf("commands mismatch (-want +got):\n%s", diff)
 	}
 
@@ -109,6 +123,20 @@ func TestRunCachesTheRepositoryState(t *testing.T) {
 	h.run(t, workspace)
 	if len(h.runner.calls) != 0 {
 		t.Errorf("second render ran %v, want nothing", h.runner.calls)
+	}
+}
+
+func TestRunFallsBackToTheWorkingDirectory(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	h.runner.out = porcelain
+
+	// A payload without a workspace leaves the process directory as the only
+	// answer there is, and that is the one git is asked about.
+	h.run(t, `{}`)
+	if diff := cmp.Diff(gitCalls("/cwd"), h.runner.calls); diff != "" {
+		t.Errorf("commands mismatch (-want +got):\n%s", diff)
 	}
 }
 
