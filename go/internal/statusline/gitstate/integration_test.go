@@ -129,7 +129,7 @@ func segment(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("git status in %s: %v", dir, err)
 	}
-	return gitstate.Parse(out).Segment()
+	return gitstate.Parse(string(out)).Segment()
 }
 
 // identity is passed on every commit so the fixtures build on a machine with no

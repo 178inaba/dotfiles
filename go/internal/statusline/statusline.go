@@ -121,7 +121,7 @@ func repository(ctx context.Context, cfg Config, current string, now time.Time) 
 	var status *gitstate.Status
 	out, err := cfg.Runner.Run(ctx, runner.Command{Name: "git", Args: gitstate.StatusArgs()})
 	if err == nil {
-		parsed := gitstate.Parse(out)
+		parsed := gitstate.Parse(string(out))
 		status = &parsed
 	}
 
