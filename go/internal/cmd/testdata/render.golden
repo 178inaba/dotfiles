@@ -1,0 +1,28 @@
+{
+  "repo": "178inaba/dotfiles",
+  "parent": null,
+  "self": {
+    "number": 121,
+    "title": "Port the scripts",
+    "line": 30
+  },
+  "sub_issues": [
+    {
+      "number": 122,
+      "title": "a \"quoted\" & <angled> \\ backslash",
+      "line": null
+    },
+    {
+      "number": 123,
+      "title": "tab\tand newline\nand 日本語",
+      "line": 0
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "completed": 1
+  },
+  "all_closed": false,
+  "warnings": [],
+  "note": ""
+}
