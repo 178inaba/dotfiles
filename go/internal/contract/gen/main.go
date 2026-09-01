@@ -98,6 +98,12 @@ func render(d docs) ([]byte, error) {
 		}
 		b.WriteString("},\n")
 	}
+	b.WriteString("}\n\n")
+
+	b.WriteString("// genEnumDocs is what each of those constants means.\nvar genEnumDocs = map[string]string{\n")
+	for _, k := range slices.Sorted(maps.Keys(d.EnumDocs)) {
+		fmt.Fprintf(&b, "\t%s: %s,\n", strconv.Quote(k), strconv.Quote(d.EnumDocs[k]))
+	}
 	b.WriteString("}\n")
 
 	// Through go/format so the result needs no gofmt pass of its own, which

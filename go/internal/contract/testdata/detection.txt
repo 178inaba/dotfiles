@@ -3,6 +3,6 @@
 
   found          boolean
   worktree_path  string (may be null)
-                 Path and Branch are null when nothing was found, rather than empty
-                 strings: the caller branches on found and reads these only after.
+                 worktree_path and branch are null when nothing was found, rather than
+                 empty strings: the caller branches on found and reads these only after.
   branch         string (may be null)

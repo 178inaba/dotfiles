@@ -194,6 +194,10 @@ func TestParseCandidates(t *testing.T) {
 		// An empty object would otherwise read as an approved list of nothing,
 		// and the command would report a successful deletion of none.
 		{name: "no candidates", in: `{}`, wantErr: "stdin JSON missing .candidates"},
+		// An approved list that is empty is different from a missing one: it
+		// is what a person leaves after taking everything out, and deleting
+		// nothing is the right answer to it.
+		{name: "an empty candidates object", in: `{"candidates":{}}`, want: Candidates{}},
 	}
 
 	for _, tc := range tests {

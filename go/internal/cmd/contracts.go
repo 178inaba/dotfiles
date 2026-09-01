@@ -174,6 +174,103 @@ The output is compact rather than indented, except when there is nothing to do.`
 		},
 		statuses: with(),
 	},
+
+	"worktree detect": {
+		intro: `Find the worktree an issue is already being worked on in.
+
+This is how a skill tells starting from resuming. Two namings match: the
+current one, <type>/<issue>-<slug>, and the one the harness produced before
+these commands took over creating worktrees, since the worktrees it made are
+still on disk.
+
+Runs from anywhere inside the repository and looks at the main worktree's
+linked ones, because the caller may be standing in a worktree already.`,
+		blocks:   []block{prints(reflect.TypeFor[worktree.Detection]())},
+		statuses: with(),
+	},
+
+	"worktree create": {
+		intro: `Create a worktree for a new branch off a base branch.
+
+The base is why this is a command rather than the harness's own worktree
+primitive, which can only branch from one place. origin/<base-branch> is
+preferred over the local branch of that name, and the status says which was
+used.
+
+An existing branch or an existing directory stops the command rather than
+being reused or removed: either is likely to be the remains of earlier work,
+and which it is is not something to guess at.
+
+Files listed in .worktreeinclude are copied in, the same way the harness would
+have.`,
+		blocks:   []block{prints(reflect.TypeFor[worktree.Created]())},
+		statuses: with(),
+	},
+
+	"worktree resolve": {
+		intro: `Find the worktree for a pull request, or prepare to make one.
+
+The first half of resolving a pull request's worktree; ` + "`ccx worktree checkout`" + `
+is the second. Switching the session is the caller's, because no command can
+see the session's state.
+
+<pr-number> may be left out, in which case the pull request is inferred from
+the branch checked out here. An existing worktree is brought up to date with
+origin where that is a safe fast-forward; anything else is reported rather
+than acted on, since neither an uncommitted change nor a commit that is not
+pushed is this command's to discard. If the main worktree is on the pull
+request's branch it is moved to the default branch first, so that the branch
+is free to check out here.`,
+		blocks:   []block{prints(reflect.TypeFor[worktree.Resolution]())},
+		statuses: with(),
+	},
+
+	"worktree checkout": {
+		intro: `Make a worktree at a pull request's head branch.
+
+The second half of resolving a pull request's worktree, run with the name and
+the head branch that ` + "`ccx worktree resolve`" + ` answered with.
+
+Fork pull requests are out of scope: the head branch has to exist on origin.
+The worktree this makes is not cleaned up when the session ends, because the
+session did not create it — /cleanup-merged is what collects it.`,
+		blocks:   []block{prints(reflect.TypeFor[worktree.CheckedOut]())},
+		statuses: with(),
+	},
+
+	"worktree collect": {
+		intro: `List the worktrees and branches whose work is finished.
+
+Deletes nothing. The list goes to a person for approval, and
+` + "`ccx worktree delete`" + ` takes back whatever survives that.
+
+A branch with an open pull request is left out entirely rather than reported
+as skipped: it is in flight, not finished. Everything judged finished but held
+back for a reason appears under skipped, so that nothing disappears silently
+between the two commands.`,
+		blocks:   []block{prints(reflect.TypeFor[worktree.Collection]())},
+		statuses: with(),
+	},
+
+	"worktree delete": {
+		intro: `Delete the approved worktrees and branches read from standard input.
+
+One deletion failing is recorded and the rest go on, because the list is a
+batch a person approved and stopping at the first refusal would leave them to
+work out which half happened. Only a broken premise — no repository, no lsof,
+nothing approved — fails the command itself.
+
+The processes holding a worktree as their working directory are checked again
+here, immediately before the removal, so that somebody entering one between
+the approval and the deletion does not lose it. A branch whose pull request
+closed unmerged is checked against the head recorded at collection time before
+git's own safety net is skipped.`,
+		blocks: []block{
+			reads("Input (JSON on standard input)", reflect.TypeFor[worktree.DeleteInput]()),
+			prints(reflect.TypeFor[worktree.Deletion]()),
+		},
+		statuses: with(),
+	},
 }
 
 // longFor is a command's help text, or empty where none is registered.

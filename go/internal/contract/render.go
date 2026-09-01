@@ -58,6 +58,9 @@ type Table struct {
 	// Enums is keyed "<import path>.<Type>" and holds a named string type's
 	// declared constants, in declaration order.
 	Enums map[string][]string
+	// EnumDocs is keyed "<import path>.<Type>.<value>" and holds what one
+	// constant means, which is as much a part of a contract as the value.
+	EnumDocs map[string]string
 	// Marshalers is how a type that serialises itself says what it serialises
 	// as. A type with a custom marshaler that is not in here stops the render:
 	// walking its Go fields would describe a shape that never reaches the wire,
@@ -168,6 +171,11 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 		}
 		rows = append(rows, row{depth: depth, name: name, kind: kind, doc: tb.Fields[key(t, f.Name)]})
 
+		// A value set whose members are explained is listed one to a line
+		// rather than run together, since the meaning is the half a caller
+		// branching on the value actually needs.
+		rows = append(rows, tb.values(f.Type, depth+1)...)
+
 		// The fields of a struct the command nests are part of the same
 		// contract, and a reader given "object" and nothing else has to go
 		// looking for what is in it.
@@ -213,6 +221,34 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 	return base, nil
 }
 
+// values lists an enum's members with what each of them means, for the value
+// sets that say. One whose members carry no explanation stays as the inline
+// list in the kind.
+func (tb Table) values(t reflect.Type, depth int) []row {
+	t = deref(t)
+	for t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		t = deref(t.Elem())
+	}
+	if t.Kind() != reflect.String || !tb.documented(t) {
+		return nil
+	}
+	rows := make([]row, 0, len(tb.Enums[typeKey(t)]))
+	for _, v := range tb.Enums[typeKey(t)] {
+		rows = append(rows, row{depth: depth, name: v, kind: tb.EnumDocs[typeKey(t)+"."+v]})
+	}
+	return rows
+}
+
+// documented is whether any of a value set's members carries a meaning.
+func (tb Table) documented(t reflect.Type) bool {
+	for _, v := range tb.Enums[typeKey(t)] {
+		if tb.EnumDocs[typeKey(t)+"."+v] != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // marshals is whether the type behind t takes its own serialisation over.
 func (tb Table) marshals(t reflect.Type) bool {
 	_, ok := tb.Marshalers[deref(t)]
@@ -247,6 +283,9 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 		return "integer", nil
 	case reflect.String:
 		if values := tb.Enums[typeKey(t)]; len(values) > 0 {
+			if tb.documented(t) {
+				return "string, one of:", nil
+			}
 			return "string, one of: " + strings.Join(values, ", "), nil
 		}
 		return "string", nil

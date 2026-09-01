@@ -37,11 +37,15 @@ type docs struct {
 	// declaration order. A named string type with no constants is absent
 	// rather than empty: the renderer asks whether a type is an enum.
 	Enums map[string][]string
+	// EnumDocs is keyed "<import path>.<Type>.<value>" and holds the
+	// constant's doc comment. What a value means is as much a part of the
+	// contract as the value itself.
+	EnumDocs map[string]string
 }
 
 // extract reads every package and merges the result.
 func extract(pkgs []pkg) (docs, error) {
-	out := docs{Fields: map[string]string{}, Types: map[string]string{}, Enums: map[string][]string{}}
+	out := docs{Fields: map[string]string{}, Types: map[string]string{}, Enums: map[string][]string{}, EnumDocs: map[string]string{}}
 	for _, p := range pkgs {
 		if err := extractPkg(p, out); err != nil {
 			return docs{}, err
@@ -71,7 +75,7 @@ func extractPkg(p pkg, out docs) error {
 
 	for _, f := range files {
 		forEachDecl(f, token.TYPE, func(gd *ast.GenDecl) { collectFields(p.path, gd, out) })
-		forEachDecl(f, token.CONST, func(gd *ast.GenDecl) { collectEnums(p.path, gd, stringTypes, out.Enums) })
+		forEachDecl(f, token.CONST, func(gd *ast.GenDecl) { collectEnums(p.path, gd, stringTypes, out) })
 	}
 	return nil
 }
@@ -145,7 +149,7 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 	}
 }
 
-func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, into map[string][]string) {
+func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, out docs) {
 	// Go lets a typed const block state its type on the first spec only, so
 	// the type carries down until another one replaces it.
 	current := ""
@@ -169,7 +173,8 @@ func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, int
 			if err != nil {
 				continue
 			}
-			into[path+"."+current] = append(into[path+"."+current], s)
+			out.Enums[path+"."+current] = append(out.Enums[path+"."+current], s)
+			out.EnumDocs[path+"."+current+"."+s] = docText(vs.Doc)
 		}
 	}
 }

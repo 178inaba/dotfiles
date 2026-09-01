@@ -13,10 +13,10 @@ import (
 
 // Modes are the three decisions that follow from whose pull request this is.
 type Modes struct {
-	// Comment says the findings are posted as a review rather than acted on,
+	// The findings are posted as a review rather than acted on,
 	// which is what reviewing somebody else's work means.
 	Comment bool `json:"comment"`
-	// PersonalRules says this repository's own conventions apply, which they
+	// This repository's own conventions apply, which they
 	// do to our own work and not to a stranger's.
 	PersonalRules bool `json:"personal_rules"`
 	Autofix       bool `json:"autofix"`
@@ -37,24 +37,26 @@ type Flags struct {
 // Most of the fields are null on a stopping status, because each is only
 // established as the step that produces it succeeds.
 type Preparation struct {
-	// Status is ok, branch_mismatch, or whichever freshness status stopped it.
+	// ok, branch_mismatch, or whichever freshness status stopped the
+	// preparation. Everything below is null on a stopping status.
 	Status string `json:"status"`
 	Flags  Flags  `json:"flags"`
-	// PRExists false is the ordinary degradation to a local review rather than
+	// False is the ordinary degradation to a local review rather than
 	// a failure. Everything else that goes wrong stops instead: confusing the
 	// two would let a review of somebody else's work run with this
 	// repository's own conventions and automatic fixing switched on.
 	PRExists    bool    `json:"pr_exists"`
 	HeadRef     *string `json:"head_ref"`
 	ContextPath *string `json:"context_path"`
-	// WorkDir, ReviewPath and ThreadsPath are handed out rather than left to
-	// the prompt; the binding is in reviewdir.go.
+	// work_dir, review_path and threads_path are handed out rather than left
+	// to the caller to name, which is what binds a review's working files to
+	// one pull request.
 	WorkDir     *string `json:"work_dir"`
 	ReviewPath  *string `json:"review_path"`
 	ThreadsPath *string `json:"threads_path"`
 	BaseBranch  *string `json:"base_branch"`
 	Modes       *Modes  `json:"modes"`
-	// Freshness is the whole report, so that a caller stopping on one can say
+	// The whole freshness report, so that a caller stopping on one can say
 	// what it compared.
 	Freshness *worktree.FreshnessReport `json:"freshness"`
 	Issues    []LinkedIssue             `json:"issues"`
