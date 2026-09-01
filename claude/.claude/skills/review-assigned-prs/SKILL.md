@@ -45,23 +45,9 @@ ccx review pending
 
 候補判定（誰か人間がレビュー済みかどうか）は `ccx review pending` で完結する。
 
-#### 出力 JSON の契約
-
-```json
-{
-  "prs": [
-    {"owner": "acme", "repo": "foo", "number": 123, "url": "https://github.com/acme/foo/pull/123"}
-  ],
-  "degraded": false,
-  "warnings": []
-}
-```
-
-- **`prs`**: レビュー候補の一覧
-- **`degraded: true`**: 一部の PR の `gh api reviews` が失敗した（`warnings` 参照）。失敗した PR は候補から除外されるので、残りの PR は通常通り処理してよい
-- **`warnings`**: 個別失敗の内容。空でなければ完了報告に併記する
-
-コマンドが非ゼロ終了した場合（認証切れ・検索の失敗など）は stderr のメッセージを提示して停止する。
+出力の読み方は `ccx review pending --help` にある。`degraded: true` のときは失敗した PR が候補から
+外れているだけなので、残りは通常どおり処理し、`warnings` を完了報告に併記する。非ゼロ終了
+（認証切れ・検索の失敗など）は stderr のメッセージを提示して停止する。
 
 ### 2. 対象 0 件なら終了
 
@@ -79,14 +65,8 @@ ccx review pending
 
 - リポジトリ (`<owner>/<repo>`)・PR 番号・PR URL
 
-#### `ccx review clone` の出力 JSON 契約（レビュアーエージェントが実行する）
-
-```json
-{"path": "/absolute/path/to/clone/dir"}
-```
-
-- **`path`**: レビュー用 clone dir の絶対パス。以後はこの値を使い、clone 先を自分で組み立てない
-- 引数不正・clone/fetch 失敗時は非ゼロ exit + 英語 stderr
+レビュアーエージェントが実行する `ccx review clone` の出力の読み方は
+`ccx review clone --help` にある。返ってきた `path` をそのまま使い、clone 先を自分で組み立てない。
 
 ### 4. 投稿検証と完了報告
 
@@ -96,21 +76,9 @@ ccx review pending
 ccx review verify <owner>/<repo>#<number> [...]
 ```
 
-#### `ccx review verify` の出力 JSON 契約
-
-```json
-{
-  "results": [
-    {"owner": "acme", "repo": "foo", "number": 123, "posted": true}
-  ],
-  "degraded": false,
-  "warnings": []
-}
-```
-
-- **`posted`**: `true` なら投稿済み、`false` なら未投稿（サブエージェントが投稿をスキップした事故）
-- **`degraded: true`**: 一部 PR の検証に失敗した（`warnings` 参照）。失敗した PR は `results` に含まれないため「検証失敗」として報告する
-- コマンドが非ゼロ終了した場合（引数不正・login 取得失敗など）は stderr のメッセージを提示して停止する
+出力の読み方は `ccx review verify --help` にある。`posted: false` はサブエージェントが投稿を
+スキップした事故なので、そのまま報告に出す。`degraded: true` のときは失敗した PR が `results` に
+入らないので「検証失敗」として報告する。非ゼロ終了は stderr のメッセージを提示して停止する。
 
 検証結果を集約し、1〜2 行のサマリを表示:
 
@@ -128,6 +96,6 @@ ccx review verify <owner>/<repo>#<number> [...]
 1. **サブエージェント失敗時は自動リトライしない**: Agent が null/error を返した場合はユーザーに提示（`issue-handle` スキルの「7-2. 親セッションで自動修正」に準拠）。次回イテレーションで再挑戦される
 2. **fork PR は現状スコープ外**: `gh search prs` は fork 由来 PR も返すが、`/deep-review --worktree` の worktree 解決は「fork 由来 PR は対象外」として停止する。当該 PR は毎イテレーションでサブエージェント失敗として報告される（次イテレーションで自動復旧はしない）
 3. **同一リポジトリの並列レビュー**: 同じ owner/repo に属する複数 PR が同時に候補になっても、初回の並列 clone は安全（完成した clone だけが最終パスに現れ、競合に負けた側は勝者の clone を採用する）。既存 clone への並列 `git fetch` は ref ロック競合で片方が一時失敗することがあるが、次回イテレーションで自動復旧する
-4. **clone dir のクリーンアップは手動**: 累積して困る場合は `go/internal/reviewprs/` のパッケージドキュメントに記載された clone 先ディレクトリを手動で削除（クラッシュ時に残りうる隠し一時ディレクトリ `.<repo>.XXXXXX` も同様）。自動掃除ロジックは持たない（YAGNI）
+4. **clone dir のクリーンアップは手動**: 自動掃除ロジックは持たない（YAGNI）。累積して困る場合はワークスペースごと手動で削除する。場所とその中身（クラッシュ時に残りうる隠し一時ディレクトリを含む）は `ccx review clone --help` が述べる
 5. **プライベートリポジトリ**: `gh` 認証済みで clone アクセス権があれば `gh repo clone` が SSH/HTTPS を自動選択して clone する
 6. **常駐は 1 セッションのみ**: in-flight PR の除外（セクション 3）は単一セッションの会話コンテキスト内でしか機能しないため、`/loop` 常駐は同時に 1 セッションだけで運用する
