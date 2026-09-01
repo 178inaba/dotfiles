@@ -2,6 +2,7 @@ package ghapi_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,8 +54,11 @@ func TestPost(t *testing.T) {
 	var gotMethod, gotBody string
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
-		b := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(b)
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+			return
+		}
 		gotBody = string(b)
 		fmt.Fprint(w, `{"number":7,"title":"created"}`)
 	}))

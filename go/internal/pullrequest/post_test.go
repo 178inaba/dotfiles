@@ -3,6 +3,7 @@ package pullrequest_test
 import (
 	"encoding/json/v2"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -156,8 +157,11 @@ func TestPost(t *testing.T) {
 	var gotPath, gotBody string
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		b := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(b)
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+			return
+		}
 		gotBody = string(b)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"html_url":"https://github.com/owner/repo/pull/5#pullrequestreview-1"}`)

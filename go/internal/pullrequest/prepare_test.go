@@ -2,6 +2,7 @@ package pullrequest_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 			fmt.Fprint(w, `{"errors":[{"type":"NOT_FOUND","message":"no pull request"}]}`)
 			return
 		}
-		body, err := readAll(r)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Errorf("read the request body: %v", err)
 			return
@@ -59,14 +60,14 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 			"headRefOid":%q,"headRepositoryOwner":{"login":"owner"}}`, author, headOID)
 
 		switch {
-		case strings.Contains(body, "viewer"):
+		case strings.Contains(string(body), "viewer"):
 			fmt.Fprintf(w, `{"data":{"viewer":{"login":"me"},"repository":{
 				"headCommit":{"committedDate":"2026-01-15T00:00:00Z"},
 				"pullRequest":{
 					"comments":{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},
 					"reviews":{"totalCount":0,"nodes":[]},
 					"reviewThreads":%s}}}}`, threads)
-		case strings.Contains(body, "pullRequests("):
+		case strings.Contains(string(body), "pullRequests("):
 			fmt.Fprintf(w, `{"data":{"repository":{"pullRequests":{"nodes":[%s]}}}}`, node)
 		default:
 			fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, node)
@@ -76,14 +77,6 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 
 // noThreads is a pull request with nothing on its diff.
 const noThreads = `{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}`
-
-func readAll(r *http.Request) (string, error) {
-	b := make([]byte, r.ContentLength)
-	if _, err := r.Body.Read(b); err != nil && err.Error() != "EOF" {
-		return "", err
-	}
-	return string(b), nil
-}
 
 // store records the contexts it is given and writes nothing, since where the
 // bytes go is the command layer's business.
