@@ -81,6 +81,7 @@ func newRootCmd(build selfbuild.State) *cobra.Command {
 	root.AddCommand(newIssueCmd(build))
 	root.AddCommand(newReviewCmd(build))
 	root.AddCommand(newWorktreeCmd(build))
+	root.AddCommand(newSkillCmd(build))
 	root.AddCommand(newRefreshCmds()...)
 	return root
 }

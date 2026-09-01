@@ -1,26 +1,39 @@
 package skillcheck
 
 import (
-	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-const scriptPath = "/r/claude/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh"
+// writeSkill puts a SKILL.md with the given frontmatter under a directory named
+// for the skill, and returns its path.
+func writeSkill(t *testing.T, skill string, lines ...string) string {
+	t.Helper()
+
+	target := filepath.Join(t.TempDir(), skill, "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := "---\n" + strings.Join(lines, "\n") + "\n---\n\n# /" + skill + "\n"
+	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return target
+}
 
 func TestRunAllows(t *testing.T) {
 	t.Parallel()
 
-	skill := "/r/claude/.claude/skills/clean/SKILL.md"
+	clean := writeSkill(t, "clean", "name: clean", "description: a clean skill", `argument-hint: "[--yes]"`)
 	tests := []struct {
 		name string
 		in   hooks.Payload
 	}{
-		{"a clean SKILL.md", edit(skill)},
+		{"a clean SKILL.md", edit(clean)},
 		{"a tool that edits nothing", hooks.Payload{ToolName: "Bash", Command: "ls", Dir: "/r"}},
 		{"an edit with no path", hooks.Payload{ToolName: "Edit", Dir: "/r"}},
 		{"a file that is not a SKILL.md", edit("/r/README.md")},
@@ -40,7 +53,7 @@ func TestRunAllows(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := New(deps(&fakeRunner{out: `{"violations":[]}`})).Run(t.Context(), tt.in)
+			got := New().Run(t.Context(), tt.in)
 			if got.Decision != hooks.Allow || got.Message != "" {
 				t.Errorf("Result = %+v, want an allow with no message", got)
 			}
@@ -51,31 +64,34 @@ func TestRunAllows(t *testing.T) {
 func TestRunReportsViolations(t *testing.T) {
 	t.Parallel()
 
-	const target = "/r/claude/.claude/skills/seqhint/SKILL.md"
 	tests := []struct {
 		name string
-		out  string
-		want []string
+		// skill is the directory name and lines its frontmatter.
+		skill string
+		lines []string
+		want  []string
 	}{
 		{
-			name: "an unquoted flow value names the key and the line",
-			out:  `{"violations":[{"type":"unquoted_flow","file":"seqhint/SKILL.md","key":"argument-hint","line":4}]}`,
-			want: []string{"unquoted_flow", "argument-hint", "line 4"},
+			// The violation that went unnoticed in two files and is the reason
+			// this hook exists.
+			name: "an unquoted flow value names the key and the line", skill: "seqhint",
+			lines: []string{"name: seqhint", "description: a skill", "argument-hint: [--yes]"},
+			want:  []string{"unquoted_flow", "argument-hint", "line 4"},
 		},
 		{
-			name: "frontmatter that will not parse relays the parser's message",
-			out:  `{"violations":[{"type":"invalid_yaml","file":"x/SKILL.md","message":"could not find expected ':'"}]}`,
-			want: []string{"invalid_yaml", "could not find expected ':'"},
+			name: "frontmatter that will not parse relays the parser's message", skill: "badyaml",
+			lines: []string{"name: badyaml", "description: a skill", "argument-hint: [<a>] [--b]"},
+			want:  []string{"invalid_yaml"},
 		},
 		{
-			name: "a missing field names the field",
-			out:  `{"violations":[{"type":"missing_field","file":"x/SKILL.md","field":"description"}]}`,
-			want: []string{"missing_field", "description"},
+			name: "a missing field names the field", skill: "nodesc",
+			lines: []string{"name: nodesc"},
+			want:  []string{"missing_field", "description"},
 		},
 		{
-			name: "a name that does not match its directory shows both",
-			out:  `{"violations":[{"type":"name_mismatch","file":"x/SKILL.md","expected":"mismatched","actual":"something-else"}]}`,
-			want: []string{"name_mismatch", "mismatched", "something-else"},
+			name: "a name that does not match its directory shows both", skill: "mismatched",
+			lines: []string{"name: something-else", "description: a skill"},
+			want:  []string{"name_mismatch", "mismatched", "something-else"},
 		},
 	}
 
@@ -83,13 +99,14 @@ func TestRunReportsViolations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := New(deps(&fakeRunner{out: tt.out})).Run(t.Context(), edit(target))
+			target := writeSkill(t, tt.skill, tt.lines...)
+			got := New().Run(t.Context(), edit(target))
 			if got.Decision != hooks.Block {
-				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Block)
+				t.Fatalf("Decision = %d, want %d (message=%q)", got.Decision, hooks.Block, got.Message)
 			}
-			// The payload's own path, not the checker's <skill>/SKILL.md: that
-			// form does not say where in the repository the file is.
-			for _, want := range append(tt.want, target, "Re-check with:", scriptPath) {
+			// The payload's own path, not the <skill>/SKILL.md form the check
+			// reports: that one does not say where in the repository it is.
+			for _, want := range append(tt.want, target, "Re-check with:", "ccx skill frontmatter") {
 				if !strings.Contains(got.Message, want) {
 					t.Errorf("message does not contain %q:\n%s", want, got.Message)
 				}
@@ -101,15 +118,17 @@ func TestRunReportsViolations(t *testing.T) {
 func TestRunResolvesARelativePath(t *testing.T) {
 	t.Parallel()
 
-	r := &fakeRunner{out: `{"violations":[]}`}
-	in := relative("skills/x/SKILL.md", "/r/claude/.claude")
-	if got := New(deps(r)).Run(t.Context(), in); got.Decision != hooks.Allow {
-		t.Fatalf("Decision = %d, want %d", got.Decision, hooks.Allow)
+	target := writeSkill(t, "x", "name: something-else", "description: a skill")
+	dir := filepath.Dir(filepath.Dir(target))
+
+	// Left relative, the check would look for the file from wherever the hook
+	// happened to be started and report one that is not there.
+	got := New().Run(t.Context(), relative(filepath.Join("x", "SKILL.md"), dir))
+	if got.Decision != hooks.Block {
+		t.Fatalf("Decision = %d, want %d", got.Decision, hooks.Block)
 	}
-	// Left relative, the checker would look for it from wherever the hook
-	// happened to be started and report a file that is not there.
-	if want := "/r/claude/.claude/skills/x/SKILL.md"; !strings.Contains(strings.Join(r.args, " "), want) {
-		t.Errorf("checker args = %v, want the path resolved to %q", r.args, want)
+	if !strings.Contains(got.Message, target) {
+		t.Errorf("message does not name the resolved path %q:\n%s", target, got.Message)
 	}
 }
 
@@ -118,44 +137,15 @@ func TestRunResolvesARelativePath(t *testing.T) {
 func TestRunBlocksWhenTheCheckCannotRun(t *testing.T) {
 	t.Parallel()
 
-	const target = "/r/claude/.claude/skills/x/SKILL.md"
-	tests := []struct {
-		name    string
-		deps    Deps
-		want    []string
-		notWant string
-	}{
-		{
-			name: "the checker refuses to run",
-			deps: deps(&fakeRunner{err: "yq is required\n"}),
-			want: []string{"was not checked", "yq is required", "Re-check with:", scriptPath},
-		},
-		{
-			// Nothing to name means no command to suggest, so the guidance is
-			// left out rather than printed with a hole in it.
-			name: "the repository cannot be located",
-			deps: Deps{Runner: &fakeRunner{out: `{"violations":[]}`}},
-			want: []string{"was not checked"}, notWant: "Re-check with:",
-		},
+	target := filepath.Join(t.TempDir(), "ghost", "SKILL.md")
+	got := New().Run(t.Context(), edit(target))
+	if got.Decision != hooks.Block {
+		t.Fatalf("Decision = %d, want %d", got.Decision, hooks.Block)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := New(tt.deps).Run(t.Context(), edit(target))
-			if got.Decision != hooks.Block {
-				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Block)
-			}
-			for _, want := range tt.want {
-				if !strings.Contains(got.Message, want) {
-					t.Errorf("message does not contain %q:\n%s", want, got.Message)
-				}
-			}
-			if tt.notWant != "" && strings.Contains(got.Message, tt.notWant) {
-				t.Errorf("message contains %q:\n%s", tt.notWant, got.Message)
-			}
-		})
+	for _, want := range []string{"was not checked", "Re-check with:"} {
+		if !strings.Contains(got.Message, want) {
+			t.Errorf("message does not contain %q:\n%s", want, got.Message)
+		}
 	}
 }
 
@@ -176,29 +166,10 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-func deps(r runner.Runner) Deps {
-	return Deps{Runner: r, Script: scriptPath}
-}
-
 func edit(target string) hooks.Payload {
 	return hooks.Payload{ToolName: "Edit", FilePath: target, Dir: filepath.Dir(target)}
 }
 
 func relative(target, dir string) hooks.Payload {
 	return hooks.Payload{ToolName: "Write", FilePath: target, Dir: dir}
-}
-
-// fakeRunner stands in for the checker.
-type fakeRunner struct {
-	out  string
-	err  string
-	args []string
-}
-
-func (f *fakeRunner) Run(_ context.Context, c runner.Command) ([]byte, error) {
-	f.args = c.Args
-	if f.err != "" {
-		return nil, &runner.Error{Name: c.Name, Err: context.Canceled, Stderr: []byte(f.err)}
-	}
-	return []byte(f.out), nil
 }

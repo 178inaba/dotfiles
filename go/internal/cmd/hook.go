@@ -49,7 +49,7 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", build,
 			func() hook { return noopwait.New() }),
 		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", build,
-			func() hook { return skillcheck.New(skillcheck.Default()) }),
+			func() hook { return skillcheck.New() }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
 			func() hook { return slacknotify.New(slacknotify.Default()) }),
 		subagentTrackerCmd(build),

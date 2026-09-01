@@ -11,73 +11,38 @@
 // that the write cannot be undone: exiting 2 does not roll it back, it only
 // puts the problem in front of the model in the same turn.
 //
-// The detection lives in the shell checker rather than here. Two
+// The detection is internal/skill's, called directly. It used to be a shell
+// script this started, which is why the seams for running one are gone: two
 // implementations of one contract drift, and the state where the hook passes
-// and the script fails is exactly what nobody would notice.
+// and the checker fails is exactly what nobody would notice.
 package skillcheck
 
 import (
 	"context"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/runner"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
+	"github.com/178inaba/dotfiles/go/internal/skill"
 )
 
 // name is the only file this hook is about.
 const name = "SKILL.md"
 
-// checker is the script, relative to the repository root.
-const checker = "claude/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh"
-
-// Deps are the seams. Use Default for the real ones.
-type Deps struct {
-	Runner runner.Runner
-	// Script is the checker's path, empty when the repository could not be
-	// found — which is fail-closed here: see Run.
-	Script string
-}
-
-// Default wires the real implementations.
-func Default() Deps {
-	return Deps{Runner: runner.Exec{}, Script: script()}
-}
-
-// script derives the checker's path from the repository the configuration is
-// stowed from.
-//
-// The shell version found it by walking up from its own file, which resolved to
-// ~/.claude/… through the stow symlink and to the repository when a test ran it
-// there. A Go binary has no file to walk up from, so it asks where the
-// repository is; the consequence is that the "Re-check with:" guidance always
-// names the repository copy, which is the one worth editing anyway.
-func script() string {
-	repo, ok := selfbuild.Repo()
-	if !ok {
-		return ""
-	}
-	return filepath.Join(repo, checker)
-}
-
 // Hook checks the file that was just written.
-type Hook struct{ deps Deps }
+type Hook struct{}
 
 // New returns the hook.
-func New(d Deps) Hook { return Hook{deps: d} }
+func New() Hook { return Hook{} }
 
 // Run implements the hook contract.
 //
-// It fails closed: a check that could not run reports that rather than passing
-// in silence, because a hook that says nothing is indistinguishable from one
-// that found nothing wrong. Everything before the check — the wrong tool, a
-// file that is not a SKILL.md, a payload it cannot read — fails open, since
-// none of those is a check that failed.
-func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
+// Everything before the check — the wrong tool, a file that is not a SKILL.md,
+// a payload it cannot read — fails open, since none of those is a check that
+// failed. A check that could not be made does report itself, because a hook
+// that says nothing is indistinguishable from one that found nothing wrong.
+func (h Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 	if !hooks.IsEditTool(in.ToolName) {
 		return hooks.Result{}
 	}
@@ -86,7 +51,7 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 		return hooks.Result{}
 	}
 	// The edit tools promise an absolute path, but a relative one left as it
-	// is would be resolved from wherever the hook was started, and the checker
+	// is would be resolved from wherever the hook was started, and the check
 	// would report a file that is not there.
 	if !filepath.IsAbs(target) {
 		if in.Dir == "" {
@@ -95,89 +60,47 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 		target = filepath.Join(in.Dir, target)
 	}
 
-	path := h.deps.Script
-	if path == "" {
-		// Nothing to name means no command to suggest, so the guidance that
-		// usually follows is left out rather than printed with a hole in it.
-		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n"+
-			"This repository could not be located from ~/.claude/settings.json,\n"+
-			"so there was nothing to run the check with.\n", target))
-	}
-
-	// bash rather than the script directly: it carries no execute bit, and
-	// every script in this repository is started this way.
-	out, err := h.deps.Runner.Run(ctx, runner.Command{Name: "bash", Args: []string{path, target}})
+	checked, err := skill.CheckFrontmatter(target)
 	if err != nil {
-		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n"+
-			"check-skill-frontmatter.sh failed before it could inspect the file:\n%s\n"+
-			"Fix the reported prerequisite.\n", target, indent(runner.Stderr(err))) +
-			recheck(path, target))
+		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n%v\n", target, err) + recheck(target))
 	}
-
-	var result struct {
-		Violations []jsontext.Value `json:"violations"`
-	}
-	if err := json.Unmarshal(out, &result); err != nil {
-		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n"+
-			"check-skill-frontmatter.sh answered with something that is not its own output:\n  %v\n", target, err) +
-			recheck(path, target))
-	}
-	if len(result.Violations) == 0 {
+	if len(checked.Violations) == 0 {
 		return hooks.Result{}
 	}
 
 	var b strings.Builder
 	b.WriteString("This SKILL.md has invalid frontmatter:\n\n")
-	for _, raw := range result.Violations {
-		fmt.Fprintf(&b, "  %s: %s\n", target, describe(raw))
+	for _, v := range checked.Violations {
+		fmt.Fprintf(&b, "  %s: %s\n", target, describe(v))
 	}
-	return blocked(b.String() + recheck(path, target))
+	return blocked(b.String() + recheck(target))
 }
 
 func blocked(message string) hooks.Result {
 	return hooks.Result{Decision: hooks.Block, Message: message}
 }
 
-// violation is one finding. The checker's own header is the contract; the
-// fields that are not part of the type in hand stay empty.
-type violation struct {
-	Type     string `json:"type"`
-	Message  string `json:"message"`
-	Field    string `json:"field"`
-	Expected string `json:"expected"`
-	Actual   string `json:"actual"`
-	Key      string `json:"key"`
-	Line     int    `json:"line"`
-}
-
-// describe renders one finding. A type this does not know is printed as it
-// arrived: the checker gained a kind of violation, and saying so beats
-// dropping it.
-func describe(raw jsontext.Value) string {
-	var v violation
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return string(raw)
-	}
+// describe renders one finding. A kind this does not know is named rather than
+// dropped: the check gained a violation, and saying so beats silence.
+func describe(v skill.Violation) string {
 	switch v.Type {
-	case "invalid_yaml":
-		return v.Type + " — " + v.Message
-	case "missing_field":
+	case skill.InvalidYAML:
+		return string(v.Type) + " — " + v.Message
+	case skill.MissingField:
 		return fmt.Sprintf("%s — `%s` is missing or empty", v.Type, v.Field)
-	case "name_mismatch":
+	case skill.NameMismatch:
 		return fmt.Sprintf("%s — expected `%s`, actual `%s`", v.Type, v.Expected, v.Actual)
-	case "unquoted_flow":
+	case skill.UnquotedFlow:
 		return fmt.Sprintf("%s — line %d: the value of `%s` starts with an unquoted `[` or `{`, "+
 			"so YAML reads it as a sequence or mapping instead of a string — quote it", v.Type, v.Line, v.Key)
 	default:
-		return v.Type + " — " + string(raw)
+		return fmt.Sprintf("%s — %+v", v.Type, v)
 	}
 }
 
-// recheck is the command that runs the same check again. It names the script
-// that was actually invoked, so that editing the checker itself does not leave
-// the guidance pointing at a stale stowed copy.
-func recheck(path, target string) string {
-	return fmt.Sprintf("\nRe-check with:\n  bash %s %s\n", shellQuote(path), shellQuote(target))
+// recheck is the command that runs the same check again.
+func recheck(target string) string {
+	return fmt.Sprintf("\nRe-check with:\n  ccx skill frontmatter %s\n", shellQuote(target))
 }
 
 // shellQuote makes a path safe to paste back into a shell, and leaves an
@@ -196,14 +119,4 @@ func needsQuote(r rune) bool {
 		return false
 	}
 	return !strings.ContainsRune(`_@%+=:,./-`, r)
-}
-
-// indent shifts the checker's own diagnostics under the line introducing them.
-func indent(b []byte) string {
-	var out strings.Builder
-	for line := range strings.Lines(strings.TrimRight(string(b), "\n")) {
-		fmt.Fprintf(&out, "  %s", line)
-	}
-	out.WriteString("\n")
-	return out.String()
 }
