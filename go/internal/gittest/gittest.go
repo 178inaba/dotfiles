@@ -1,9 +1,8 @@
 // Package gittest builds throwaway git repositories for tests.
 //
-// The hooks have their own copy of this in internal/hooks/hooktest, which grew
-// with the fixtures the hooks need; this one serves the commands ported from
-// the shell scripts, whose fixtures are worktrees and remotes rather than
-// sessions and transcripts.
+// One copy of the isolation from the developer's own configuration: weakened
+// in a second, a fixture would only misbehave on the machine that has the
+// unusual setting.
 package gittest
 
 import (
@@ -21,6 +20,19 @@ func Init(t *testing.T, dir string, args ...string) string {
 
 	Run(t, t.TempDir(), append(append([]string{"init", "-q"}, args...), dir)...)
 	identify(t, dir)
+	return dir
+}
+
+// InitWithCommit makes a repository at dir with one commit in it, and returns
+// dir. Wherever a fixture needs a head to hang worktrees off rather than
+// remote-tracking refs, which is what an empty repository cannot give it.
+func InitWithCommit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	Init(t, dir, args...)
+	Write(t, filepath.Join(dir, "file.txt"), "x\n")
+	Run(t, dir, "add", ".")
+	Run(t, dir, "commit", "-qm", "first")
 	return dir
 }
 
