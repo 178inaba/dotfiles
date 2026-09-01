@@ -72,7 +72,7 @@ func RepoFromAPIURL(apiURL string) (Repo, error) {
 // still resolves to the name the API uses. Every later round trip in a command
 // is built from that name, so it has to be the one the API agrees with.
 func (c *Client) CurrentRepo(ctx context.Context, r runner.Runner, dir string) (Repo, error) {
-	candidate, err := remoteRepo(ctx, r, dir)
+	candidate, err := RemoteRepo(ctx, r, dir)
 	if err != nil {
 		return Repo{}, err
 	}
@@ -89,12 +89,17 @@ func (c *Client) CurrentRepo(ctx context.Context, r runner.Runner, dir string) (
 	return Repo{Owner: out.Owner.Login, Name: out.Name}, nil
 }
 
-// remoteRepo picks the remote that names the repository a command is about.
+// RemoteRepo picks the remote that names the repository a command is about.
 //
 // Whether a remote points at GitHub at all is left to the lookup that follows:
 // a host this module cannot reach fails there anyway, and deciding it here
 // would mean keeping a second opinion about which host that is.
-func remoteRepo(ctx context.Context, r runner.Runner, dir string) (Repo, error) {
+//
+// This is what CurrentRepo asks before it canonicalises, and it is exported for
+// callers that do not need the canonical name — GitHub answers a miscased or
+// since-renamed one anyway. A caller whose later requests or output are built
+// from the name wants CurrentRepo instead.
+func RemoteRepo(ctx context.Context, r runner.Runner, dir string) (Repo, error) {
 	out, err := runner.Git(ctx, r, dir, "remote", "-v")
 	if err != nil {
 		return Repo{}, fmt.Errorf("list the git remotes: %w", err)
@@ -146,7 +151,7 @@ func remoteRank(name string) int {
 
 // DefaultBranch returns a repository's default branch.
 //
-// The one caller reaches this only where origin/HEAD is missing locally, which
+// Callers ask git first and come here only where origin/HEAD is missing, which
 // a clone sets and only a repository whose remote was added by hand lacks.
 func (c *Client) DefaultBranch(ctx context.Context, repo Repo) (string, error) {
 	var out struct {

@@ -1,10 +1,12 @@
 package ghapi_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
+	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
 var repo = ghapi.Repo{Owner: "178inaba", Name: "dotfiles"}
@@ -53,6 +56,8 @@ func node(number int, state, headOwner string) string {
 		"headRefName": "feature/121-port-scripts-to-ccx",
 		"baseRefName": "main",
 		"headRefOid": "379223e",
+		"reviewDecision": "APPROVED",
+		"isDraft": true,
 		"headRepositoryOwner": {"login": %q}
 	}`, number, number, state, headOwner)
 }
@@ -68,6 +73,10 @@ func wantPR(number int, state ghapi.PRState) ghapi.PullRequest {
 		HeadRefName: "feature/121-port-scripts-to-ccx",
 		BaseRefName: "main",
 		HeadRefOid:  "379223e",
+		// The badge is the one reader of these two, and it needs them from
+		// whichever query the caller took, so the fixture carries them on both.
+		ReviewDecision: "APPROVED",
+		IsDraft:        true,
 	}
 }
 
@@ -227,6 +236,134 @@ func TestPullRequestForCurrentBranchFailures(t *testing.T) {
 			got, err := c.PullRequestForCurrentBranch(t.Context(), &fakeRunner{out: tc.branch, fail: tc.fail}, "/repo", repo)
 			if err == nil {
 				t.Fatalf("PullRequestForCurrentBranch = %v, want an error", got)
+			}
+		})
+	}
+}
+
+// configRunner answers git config by the setting being read, so a test can
+// describe a branch's tracking configuration rather than a command sequence.
+type configRunner struct{ settings map[string]string }
+
+func (c configRunner) Run(_ context.Context, cmd runner.Command) ([]byte, error) {
+	out, ok := c.settings[cmd.Args[len(cmd.Args)-1]]
+	if !ok {
+		// git config exits non-zero for a setting that is not set, and the
+		// caller has to see that rather than an empty value.
+		return nil, &runner.Error{Name: cmd.Name, Err: os.ErrNotExist}
+	}
+	return []byte(out), nil
+}
+
+// TestPullRequestForBranch covers the resolution PullRequestForCurrentBranch
+// leaves out. `gh pr checkout` on a pull request from a fork writes
+// branch.<name>.merge and branch.<name>.remote, and without reading them such a
+// branch resolves to nothing at all.
+func TestPullRequestForBranch(t *testing.T) {
+	t.Parallel()
+
+	const branch = "feature/121-port-scripts-to-ccx"
+
+	tests := []struct {
+		name     string
+		settings map[string]string
+		// headOwner is who owns the head of the pull request GitHub returns.
+		headOwner string
+		wantRef   string
+		wantErr   bool
+	}{
+		{
+			name:      "no branch config uses the local name",
+			headOwner: "178inaba",
+			wantRef:   branch,
+		},
+		{
+			name: "a fork checkout follows merge and remote",
+			settings: map[string]string{
+				"branch." + branch + ".merge":  "refs/heads/their-branch\n",
+				"branch." + branch + ".remote": "git@github.com:someone/dotfiles.git\n",
+			},
+			headOwner: "someone",
+			wantRef:   "their-branch",
+		},
+		{
+			// Otherwise a fork's branch of the same name could answer for it.
+			name: "a remote pointing at this repository keeps the narrowing",
+			settings: map[string]string{
+				"branch." + branch + ".merge":  "refs/heads/" + branch + "\n",
+				"branch." + branch + ".remote": "origin\n",
+				"remote.origin.url":            "git@github.com:178inaba/dotfiles.git\n",
+			},
+			headOwner: "someone",
+			wantRef:   branch,
+			wantErr:   true,
+		},
+		{
+			name: "a named remote is resolved through its url",
+			settings: map[string]string{
+				"branch." + branch + ".merge":  "refs/heads/their-branch\n",
+				"branch." + branch + ".remote": "fork\n",
+				"remote.fork.url":              "git@github.com:someone/dotfiles.git\n",
+			},
+			headOwner: "someone",
+			wantRef:   "their-branch",
+		},
+		{
+			// The ref is still the one merge names; nothing says it is elsewhere.
+			name: "merge without a remote keeps the narrowing",
+			settings: map[string]string{
+				"branch." + branch + ".merge": "refs/heads/their-branch\n",
+			},
+			headOwner: "someone",
+			wantRef:   "their-branch",
+			wantErr:   true,
+		},
+		{
+			name: "a merge that is not a branch ref is ignored",
+			settings: map[string]string{
+				"branch." + branch + ".merge":  "refs/tags/v1\n",
+				"branch." + branch + ".remote": "git@github.com:someone/dotfiles.git\n",
+			},
+			headOwner: "178inaba",
+			wantRef:   branch,
+		},
+		{
+			name: "an unresolvable remote keeps the narrowing",
+			settings: map[string]string{
+				"branch." + branch + ".merge":  "refs/heads/their-branch\n",
+				"branch." + branch + ".remote": "gone\n",
+			},
+			headOwner: "someone",
+			wantRef:   "their-branch",
+			wantErr:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var vars map[string]any
+			body := `{"data":{"repository":{"pullRequests":{"nodes":[` + node(130, "OPEN", tc.headOwner) + `]}}}}`
+			c := ghapitest.New(t, graphQL(t, body, &vars))
+
+			got, err := c.PullRequestForBranch(t.Context(), configRunner{settings: tc.settings}, "/repo", repo, branch)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("PullRequestForBranch = %v, want an error", got)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("PullRequestForBranch: %v", err)
+				}
+				if diff := cmp.Diff(wantPR(130, ghapi.StateOpen), got); diff != "" {
+					t.Errorf("PullRequestForBranch (-want +got):\n%s", diff)
+				}
+			}
+			// Asserted on both paths: which ref was asked about is the whole
+			// point of reading the config, and a rejected owner still proves it.
+			if got := vars["headRefName"]; got != tc.wantRef {
+				t.Errorf("headRefName = %v, want %q", got, tc.wantRef)
 			}
 		})
 	}

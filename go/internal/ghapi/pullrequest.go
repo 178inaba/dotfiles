@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -39,6 +40,11 @@ type PullRequest struct {
 	HeadRefName string
 	BaseRefName string
 	HeadRefOid  string
+	// ReviewDecision is APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty.
+	// A plain string because GraphQL leaves the set open and nullable: an
+	// unknown value arrives intact rather than as an error, a null as empty.
+	ReviewDecision string
+	IsDraft        bool
 }
 
 // prFields is the selection both queries make.
@@ -57,6 +63,8 @@ const prFields = `
       headRefName
       baseRefName
       headRefOid
+      reviewDecision
+      isDraft
 `
 
 const prByNumberQuery = `
@@ -94,6 +102,8 @@ type prNode struct {
 	HeadRefName         string `json:"headRefName"`
 	BaseRefName         string `json:"baseRefName"`
 	HeadRefOid          string `json:"headRefOid"`
+	ReviewDecision      string `json:"reviewDecision"`
+	IsDraft             bool   `json:"isDraft"`
 	HeadRepositoryOwner struct {
 		Login string `json:"login"`
 	} `json:"headRepositoryOwner"`
@@ -101,15 +111,17 @@ type prNode struct {
 
 func (n prNode) pullRequest() PullRequest {
 	return PullRequest{
-		Number:      n.Number,
-		Title:       n.Title,
-		Body:        n.Body,
-		URL:         n.URL,
-		State:       PRState(n.State),
-		Author:      n.Author.Login,
-		HeadRefName: n.HeadRefName,
-		BaseRefName: n.BaseRefName,
-		HeadRefOid:  n.HeadRefOid,
+		Number:         n.Number,
+		Title:          n.Title,
+		Body:           n.Body,
+		URL:            n.URL,
+		State:          PRState(n.State),
+		Author:         n.Author.Login,
+		HeadRefName:    n.HeadRefName,
+		BaseRefName:    n.BaseRefName,
+		HeadRefOid:     n.HeadRefOid,
+		ReviewDecision: n.ReviewDecision,
+		IsDraft:        n.IsDraft,
 	}
 }
 
@@ -140,18 +152,77 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 // default of the process's own directory is one a test forgets to override and
 // then passes against whatever repository the test binary happens to run in.
 //
-// An open pull request wins over a closed or merged one with the same head, so
-// that a branch reused after its first one merged resolves to the one being
-// worked on; otherwise the newest wins. The narrowing against gh is that the
-// local branch name is taken to be the head ref, where gh also reads
-// branch.<name>.merge — the two differ only for a branch that `gh pr checkout`
-// created from a fork.
+// The narrowing against gh is that the local branch name is taken to be the
+// head ref, where gh also reads branch.<name>.merge — the two differ only for a
+// branch that `gh pr checkout` created from a fork. PullRequestForBranch is the
+// one that closes that gap.
 func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runner, dir string, repo Repo) (PullRequest, error) {
 	branch, err := currentBranch(ctx, r, dir)
 	if err != nil {
 		return PullRequest{}, err
 	}
+	return c.pullRequestForHead(ctx, repo, branch, repo.Owner)
+}
 
+// PullRequestForBranch returns the pull request whose head is branch, as
+// checked out in dir.
+//
+// This is the whole of `gh pr view` with no argument, including the part
+// PullRequestForCurrentBranch leaves out: branch.<name>.merge and
+// branch.<name>.remote, which `gh pr checkout` writes for a pull request from a
+// fork and without which such a branch resolves to nothing.
+func (c *Client) PullRequestForBranch(ctx context.Context, r runner.Runner, dir string, repo Repo, branch string) (PullRequest, error) {
+	ref, owner := head(ctx, r, dir, repo, branch)
+	return c.pullRequestForHead(ctx, repo, ref, owner)
+}
+
+// head returns the ref to look a pull request up by and the account its head
+// has to belong to. branch.<name>.merge names the ref on the remote, which the
+// local branch may not be called.
+//
+// The owner narrowing is lifted only for a remote that resolves to some other
+// repository, because it is what keeps a fork's branch of the same name from
+// answering for the local one. A remote that cannot be read or parsed keeps the
+// narrowing rather than widening on ignorance.
+func head(ctx context.Context, r runner.Runner, dir string, repo Repo, branch string) (string, string) {
+	const refPrefix = "refs/heads/"
+
+	merge, err := runner.Git(ctx, r, dir, "config", "--get", "branch."+branch+".merge")
+	if err != nil || !strings.HasPrefix(merge, refPrefix) {
+		return branch, repo.Owner
+	}
+	ref := strings.TrimPrefix(merge, refPrefix)
+
+	remote, err := runner.Git(ctx, r, dir, "config", "--get", "branch."+branch+".remote")
+	if err != nil {
+		return ref, repo.Owner
+	}
+	// The setting holds either a remote's name or a url; only a name needs the
+	// second lookup to become one.
+	url := remote
+	if !strings.ContainsAny(remote, ":/") {
+		if url, err = runner.Git(ctx, r, dir, "config", "--get", "remote."+remote+".url"); err != nil {
+			return ref, repo.Owner
+		}
+	}
+	if got, err := ParseRepo(url); err != nil || got == repo {
+		return ref, repo.Owner
+	}
+	return ref, ""
+}
+
+// pullRequestForHead returns the pull request in repo whose head is
+// headRefName.
+//
+// An open pull request wins over a closed or merged one with the same head, so
+// that a branch reused after its first one merged resolves to the one being
+// worked on; otherwise the newest wins.
+//
+// headOwner is the account the head has to belong to, because a fork can have a
+// branch of the same name and only one of them is the thing being described.
+// Empty accepts any owner, which is what a head that lives on a fork needs —
+// the pull request itself is still one of repo's.
+func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName, headOwner string) (PullRequest, error) {
 	var out struct {
 		Repository struct {
 			PullRequests struct {
@@ -159,25 +230,26 @@ func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runne
 			} `json:"pullRequests"`
 		} `json:"repository"`
 	}
-	vars := map[string]any{"owner": repo.Owner, "name": repo.Name, "headRefName": branch}
+	vars := map[string]any{"owner": repo.Owner, "name": repo.Name, "headRefName": headRefName}
 	if err := c.GraphQL(ctx, prForBranchQuery, vars, &out); err != nil {
-		return PullRequest{}, fmt.Errorf("look up the pull request for %s: %w", branch, err)
+		return PullRequest{}, fmt.Errorf("look up the pull request for %s: %w", headRefName, err)
 	}
 
-	// A fork can have a branch of the same name, so the head has to be one this
-	// repository owns for the local branch to be the thing being described.
+	owned := func(n prNode) bool {
+		return headOwner == "" || n.HeadRepositoryOwner.Login == headOwner
+	}
 	nodes := out.Repository.PullRequests.Nodes
 	for _, n := range nodes {
-		if n.HeadRepositoryOwner.Login == repo.Owner && n.State == string(StateOpen) {
+		if owned(n) && n.State == string(StateOpen) {
 			return n.pullRequest(), nil
 		}
 	}
 	for _, n := range nodes {
-		if n.HeadRepositoryOwner.Login == repo.Owner {
+		if owned(n) {
 			return n.pullRequest(), nil
 		}
 	}
-	return PullRequest{}, fmt.Errorf("no pull request in %s has %s as its head branch", repo, branch)
+	return PullRequest{}, fmt.Errorf("no pull request in %s has %s as its head branch", repo, headRefName)
 }
 
 // currentBranch returns the branch a pull request is inferred from.

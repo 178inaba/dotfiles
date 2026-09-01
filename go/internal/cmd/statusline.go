@@ -31,8 +31,8 @@ func newStatuslineCmd(build selfbuild.State) *cobra.Command {
 // and is the only account of what went wrong when one is run by hand.
 func newRefreshCmds() []*cobra.Command {
 	var (
-		now                      int64
-		cacheDir, cacheKey, head string
+		now                           int64
+		cacheDir, cacheKey, head, dir string
 	)
 
 	fx := &cobra.Command{
@@ -50,7 +50,7 @@ func newRefreshCmds() []*cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return silent(statusline.RefreshPR(c.Context(), runner.Exec{}, cacheDir, cacheKey, head, time.Unix(now, 0)))
+			return silent(statusline.RefreshPR(c.Context(), runner.Exec{}, cacheDir, cacheKey, head, dir, time.Unix(now, 0)))
 		},
 	}
 
@@ -60,6 +60,7 @@ func newRefreshCmds() []*cobra.Command {
 	}
 	pr.Flags().StringVar(&cacheKey, statusline.FlagKey, "", "cache key the record belongs to")
 	pr.Flags().StringVar(&head, statusline.FlagBranch, "", "branch to look the pull request up for")
+	pr.Flags().StringVar(&dir, statusline.FlagDir, "", "repository directory the badge is about")
 
 	return []*cobra.Command{fx, pr}
 }

@@ -109,7 +109,9 @@ func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, bui
 //
 // The cache is keyed by directory so that parallel sessions do not overwrite
 // each other's. git runs in the process working directory rather than in the
-// one the payload named; Claude Code starts the command there.
+// one the payload named, which holds only because Claude Code starts the
+// command there. The refresh child is told the directory outright, so the two
+// can disagree; #133 reconciles them here.
 func repository(ctx context.Context, cfg Config, current string, now time.Time) *gitstate.Status {
 	dir := cache.Path(cfg.GitCacheDir, current)
 	if rec, ok := cache.Read[*gitstate.Status](dir, current); ok && cache.Fresh(now, rec.At, gitMaxAge) {
@@ -135,7 +137,7 @@ func repository(ctx context.Context, cfg Config, current string, now time.Time) 
 func pullRequestInfo(cfg Config, status *gitstate.Status, current string, now time.Time) *prinfo.Info {
 	if status == nil || status.Branch == "" {
 		// Outside a repository, or on a detached head, there is no branch to
-		// have a pull request for and gh is never started.
+		// have a pull request for and no refresh is started.
 		return nil
 	}
 
@@ -147,7 +149,8 @@ func pullRequestInfo(cfg Config, status *gitstate.Status, current string, now ti
 	if refresh {
 		spawn(cfg, RefreshPRCommandName,
 			flagNow+"="+strconv.FormatInt(now.Unix(), 10),
-			flagCache+"="+dir, flagKey+"="+key, flagBranch+"="+status.Branch)
+			flagCache+"="+dir, flagKey+"="+key, flagBranch+"="+status.Branch,
+			flagDir+"="+current)
 	}
 	return &info
 }
