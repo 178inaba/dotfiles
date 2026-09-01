@@ -1,21 +1,98 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/issue"
+	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
 // newIssueCmd builds `ccx issue`.
 func newIssueCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("issue", "Read GitHub issues")
-	c.AddCommand(newSectionsCmd(build))
+	c.AddCommand(newSectionsCmd(build), newTreeCmd(build))
 	return c
+}
+
+// newTreeCmd builds `ccx issue tree`, which resolves where an issue sits among
+// its parent, its children and its blockers.
+//
+// The two annotations are flags rather than always-on because each costs a
+// round trip per sub-issue, and this runs on every startup of the skills that
+// read a leaf issue.
+func newTreeCmd(build selfbuild.State) *cobra.Command {
+	var repoName string
+	var withPRs, withDeps bool
+	c := &cobra.Command{
+		Use:   "tree <issue-number>",
+		Short: "Resolve an issue's parent, sub-issues and blockers",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			// Not silent: a number that is not one is a mistake at the
+			// command line, and the usage text is the answer to it.
+			number, err := issueNumber(args[0])
+			if err != nil {
+				return err
+			}
+
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			repo, err := targetRepo(c.Context(), client, repoName)
+			if err != nil {
+				return silent(err)
+			}
+
+			t, err := issue.Tree(c.Context(), client, repo, number, issue.TreeOptions{WithPRs: withPRs, WithDeps: withDeps})
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), t))
+		},
+	}
+	c.Flags().StringVarP(&repoName, "repo", "R", "", "repository to read the issue from, as owner/repo")
+	c.Flags().BoolVar(&withPRs, "with-prs", false, "attach the pull requests closing each sub-issue")
+	c.Flags().BoolVar(&withDeps, "with-deps", false, "attach each sub-issue's blockers")
+	return c
+}
+
+// targetRepo is the repository a command works on: the one named on the command
+// line, or the one the working directory belongs to.
+func targetRepo(ctx context.Context, c *ghapi.Client, name string) (ghapi.Repo, error) {
+	if name != "" {
+		return ghapi.ParseRepo(name)
+	}
+	repo, err := c.CurrentRepo(ctx, runner.Exec{})
+	if err != nil {
+		return ghapi.Repo{}, fmt.Errorf("failed to resolve the current repository (run inside a GitHub repository or pass -R owner/repo): %w", err)
+	}
+	return repo, nil
+}
+
+// issueNumber parses the one positional argument.
+//
+// Digits and nothing else, which is what the shell required: Atoi alone would
+// accept a leading sign, and a negative number would be read as a flag anyway.
+func issueNumber(s string) (int, error) {
+	if s == "" || strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' }) {
+		return 0, fmt.Errorf("invalid issue number: %s", s)
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid issue number: %s", s)
+	}
+	return n, nil
 }
 
 // newSectionsCmd builds `ccx issue sections`, the schema an issue body's `## `

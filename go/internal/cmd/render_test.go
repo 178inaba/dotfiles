@@ -113,6 +113,8 @@ func TestGoldensAreJQShaped(t *testing.T) {
 	}
 
 	pretty := filepath.Join("testdata", "render.golden")
+	tree := filepath.Join("testdata", "issue-tree.golden")
+	annotated := filepath.Join("testdata", "issue-tree-annotated.golden")
 	tests := []struct {
 		name   string
 		args   []string
@@ -120,6 +122,11 @@ func TestGoldensAreJQShaped(t *testing.T) {
 	}{
 		{name: "indented", args: []string{".", pretty}, golden: pretty},
 		{name: "compact", args: []string{"-c", ".", pretty}, golden: filepath.Join("testdata", "render-compact.golden")},
+		// The subcommands' own goldens go through the same fixed point, so a
+		// contract recorded from a shell script stays comparable with what jq
+		// would have printed for it.
+		{name: "issue tree", args: []string{".", tree}, golden: tree},
+		{name: "issue tree annotated", args: []string{".", annotated}, golden: annotated},
 	}
 
 	for _, tt := range tests {

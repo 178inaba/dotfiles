@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/178inaba/dotfiles/go/internal/issue"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
@@ -280,5 +283,95 @@ func TestScriptSubcommandReportsABrokenBuildOnStderr(t *testing.T) {
 	// substituted for the result.
 	if !strings.Contains(stdout.String(), `"key": "depends_on"`) {
 		t.Errorf("stdout = %q, want the schema anyway", stdout.String())
+	}
+}
+
+// TestRenderIssueTree pins the shape of `ccx issue tree`: the order of the
+// keys, and which fields answer with null, with an empty array, or by not
+// being there at all. The values themselves are the issue package's tests;
+// what a golden can hold that they cannot is the JSON.
+//
+// Two of them, because the annotated and unannotated sub-issues are different
+// objects: prs and blocked_by are absent without their flags, null when the
+// lookup failed, and a list otherwise, and only a rendered file shows the
+// three apart.
+func TestRenderIssueTree(t *testing.T) {
+	t.Parallel()
+
+	plain := issue.Hierarchy{
+		Repo: "178inaba/dotfiles", Number: 121, Title: "Port the scripts", State: "open",
+		URL:  "https://github.com/178inaba/dotfiles/issues/121",
+		Kind: issue.KindSub,
+		// Null both because the lookup failed and because there is nothing to
+		// report; the warning is what tells a reader which.
+		Parent:           nil,
+		BlockedBy:        issue.RefList{Unknown: true},
+		SubIssues:        []issue.SubIssue{},
+		SubIssuesSummary: issue.Summary{},
+		Siblings:         []issue.SubIssue{},
+		Warnings: []string{
+			"parent lookup failed for #121: HTTP 500",
+			"blocked_by lookup failed for #121",
+		},
+	}
+
+	closed := true
+	prs := issue.PRList{PRs: []issue.PR{
+		{Number: 124, State: "MERGED", BaseRef: "main", Merged: true, URL: "https://github.com/178inaba/dotfiles/pull/124"},
+	}}
+	unknownPRs := issue.PRList{Unknown: true}
+	blockers := issue.RefList{Refs: []issue.Ref{
+		{Number: 7, Title: "Blocker", State: "closed", URL: "https://github.com/178inaba/other/issues/7", Repo: "178inaba/other", SameRepo: false},
+	}}
+	annotated := issue.Hierarchy{
+		Repo: "178inaba/dotfiles", Number: 119, Title: "Move the extensions to Go", State: "open",
+		URL:            "https://github.com/178inaba/dotfiles/issues/119",
+		Kind:           issue.KindParentAndSub,
+		Parent:         &issue.Ref{Number: 3, Title: "Release", State: "open", URL: "https://github.com/178inaba/other/issues/3", Repo: "178inaba/other", SameRepo: false},
+		BlockedBy:      blockers,
+		BlockersClosed: true,
+		SubIssues: []issue.SubIssue{
+			{Number: 123, Title: "Sub 123", State: "closed", URL: "https://github.com/178inaba/dotfiles/issues/123",
+				PRs: &prs, BlockedBy: &blockers, BlockersClosed: &closed},
+			{Number: 122, Title: "Sub 122", State: "open", URL: "https://github.com/178inaba/dotfiles/issues/122",
+				PRs: &unknownPRs, BlockedBy: &issue.RefList{}, BlockersClosed: &closed},
+		},
+		SubIssuesSummary: issue.Summary{Total: 2, Completed: 1},
+		Siblings:         []issue.SubIssue{},
+		Warnings:         nil,
+	}
+
+	tests := []struct {
+		name   string
+		tree   issue.Hierarchy
+		golden string
+	}{
+		{name: "plain", tree: plain, golden: "issue-tree.golden"},
+		{name: "annotated", tree: annotated, golden: "issue-tree-annotated.golden"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got bytes.Buffer
+			if err := renderJSON(&got, tt.tree); err != nil {
+				t.Fatalf("renderJSON: %v", err)
+			}
+
+			path := filepath.Join("testdata", tt.golden)
+			if *update {
+				if err := os.WriteFile(path, got.Bytes(), 0o644); err != nil {
+					t.Fatalf("WriteFile(%q): %v", path, err)
+				}
+			}
+			want, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile(%q): %v", path, err)
+			}
+			if diff := cmp.Diff(string(want), got.String()); diff != "" {
+				t.Errorf("renderJSON differs from %s (-want +got):\n%s", tt.golden, diff)
+			}
+		})
 	}
 }
