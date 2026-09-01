@@ -197,11 +197,12 @@ func TestRunRefreshes(t *testing.T) {
 				t.Errorf("spawned commands mismatch (-want +got):\n%s", diff)
 			}
 
-			// gh never runs in the foreground: a slow one would hold up the
-			// pipe Claude Code reads the status line from.
+			// git is the only thing the redraw runs: everything that reaches
+			// the network is a detached child, because a slow one would hold up
+			// the pipe Claude Code reads the status line from.
 			for _, c := range h.runner.calls {
-				if c.Name == "gh" {
-					t.Errorf("gh ran in the foreground (calls: %v)", h.runner.calls)
+				if c.Name != "git" {
+					t.Errorf("%s ran in the foreground (calls: %v)", c.Name, h.runner.calls)
 				}
 			}
 		})
@@ -231,6 +232,7 @@ func TestRunPassesTheParentsValuesToTheChild(t *testing.T) {
 		"--cache=" + h.prDir(),
 		"--key=/w:main",
 		"--branch=main",
+		"--dir=/w",
 	}}
 	if diff := cmp.Diff(want, h.spawner.calls); diff != "" {
 		t.Errorf("spawn mismatch (-want +got):\n%s", diff)

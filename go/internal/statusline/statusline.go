@@ -147,7 +147,11 @@ func pullRequestInfo(cfg Config, status *gitstate.Status, current string, now ti
 	if refresh {
 		spawn(cfg, RefreshPRCommandName,
 			flagNow+"="+strconv.FormatInt(now.Unix(), 10),
-			flagCache+"="+dir, flagKey+"="+key, flagBranch+"="+status.Branch)
+			flagCache+"="+dir, flagKey+"="+key, flagBranch+"="+status.Branch,
+			// The directory is handed over for the same reason as the rest: it
+			// is half of the cache key, so the child has to describe the same
+			// place the record is filed under rather than its own.
+			flagDir+"="+current)
 	}
 	return &info
 }

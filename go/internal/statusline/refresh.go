@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/statusline/fxrate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
@@ -31,6 +32,7 @@ const (
 	FlagCache  = "cache"
 	FlagKey    = "key"
 	FlagBranch = "branch"
+	FlagDir    = "dir"
 )
 
 const (
@@ -38,6 +40,7 @@ const (
 	flagCache  = "--" + FlagCache
 	flagKey    = "--" + FlagKey
 	flagBranch = "--" + FlagBranch
+	flagDir    = "--" + FlagDir
 )
 
 // RefreshFX fetches the exchange rate. The caller passes the cache directory
@@ -47,7 +50,13 @@ func RefreshFX(ctx context.Context, cacheDir string, now time.Time) error {
 	return fxrate.Refresh(ctx, http.DefaultClient, fxrate.APIURL, cacheDir, now)
 }
 
-// RefreshPR asks gh about a branch's pull request.
-func RefreshPR(ctx context.Context, r runner.Runner, cacheDir, cacheKey, branch string, now time.Time) error {
-	return prinfo.Refresh(ctx, r, cacheDir, cacheKey, branch, now)
+// RefreshPR asks GitHub about a branch's pull request.
+//
+// The client is handed over as a constructor rather than built here: prinfo
+// calls it only where the answer needs GitHub, and a default branch is answered
+// from git alone. dir is the directory the badge is about, which the parent
+// resolved.
+func RefreshPR(ctx context.Context, r runner.Runner, cacheDir, cacheKey, branch, dir string, now time.Time) error {
+	newClient := func() (*ghapi.Client, error) { return ghapi.New(ghapi.Options{}) }
+	return prinfo.Refresh(ctx, r, newClient, cacheDir, cacheKey, branch, dir, now)
 }
