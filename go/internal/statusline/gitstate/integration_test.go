@@ -29,11 +29,11 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 
 	root := t.TempDir()
 	origin := filepath.Join(root, "origin.git")
-	run(t, "", "init", "-q", "--bare", "-b", "main", origin)
+	run(t, root, "init", "-q", "--bare", "-b", "main", origin)
 
 	// solo has a remote but was never cloned, so it has no origin/HEAD.
 	solo := filepath.Join(root, "solo")
-	run(t, "", "init", "-q", "-b", "main", solo)
+	run(t, root, "init", "-q", "-b", "main", solo)
 	writeFile(t, filepath.Join(solo, "tracked.txt"), "a\n")
 	run(t, solo, "add", "tracked.txt")
 	commit(t, solo, "first")
@@ -59,7 +59,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	})
 
 	clone := filepath.Join(root, "clone")
-	run(t, "", "clone", "-q", origin, clone)
+	run(t, root, "clone", "-q", origin, clone)
 
 	t.Run("in sync with its upstream", func(t *testing.T) {
 		if got, want := segment(t, clone), "(main)"; got != want {
@@ -86,7 +86,7 @@ func TestSegmentAgainstRealGit(t *testing.T) {
 	})
 
 	conflicted := filepath.Join(root, "conflicted")
-	run(t, "", "init", "-q", "-b", "main", conflicted)
+	run(t, root, "init", "-q", "-b", "main", conflicted)
 	writeFile(t, filepath.Join(conflicted, "cf"), "base\n")
 	run(t, conflicted, "add", "cf")
 	commit(t, conflicted, "first")
@@ -148,9 +148,7 @@ func merge(t *testing.T, dir string) {
 	_, _ = runner.Git(t.Context(), runner.Exec{}, dir, args...)
 }
 
-// run builds a fixture with one git command. An empty dir leaves git in the
-// process working directory, which is what the invocations naming an absolute
-// path of their own (init, clone) want.
+// run builds a fixture with one git command.
 func run(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	if _, err := runner.Git(t.Context(), runner.Exec{}, dir, args...); err != nil {

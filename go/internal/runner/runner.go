@@ -179,9 +179,11 @@ func (Exec) Alive(pid int) bool {
 
 // Git runs one git command in dir and returns its trimmed output.
 //
-// Every command in this module that asks git a question asks it this way: -C
-// rather than a working directory, because the answer is about one repository
-// and not about wherever the process happens to be standing.
+// git is asked with -C rather than a working directory, because the answer is
+// about one repository and not about wherever the process happens to be
+// standing. The callers this does not cover are the ones reading a porcelain
+// format, whose leading spaces and NUL separators the trim would destroy; they
+// spell out the same -C themselves.
 func Git(ctx context.Context, r Runner, dir string, args ...string) (string, error) {
 	out, err := r.Run(ctx, Command{Name: "git", Args: append([]string{"-C", dir}, args...)})
 	if err != nil {

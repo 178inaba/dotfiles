@@ -14,6 +14,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/cache"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
+	"github.com/178inaba/dotfiles/go/internal/statusline/gitstate"
 	"github.com/178inaba/dotfiles/go/internal/statusline/prinfo"
 )
 
@@ -86,11 +87,13 @@ func (h *harness) prDir() string {
 }
 
 // gitCalls is the whole command list a render makes when it reads the
-// repository, which is one git invocation naming dir.
+// repository, which is one git invocation naming dir. Only the directory is
+// spelled out: it is what these tests are about, and the flags belong to
+// gitstate.
 func gitCalls(dir string) []runner.Command {
 	return []runner.Command{{
 		Name: "git",
-		Args: []string{"-C", dir, "--no-optional-locks", "status", "--porcelain=v2", "--branch"},
+		Args: append([]string{"-C", dir}, gitstate.StatusArgs()...),
 	}}
 }
 
