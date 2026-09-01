@@ -12,12 +12,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/hooks/state"
 )
 
@@ -89,34 +88,23 @@ func InitRepo(t *testing.T, dir string) {
 }
 
 // Git runs one git command in dir and fails the test if it does not succeed.
+//
+// gittest's, so that the isolation from the developer's own configuration has
+// one implementation: weakened in one copy it would fail only on the machine
+// that has the unusual setting.
 func Git(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	// The developer's own configuration must not reach a fixture: a global
-	// init.defaultBranch or core.worktree changes what git reports. Set on the
-	// command rather than with t.Setenv so the tests can stay parallel.
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
+	gittest.Run(t, dir, args...)
 }
 
 // Write creates a file and the directories above it.
 func Write(t *testing.T, name, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	gittest.Write(t, name, content)
 }
 
 // SkipWithoutGit skips a test on a machine that has no git.
 func SkipWithoutGit(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
+	gittest.SkipWithoutGit(t)
 }

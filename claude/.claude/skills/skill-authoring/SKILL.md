@@ -1,6 +1,6 @@
 ---
 name: skill-authoring
-description: ~/.claude/skills/ 配下のスキルを作成・編集する際の規約（frontmatter の要件、スクリプト同梱パターン、スキル間参照、配置・命名規則、サイズ上限）。スキルの新規作成・修正・レビューのタスク時に自動ロードされる知識スキル
+description: ~/.claude/skills/ 配下のスキルを作成・編集する際の規約（frontmatter の要件、配管の分離、スキル間参照、配置・命名規則、サイズ上限）。スキルの新規作成・修正・レビューのタスク時に自動ロードされる知識スキル
 ---
 
 # /skill-authoring
@@ -36,9 +36,9 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 2. **必要最小限**: 関連コマンド・更新履歴等の冗長なセクションは避ける
 3. **実用性**: 実際の使用時に必要な情報のみを含める
 4. **一貫性**: 全スキル間でフォーマットを統一
-5. **サイズ上限の目安**: SKILL.md 本文は500行以下（[Anthropic の Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) 準拠）。超えそうなら分離する — 決定的配管はスクリプトへ（「スクリプト同梱パターン」）、条件付き詳細は参照ファイルへ。ただし参照ファイルには読み飛ばしリスク（公式も "missed connections" として既知の失敗モードに挙げる）があるため、常時必要な判断規律は本文に置く
+5. **サイズ上限の目安**: SKILL.md 本文は500行以下（[Anthropic の Skill authoring best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices) 準拠）。超えそうなら分離する — 決定的配管は `ccx` のサブコマンドへ（「配管の分離」）、条件付き詳細は参照ファイルへ。ただし参照ファイルには読み飛ばしリスク（公式も "missed connections" として既知の失敗モードに挙げる）があるため、常時必要な判断規律は本文に置く
 
-## スクリプト同梱パターン（コード処理とAI処理の分離）
+## 配管の分離（コード処理とAI処理の分離）
 
 決定的な処理はスクリプトに落とし、判断が必要な処理だけを SKILL.md の指示（AI処理）として残す。モデルが毎回コマンドを組み立て直すことによる揺れ・遅さ・トークン消費を排除するため。公式ベストプラクティスの degrees of freedom 原則と同型 — 一歩間違うと壊れる脆弱な手順ほど低自由度（コード）に、文脈が形を決める判断ほど高自由度（プロンプト）に置く。
 
@@ -55,26 +55,27 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 - ユーザー承認・対話を挟むフロー制御（会話に残す）
 
 ### 配置規約
-- スキル専用: `skills/<skill-name>/scripts/<name>.sh`
-- スキル横断で共有: `~/.claude/scripts/<name>.sh`（リポジトリでは `claude/.claude/scripts/`）
+- 実装は `go/internal/<domain>/` のパッケージ、起動口は `ccx <group> <name>` のサブコマンド（定義は `go/internal/cmd/<group>.go`）
+- **ドメインで切る**（`issue` / `pullrequest` / `worktree` / `reviewprs` / `skill`）。スキルごとではない — 同じ対象を触るコマンドは 1 パッケージに収め、スキル間で共有するものも同じ場所に置く
+- `skills/<skill-name>/scripts/` は使わない。frontmatter 検査はスキルディレクトリ直下に置いてよいものを知り続ける必要があるため、ここに規約が残っている
 
 ### 出力契約
 - stdout には JSON のみを出力する（AI がそのまま解析できる形）
 - 警告・縮退はエラーにせず JSON のフィールドで返し（例: `degraded`, `warnings`）、フォールバック判断は AI に委ねる
 - 前提不成立（リポジトリ外・依存欠如・対象不在）は非ゼロ exit + stderr メッセージ
 - stderr のエラーメッセージは英語で書く（git・gh 等の英語のエコシステム出力と同じ流れに混ざって表示され、CI 等の別文脈への流用にも英語が無難なため。JSON 内の表示用文字列はレポートの言語に合わせてよい）
-- 上記3点の配管は `~/.claude/scripts/warnings-lib.sh` を source して使う（`fatal` / `add_warning` / `warnings_json`）。自前で書き直さない — 契約が同じものを綴り直すとスクリプトが増えるたびにドリフトする
+- 上記3点の配管は `internal/cmd` が担う。実装パッケージは型付きの値を返し、`io.Writer` を受け取らない — JSON への変換と `ccx: <msg>` の stderr 描画は 1 箇所に閉じる
 - SKILL.md には詳細ロジックではなく「実行コマンド + 出力 JSON の契約（フィールドの意味）」を書く
-- **スキル横断の共有スクリプト**は、契約の正をスクリプトのヘッダーコメントに置き、各 SKILL.md には自スキルが使うフィールドの解釈のみ書く（複数 SKILL.md への契約複製はドリフトの元）
+- **スキル横断で使うコマンド**は、契約の正をパッケージのドキュメントコメントに置き、各 SKILL.md には自スキルが使うフィールドの解釈のみ書く（複数 SKILL.md への契約複製はドリフトの元）
 
 ### テスト必須
-- 配置: 対象スクリプトの兄弟 `tests/` ディレクトリ（`skills/<skill>/tests/test-<name>.sh`。配置規約の正は `claude/.claude/rules/script-testing.md`）
-- 理由・設計制約（実環境に触れない・env スタブ化）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない
-- 既存例は `~/.claude/skills/*/scripts/`（スキル専用）と `~/.claude/scripts/`（スキル横断）を参照
+- 配置: 対象パッケージの `<name>_test.go`（配置規約の正は `claude/.claude/rules/script-testing.md`）
+- 理由・設計制約（実環境に触れない・注入での差し替え）の正は `claude/.claude/rules/script-testing.md` — この文書に複製しない
+- 既存例は `go/internal/` 配下の各パッケージを参照
 
 ### frontmatter の検査
 
-`bash ~/.claude/skills/skill-authoring/scripts/check-skill-frontmatter.sh [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は自身が属する skills/。検出する違反は `invalid_yaml`（frontmatter が YAML として解析できない）・`missing_field`（`name` / `description` の欠落・空）・`name_mismatch`（`name` がディレクトリ名と不一致）・`unquoted_flow`（値が引用符なしの `[` / `{` で始まる）の4種で、条件と出力契約の正はスクリプトのヘッダーコメント。`tests/test-check-skill-frontmatter.sh` は実リポジトリの skills/ の検査を兼ねる。Edit / Write / NotebookEdit で SKILL.md を保存すると `ccx hook skill-frontmatter-check`（PostToolUse フック）が同じスクリプトをそのファイルに走らせる。手で実行するのは、skills/ 全体をまとめて検査するときと、Bash 経由（`sed`・heredoc 等）で書き換えたとき（フックが発火しない）。
+`ccx skill frontmatter [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は自身が属する skills/。検出する違反は `invalid_yaml`（frontmatter が YAML として解析できない）・`missing_field`（`name` / `description` の欠落・空）・`name_mismatch`（`name` がディレクトリ名と不一致）・`unquoted_flow`（値が引用符なしの `[` / `{` で始まる）の4種で、条件と出力契約の正は `go/internal/skill/` のパッケージドキュメント。`go/internal/skill/frontmatter_test.go` は実リポジトリの skills/ の検査を兼ねる。Edit / Write / NotebookEdit で SKILL.md を保存すると `ccx hook skill-frontmatter-check`（PostToolUse フック）が同じ検査をそのファイルに走らせる。手で実行するのは、skills/ 全体をまとめて検査するときと、Bash 経由（`sed`・heredoc 等）で書き換えたとき（フックが発火しない）。
 
 ## スキル間参照
 
@@ -86,21 +87,19 @@ SKILL.md 本文の `@~/.claude/skills/<skill>/SKILL.md` は、そのスキルの
 | **他スキルを手順として実行する**（`issue-handle` → `deep-plan-review` 等） | 「Skill ツールで `<skill>` を起動する」と書く。`@` は付けない | 起動時にそのスキル本文と 1 段の依存が just-in-time で載る。`@` で先読みすると、依存の落ちた本文をなぞる経路が生まれる（issue-handle → deep-plan-review → fresh-reader-verification で収束プロトコル未読のまま検証が回った事故）。二重読込・古い本文への追従も起きない |
 | **言及するだけ**（併用順序・準拠先の案内等） | `/<skill>` または `` `<skill>` `` | 不要な添付とネスト連鎖を作らない。バッククォート内の `@` は言及なのに添付を疑わせるので使わない |
 
-検査: `bash ~/.claude/skills/skill-authoring/scripts/check-skill-refs.sh`（SKILL.md 編集時に実行し、`violations` が空になるまで直す。違反の型と対処はスクリプトのヘッダーコメントが正）。`tests/test-check-skill-refs.sh` は実リポジトリの skills/ の検査を兼ねる。
+検査: `ccx skill refs`（SKILL.md 編集時に実行し、`violations` が空になるまで直す。違反の型と対処は `go/internal/skill/` のパッケージドキュメントが正）。`go/internal/skill/refs_test.go` は実リポジトリの skills/ の検査を兼ねる。
 
 ## ディレクトリ構造
 ```
 ~/.claude/skills/
 ├── skill-name/
 │   ├── SKILL.md          # メイン定義（必須）
-│   ├── scripts/          # 決定的処理のスクリプト（オプション、「スクリプト同梱パターン」参照）
-│   ├── tests/            # scripts/ のリグレッションテスト（scripts/ があるなら必須）
 │   └── references/       # 条件付き詳細・例示の参照ファイル（オプション）
 │       └── <topic>.md    # 内容が分かる名前を付ける
 └── ...
 ```
 
-参照ファイルは `references/` 配下に置く。ファイル数が 1 つでもスキル直下には置かない。各参照ファイルは SKILL.md 本文から直接リンクし、参照ファイルから別の参照ファイルへ辿らせない（参照の連鎖が部分読みを誘発するため。`references/` 配下でディレクトリを分けるのは連鎖ではないので可）。ここでの参照ファイルは自スキル内の markdown を指し、他スキルへの `@` 参照の連鎖は「スキル間参照」と `check-skill-refs.sh` が扱う。100 行を超える場合は先頭に目次を付ける。
+参照ファイルは `references/` 配下に置く。ファイル数が 1 つでもスキル直下には置かない。各参照ファイルは SKILL.md 本文から直接リンクし、参照ファイルから別の参照ファイルへ辿らせない（参照の連鎖が部分読みを誘発するため。`references/` 配下でディレクトリを分けるのは連鎖ではないので可）。ここでの参照ファイルは自スキル内の markdown を指し、他スキルへの `@` 参照の連鎖は「スキル間参照」と `ccx skill refs` が扱う。100 行を超える場合は先頭に目次を付ける。
 
 ## 命名規則
 - ディレクトリ名: 小文字とハイフンのみ使用: `git-commit`

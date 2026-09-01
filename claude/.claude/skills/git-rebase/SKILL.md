@@ -74,4 +74,4 @@ PR文脈はコンフリクト解消時の判断材料として使用。
 1. rebase中の中断: `git rebase --abort` で元の状態に戻せることを把握しておく
 2. force push: rebase後はリモートと履歴が乖離するため、本スキル自身がステップ16で `git push --force-with-lease` を使ってプッシュする。`--force` は使わない（leaseによる上書き防止が無効になるため）
 3. 共有ブランチでの注意: 他者と共有しているブランチでは事前確認が望ましい
-4. leaseの限界: 引数なしの `--force-with-lease` はremote-tracking ref（`origin/[branch-name]`）をleaseに使うため、**リモートの更新をfetch済みで手元に取り込んでいない場合はpushが通ってしまう**（leaseがfetch後のrefと一致するため）。このリポジトリではレビュー系スクリプト（`check-pr-freshness.sh`・`resolve-pr-worktree.sh`）がPRのhead branchをfetchし、remote-tracking refは全worktree・全セッションで共有されるため、この経路は現実に成立する。ステップ16のプッシュ前ゲートがこの穴を塞ぐ役割で、判定にAPI由来の `headRefOid` を使うのはfetchの影響を受けないため
+4. leaseの限界: 引数なしの `--force-with-lease` はremote-tracking ref（`origin/[branch-name]`）をleaseに使うため、**リモートの更新をfetch済みで手元に取り込んでいない場合はpushが通ってしまう**（leaseがfetch後のrefと一致するため）。このリポジトリではレビュー系のコマンド（`ccx pr freshness`・`ccx worktree resolve`）がPRのhead branchをfetchし、remote-tracking refは全worktree・全セッションで共有されるため、この経路は現実に成立する。ステップ16のプッシュ前ゲートがこの穴を塞ぐ役割で、判定にAPI由来の `headRefOid` を使うのはfetchの影響を受けないため

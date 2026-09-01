@@ -43,17 +43,15 @@ jobs:
           version: v2.13.2
           working-directory: go
 
-      - name: Run Go tests
-        run: go -C go test -race ./...
-
-      # スイートが実行時に要求する外部コマンド（jq は大半のフック・スキルスクリプト、
-      # lsof は cleanup-merged の inuse-lib.sh）。ランナーイメージの内容は変わるため
-      # preinstall を信頼せず、欠けているものだけを入れる。どのツールも同じ深さで扱うので、
-      # 依存が増えたときはこのリストに足すだけで済む
+      # Go テストが実行時に要求する外部コマンド。いずれも無い環境ではテストが
+      # skip に落ちて担保が静かに消える（lsof は cleanup-merged の使用中 worktree
+      # 検出、jq は golden が jq の出力と byte 一致することの確認）。ランナー
+      # イメージの内容は変わるため preinstall を信頼せず、欠けているものだけを
+      # 入れる。依存が増えたときはこのリストに足す
       - name: Ensure required tools
         run: |
           missing=""
-          for tool in jq lsof; do
+          for tool in lsof jq; do
             command -v "$tool" >/dev/null || missing="$missing $tool"
           done
           if [ -n "$missing" ]; then
@@ -63,6 +61,9 @@ jobs:
             sudo apt-get install -y $missing \
               || { sudo apt-get update && sudo apt-get install -y $missing; }
           fi
+
+      - name: Run Go tests
+        run: go -C go test -race ./...
 
       # スイートは claude/.claude/ の外（stow パッケージ shims/）にもあるため、
       # ランナーの既定ルートに任せず全ルートを明示する

@@ -8,9 +8,9 @@ model: opus
 
 1. レビュー用 clone dir を取得する:
    ```bash
-   bash ~/.claude/skills/review-assigned-prs/scripts/ensure-clone.sh <owner>/<repo>
+   ccx review clone <owner>/<repo>
    ```
-   → JSON `{"path": "..."}` が返る（clone 先パスの規約はスクリプトヘッダーコメント参照）。
+   → JSON `{"path": "..."}` が返る。
 
 2. Bash の `cd <path>` でそのディレクトリに移動してから、Skill ツールで `deep-review` を引数 `<PR番号> --worktree --no-autofix` で起動する。
    - SKILL.md を Read して自力で手順をなぞらない（Read 経路ではスキル本文が参照している他スキルが読み込まれない）

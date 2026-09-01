@@ -1,0 +1,23 @@
+{
+  "repo": "178inaba/dotfiles",
+  "number": 121,
+  "title": "Port the scripts",
+  "state": "open",
+  "url": "https://github.com/178inaba/dotfiles/issues/121",
+  "kind": "sub",
+  "parent": null,
+  "blocked_by": null,
+  "blockers_closed": false,
+  "sub_issues": [],
+  "sub_issues_summary": {
+    "total": 0,
+    "completed": 0
+  },
+  "all_sub_issues_closed": false,
+  "siblings": [],
+  "all_siblings_closed": false,
+  "warnings": [
+    "parent lookup failed for #121: HTTP 500",
+    "blocked_by lookup failed for #121"
+  ]
+}

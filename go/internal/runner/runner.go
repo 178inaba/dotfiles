@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -134,14 +135,12 @@ func detach(name string, env, args []string) (int, error) {
 	// in the caller's process group: a harness that kills the statusline's
 	// process group on timeout cannot take the refresh down with it.
 	//
-	// syscall rather than golang.org/x/sys, here and at the module's four other
-	// system calls (Terminate and Alive below, Flock and Exec in selfbuild). The
-	// syscall package asks new code to prefer x/sys "where possible", and this
-	// line is where it is not: exec.Cmd.SysProcAttr is typed
-	// *syscall.SysProcAttr, which is why x/sys declares its own SysProcAttr as
-	// an alias for that one. Moving the other four would leave the module
-	// importing both packages for the same five calls, and none of them has a
-	// higher-level wrapper in os or gains anything from the newer package.
+	// syscall rather than golang.org/x/sys, which the syscall package asks new
+	// code to prefer "where possible": exec.Cmd.SysProcAttr is typed
+	// *syscall.SysProcAttr, and x/sys only aliases it, so the choice is forced
+	// here. The module's four other system calls (Terminate and Alive below,
+	// Flock and Exec in selfbuild) stay on syscall rather than have it import
+	// both packages for five calls.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return 0, err
@@ -175,6 +174,19 @@ func (Exec) Alive(pid int) bool {
 		return false
 	}
 	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// Git runs one git command in dir and returns its single line of output.
+//
+// Every command in this module that asks git a question asks it this way: -C
+// rather than a working directory, because the answer is about one repository
+// and not about wherever the process happens to be standing.
+func Git(ctx context.Context, r Runner, dir string, args ...string) (string, error) {
+	out, err := r.Run(ctx, Command{Name: "git", Args: append([]string{"-C", dir}, args...)})
+	if err != nil {
+		return "", fmt.Errorf("git %s in %s: %w", strings.Join(args, " "), dir, err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // Stderr returns what a failed command wrote to standard error.

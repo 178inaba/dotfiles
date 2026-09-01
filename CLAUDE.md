@@ -33,8 +33,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 各フックの設計意図（何を防ぐために存在するか）は `claude/.claude/rules/hooks-design.md` を参照（フック・`settings.json` 編集時に自動ロードされる）。
 
-### スキルスクリプト
-- スキル内の決定的処理（収集・判定・正規化）はスクリプトに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/skills/skill-authoring/SKILL.md` の「スクリプト同梱パターン」）
+### スキル配管（ccx サブコマンド）
+- スキル内の決定的処理（収集・判定・正規化）は `ccx` のサブコマンドに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/skills/skill-authoring/SKILL.md` の「配管の分離」）
+- 実装は `go/internal/<domain>/`（`issue` / `pullrequest` / `worktree` / `reviewprs` / `skill`）、cobra 定義は `go/internal/cmd/<group>.go`。契約の正は各パッケージのドキュメントコメント
 - **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
 
 ### 通知チャンネル
@@ -47,7 +48,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Worktree 設定
 - `worktree.baseRef: "head"` を指定。`EnterWorktree(name:)` で worktree を作る経路が「ローカル HEAD を起点に worktree を作成する」契約を保つための前提。現在の消費者はサブエージェントの `isolation: worktree`（ハーネス機能）のみ
-- スキルの `--worktree`（issue-handle・deep-review 等の PR worktree 解決）はこの設定に依存しない。いずれも `git worktree add` による直接作成 + `EnterWorktree(path:)` 入場で、起点 ref を自分で指定するため（経緯は `claude/.claude/skills/issue-handle/scripts/create-worktree.sh` と `claude/.claude/skills/worktree-resolution/scripts/resolve-pr-worktree.sh` の各ヘッダー参照）
+- スキルの `--worktree`（issue-handle・deep-review 等の PR worktree 解決）はこの設定に依存しない。いずれも `git worktree add` による直接作成 + `EnterWorktree(path:)` 入場で、起点 ref を自分で指定するため（経緯は `go/internal/worktree/create.go` と `go/internal/worktree/resolve.go` の各ドキュメントコメント参照）
 
 ## テーマ統一
 - **ターミナル**: Ghostty (Solarized Dark Higher Contrast)

@@ -49,7 +49,7 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", build,
 			func() hook { return noopwait.New() }),
 		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", build,
-			func() hook { return skillcheck.New(skillcheck.Default()) }),
+			func() hook { return skillcheck.New() }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
 			func() hook { return slacknotify.New(slacknotify.Default()) }),
 		subagentTrackerCmd(build),
@@ -139,8 +139,7 @@ func runHook(ctx context.Context, h hook, build selfbuild.State, stdin io.Reader
 	in, _ := io.ReadAll(stdin)
 	result := h.Run(ctx, hooks.Parse(in))
 
-	// Only on the invocation that ran the build. A broken tree otherwise
-	// produces one message per hook per tool call until somebody fixes it.
+	// Only on the invocation that ran the build; see selfbuild.State.JustFailed.
 	// Which channel it goes to follows the decision, because Claude Code only
 	// parses the standard output of a hook that exited 0.
 	if build.JustFailed {

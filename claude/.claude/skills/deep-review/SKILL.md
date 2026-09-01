@@ -39,12 +39,12 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 次に準備スクリプトを実行する。スキル引数（`<pr-number>` とフラグ）をそのまま渡す:
 
 ```bash
-bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレクトリ> [<pr-number>] [--issue N] [--worktree] [--local-only] [--no-autofix]
+ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [--worktree] [--local-only] [--no-autofix]
 ```
 
-フラグ検証・PR 存在プローブ・branch 一致確認・PR コンテキスト一括取得（fetch-pr-context.sh、打ち切り時の自動再取得込み）・3モード判定・PR head との鮮度確認・ベースブランチ判定を1回で行う。未定義フラグ（旧名・typo）は定義済み一覧を添えた非ゼロ exit で止まる — 黙って無視され意図しないモードで実行される事故を防ぐため。
+フラグ検証・PR 存在プローブ・branch 一致確認・PR コンテキスト一括取得（`ccx pr context` と同じ機構、打ち切り時の自動再取得込み）・3モード判定・PR head との鮮度確認・ベースブランチ判定を1回で行う。未定義フラグ（旧名・typo）は定義済み一覧を添えた非ゼロ exit で止まる — 黙って無視され意図しないモードで実行される事故を防ぐため。
 
-#### prepare-review.sh の出力 JSON の契約
+#### `ccx pr prepare-review` の出力 JSON の契約
 
 - `status`:
   - `"ok"` → 続行
@@ -67,7 +67,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 ### 2. PR コンテキストの読了（`context_path`。PR なし縮退（`pr_exists: false`）時はスキップ）
 
-コンテキストの内容は `pr` / `repo` / `is_own_pr` / `comments[]` / `reviews[]` / `review_threads[]` 等（契約の正は `~/.claude/scripts/fetch-pr-context.sh` のヘッダーコメント）。
+コンテキストの内容は `pr` / `repo` / `is_own_pr` / `comments[]` / `reviews[]` / `review_threads[]` 等（契約の正は `go/internal/pullrequest/` のパッケージドキュメント）。
 
 - **出力の扱い**: **`context_path` のファイルを jq で必要部分を段階的に参照する**。`cat` での全文表示や `| head` での部分読みはしない（CI bot が多い PR では数百 KB に達し、部分読みは「見えた範囲だけで判断」を誘発して comments[] の読み落としにつながるため）
 - 通常コメント・レビュー本文・レビュースレッドは GitHub 上で別物として管理されており、3つすべてを見ないと議論経緯を取りこぼす。特に「質問 → 回答 → 合意」「AIレビュー → 対応報告」の流れは PR本体の通常コメントで完結することが多く、見落とすと解決済み議題の再提起が発生する
@@ -96,7 +96,7 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 `issues` の各要素について Issue 内容を取得し、要件・仕様を確認する（空ならスキップ）。同リポ（`repo: null`）は `gh issue view <N>`、クロスリポは `gh issue view -R <owner>/<repo> <N>`。
 
-あわせて各 Issue の親子関係を `bash ~/.claude/scripts/issue-hierarchy.sh <N> [-R <owner>/<repo>]` で確認し（出力 `parent`。契約の正はスクリプトヘッダー）、**親があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。
+あわせて各 Issue の親子関係を `ccx issue tree <N> [-R <owner>/<repo>]` で確認し（出力 `parent`。契約の正は `go/internal/issue/` のパッケージドキュメント）、**親があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。
 
 ### 5. レビュー実行
 
@@ -268,10 +268,10 @@ bash ~/.claude/skills/deep-review/scripts/prepare-review.sh <scratchpadディレ
 
 （`modes.comment` が false の場合はスキップ）
 
-レビュー本文（body・各行コメント）を素の Markdown ファイルとして `work_dir` 直下に Write し、`review_path`（prepare-review.sh の出力）にはそれらを `body_file` で参照する JSON を Write して、投稿スクリプトを実行する:
+レビュー本文（body・各行コメント）を素の Markdown ファイルとして `work_dir` 直下に Write し、`review_path`（`ccx pr prepare-review` の出力）にはそれらを `body_file` で参照する JSON を Write して、投稿コマンドを実行する:
 
 ```bash
-bash ~/.claude/skills/deep-review/scripts/post-review.sh <context_path> <review_path>
+ccx pr post-review <context_path> <review_path>
 ```
 
 #### review_path に書く JSON の入力契約
@@ -307,7 +307,7 @@ bash ~/.claude/skills/deep-review/scripts/post-review.sh <context_path> <review_
 
   - 折りたたみ内は行コメントと違いコード位置にリンクされないため、作者が該当箇所へ飛べるよう `path:line` を明記する
 
-#### post-review.sh の挙動と出力 JSON の契約
+#### `ccx pr post-review` の挙動と出力 JSON の契約
 
 - 投稿前検証をスクリプトが実行する: ローカル HEAD == PR head の再確認と、`comments[]` の path/line が最新 diff に存在することの突き合わせ（行番号ずれによる 422 を投稿前に検出）
 - 検証違反で非ゼロ exit した場合: stderr に列挙された違反エントリの行番号を差分と突き合わせて付け直し、再実行する。**指摘自体の削除・格下げはしない** — 行を特定できない指摘は body へ移す
@@ -343,10 +343,10 @@ jq '[.review_threads[] | select(.awaiting_my_confirmation) | {id, path, line, la
 - 反論・議論は resolve せず、修正を求めるか押し返すかの最終判断をユーザーへの報告に残す（合意形成を飛ばして一方的に「解決」で閉じない）
 - **判定と伝える内容が前回の自分の返信から変わっていないなら、返信を重ねない**（`body` を省略する）。同じ指摘の再掲はセクション7のレビュー本文で足りる — 無関係なコミットでもスレッドは再点火するため、返信を毎回積むとスレッドがノイズで埋まる
 
-判定結果を `threads_path`（prepare-review.sh の出力）に Write し、スクリプトを実行する:
+判定結果を `threads_path`（`ccx pr prepare-review` の出力）に Write し、以下を実行する:
 
 ```bash
-bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <threads_path>
+ccx pr reply-threads <context_path> <threads_path>
 ```
 
 #### threads_path に書く JSON の入力契約
@@ -362,7 +362,7 @@ bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <thr
 
 - `id`: `review_threads[].id`。`awaiting_my_confirmation: true` 以外を含めるとスクリプトが1件も投稿せず非ゼロ exit する（他レビュアーのスレッドの解消判定の代行・解決済みへの再投稿を構造的に防ぐため）
 - `body`: セクション6の原則・口調・言語（対象 PR の言語）で書く。**省略すると返信せず resolve のみ実行する**（2件目の例）。用途は2つ — 前回の自分の返信から判定が変わっていない場合と、下記の resolve 権限不足からの回復
-- 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープはセクション8と同じ理由で避ける。セクション8の `body_file` 機構を threads に持たせないのは意図的な省略 — 返信は通常短く機構が過剰なため。長文返信が常態化したら respond-threads.sh への `body_file` 対応を検討する）:
+- 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープはセクション8と同じ理由で避ける。セクション8の `body_file` 機構を threads に持たせないのは意図的な省略 — 返信は通常短く機構が過剰なため。長文返信が常態化したら `ccx pr reply-threads` への `body_file` 対応を検討する）:
 
   ```bash
   jq -n --rawfile r1 <work_dir>/t1.md \
@@ -370,7 +370,7 @@ bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <thr
   ```
 - `resolve`: 上記の決定表に従う。`body` 省略時は `true` でなければならない（返信も resolve もしないエントリは無意味なため非ゼロ exit）
 
-#### respond-threads.sh の出力・失敗時の契約
+#### `ccx pr reply-threads` の出力・失敗時の契約
 
 - 成功時の出力は `{replied[], resolved[], resolve_failed[], warnings[]}` → 返信・解決したスレッド数をユーザーに報告する
 - `resolve_failed[]` / `warnings[]` が空でない場合: 権限不足（fork PR、write 権限なし）で resolve だけ失敗した縮退。**返信済みなので同じ本文で再実行しない**。write 権限がないリポジトリではこれは恒久的な状態なので、次回以降のレビューでは `body` を省略した resolve のみのエントリで再試行する（返信を重ねずに済む）。warning をユーザーへの報告に併記する
@@ -436,6 +436,6 @@ bash ~/.claude/skills/deep-review/scripts/respond-threads.sh <context_path> <thr
    - 既存PRがあれば説明更新、未PRなら新規作成
 
 ## 注意事項
-- prepare-review.sh が非ゼロ exit した場合（明示指定 PR の不在・コンテキスト取得失敗等）は stderr を提示して停止する。「PR なし」縮退（`pr_exists: false`）と混同しない
+- `ccx pr prepare-review` が非ゼロ exit した場合（明示指定 PR の不在・コンテキスト取得失敗等）は stderr を提示して停止する。「PR なし」縮退（`pr_exists: false`）と混同しない
 - **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
-- **鮮度ガード**: prepare-review.sh が差分取得前に鮮度確認を実行し、**外部へ書き込む2本のスクリプト（post-review.sh・respond-threads.sh）が実行直前にそれぞれローカル HEAD == `pr.head_oid` を再確認する**（停止条件の正は worktree-resolution の「共通サブ手順: PR head との鮮度確認」）
+- **鮮度ガード**: `ccx pr prepare-review` が差分取得前に鮮度確認を実行し、**外部へ書き込む 2 つのサブコマンド（`ccx pr post-review`・`ccx pr reply-threads`）が実行直前にそれぞれローカル HEAD == `pr.head_oid` を再確認する**（停止条件の正は worktree-resolution の「共通サブ手順: PR head との鮮度確認」）

@@ -1,0 +1,72 @@
+{
+  "repo": "178inaba/dotfiles",
+  "number": 119,
+  "title": "Move the extensions to Go",
+  "state": "open",
+  "url": "https://github.com/178inaba/dotfiles/issues/119",
+  "kind": "parent_and_sub",
+  "parent": {
+    "number": 3,
+    "title": "Release",
+    "state": "open",
+    "url": "https://github.com/178inaba/other/issues/3",
+    "repo": "178inaba/other",
+    "same_repo": false
+  },
+  "blocked_by": [
+    {
+      "number": 7,
+      "title": "Blocker",
+      "state": "closed",
+      "url": "https://github.com/178inaba/other/issues/7",
+      "repo": "178inaba/other",
+      "same_repo": false
+    }
+  ],
+  "blockers_closed": true,
+  "sub_issues": [
+    {
+      "number": 123,
+      "title": "Sub 123",
+      "state": "closed",
+      "url": "https://github.com/178inaba/dotfiles/issues/123",
+      "prs": [
+        {
+          "number": 124,
+          "state": "MERGED",
+          "base_ref": "main",
+          "merged": true,
+          "url": "https://github.com/178inaba/dotfiles/pull/124"
+        }
+      ],
+      "blocked_by": [
+        {
+          "number": 7,
+          "title": "Blocker",
+          "state": "closed",
+          "url": "https://github.com/178inaba/other/issues/7",
+          "repo": "178inaba/other",
+          "same_repo": false
+        }
+      ],
+      "blockers_closed": true
+    },
+    {
+      "number": 122,
+      "title": "Sub 122",
+      "state": "open",
+      "url": "https://github.com/178inaba/dotfiles/issues/122",
+      "prs": null,
+      "blocked_by": [],
+      "blockers_closed": true
+    }
+  ],
+  "sub_issues_summary": {
+    "total": 2,
+    "completed": 1
+  },
+  "all_sub_issues_closed": false,
+  "siblings": [],
+  "all_siblings_closed": false,
+  "warnings": []
+}
