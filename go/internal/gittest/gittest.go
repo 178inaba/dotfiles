@@ -1,8 +1,6 @@
-// Package gittest builds throwaway git repositories for tests.
-//
-// One copy of the isolation from the developer's own configuration: weakened
-// in a second, a fixture would only misbehave on the machine that has the
-// unusual setting.
+// Package gittest builds throwaway git repositories for tests. Every command
+// runs through Run, which is where the isolation from the developer's own
+// configuration lives.
 package gittest
 
 import (
@@ -26,10 +24,10 @@ func Init(t *testing.T, dir string, args ...string) string {
 // InitWithCommit makes a repository at dir with one commit in it, and returns
 // dir. Wherever a fixture needs a head to hang worktrees off rather than
 // remote-tracking refs, which is what an empty repository cannot give it.
-func InitWithCommit(t *testing.T, dir string, args ...string) string {
+func InitWithCommit(t *testing.T, dir string) string {
 	t.Helper()
 
-	Init(t, dir, args...)
+	Init(t, dir)
 	Write(t, filepath.Join(dir, "file.txt"), "x\n")
 	Run(t, dir, "add", ".")
 	Run(t, dir, "commit", "-qm", "first")

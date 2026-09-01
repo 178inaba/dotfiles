@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
+	"github.com/178inaba/dotfiles/go/internal/hooks/state/statetest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -20,7 +20,6 @@ const (
 func TestTrackerRun(t *testing.T) {
 	t.Parallel()
 
-	const session = "s1"
 	started := []string{"a1", "a2"}
 
 	tests := []struct {
@@ -104,8 +103,8 @@ func TestTrackerRun(t *testing.T) {
 				t.Fatalf("Run() = %+v, want %+v", got, want)
 			}
 
-			s := hooktest.OpenStore(t, dir)
-			got := hooktest.Names(t, s, markerDir(session))
+			s := statetest.OpenStore(t, dir)
+			got := statetest.Names(t, s, markerDir(session))
 			slices.Sort(got)
 			if !slices.Equal(got, tt.wantMarkers) {
 				t.Errorf("markers = %v, want %v", got, tt.wantMarkers)
@@ -121,7 +120,7 @@ func TestTrackerRun(t *testing.T) {
 
 func seed(t *testing.T, dir, session string, agents []string) {
 	t.Helper()
-	s := hooktest.OpenStore(t, dir)
+	s := statetest.OpenStore(t, dir)
 	for _, a := range agents {
 		if err := s.Write(marker(session, a), ""); err != nil {
 			t.Fatalf("Write(%s): %v", a, err)
@@ -129,7 +128,7 @@ func seed(t *testing.T, dir, session string, agents []string) {
 	}
 }
 
-// fixedRunner answers ps with one name, or fails when it has none.
+// psRunner answers ps with one name, or fails when it has none.
 type psRunner struct{ out string }
 
 func (f psRunner) Run(context.Context, runner.Command) ([]byte, error) {
@@ -142,7 +141,6 @@ func (f psRunner) Run(context.Context, runner.Command) ([]byte, error) {
 func TestBusy(t *testing.T) {
 	t.Parallel()
 
-	const session = "s1"
 	tests := []struct {
 		name string
 		// markers is agent id to the pid it records.
@@ -170,7 +168,7 @@ func TestBusy(t *testing.T) {
 			t.Parallel()
 
 			dir := filepath.Join(t.TempDir(), "ccx")
-			s := hooktest.OpenStore(t, dir)
+			s := statetest.OpenStore(t, dir)
 			for agent, pid := range tt.markers {
 				if err := s.Write(marker(session, agent), pid); err != nil {
 					t.Fatalf("Write(%s): %v", agent, err)

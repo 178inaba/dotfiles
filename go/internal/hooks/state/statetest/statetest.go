@@ -1,10 +1,9 @@
-// Package hooktest reads the hooks' state tree from a test.
+// Package statetest reads a hook's state tree from a test.
 //
-// It is a package rather than a helper in one of them because Go cannot share
-// a _test.go between packages, and both hooks that keep state — the caffeinate
-// pid files and the subagent markers — assert on what the other's store holds.
-// Git fixtures are gittest's; nothing here wraps them.
-package hooktest
+// A package of its own because Go cannot share a _test.go between packages,
+// and both hooks that keep state — caffeinate's pid files and notify's
+// subagent markers — assert on what they wrote through the same store.
+package statetest
 
 import (
 	"testing"

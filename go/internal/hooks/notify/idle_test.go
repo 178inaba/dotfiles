@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
+	"github.com/178inaba/dotfiles/go/internal/hooks/state/statetest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
+// session is the id every test in this package keeps its markers under.
 const session = "s1"
 
 func payload() hooks.Payload {
@@ -62,9 +63,9 @@ func TestIdleRun(t *testing.T) {
 
 			dir := filepath.Join(t.TempDir(), "ccx")
 			if tt.agent {
-				s := hooktest.OpenStore(t, dir)
+				s := statetest.OpenStore(t, dir)
 				// A marker recording nothing is the plainest "still running".
-				if err := s.Write("subagents/"+session+"/a1", ""); err != nil {
+				if err := s.Write(marker(session, "a1"), ""); err != nil {
 					t.Fatalf("Write: %v", err)
 				}
 			}
@@ -125,7 +126,7 @@ func deps(dir string, srv *webhook, sound runner.Detacher) Deps {
 		Sound:     sound,
 		Client:    srv.Client(),
 		Runner:    fixedRunner{toplevel: "/r/proj", common: "/r/proj/.git"},
-		Signaller: deadSignaller{},
+		Signaller: fakeSignaller{},
 		Getenv:    func(string) string { return srv.URL },
 	}
 }
@@ -148,9 +149,3 @@ func (r *recordingDetacher) played() bool {
 	defer r.mu.Unlock()
 	return r.started
 }
-
-// deadSignaller reports every process as gone.
-type deadSignaller struct{}
-
-func (deadSignaller) Terminate(int) error { return nil }
-func (deadSignaller) Alive(int) bool      { return false }

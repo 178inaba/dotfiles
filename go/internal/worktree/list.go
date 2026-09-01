@@ -24,9 +24,11 @@ type Entry struct {
 	// record carries it too, being the first one.
 	Main bool
 	// Bare says the record is the repository itself with no files in it,
-	// which is what a bare repository prints in place of a main worktree.
-	// Separate from Main because the two are independent questions, and which
-	// of them a bare record answers is the caller's to decide.
+	// which is what a bare repository prints in place of a main worktree —
+	// so it is only ever set on the entry that Main is also set on. A field
+	// rather than Main's absence, because what a caller does about it differs:
+	// one wants the first entry whatever it is, another wants a tree it can
+	// edit in.
 	Bare bool
 }
 

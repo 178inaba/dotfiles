@@ -28,10 +28,10 @@ type Deps struct {
 	Sound runner.Detacher
 	// Client posts to the Slack webhook.
 	Client *http.Client
-	// Runner asks git which project a notification came from, and ps whether a
-	// marker's process is still there.
+	// Runner asks git which project a notification came from, and ps whether
+	// the process a marker is about to record is Claude Code itself.
 	Runner runner.Runner
-	// Signaller answers whether a recorded pid is alive.
+	// Signaller answers whether a recorded pid is still alive.
 	Signaller runner.Signaller
 	// Getenv reads the webhook out of the environment.
 	Getenv func(string) string

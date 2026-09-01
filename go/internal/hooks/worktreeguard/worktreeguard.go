@@ -131,9 +131,8 @@ func (h Hook) owner(ctx context.Context, dir, self, target string) (string, stri
 
 	var root, label string
 	for _, e := range entries {
-		// A bare repository holds no files, so nothing can be edited in it —
-		// and skipping it is also what keeps the first linked worktree from
-		// being promoted into a main tree it does not have.
+		// A bare repository holds no files, so nothing can be edited in it and
+		// nothing is owned by it.
 		if e.Bare {
 			continue
 		}

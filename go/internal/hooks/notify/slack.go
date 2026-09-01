@@ -97,15 +97,13 @@ func project(ctx context.Context, d Deps, dir string) string {
 	if dir == "" {
 		return ""
 	}
-	out, err := d.Runner.Run(ctx, runner.Command{
-		Name: "git",
-		Args: []string{"-C", dir, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"},
-	})
+	out, err := runner.Git(ctx, d.Runner, dir,
+		"rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
 	if err != nil {
 		return label(dir, "", "")
 	}
 	// Two paths, in the order they were asked for.
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	lines := strings.Split(out, "\n")
 	if len(lines) < 2 {
 		return label(dir, "", "")
 	}

@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/hooks/state"
+	"github.com/178inaba/dotfiles/go/internal/hooks/state/statetest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -129,7 +129,7 @@ func TestStart(t *testing.T) {
 			if !slices.Equal(p.killed, tt.wantKilled) {
 				t.Errorf("killed = %v, want %v", p.killed, tt.wantKilled)
 			}
-			if pid, ok := hooktest.OpenStore(t, root).Read(tt.wantFile); !ok || pid != strconv.Itoa(started) {
+			if pid, ok := statetest.OpenStore(t, root).Read(tt.wantFile); !ok || pid != strconv.Itoa(started) {
 				t.Errorf("%s = %q, %t, want %q, true", tt.wantFile, pid, ok, strconv.Itoa(started))
 			}
 		})
@@ -228,7 +228,7 @@ func TestStop(t *testing.T) {
 			if !slices.Equal(p.killed, tt.wantKilled) {
 				t.Errorf("killed = %v, want %v", p.killed, tt.wantKilled)
 			}
-			left := hooktest.Names(t, hooktest.OpenStore(t, root), dir)
+			left := statetest.Names(t, statetest.OpenStore(t, root), dir)
 			slices.Sort(left)
 			if !slices.Equal(left, tt.wantLeft) {
 				t.Errorf("pid files left = %v, want %v", left, tt.wantLeft)
@@ -252,7 +252,7 @@ func deps(root string, p *fakeProc, bridge bool) Deps {
 
 func seed(t *testing.T, root string, files map[string]string) {
 	t.Helper()
-	s := hooktest.OpenStore(t, root)
+	s := statetest.OpenStore(t, root)
 	for name, pid := range files {
 		if err := s.Write(name, pid); err != nil {
 			t.Fatalf("Write(%s): %v", name, err)
