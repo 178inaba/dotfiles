@@ -1,4 +1,4 @@
-package terminalbell
+package notify
 
 import (
 	"testing"
@@ -12,10 +12,10 @@ import (
 func TestRing(t *testing.T) {
 	t.Parallel()
 
-	if got, want := Ring().TerminalSequence, "\a"; got != want {
+	if got, want := ring().TerminalSequence, "\a"; got != want {
 		t.Errorf("TerminalSequence = %q, want %q", got, want)
 	}
-	if got, want := New().Run(t.Context(), hooks.Payload{}), (hooks.Result{Directive: Ring()}); got != want {
+	if got, want := NewBell().Run(t.Context(), hooks.Payload{}), (hooks.Result{Directive: ring()}); got != want {
 		t.Errorf("Run() = %+v, want %+v", got, want)
 	}
 }

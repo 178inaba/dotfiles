@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -22,7 +22,7 @@ type trees struct {
 // depends on — which tree owns a path — is entirely git's answer.
 func build(t *testing.T) trees {
 	t.Helper()
-	hooktest.SkipWithoutGit(t)
+	gittest.SkipWithoutGit(t)
 
 	base := t.TempDir()
 	w := trees{
@@ -38,29 +38,29 @@ func build(t *testing.T) trees {
 	w.other = filepath.Join(w.main, ".claude", "worktrees", "other-wt")
 	w.manual = filepath.Join(w.main, "wt-manual")
 
-	hooktest.InitRepo(t, w.main)
-	hooktest.Write(t, filepath.Join(w.main, "api", "handler.go"), "package api\n")
-	hooktest.Git(t, w.main, "add", ".")
-	hooktest.Git(t, w.main, "commit", "-qm", "api")
+	gittest.InitWithCommit(t, w.main)
+	gittest.Write(t, filepath.Join(w.main, "api", "handler.go"), "package api\n")
+	gittest.Run(t, w.main, "add", ".")
+	gittest.Run(t, w.main, "commit", "-qm", "api")
 
-	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-feature", w.worktree)
-	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-other", w.other)
-	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-manual", w.manual)
-	hooktest.Git(t, w.main, "worktree", "add", "-b", "wt-ext", w.external)
+	gittest.Run(t, w.main, "worktree", "add", "-b", "wt-feature", w.worktree)
+	gittest.Run(t, w.main, "worktree", "add", "-b", "wt-other", w.other)
+	gittest.Run(t, w.main, "worktree", "add", "-b", "wt-manual", w.manual)
+	gittest.Run(t, w.main, "worktree", "add", "-b", "wt-ext", w.external)
 
-	hooktest.Write(t, filepath.Join(w.outside, "notes.md"), "notes\n")
+	gittest.Write(t, filepath.Join(w.outside, "notes.md"), "notes\n")
 	// A sibling whose name merely starts with the repository's: a guard that
 	// compares strings rather than paths would claim this one.
-	hooktest.Write(t, filepath.Join(base, "repo-extra", "x.txt"), "x\n")
-	hooktest.Write(t, filepath.Join(base, "unrelated.txt"), "x\n")
+	gittest.Write(t, filepath.Join(base, "repo-extra", "x.txt"), "x\n")
+	gittest.Write(t, filepath.Join(base, "unrelated.txt"), "x\n")
 	if err := os.Symlink(w.worktree, w.link); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
 
 	bare := filepath.Join(base, "bare.git")
-	hooktest.Git(t, base, "clone", "-q", "--bare", w.main, bare)
-	hooktest.Git(t, bare, "worktree", "add", "-b", "wt-bare1", w.bareOne)
-	hooktest.Git(t, bare, "worktree", "add", "-b", "wt-bare2", w.bareTwo)
+	gittest.Run(t, base, "clone", "-q", "--bare", w.main, bare)
+	gittest.Run(t, bare, "worktree", "add", "-b", "wt-bare1", w.bareOne)
+	gittest.Run(t, bare, "worktree", "add", "-b", "wt-bare2", w.bareTwo)
 	return w
 }
 

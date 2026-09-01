@@ -1,13 +1,16 @@
-package slacknotify
+package notify
 
 import (
 	"context"
+	"encoding/json/v2"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -80,7 +83,7 @@ func TestLabel(t *testing.T) {
 	}
 }
 
-func TestRun(t *testing.T) {
+func TestSlackRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -119,13 +122,13 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			srv := hooktest.NewWebhook(t, http.StatusOK)
+			srv := newWebhook(t, http.StatusOK)
 			webhook := srv.URL
 			if tt.webhook == "-" {
 				webhook = ""
 			}
 
-			h := New(Deps{
+			h := NewSlack(Deps{
 				Client: srv.Client(),
 				Runner: fixedRunner{toplevel: "/r/myrepo", common: "/r/myrepo/.git"},
 				Getenv: func(string) string { return webhook },
@@ -151,13 +154,13 @@ func TestRun(t *testing.T) {
 	}
 }
 
-// TestRunReportsARefusedWebhook is the hole this port closes: curl ran without
+// TestSlackRunReportsARefusedWebhook is the hole this port closes: curl ran without
 // -f, so a webhook answering 403 dropped every notification without a word.
-func TestRunReportsARefusedWebhook(t *testing.T) {
+func TestSlackRunReportsARefusedWebhook(t *testing.T) {
 	t.Parallel()
 
-	srv := hooktest.NewWebhook(t, http.StatusForbidden)
-	h := New(Deps{
+	srv := newWebhook(t, http.StatusForbidden)
+	h := NewSlack(Deps{
 		Client: srv.Client(),
 		Runner: fixedRunner{},
 		Getenv: func(string) string { return srv.URL },
@@ -181,4 +184,43 @@ func (f fixedRunner) Run(context.Context, runner.Command) ([]byte, error) {
 		return nil, &runner.Error{Name: "git", Err: context.Canceled}
 	}
 	return []byte(f.toplevel + "\n" + f.common + "\n"), nil
+}
+
+// webhook is a Slack endpoint that remembers what was posted to it.
+//
+// Both hooks that post go through this, so the shape of the body is asserted
+// in one place: weakened in a second copy, a malformed post would only fail on
+// whichever of them still checked.
+type webhook struct {
+	*httptest.Server
+	mu   sync.Mutex
+	text []string
+}
+
+// newWebhook starts one that answers every post with status.
+func newWebhook(t *testing.T, status int) *webhook {
+	t.Helper()
+	w := &webhook{}
+	w.Server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Text string `json:"text"`
+		}
+		if err := json.UnmarshalRead(io.LimitReader(r.Body, 1<<16), &body); err != nil {
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.mu.Lock()
+		w.text = append(w.text, body.Text)
+		w.mu.Unlock()
+		rw.WriteHeader(status)
+	}))
+	t.Cleanup(w.Close)
+	return w
+}
+
+// Posts is the text of everything posted so far, in order.
+func (w *webhook) Posts() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.text
 }

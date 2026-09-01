@@ -346,6 +346,24 @@ func TestParseList(t *testing.T) {
 	}
 }
 
+// TestParseListOfABareRepository pins the record a bare repository prints in
+// place of a main worktree: it is still the first entry, and Bare is what says
+// there are no files in it.
+func TestParseListOfABareRepository(t *testing.T) {
+	t.Parallel()
+
+	out := "worktree /repo.git\nbare\n\n" +
+		"worktree /elsewhere/wt\nHEAD def456\nbranch refs/heads/feature/42-x\n\n"
+
+	want := []Entry{
+		{Path: "/repo.git", Main: true, Bare: true},
+		{Path: "/elsewhere/wt", Branch: "feature/42-x"},
+	}
+	if diff := cmp.Diff(want, parseList(out)); diff != "" {
+		t.Errorf("parseList (-want +got):\n%s", diff)
+	}
+}
+
 func TestMainRoot(t *testing.T) {
 	t.Parallel()
 

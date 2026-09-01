@@ -191,7 +191,7 @@ func openAt(t *testing.T, dir string) *Store {
 }
 
 // names lists a directory, failing the test if it cannot be read. This package
-// cannot use hooktest, which is built on it.
+// cannot use statetest, which is built on it.
 func names(t *testing.T, s *Store, dir string) []string {
 	t.Helper()
 	got, err := s.Names(dir)

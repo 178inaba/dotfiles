@@ -20,8 +20,16 @@ type Entry struct {
 	Branch string
 	// Main says this is the repository's own worktree rather than a linked
 	// one. It is the first entry git prints, and no command here treats it as
-	// a worktree it may create, enter or remove.
+	// a worktree it may create, enter or remove. A bare repository's own
+	// record carries it too, being the first one.
 	Main bool
+	// Bare says the record is the repository itself with no files in it,
+	// which is what a bare repository prints in place of a main worktree —
+	// so it is only ever set on the entry that Main is also set on. A field
+	// rather than Main's absence, because what a caller does about it differs:
+	// one wants the first entry whatever it is, another wants a tree it can
+	// edit in.
+	Bare bool
 }
 
 // List returns the worktrees of the repository at root, the main one first.
@@ -48,6 +56,8 @@ func parseList(out string) []Entry {
 				// Always a full ref here; the short name is what every caller
 				// compares against.
 				e.Branch = strings.TrimPrefix(value, "refs/heads/")
+			case "bare":
+				e.Bare = true
 			}
 		}
 		if e.Path == "" {

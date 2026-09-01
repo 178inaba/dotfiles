@@ -1,10 +1,10 @@
-package slacknotify
+package notify
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
+	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -14,23 +14,23 @@ import (
 // suite this replaces built the same fixtures for the same reason.
 func TestProjectAgainstRealGit(t *testing.T) {
 	t.Parallel()
-	hooktest.SkipWithoutGit(t)
+	gittest.SkipWithoutGit(t)
 
 	base := t.TempDir()
 	main := filepath.Join(base, "myrepo")
-	hooktest.InitRepo(t, main)
-	hooktest.Write(t, filepath.Join(main, "api", "keep"), "x\n")
-	hooktest.Git(t, main, "worktree", "add", "-b", "wt-feature", filepath.Join(main, ".claude", "worktrees", "feature-x"))
-	hooktest.Git(t, main, "worktree", "add", "-b", "wt-nested", filepath.Join(main, ".claude", "worktrees", "feat", "nested"))
-	hooktest.Git(t, main, "worktree", "add", "-b", "wt-manual", filepath.Join(base, "manual-wt"))
-	hooktest.Write(t, filepath.Join(main, ".claude", "worktrees", "feature-x", "api", "keep"), "x\n")
+	gittest.InitWithCommit(t, main)
+	gittest.Write(t, filepath.Join(main, "api", "keep"), "x\n")
+	gittest.Run(t, main, "worktree", "add", "-b", "wt-feature", filepath.Join(main, ".claude", "worktrees", "feature-x"))
+	gittest.Run(t, main, "worktree", "add", "-b", "wt-nested", filepath.Join(main, ".claude", "worktrees", "feat", "nested"))
+	gittest.Run(t, main, "worktree", "add", "-b", "wt-manual", filepath.Join(base, "manual-wt"))
+	gittest.Write(t, filepath.Join(main, ".claude", "worktrees", "feature-x", "api", "keep"), "x\n")
 
 	bare := filepath.Join(base, "bare.git")
-	hooktest.Git(t, base, "clone", "--bare", main, bare)
-	hooktest.Git(t, bare, "worktree", "add", "-b", "wt-bare", filepath.Join(base, "bare-wt"))
+	gittest.Run(t, base, "clone", "--bare", main, bare)
+	gittest.Run(t, bare, "worktree", "add", "-b", "wt-bare", filepath.Join(base, "bare-wt"))
 
 	outside := filepath.Join(base, "outside")
-	hooktest.Write(t, filepath.Join(outside, "notes.md"), "x\n")
+	gittest.Write(t, filepath.Join(outside, "notes.md"), "x\n")
 
 	tests := []struct {
 		name string
@@ -47,11 +47,11 @@ func TestProjectAgainstRealGit(t *testing.T) {
 		{"no repository at all", outside, "outside"},
 	}
 
-	h := New(Deps{Runner: runner.Exec{}})
+	d := Deps{Runner: runner.Exec{}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := h.project(t.Context(), tt.dir); got != tt.want {
+			if got := project(t.Context(), d, tt.dir); got != tt.want {
 				t.Errorf("project = %q, want %q", got, tt.want)
 			}
 		})

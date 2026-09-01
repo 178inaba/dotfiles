@@ -1,5 +1,4 @@
-// Package slacknotify posts a Claude Code notification to a Slack webhook.
-package slacknotify
+package notify
 
 import (
 	"bytes"
@@ -7,7 +6,6 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,42 +27,30 @@ const (
 	worktrees = "/.claude/worktrees/"
 )
 
-// Deps are the seams. Use Default for the real ones.
-type Deps struct {
-	Client *http.Client
-	Runner runner.Runner
-	Getenv func(string) string
-}
+// Slack posts the notification to a Slack webhook.
+type Slack struct{ deps Deps }
 
-// Default wires the real implementations.
-func Default() Deps {
-	return Deps{Client: http.DefaultClient, Runner: runner.Exec{}, Getenv: os.Getenv}
-}
-
-// Hook posts the notification.
-type Hook struct{ deps Deps }
-
-// New returns the hook.
-func New(d Deps) Hook { return Hook{deps: d} }
+// NewSlack returns the hook.
+func NewSlack(d Deps) Slack { return Slack{deps: d} }
 
 // Run implements the hook contract.
-func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
-	if err := h.Post(ctx, in); err != nil {
-		return hooks.Result{Decision: hooks.Fail, Message: Undelivered(err) + "\n"}
+func (h Slack) Run(ctx context.Context, in hooks.Payload) hooks.Result {
+	if err := post(ctx, h.deps, in); err != nil {
+		return hooks.Result{Decision: hooks.Fail, Message: undelivered(err) + "\n"}
 	}
 	return hooks.Result{}
 }
 
-// Undelivered says a notification did not arrive, in the one wording both this
+// undelivered says a notification did not arrive, in the one wording both this
 // hook and idle-notify report it with.
-func Undelivered(err error) string {
+func undelivered(err error) string {
 	return fmt.Sprintf("ccx: the Slack notification was not delivered: %v", err)
 }
 
-// Post sends the payload's message. It is exported for idle-notify, which
-// notifies and then rings the bell rather than being a hook of its own.
-func (h Hook) Post(ctx context.Context, in hooks.Payload) error {
-	webhook := h.deps.Getenv(webhookEnv)
+// post sends the payload's message. A function rather than a method on Slack,
+// because Idle posts as one step of a decision of its own.
+func post(ctx context.Context, d Deps, in hooks.Payload) error {
+	webhook := d.Getenv(webhookEnv)
 	// A payload with no message is every event that is not a notification, so
 	// there is nothing here to report.
 	if webhook == "" || in.Message == "" {
@@ -75,7 +61,7 @@ func (h Hook) Post(ctx context.Context, in hooks.Payload) error {
 	if kind == "" {
 		kind = defaultType
 	}
-	text := fmt.Sprintf("[%s] (%s) %s", h.project(ctx, in.Dir), kind, in.Message)
+	text := fmt.Sprintf("[%s] (%s) %s", project(ctx, d, in.Dir), kind, in.Message)
 
 	body, err := json.Marshal(struct {
 		Text string `json:"text"`
@@ -92,7 +78,7 @@ func (h Hook) Post(ctx context.Context, in hooks.Payload) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := h.deps.Client.Do(req)
+	resp, err := d.Client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -107,19 +93,17 @@ func (h Hook) Post(ctx context.Context, in hooks.Payload) error {
 }
 
 // project asks git where it is and turns the answer into a label.
-func (h Hook) project(ctx context.Context, dir string) string {
+func project(ctx context.Context, d Deps, dir string) string {
 	if dir == "" {
 		return ""
 	}
-	out, err := h.deps.Runner.Run(ctx, runner.Command{
-		Name: "git",
-		Args: []string{"-C", dir, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"},
-	})
+	out, err := runner.Git(ctx, d.Runner, dir,
+		"rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
 	if err != nil {
 		return label(dir, "", "")
 	}
 	// Two paths, in the order they were asked for.
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	lines := strings.Split(out, "\n")
 	if len(lines) < 2 {
 		return label(dir, "", "")
 	}

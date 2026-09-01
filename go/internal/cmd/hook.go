@@ -11,12 +11,9 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 	"github.com/178inaba/dotfiles/go/internal/hooks/caffeinate"
-	"github.com/178inaba/dotfiles/go/internal/hooks/idlenotify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
+	"github.com/178inaba/dotfiles/go/internal/hooks/notify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/skillcheck"
-	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
-	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
-	"github.com/178inaba/dotfiles/go/internal/hooks/terminalbell"
 	"github.com/178inaba/dotfiles/go/internal/hooks/worktreeguard"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
@@ -45,18 +42,18 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 			func() hook { return caffeinate.NewStart(caffeinate.Default()) }),
 		stopCaffeinateCmd(build),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", build,
-			func() hook { return idlenotify.New(idlenotify.Default()) }),
+			func() hook { return notify.NewIdle(notify.Default()) }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", build,
 			func() hook { return noopwait.New() }),
 		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", build,
 			func() hook { return skillcheck.New() }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", build,
-			func() hook { return slacknotify.New(slacknotify.Default()) }),
+			func() hook { return notify.NewSlack(notify.Default()) }),
 		subagentTrackerCmd(build),
 		leafHookCmd("worktree-edit-guard", "Block an edit that leaves the current worktree", build,
 			func() hook { return worktreeguard.New(runner.Exec{}) }),
 		leafHookCmd("terminal-bell", "Ring the terminal bell", build,
-			func() hook { return terminalbell.New() }),
+			func() hook { return notify.NewBell() }),
 	)
 	return c
 }
@@ -91,14 +88,14 @@ func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
 	var start, stop, sessionEnd bool
 	c := leafHookCmd("subagent-tracker", "Track which subagents are running", build,
 		func() hook {
-			mode := subagents.Start
+			mode := notify.Start
 			switch {
 			case stop:
-				mode = subagents.Stop
+				mode = notify.Stop
 			case sessionEnd:
-				mode = subagents.SessionEnd
+				mode = notify.SessionEnd
 			}
-			return subagents.New(subagents.Default(), mode)
+			return notify.NewTracker(notify.Default(), mode)
 		})
 	c.Flags().BoolVar(&start, "start", false, "a subagent has started")
 	c.Flags().BoolVar(&stop, "stop", false, "a subagent has finished")
