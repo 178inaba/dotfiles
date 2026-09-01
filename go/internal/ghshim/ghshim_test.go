@@ -254,7 +254,19 @@ func TestRunReportsAHandOffThatCouldNotStart(t *testing.T) {
 func TestPackageReadsNoStandardInput(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"ghshim.go", "decide.go", "rules.go", "scan.go", "body.go", "message.go", "resolve.go"} {
+	// Globbed rather than listed, so that a file added later cannot leave the
+	// check quietly covering less than the package.
+	sources, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	if len(sources) == 0 {
+		t.Fatal("no sources found")
+	}
+	for _, name := range sources {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
 		b, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatalf("ReadFile(%q): %v", name, err)

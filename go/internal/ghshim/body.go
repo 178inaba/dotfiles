@@ -25,8 +25,12 @@ var (
 	// A closing keyword next to a reference. GitHub reads only the direct
 	// adjacency of keyword, optional colon, space and reference, so the
 	// detection is limited to it as well.
+	//
+	// The same knowledge is encoded in pullrequest.closingKeyword, which reads
+	// a body for the issues it closes; if GitHub ever changes the set, both
+	// have to move.
 	closingKeyword = regexp.MustCompile(
-		`(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
+		`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
 )
 
 // countBareHashRefs counts the distinct digits of the bare #1 to #9 in body,
@@ -49,7 +53,12 @@ func countBareHashRefs(body string) int {
 		if fence {
 			continue
 		}
-		for token := range strings.FieldsSeq(codeSpan.ReplaceAllString(line, "")) {
+		// The substitution allocates, so it is worth asking first whether the
+		// line holds a code span at all; most do not.
+		if strings.IndexByte(line, '`') >= 0 {
+			line = codeSpan.ReplaceAllString(line, "")
+		}
+		for token := range strings.FieldsSeq(line) {
 			if !bareHashToken.MatchString(token) {
 				continue
 			}
@@ -65,7 +74,6 @@ func countBareHashRefs(body string) int {
 func hasQuotedClosingKeyword(body string) bool {
 	fence := false
 	for line := range strings.Lines(body) {
-		line = strings.ToLower(line)
 		if fenceLine.MatchString(line) {
 			fence = !fence
 			continue
@@ -99,7 +107,16 @@ func attemptedCommand(argv []string) string {
 // metacharacters, which would get two of them wrong in opposite directions: the
 // comma is escaped and is not a metacharacter, and # is one and is passed
 // through except at the start.
-const backslashed = " !\"$&'()*,;<>?[\\]^`{|}"
+var backslashed = charSet(" !\"$&'()*,;<>?[\\]^`{|}")
+
+// charSet indexes the bytes of s, so that a refusal quoting a long body does
+// not search a string once per character of it.
+func charSet(s string) (set [256]bool) {
+	for i := 0; i < len(s); i++ {
+		set[s[i]] = true
+	}
+	return set
+}
 
 // cEscapes are the names bash gives the control characters inside $'...'.
 var cEscapes = map[byte]byte{
@@ -123,9 +140,10 @@ func shellQuote(s string) string {
 	}
 
 	var b strings.Builder
+	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if strings.IndexByte(backslashed, c) >= 0 || (c == '#' && i == 0) {
+		if backslashed[c] || (c == '#' && i == 0) {
 			b.WriteByte('\\')
 		}
 		b.WriteByte(c)
@@ -137,6 +155,7 @@ func shellQuote(s string) string {
 // control character.
 func dollarQuote(s string) string {
 	var b strings.Builder
+	b.Grow(len(s) + 3)
 	b.WriteString("$'")
 	for i := 0; i < len(s); i++ {
 		c := s[i]

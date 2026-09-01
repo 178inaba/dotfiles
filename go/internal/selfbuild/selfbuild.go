@@ -95,6 +95,21 @@ type State struct {
 	FirstError string
 }
 
+// Report is what a command says about a build that has just failed, prefixed
+// with its own name. Empty unless this invocation is the one that ran the
+// build, so that a broken tree produces one message rather than one per hook
+// and per script until somebody fixes it.
+//
+// The wording lives here because the three callers — the hooks, the script
+// subcommands and the gh shim — say the same thing on channels of their own,
+// and a sentence written out three times drifts.
+func (s State) Report(name string) string {
+	if !s.JustFailed {
+		return ""
+	}
+	return name + ": the Go module does not build, so this ran the previously installed binary: " + s.FirstError
+}
+
 // Deps are the seams. Use NewDeps for the real ones.
 //
 // Filesystem calls are not among them: the tests build a real home directory in

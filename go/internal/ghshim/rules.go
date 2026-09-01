@@ -43,47 +43,72 @@ type valueFlags struct {
 	short string
 }
 
-var valueFlagTable = map[command]valueFlags{
-	{"issue", "create"}: {names("assignee", "body", "body-file", "label", "milestone", "project", "recover", "template", "title", "repo"), "abFlmpTtR"},
+// The rows hold what each verb declares for itself. -R/--repo is inherited
+// from gh, which lists it apart from a command's own flags, so it is added
+// once by withInheritedRepo rather than written into two dozen rows.
+var valueFlagTable = withInheritedRepo(map[command]valueFlags{
+	{"issue", "create"}: {names("assignee", "body", "body-file", "label", "milestone", "project", "recover", "template", "title"), "abFlmpTt"},
 
-	{"issue", "comment"}: {names("body", "body-file", "repo"), "bFR"},
-	{"pr", "comment"}:    {names("body", "body-file", "repo"), "bFR"},
-	{"pr", "review"}:     {names("body", "body-file", "repo"), "bFR"},
+	{"issue", "comment"}: {names("body", "body-file"), "bF"},
+	{"pr", "comment"}:    {names("body", "body-file"), "bF"},
+	{"pr", "review"}:     {names("body", "body-file"), "bF"},
 
-	{"issue", "edit"}:  {names("add-assignee", "add-label", "add-project", "body", "body-file", "milestone", "remove-assignee", "remove-label", "remove-project", "title", "repo"), "bFmtR"},
-	{"issue", "close"}: {names("comment", "reason", "repo"), "crR"},
+	{"issue", "edit"}:  {names("add-assignee", "add-label", "add-project", "body", "body-file", "milestone", "remove-assignee", "remove-label", "remove-project", "title"), "bFmt"},
+	{"issue", "close"}: {names("comment", "reason"), "cr"},
 
-	{"issue", "reopen"}: {names("comment", "repo"), "cR"},
-	{"pr", "close"}:     {names("comment", "repo"), "cR"},
-	{"pr", "reopen"}:    {names("comment", "repo"), "cR"},
+	{"issue", "reopen"}: {names("comment"), "c"},
+	{"pr", "close"}:     {names("comment"), "c"},
+	{"pr", "reopen"}:    {names("comment"), "c"},
 
-	{"issue", "develop"}: {names("base", "branch-repo", "name", "repo"), "bnR"},
+	{"issue", "develop"}: {names("base", "branch-repo", "name"), "bn"},
 
-	{"issue", "lock"}: {names("reason", "repo"), "rR"},
-	{"pr", "lock"}:    {names("reason", "repo"), "rR"},
+	{"issue", "lock"}: {names("reason"), "r"},
+	{"pr", "lock"}:    {names("reason"), "r"},
 
-	{"pr", "create"}:   {names("assignee", "base", "body", "body-file", "head", "label", "milestone", "project", "recover", "reviewer", "template", "title", "repo"), "aBbFHlmprTtR"},
-	{"pr", "edit"}:     {names("add-assignee", "add-label", "add-project", "add-reviewer", "base", "body", "body-file", "milestone", "remove-assignee", "remove-label", "remove-project", "remove-reviewer", "title", "repo"), "BbFmtR"},
-	{"pr", "merge"}:    {names("author-email", "body", "body-file", "match-head-commit", "subject", "repo"), "AbFtR"},
-	{"pr", "revert"}:   {names("body", "body-file", "title", "repo"), "bFtR"},
-	{"pr", "checkout"}: {names("branch", "repo"), "bR"},
+	{"pr", "create"}:   {names("assignee", "base", "body", "body-file", "head", "label", "milestone", "project", "recover", "reviewer", "template", "title"), "aBbFHlmprTt"},
+	{"pr", "edit"}:     {names("add-assignee", "add-label", "add-project", "add-reviewer", "base", "body", "body-file", "milestone", "remove-assignee", "remove-label", "remove-project", "remove-reviewer", "title"), "BbFmt"},
+	{"pr", "merge"}:    {names("author-email", "body", "body-file", "match-head-commit", "subject"), "AbFt"},
+	{"pr", "revert"}:   {names("body", "body-file", "title"), "bFt"},
+	{"pr", "checkout"}: {names("branch"), "b"},
 
-	{"release", "create"}: {names("discussion-category", "notes", "notes-file", "notes-start-tag", "target", "title", "repo"), "nFtR"},
-	{"release", "edit"}:   {names("discussion-category", "notes", "notes-file", "tag", "target", "title", "repo"), "nFtR"},
+	{"release", "create"}: {names("discussion-category", "notes", "notes-file", "notes-start-tag", "target", "title"), "nFt"},
+	{"release", "edit"}:   {names("discussion-category", "notes", "notes-file", "tag", "target", "title"), "nFt"},
 
-	{"label", "create"}: {names("color", "description", "repo"), "cdR"},
-	{"label", "edit"}:   {names("color", "description", "name", "repo"), "cdnR"},
+	{"label", "create"}: {names("color", "description"), "cd"},
+	{"label", "edit"}:   {names("color", "description", "name"), "cdn"},
 
+	// gh repo does not inherit --repo, so these rows are complete as they are:
+	// edit, delete, archive and unarchive have no way to name a repository but
+	// the positional, and rename declares a --repo of its own.
 	{"repo", "edit"}:   {names("add-topic", "default-branch", "description", "homepage", "remove-topic", "visibility"), "dh"},
 	{"repo", "sync"}:   {names("branch", "source"), "bs"},
 	{"repo", "rename"}: {names("repo"), "R"},
+})
+
+// inheritedRepo is gh's own -R/--repo, and the whole of what an unlisted
+// command outside gh repo takes.
+var inheritedRepo = valueFlags{names("repo"), "R"}
+
+// withInheritedRepo adds -R/--repo to every command that inherits it, so that
+// the table itself does not have to say so once per row.
+func withInheritedRepo(table map[command]valueFlags) map[command]valueFlags {
+	for c, f := range table {
+		if c.noun == "repo" {
+			continue
+		}
+		for n := range inheritedRepo.long {
+			f.long[n] = true
+		}
+		f.short += inheritedRepo.short
+		table[c] = f
+	}
+	return table
 }
 
 // valueFlagsFor answers for every command, listed or not.
 //
-// issue, pr, release and label inherit -R/--repo from gh itself; the rest of
-// gh repo — delete, archive and unarchive — has only the boolean --yes, and no
-// --repo at all.
+// The rest of gh repo — delete, archive and unarchive — has only the boolean
+// --yes, so an empty answer is the right one there.
 func valueFlagsFor(c command) valueFlags {
 	if f, ok := valueFlagTable[c]; ok {
 		return f
@@ -91,12 +116,17 @@ func valueFlagsFor(c command) valueFlags {
 	if c.noun == "repo" {
 		return valueFlags{}
 	}
-	return valueFlags{names("repo"), "R"}
+	return inheritedRepo
 }
 
 // recovery is how the second rule tells the caller to pass the body instead.
-// It belongs to the table so that registering a body flag has to name one:
-// deriving it from the flags afterwards left a branch that could not be reached.
+//
+// It belongs to the table rather than being derived from whether the verb has
+// a file form, because "no file form" does not imply that gh <noun> comment
+// exists to take the body instead — the shell version had a third branch for
+// exactly that case, unreachable and there to keep the message from offering a
+// command that does not exist. Registering a body flag names one of these
+// instead, and TestEveryBodyFlagOffersARecoveryItHas holds the pairing.
 type recovery int
 
 const (
@@ -126,24 +156,32 @@ type bodyFlags struct {
 	recovery                recovery
 }
 
+// The three shapes a body flag comes in, named so that the table below reads as
+// which verb takes which rather than as fifteen rows of literals.
+var (
+	body    = bodyFlags{"body", "b", "body-file", "F", recoverByFile}
+	notes   = bodyFlags{"notes", "n", "notes-file", "F", recoverByFile}
+	comment = bodyFlags{inlineLong: "comment", inlineShort: "c", recovery: recoverByComment}
+)
+
 var bodyFlagTable = map[command]bodyFlags{
-	{"issue", "create"}:  {"body", "b", "body-file", "F", recoverByFile},
-	{"issue", "comment"}: {"body", "b", "body-file", "F", recoverByFile},
-	{"issue", "edit"}:    {"body", "b", "body-file", "F", recoverByFile},
-	{"pr", "create"}:     {"body", "b", "body-file", "F", recoverByFile},
-	{"pr", "comment"}:    {"body", "b", "body-file", "F", recoverByFile},
-	{"pr", "edit"}:       {"body", "b", "body-file", "F", recoverByFile},
-	{"pr", "merge"}:      {"body", "b", "body-file", "F", recoverByFile},
-	{"pr", "review"}:     {"body", "b", "body-file", "F", recoverByFile},
-	{"pr", "revert"}:     {"body", "b", "body-file", "F", recoverByFile},
+	{"issue", "create"}:  body,
+	{"issue", "comment"}: body,
+	{"issue", "edit"}:    body,
+	{"pr", "create"}:     body,
+	{"pr", "comment"}:    body,
+	{"pr", "edit"}:       body,
+	{"pr", "merge"}:      body,
+	{"pr", "review"}:     body,
+	{"pr", "revert"}:     body,
 
-	{"release", "create"}: {"notes", "n", "notes-file", "F", recoverByFile},
-	{"release", "edit"}:   {"notes", "n", "notes-file", "F", recoverByFile},
+	{"release", "create"}: notes,
+	{"release", "edit"}:   notes,
 
-	{"issue", "close"}:  {inlineLong: "comment", inlineShort: "c", recovery: recoverByComment},
-	{"issue", "reopen"}: {inlineLong: "comment", inlineShort: "c", recovery: recoverByComment},
-	{"pr", "close"}:     {inlineLong: "comment", inlineShort: "c", recovery: recoverByComment},
-	{"pr", "reopen"}:    {inlineLong: "comment", inlineShort: "c", recovery: recoverByComment},
+	{"issue", "close"}:  comment,
+	{"issue", "reopen"}: comment,
+	{"pr", "close"}:     comment,
+	{"pr", "reopen"}:    comment,
 }
 
 // bodyFlagsFor answers for every command; an unlisted one carries no body.

@@ -9,10 +9,14 @@ import "fmt"
 // escaped backticks resolved. The bytes below are the ones it produced, and the
 // tests hold them against captures of the real output.
 
-// repoFlagHint closes the first rule's advice wherever -R is a way through.
-const repoFlagHint = `  ※ 現在のディレクトリの remote が正しいと確信できる場合も、
+// repoFlagStep and repoFlagHint open and close the first rule's advice wherever
+// -R is a way through, which is four of the five.
+const (
+	repoFlagStep = "  1. 対象リポジトリを -R owner/repo で明示して再実行する"
+	repoFlagHint = `  ※ 現在のディレクトリの remote が正しいと確信できる場合も、
        gh repo view --json nameWithOwner -q .nameWithOwner
      で取得した値を -R に渡して明示する`
+)
 
 // notExplicitMessage is the first rule: the repository has to be named.
 func notExplicitMessage(c command, argv []string, dir, remote string) string {
@@ -33,17 +37,19 @@ func notExplicitMessage(c command, argv []string, dir, remote string) string {
 `, attemptedCommand(argv), c.noun, c.verb, dir, remote, explicitnessRecovery(c))
 }
 
-// explicitnessRecovery is the way through, which differs per noun: offering
-// only -R would read as unsatisfiable under gh repo, which has none.
+// explicitnessRecovery is the way through, taken from the same classification
+// the test uses: offering only -R would read as unsatisfiable under gh repo,
+// which has none, and offering a URL to a verb with no selector would be a way
+// through that is not one.
 func explicitnessRecovery(c command) string {
-	switch {
-	case c.noun == "repo" && c.verb == "rename":
-		return fmt.Sprintf(`  1. 対象リポジトリを -R owner/repo で明示して再実行する
+	switch classify(c) {
+	case byFlagNotPositional:
+		return fmt.Sprintf(`%s
        例: gh repo rename new-name -R owner/repo
      gh repo rename の位置引数は新しいリポジトリ名で、リポジトリの明示にはなりません。
-%s`, repoFlagHint)
+%s`, repoFlagStep, repoFlagHint)
 
-	case c.noun == "repo":
+	case byPositional:
 		return fmt.Sprintf(`  1. 対象リポジトリを位置引数で明示して再実行する
        例: gh repo %s owner/repo ...
      形式は OWNER/REPO・HOST/OWNER/REPO・リポジトリ URL のいずれかです。
@@ -51,31 +57,28 @@ func explicitnessRecovery(c command) string {
   2. gh repo %s に -R/--repo はなく、環境変数によるリポジトリ指定も効きません。
      位置引数はフラグより前でも後ろでも構いません。`, c.verb, c.verb)
 
-	case (c.noun == "issue" || c.noun == "pr") && c.verb == "create":
-		return fmt.Sprintf(`  1. 対象リポジトリを -R owner/repo で明示して再実行する
+	case byFlagNoSelector:
+		return fmt.Sprintf(`%s
        例: gh %s create -R owner/repo ...
      create は selector を取らないため、URL でリポジトリを示す形はありません。
-%s`, c.noun, repoFlagHint)
+%s`, repoFlagStep, c.noun, repoFlagHint)
 
-	case c.noun == "issue" || c.noun == "pr":
-		// Only the verbs that take a selector can use the URL form, so create
-		// is answered above: offering it a URL would be a way through that is
-		// not one.
+	case byFlagOrURL:
 		example := "https://github.com/owner/repo/issues/123"
 		if c.noun == "pr" {
 			example = "https://github.com/owner/repo/pull/123"
 		}
-		return fmt.Sprintf(`  1. 対象リポジトリを -R owner/repo で明示して再実行する
+		return fmt.Sprintf(`%s
        例: gh %s %s -R owner/repo ...
   2. 対象を完全な URL で指定する（URL にリポジトリが含まれます）
        例: gh %s %s %s ...
      番号のみ・ブランチ名は cwd の remote で解決されるため明示になりません。
-%s`, c.noun, c.verb, c.noun, c.verb, example, repoFlagHint)
+%s`, repoFlagStep, c.noun, c.verb, c.noun, c.verb, example, repoFlagHint)
 
 	default:
-		return fmt.Sprintf(`  1. 対象リポジトリを -R owner/repo で明示して再実行する
+		return fmt.Sprintf(`%s
        例: gh %s %s -R owner/repo ...
-%s`, c.noun, c.verb, repoFlagHint)
+%s`, repoFlagStep, c.noun, c.verb, repoFlagHint)
 	}
 }
 

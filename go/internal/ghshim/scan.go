@@ -39,21 +39,19 @@ func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
 		case tok == "--":
 			endOfFlags = true
 
-		case strings.HasPrefix(tok, "--") && strings.Contains(tok, "="):
-			name, value, _ := strings.Cut(tok, "=")
-			if name == "--repo" {
-				s.hasRepo = true
-			}
-			s.recordBody(strings.TrimPrefix(name, "--"), value, bf.inlineLong, bf.fileLong)
-
 		case strings.HasPrefix(tok, "--"):
-			if tok == "--repo" {
+			// --repo=owner/repo and --repo owner/repo are the same flag, so
+			// the attached and the separate spelling are one case.
+			name, value, attached := strings.Cut(tok[2:], "=")
+			if name == "repo" {
 				s.hasRepo = true
 			}
-			name := strings.TrimPrefix(tok, "--")
-			if vf.long[name] && i+1 < len(args) {
+			if !attached && vf.long[name] && i+1 < len(args) {
 				i++
-				s.recordBody(name, args[i], bf.inlineLong, bf.fileLong)
+				value, attached = args[i], true
+			}
+			if attached {
+				s.recordBody(name, value, bf.inlineLong, bf.fileLong)
 			}
 
 		case strings.HasPrefix(tok, "-") && len(tok) > 1:
@@ -121,27 +119,57 @@ var repoPositional = regexp.MustCompile(
 var issueURL = regexp.MustCompile(
 	`^https?://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/(issues|pull)/[0-9]+/?$`)
 
-// isExplicit reports whether the command names its own repository.
+// explicitness is how a command can name its own repository.
 //
-// The invariant is that the repository is not resolved from the working
-// directory; -R is one sufficient condition for that and not the only one, and
-// which conditions exist differs per noun, so the test does too.
-func isExplicit(c command, s scanned) bool {
+// The invariant the first rule holds is that the repository is not resolved
+// from the working directory; -R is one sufficient condition for that and not
+// the only one, and which conditions exist differs per noun. Naming the ways
+// once is what keeps the test and the guidance it offers on a refusal from
+// drifting apart: both switch over this.
+type explicitness int
+
+const (
+	// byFlag: -R/--repo or GH_REPO, and nothing else. Release tags and label
+	// names are not repositories.
+	byFlag explicitness = iota
+	// byFlagOrURL: also a selector given as a full issue or pull request URL.
+	byFlagOrURL
+	// byFlagNoSelector: the verb takes no selector, so no URL can carry a
+	// repository — gh issue create and gh pr create.
+	byFlagNoSelector
+	// byPositional: gh repo edit and its siblings have no -R at all, and gh
+	// resolves GH_REPO only as a default for -R, so the positional is the only
+	// way left.
+	byPositional
+	// byFlagNotPositional: gh repo rename takes a positional, but it is the
+	// new repository name, so it names nothing.
+	byFlagNotPositional
+)
+
+// classify says which of the ways applies to c.
+func classify(c command) explicitness {
 	switch {
 	case c.noun == "repo" && c.verb == "rename":
-		// The positional is the new repository name, so it names nothing.
-		return s.hasRepo
+		return byFlagNotPositional
 	case c.noun == "repo":
-		// These have no -R at all, and gh resolves GH_REPO only as a default
-		// for -R, so the positional is the only way left.
+		return byPositional
+	case c.noun != "issue" && c.noun != "pr":
+		return byFlag
+	case c.verb == "create":
+		return byFlagNoSelector
+	default:
+		return byFlagOrURL
+	}
+}
+
+// isExplicit reports whether the command names its own repository.
+func isExplicit(c command, s scanned) bool {
+	switch classify(c) {
+	case byPositional:
 		return repoPositional.MatchString(s.positional)
-	case (c.noun == "issue" || c.noun == "pr") && c.verb == "create":
-		// No selector, so there is no URL to carry a repository.
-		return s.hasRepo
-	case c.noun == "issue" || c.noun == "pr":
+	case byFlagOrURL:
 		return s.hasRepo || issueURL.MatchString(s.positional)
 	default:
-		// A release tag and a label name are not repositories.
 		return s.hasRepo
 	}
 }

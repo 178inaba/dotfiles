@@ -105,12 +105,14 @@ type deps struct {
 // untouched. Leaving them out is what makes that checkable rather than
 // promised — reading standard input would consume what gh is about to read.
 func Execute(ctx context.Context, argv []string, stderr io.Writer) int {
-	build := selfbuild.Run(ctx, selfbuild.NewDeps(argv))
+	// One resolution of this executable, shared with the self-rebuild rather
+	// than taken twice.
+	sb := selfbuild.NewDeps(argv)
+	build := selfbuild.Run(ctx, sb)
 
-	exe, _ := os.Executable()
-	selfDir, err := filepath.EvalSymlinks(filepath.Dir(exe))
+	selfDir, err := filepath.EvalSymlinks(filepath.Dir(sb.Exe))
 	if err != nil {
-		selfDir = filepath.Dir(exe)
+		selfDir = filepath.Dir(sb.Exe)
 	}
 
 	return run(argv, stderr, deps{
@@ -197,10 +199,7 @@ func run(argv []string, stderr io.Writer, d deps) (code int) {
 // unchanged. A guard that started blocking everything, or stopped blocking
 // anything, because the toolchain is unhappy would be worse than a stale one.
 func reportBuild(stderr io.Writer, build selfbuild.State) {
-	if !build.JustFailed {
-		return
+	if report := build.Report("gh shim"); report != "" {
+		fmt.Fprintln(stderr, report)
 	}
-	fmt.Fprintf(stderr,
-		"gh shim: the Go module does not build, so this ran the previously installed binary: %s\n",
-		build.FirstError)
 }

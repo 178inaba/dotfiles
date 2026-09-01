@@ -260,16 +260,7 @@ func TestRunRebuildsAndReExecs(t *testing.T) {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
 	}
 
-	// Every target, so that editing either binary's source rebuilds both.
-	wantCalls := []runner.Command{
-		{Name: "go", Args: []string{"-C", h.root, "install", "./cmd/ccx"}},
-		{
-			Name: "go",
-			Args: []string{"-C", h.root, "install", "./cmd/gh"},
-			Env:  []string{"GOBIN=" + filepath.Join(h.home, ".local", "shims")},
-		},
-	}
-	if diff := cmp.Diff(wantCalls, h.runner.calls); diff != "" {
+	if diff := cmp.Diff(wantInstalls(h), h.runner.calls); diff != "" {
 		t.Errorf("commands mismatch (-want +got):\n%s", diff)
 	}
 
@@ -403,32 +394,44 @@ func mustScan(t *testing.T, root string) source {
 	return s
 }
 
+// wantInstalls is the whole fixed list as commands: one install per target, in
+// order, each with the GOBIN its own directory calls for. Shared so that adding
+// a target updates one expectation rather than two.
+func wantInstalls(h *harness) []runner.Command {
+	want := make([]runner.Command, 0, len(targets()))
+	for _, t := range targets() {
+		c := runner.Command{Name: "go", Args: []string{"-C", h.root, "install", t.pkg}}
+		if t.gobin != "" {
+			// Absolute, because go install refuses anything else, and equal to
+			// what installPath expects the binary to be at.
+			c.Env = []string{"GOBIN=" + filepath.Join(h.home, t.gobin)}
+		}
+		want = append(want, c)
+	}
+	return want
+}
+
 // TestInstallResolvesGOBIN pins the pair contract: a target names its directory
 // once, and both the install and the check that finds the binary afterwards
 // resolve it the same way.
 func TestInstallResolvesGOBIN(t *testing.T) {
 	h := newHarness(t)
-	shims := target{pkg: "./cmd/gh", gobin: ".local/shims"}
 
 	if _, err := install(t.Context(), h.deps(), h.root, targets()); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
-	want := []runner.Command{
-		{Name: "go", Args: []string{"-C", h.root, "install", "./cmd/ccx"}},
-		{
-			Name: "go",
-			Args: []string{"-C", h.root, "install", "./cmd/gh"},
-			// Absolute, because go install refuses anything else, and equal to
-			// what installPath expects the binary to be at.
-			Env: []string{"GOBIN=" + filepath.Join(h.home, ".local", "shims")},
-		},
-	}
-	if diff := cmp.Diff(want, h.runner.calls); diff != "" {
+	if diff := cmp.Diff(wantInstalls(h), h.runner.calls); diff != "" {
 		t.Errorf("commands mismatch (-want +got):\n%s", diff)
 	}
-	if got := installPath(h.deps(), shims); got != filepath.Join(h.home, ".local", "shims", "gh") {
-		t.Errorf("installPath = %q, does not match the GOBIN the install was given", got)
+	for _, target := range targets() {
+		if target.gobin == "" {
+			continue
+		}
+		want := filepath.Join(h.home, target.gobin, filepath.Base(target.pkg))
+		if got := installPath(h.deps(), target); got != want {
+			t.Errorf("installPath = %q, does not match the GOBIN the install was given (%q)", got, want)
+		}
 	}
 }
 

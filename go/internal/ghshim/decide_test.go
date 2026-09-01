@@ -300,9 +300,8 @@ func TestDecideBareHashRefs(t *testing.T) {
 	at := func(name string) string { return filepath.Join(bodies, name) }
 
 	runDecideCases(t, bodies, []decideCase{
-		{name: "inline --body: bare #N", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "--body", "fix #1, #2, #3"}, block: true},
 		{name: "message: rule 3 reports the distinct count", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("hash-numbering.md")}, block: true, golden: "rule3-body-file"},
-		{name: "message: rule 3 shows where the body came from", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "--body", "fix #1, #2, #3"}, block: true, golden: "rule3-inline"},
+		{name: "inline --body: bare #N", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "--body", "fix #1, #2, #3"}, block: true, golden: "rule3-inline"},
 
 		// Forms GitHub does not link, and forms that look like real references.
 		{name: "body-file: ordered list numbering", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("ordered-list.md")}},
