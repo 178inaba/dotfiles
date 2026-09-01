@@ -11,12 +11,12 @@ package prinfo
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/cache"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 const (
@@ -53,12 +53,12 @@ type Info struct {
 // Lookup returns the cached badge and whether the caller should start a
 // refresh. A stale badge is still returned: it beats a gap while the refresh
 // runs.
-func Lookup(dir, key string, now time.Time) (Info, bool) {
-	rec, ok := cache.Read[Info](dir, key)
+func Lookup(cacheDir, key string, now time.Time) (Info, bool) {
+	rec, ok := cache.Read[Info](cacheDir, key)
 	if ok && cache.Fresh(now, rec.At, maxAge) {
 		return rec.Value, false
 	}
-	return rec.Value, cache.ShouldAttempt(dir, now, retryInterval)
+	return rec.Value, cache.ShouldAttempt(cacheDir, now, retryInterval)
 }
 
 // Refresh asks GitHub about a branch and stores the answer.
@@ -78,14 +78,15 @@ func Lookup(dir, key string, now time.Time) (Info, bool) {
 // can leave nothing behind — skipping the write would strand whatever badge is
 // already on screen.
 //
-// repoDir is the directory the badge is about. It is passed rather than
-// inherited from the process because the record is keyed by it: an answer
-// computed somewhere else would be filed under a directory it does not
-// describe.
+// dir is the repository the badge is about, and cacheDir is where the answer is
+// filed; they are different directories and only the first is ever handed to
+// git. dir is passed rather than inherited from the process because the record
+// is keyed by it: an answer computed somewhere else would be filed under a
+// directory it does not describe.
 func Refresh(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client, error),
-	dir, key, branch, repoDir string, now time.Time,
+	cacheDir, key, branch, dir string, now time.Time,
 ) error {
-	return cache.Write(dir, key, now, badge(ctx, r, newClient, repoDir, branch))
+	return cache.Write(cacheDir, key, now, badge(ctx, r, newClient, dir, branch))
 }
 
 // badge returns the pull request to show for branch, or the zero Info when
@@ -96,9 +97,11 @@ func badge(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client
 	// The default branch may be the head of a release pull request, but it is
 	// not a branch-specific working context, so it is skipped before GitHub is
 	// reached — and origin/HEAD answers that from git alone, which is what
-	// keeps the common case free of both a request and a client.
-	def, known := localDefaultBranch(ctx, r, dir)
-	if known && def == branch {
+	// keeps the common case free of both a request and a client. Empty is
+	// "origin/HEAD says nothing", which is the case GitHub is asked about
+	// below rather than an answer.
+	def := worktree.DefaultBranch(ctx, r, dir)
+	if def != "" && def == branch {
 		return Info{}
 	}
 
@@ -118,7 +121,7 @@ func badge(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client
 		return Info{}
 	}
 
-	if !known {
+	if def == "" {
 		// No origin/HEAD, as in a repository that gained its remote by hand.
 		// When GitHub does not answer either, the badge is shown rather than
 		// hidden: a badge too many beats a badge missing.
@@ -129,11 +132,10 @@ func badge(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client
 	return fetch(ctx, c, r, dir, repo, branch)
 }
 
-// fetch returns the current branch's pull request, or the zero Info when there
-// is none to show.
+// fetch returns the branch's pull request, or the zero Info when there is none
+// to show.
 func fetch(ctx context.Context, c *ghapi.Client, r runner.Runner, dir string, repo ghapi.Repo, branch string) Info {
-	ref, owner := head(ctx, r, dir, repo, branch)
-	pr, err := c.PullRequestForBranch(ctx, repo, ref, owner)
+	pr, err := c.PullRequestForBranch(ctx, r, dir, repo, branch)
 	if err != nil {
 		return Info{}
 	}
@@ -142,47 +144,6 @@ func fetch(ctx context.Context, c *ghapi.Client, r runner.Runner, dir string, re
 		return Info{}
 	}
 	return Info{Number: pr.Number, State: state(pr.IsDraft, pr.ReviewDecision), URL: pr.URL}
-}
-
-// head returns the ref to look a pull request up by and the account its head
-// has to belong to.
-//
-// This is where `gh pr view` with no argument and a lookup by branch name part
-// company, and reading the same two settings gh does is what closes the gap.
-// `gh pr checkout` on a pull request from a fork leaves branch.<name>.merge
-// naming the ref on the fork, which the local branch may not be called, and
-// branch.<name>.remote naming the fork. Without both, such a branch resolves to
-// no pull request at all and the badge disappears.
-//
-// The owner narrowing is only lifted for a remote that resolves to some other
-// repository, because it is what keeps a fork's branch of the same name from
-// answering for the local one. A remote that cannot be read or parsed keeps the
-// narrowing rather than widening on ignorance.
-func head(ctx context.Context, r runner.Runner, dir string, repo ghapi.Repo, branch string) (string, string) {
-	const refPrefix = "refs/heads/"
-
-	merge, err := runner.Git(ctx, r, dir, "config", "--get", "branch."+branch+".merge")
-	if err != nil || !strings.HasPrefix(merge, refPrefix) {
-		return branch, repo.Owner
-	}
-	ref := strings.TrimPrefix(merge, refPrefix)
-
-	remote, err := runner.Git(ctx, r, dir, "config", "--get", "branch."+branch+".remote")
-	if err != nil {
-		return ref, repo.Owner
-	}
-	// The setting holds either a remote's name or a url; only a name needs the
-	// second lookup to become one.
-	url := remote
-	if !strings.ContainsAny(remote, ":/") {
-		if url, err = runner.Git(ctx, r, dir, "config", "--get", "remote."+remote+".url"); err != nil {
-			return ref, repo.Owner
-		}
-	}
-	if got, err := ghapi.ParseRepo(url); err != nil || got == repo {
-		return ref, repo.Owner
-	}
-	return ref, ""
 }
 
 func state(isDraft bool, reviewDecision string) State {
@@ -194,23 +155,4 @@ func state(isDraft bool, reviewDecision string) State {
 	default:
 		return State(reviewDecision)
 	}
-}
-
-// localDefaultBranch reports what origin/HEAD says the default branch is, and
-// whether it said anything at all.
-//
-// The two are separate because "unknown" and "not this branch" lead different
-// places: the first is what sends this to GitHub, the second is what starts a
-// pull request lookup.
-//
-// worktree.DefaultBranch runs the same query. The duplicate is deliberate —
-// sharing it would put internal/worktree in the status line's dependency graph
-// for one git invocation.
-func localDefaultBranch(ctx context.Context, r runner.Runner, dir string) (string, bool) {
-	out, err := runner.Git(ctx, r, dir, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
-	if err != nil {
-		return "", false
-	}
-	def := strings.TrimPrefix(out, "origin/")
-	return def, def != ""
 }

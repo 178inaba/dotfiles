@@ -109,7 +109,12 @@ func Run(ctx context.Context, cfg Config, stdin io.Reader, stdout io.Writer, bui
 //
 // The cache is keyed by directory so that parallel sessions do not overwrite
 // each other's. git runs in the process working directory rather than in the
-// one the payload named; Claude Code starts the command there.
+// one the payload named, which holds because Claude Code starts the command
+// there — not because running it anywhere else would be wrong. The refresh
+// child is told the directory outright, so where the two can disagree the
+// branch here and the pull request filed under it come from different
+// repositories; reconciling them means passing current to git below, and this
+// is where that would go.
 func repository(ctx context.Context, cfg Config, current string, now time.Time) *gitstate.Status {
 	dir := cache.Path(cfg.GitCacheDir, current)
 	if rec, ok := cache.Read[*gitstate.Status](dir, current); ok && cache.Fresh(now, rec.At, gitMaxAge) {

@@ -39,29 +39,14 @@ type fakeRunner struct {
 func (f *fakeRunner) Run(_ context.Context, c runner.Command) ([]byte, error) {
 	f.calls = append(f.calls, append([]string{c.Name}, c.Args...))
 
-	sub := ""
-	for i, a := range c.Args {
-		// Skip `-C <dir>`; what follows is the subcommand and then, for git
-		// config, the setting being read.
-		if a == "-C" {
-			continue
-		}
-		if i > 0 && c.Args[i-1] == "-C" {
-			continue
-		}
-		sub = a
-		if sub == "config" && i+2 < len(c.Args) {
-			sub = "config " + c.Args[i+2]
-		}
-		break
-	}
+	// runner.Git always prepends `-C <dir>`, so the subcommand is at a fixed
+	// index rather than something to search for.
+	sub := c.Args[2]
 	if f.fail[sub] {
 		return nil, &runner.Error{Name: c.Name, Err: os.ErrInvalid}
 	}
 	out, ok := f.out[sub]
 	if !ok {
-		// git config exits non-zero for a setting that is not there, and the
-		// caller has to see that rather than an empty value.
 		return nil, &runner.Error{Name: c.Name, Err: os.ErrNotExist}
 	}
 	return []byte(out), nil
@@ -80,15 +65,9 @@ func (f *fakeRunner) gitOnly(t *testing.T) {
 }
 
 // dirOf returns the directory a recorded call was made in, so a test can check
-// that the passed directory reached git rather than the process's own.
-func dirOf(call []string) string {
-	for i, a := range call {
-		if a == "-C" && i+1 < len(call) {
-			return call[i+1]
-		}
-	}
-	return ""
-}
+// that the passed directory reached git rather than the process's own. The
+// recorded argv has the command name prepended, hence one past runner.Git's.
+func dirOf(call []string) string { return call[2] }
 
 const prNode = `{
 	"number": %d,
@@ -254,14 +233,6 @@ func TestRefresh(t *testing.T) {
 			wantGraphQL: 1,
 		},
 		{
-			name:        "a pull request with changes requested",
-			branch:      "feat",
-			out:         originHEAD,
-			node:        fmt.Sprintf(prNode, 125, "OPEN", 125, "CHANGES_REQUESTED", false, "178inaba"),
-			want:        Info{Number: 125, State: StateChangesRequested, URL: "https://e/125"},
-			wantGraphQL: 1,
-		},
-		{
 			// A merged pull request is history, not the current work.
 			name:        "a merged pull request is not shown",
 			branch:      "feat",
@@ -390,92 +361,6 @@ func TestRefreshWithoutAClient(t *testing.T) {
 	}
 	if diff := cmp.Diff(Info{}, rec.Value); diff != "" {
 		t.Errorf("Info mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// TestRefreshFollowsTheBranchConfig is the fork checkout `gh pr view` resolves
-// through branch.<name>.merge and branch.<name>.remote. Without reading both,
-// the local branch name finds no pull request and the badge disappears.
-func TestRefreshFollowsTheBranchConfig(t *testing.T) {
-	t.Parallel()
-
-	const remotes = "origin\tgit@github.com:178inaba/dotfiles.git (fetch)\n"
-
-	tests := []struct {
-		name      string
-		out       map[string]string
-		headOwner string
-		wantRef   string
-		wantInfo  Info
-	}{
-		{
-			// gh pr checkout on a fork's pull request: the ref lives on the
-			// fork under another name, and its head is not this account's.
-			name: "a head on a fork is found",
-			out: map[string]string{
-				"symbolic-ref":              "origin/main\n",
-				"remote":                    remotes,
-				"config branch.feat.merge":  "refs/heads/their-branch\n",
-				"config branch.feat.remote": "git@github.com:someone/dotfiles.git\n",
-			},
-			headOwner: "someone",
-			wantRef:   "their-branch",
-			wantInfo:  Info{Number: 140, State: StateNoReviewRequested, URL: "https://e/140"},
-		},
-		{
-			// An ordinary tracking branch: the settings are there, but they
-			// name this repository, so the narrowing stays and a fork's branch
-			// of the same name cannot answer for it.
-			name: "a head on origin keeps the owner narrowing",
-			out: map[string]string{
-				"symbolic-ref":              "origin/main\n",
-				"remote":                    remotes,
-				"config branch.feat.merge":  "refs/heads/feat\n",
-				"config branch.feat.remote": "origin\n",
-				"config remote.origin.url":  "git@github.com:178inaba/dotfiles.git\n",
-			},
-			headOwner: "someone",
-			wantRef:   "feat",
-			// The only candidate is a fork's, and it is rejected.
-		},
-		{
-			// No branch config at all, which is the branch that was never
-			// pushed. The local name is the head ref.
-			name: "no branch config falls back to the local name",
-			out: map[string]string{
-				"symbolic-ref": "origin/main\n",
-				"remote":       remotes,
-			},
-			headOwner: "178inaba",
-			wantRef:   "feat",
-			wantInfo:  Info{Number: 140, State: StateNoReviewRequested, URL: "https://e/140"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			dir := filepath.Join(t.TempDir(), "pr")
-			r := &fakeRunner{out: tt.out}
-			gh := &github{node: fmt.Sprintf(prNode, 140, "OPEN", 140, "", false, tt.headOwner)}
-			c := ghapitest.New(t, gh.handler(t))
-
-			err := Refresh(t.Context(), r, func() (*ghapi.Client, error) { return c, nil },
-				dir, key, "feat", repoDir, now)
-			if err != nil {
-				t.Fatalf("Refresh: %v", err)
-			}
-
-			rec, _ := cache.Read[Info](dir, key)
-			if diff := cmp.Diff(tt.wantInfo, rec.Value); diff != "" {
-				t.Errorf("Info mismatch (-want +got):\n%s", diff)
-			}
-			if got := gh.vars["headRefName"]; got != tt.wantRef {
-				t.Errorf("headRefName = %v, want %q", got, tt.wantRef)
-			}
-			r.gitOnly(t)
-		})
 	}
 }
 

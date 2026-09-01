@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -157,17 +158,68 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 //
 // The narrowing against gh is that the local branch name is taken to be the
 // head ref, where gh also reads branch.<name>.merge — the two differ only for a
-// branch that `gh pr checkout` created from a fork. A caller that reads that
-// config itself calls PullRequestForBranch instead.
+// branch that `gh pr checkout` created from a fork. PullRequestForBranch is the
+// one that closes that gap.
 func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runner, dir string, repo Repo) (PullRequest, error) {
 	branch, err := currentBranch(ctx, r, dir)
 	if err != nil {
 		return PullRequest{}, err
 	}
-	return c.PullRequestForBranch(ctx, repo, branch, repo.Owner)
+	return c.pullRequestForHead(ctx, repo, branch, repo.Owner)
 }
 
-// PullRequestForBranch returns the pull request in repo whose head is
+// PullRequestForBranch returns the pull request whose head is branch, as
+// checked out in dir.
+//
+// The branch is the caller's rather than something git is asked for, which is
+// what a caller that already knows it — and files the answer under it — needs.
+// Beyond that this is the whole of `gh pr view` with no argument, including the
+// part PullRequestForCurrentBranch leaves out: branch.<name>.merge and
+// branch.<name>.remote, which `gh pr checkout` writes for a pull request from a
+// fork and without which such a branch resolves to nothing.
+func (c *Client) PullRequestForBranch(ctx context.Context, r runner.Runner, dir string, repo Repo, branch string) (PullRequest, error) {
+	ref, owner := head(ctx, r, dir, repo, branch)
+	return c.pullRequestForHead(ctx, repo, ref, owner)
+}
+
+// head returns the ref to look a pull request up by and the account its head
+// has to belong to.
+//
+// branch.<name>.merge names the ref on the remote, which the local branch may
+// not be called; branch.<name>.remote names where that remote is.
+//
+// The owner narrowing is lifted only for a remote that resolves to some other
+// repository, because it is what keeps a fork's branch of the same name from
+// answering for the local one. A remote that cannot be read or parsed keeps the
+// narrowing rather than widening on ignorance.
+func head(ctx context.Context, r runner.Runner, dir string, repo Repo, branch string) (string, string) {
+	const refPrefix = "refs/heads/"
+
+	merge, err := runner.Git(ctx, r, dir, "config", "--get", "branch."+branch+".merge")
+	if err != nil || !strings.HasPrefix(merge, refPrefix) {
+		return branch, repo.Owner
+	}
+	ref := strings.TrimPrefix(merge, refPrefix)
+
+	remote, err := runner.Git(ctx, r, dir, "config", "--get", "branch."+branch+".remote")
+	if err != nil {
+		return ref, repo.Owner
+	}
+	// The setting holds either a remote's name or a url; only a name needs the
+	// second lookup to become one.
+	url := remote
+	if !strings.ContainsAny(remote, ":/") {
+		if url, err = runner.Git(ctx, r, dir, "config", "--get", "remote."+remote+".url"); err != nil {
+			return ref, repo.Owner
+		}
+	}
+	if got, err := ParseRepo(url); err != nil || got == repo {
+		return ref, repo.Owner
+	}
+	return ref, ""
+}
+
+// pullRequestForHead returns the pull request in repo whose head is
 // headRefName.
 //
 // An open pull request wins over a closed or merged one with the same head, so
@@ -178,7 +230,7 @@ func (c *Client) PullRequestForCurrentBranch(ctx context.Context, r runner.Runne
 // branch of the same name and only one of them is the thing being described.
 // Empty accepts any owner, which is what a head that lives on a fork needs —
 // the pull request itself is still one of repo's.
-func (c *Client) PullRequestForBranch(ctx context.Context, repo Repo, headRefName, headOwner string) (PullRequest, error) {
+func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName, headOwner string) (PullRequest, error) {
 	var out struct {
 		Repository struct {
 			PullRequests struct {
