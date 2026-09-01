@@ -1,3 +1,6 @@
+  Detection is whether an issue already has a worktree, which is how a skill tells
+  starting from resuming.
+
   found          boolean
   worktree_path  string or null
                  Path and Branch are null when nothing was found, rather than empty

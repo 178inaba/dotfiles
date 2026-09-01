@@ -52,6 +52,9 @@ type Table struct {
 	// Fields is keyed "<import path>.<Type>.<Field>" and holds the field's doc
 	// comment, flattened to one line.
 	Fields map[string]string
+	// Types is keyed "<import path>.<Type>" and holds a type's own doc
+	// comment, which is where a sentence about the document as a whole lives.
+	Types map[string]string
 	// Enums is keyed "<import path>.<Type>" and holds a named string type's
 	// declared constants, in declaration order.
 	Enums map[string][]string
@@ -95,6 +98,16 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 	}
 
 	var b strings.Builder
+	// The type's own doc comment first: a sentence like "most of the fields
+	// are null on a stopping status" is about the document rather than about
+	// any one field, and there is nowhere else for it to go.
+	for _, line := range wrap(tb.Types[typeKey(deref(t))], lineWidth-2) {
+		b.WriteString("  " + line + "\n")
+	}
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+
 	pad := strings.Repeat(" ", width)
 	for _, r := range rows {
 		head := r.indent() + r.name
@@ -182,17 +195,32 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 		return base + ", required", nil
 	case mode == Input:
 		return base + ", optional", nil
-	case t.Kind() == reflect.Pointer:
-		return base + " or null", nil
 	case strings.Contains(opts, "omitzero"):
+		// The key is left out rather than written as null, so saying both
+		// would describe two shapes only one of which appears.
+		if t.Kind() == reflect.Pointer {
+			return base + ", may be absent", nil
+		}
 		return base + ", absent when empty", nil
+	case t.Kind() == reflect.Pointer && !tb.marshals(t):
+		// A type that serialises itself has already said whether it can be
+		// null, and the pointer here is Go's business rather than the wire's.
+		return base + " or null", nil
 	}
 	return base, nil
 }
 
+// marshals is whether the type behind t takes its own serialisation over.
+func (tb Table) marshals(t reflect.Type) bool {
+	_, ok := tb.Marshalers[deref(t)]
+	return ok
+}
+
 // kindOf names a type the way a JSON document would.
 func (tb Table) kindOf(t reflect.Type) (string, error) {
-	if over, ok := tb.Marshalers[t]; ok {
+	// The override is looked up through a pointer, since a marshaler declared
+	// on the value is reached by the pointer too and the wire form is the same.
+	if over, ok := tb.Marshalers[deref(t)]; ok {
 		return over.Kind, nil
 	}
 	if err := tb.checkMarshaler(t); err != nil {

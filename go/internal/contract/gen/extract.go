@@ -29,6 +29,10 @@ type docs struct {
 	// comment is present with an empty value, so that the renderer can tell a
 	// field it knows about from one the table has never heard of.
 	Fields map[string]string
+	// Types is keyed "<import path>.<Type>" and holds the type's own doc
+	// comment, for the sentences that are about the document as a whole rather
+	// than about any one field.
+	Types map[string]string
 	// Enums is keyed "<import path>.<Type>" and holds the values in
 	// declaration order. A named string type with no constants is absent
 	// rather than empty: the renderer asks whether a type is an enum.
@@ -37,7 +41,7 @@ type docs struct {
 
 // extract reads every package and merges the result.
 func extract(pkgs []pkg) (docs, error) {
-	out := docs{Fields: map[string]string{}, Enums: map[string][]string{}}
+	out := docs{Fields: map[string]string{}, Types: map[string]string{}, Enums: map[string][]string{}}
 	for _, p := range pkgs {
 		if err := extractPkg(p, out); err != nil {
 			return docs{}, err
@@ -66,7 +70,7 @@ func extractPkg(p pkg, out docs) error {
 	}
 
 	for _, f := range files {
-		forEachDecl(f, token.TYPE, func(gd *ast.GenDecl) { collectFields(p.path, gd, out.Fields) })
+		forEachDecl(f, token.TYPE, func(gd *ast.GenDecl) { collectFields(p.path, gd, out) })
 		forEachDecl(f, token.CONST, func(gd *ast.GenDecl) { collectEnums(p.path, gd, stringTypes, out.Enums) })
 	}
 	return nil
@@ -108,7 +112,7 @@ func forEachDecl(f *ast.File, tok token.Token, fn func(*ast.GenDecl)) {
 	}
 }
 
-func collectFields(path string, gd *ast.GenDecl, into map[string]string) {
+func collectFields(path string, gd *ast.GenDecl, out docs) {
 	for _, spec := range gd.Specs {
 		ts, ok := spec.(*ast.TypeSpec)
 		// An unexported type cannot be a contract: nothing outside its own
@@ -120,6 +124,14 @@ func collectFields(path string, gd *ast.GenDecl, into map[string]string) {
 		if !ok {
 			continue
 		}
+		// A single-spec declaration keeps its doc comment on the declaration;
+		// one inside a parenthesised block keeps it on the spec.
+		if doc := docText(ts.Doc); doc != "" {
+			out.Types[path+"."+ts.Name.Name] = doc
+		} else if len(gd.Specs) == 1 {
+			out.Types[path+"."+ts.Name.Name] = docText(gd.Doc)
+		}
+
 		for _, field := range st.Fields.List {
 			// A field with no json tag is not on the wire, whatever else it
 			// is, so nothing about it belongs in a contract.
@@ -127,7 +139,7 @@ func collectFields(path string, gd *ast.GenDecl, into map[string]string) {
 				continue
 			}
 			for _, name := range field.Names {
-				into[path+"."+ts.Name.Name+"."+name.Name] = docText(field.Doc)
+				out.Fields[path+"."+ts.Name.Name+"."+name.Name] = docText(field.Doc)
 			}
 		}
 	}

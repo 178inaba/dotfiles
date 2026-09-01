@@ -66,8 +66,8 @@ type classStatus struct {
 // class.
 var sectionsCheckStatuses = []classStatus{
 	{issue.MissingSection, status{code: 2, symbol: "missing_section", meaning: "a section the kind requires and the draft lacks"}},
-	{issue.UnknownHeading, status{code: 3, symbol: "unknown_heading", meaning: "a `## ` heading that is in neither the schema nor the template mapping"}},
-	{issue.MappedMachineKey, status{code: 4, symbol: "mapped_machine_key", meaning: "a template renaming a heading that other skills find by its text"}},
+	{issue.UnknownHeading, status{code: 3, symbol: "unknown_heading", meaning: "a heading in neither the schema nor the template mapping"}},
+	{issue.MappedMachineKey, status{code: 4, symbol: "mapped_machine_key", meaning: "a template renaming a heading other skills find by its text"}},
 	{issue.HeadingLocaleMismatch, status{code: 5, symbol: "heading_locale_mismatch", meaning: "a canonical heading written in the other language"}},
 }
 
@@ -82,12 +82,19 @@ func sectionsCheckStatus(class issue.Class) (int, bool) {
 }
 
 // checkStatuses is the whole list as a --help renders it.
+//
+// The two ordinary outcomes are spelled out rather than taken from
+// commonStatuses, because this command prints nothing when it passes: "the
+// answer is on standard output" would describe an empty stream.
 func checkStatuses() statuses {
-	own := make([]status, 0, len(sectionsCheckStatuses))
-	for _, cs := range sectionsCheckStatuses {
-		own = append(own, cs.status)
+	out := statuses{
+		{code: 0, meaning: "the draft's headings match the schema"},
+		{code: 1, meaning: "the check could not run; the reason is on standard error"},
 	}
-	return with(own...)
+	for _, cs := range sectionsCheckStatuses {
+		out = append(out, cs.status)
+	}
+	return out
 }
 
 // sectionNotFound is `ccx issue sections find`'s own status. It is separate

@@ -1,3 +1,7 @@
+  Preparation is everything a review needs settled before it starts. Most of the fields
+  are null on a stopping status, because each is only established as the step that
+  produces it succeeds.
+
   status            string
                     Status is ok, branch_mismatch, or whichever freshness status stopped
                     it.

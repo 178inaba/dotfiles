@@ -81,6 +81,12 @@ func render(d docs) ([]byte, error) {
 	}
 	b.WriteString("}\n\n")
 
+	b.WriteString("// genTypes is every contract type's own doc comment, flattened to one line.\nvar genTypes = map[string]string{\n")
+	for _, k := range slices.Sorted(maps.Keys(d.Types)) {
+		fmt.Fprintf(&b, "\t%s: %s,\n", strconv.Quote(k), strconv.Quote(d.Types[k]))
+	}
+	b.WriteString("}\n\n")
+
 	b.WriteString("// genEnums is every named string type's constants, in declaration order.\nvar genEnums = map[string][]string{\n")
 	for _, k := range slices.Sorted(maps.Keys(d.Enums)) {
 		fmt.Fprintf(&b, "\t%s: {", strconv.Quote(k))

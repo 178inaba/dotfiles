@@ -27,7 +27,7 @@ var marshalers = map[reflect.Type]Marshaled{
 }
 
 // std is the table this module's types are rendered against.
-var std = Table{Fields: genFields, Enums: genEnums, Marshalers: marshalers}
+var std = Table{Fields: genFields, Types: genTypes, Enums: genEnums, Marshalers: marshalers}
 
 // Render describes t as the plain text a --help prints.
 func Render(t reflect.Type, mode Mode) (string, error) { return std.Render(t, mode) }

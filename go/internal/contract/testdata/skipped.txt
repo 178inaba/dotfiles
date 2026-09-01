@@ -1,3 +1,5 @@
+  Skipped is something that was judged finished and is being left alone anyway.
+
   type      string, one of: worktree, branch
   target    string
   branch    string, absent when empty
