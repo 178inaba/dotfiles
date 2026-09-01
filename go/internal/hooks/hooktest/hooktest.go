@@ -1,59 +1,18 @@
 // Package hooktest holds the fixtures more than one hook's tests need.
 //
 // It exists because Go cannot share a _test.go helper between packages, and
-// two of these carry an invariant worth having one copy of: the git isolation
-// that keeps a fixture from reading the developer's own configuration, and the
-// shape of the Slack webhook body. Weakened in one copy, either fails only on
-// the machine that has the unusual configuration.
+// the git isolation that keeps a fixture from reading the developer's own
+// configuration is an invariant worth having one copy of: weakened in a second
+// copy, it would fail only on the machine that has the unusual configuration.
 package hooktest
 
 import (
-	"encoding/json/v2"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/hooks/state"
 )
-
-// Webhook is a Slack endpoint that remembers what was posted to it.
-type Webhook struct {
-	*httptest.Server
-	mu   sync.Mutex
-	text []string
-}
-
-// NewWebhook starts one that answers every post with status.
-func NewWebhook(t *testing.T, status int) *Webhook {
-	t.Helper()
-	w := &Webhook{}
-	w.Server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Text string `json:"text"`
-		}
-		if err := json.UnmarshalRead(io.LimitReader(r.Body, 1<<16), &body); err != nil {
-			rw.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.mu.Lock()
-		w.text = append(w.text, body.Text)
-		w.mu.Unlock()
-		rw.WriteHeader(status)
-	}))
-	t.Cleanup(w.Close)
-	return w
-}
-
-// Posts is the text of everything posted so far, in order.
-func (w *Webhook) Posts() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.text
-}
 
 // OpenStore opens a state tree that closes itself when the test ends.
 func OpenStore(t *testing.T, dir string) *state.Store {

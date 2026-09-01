@@ -1,4 +1,4 @@
-package subagents
+package notify
 
 import (
 	"context"
@@ -17,7 +17,7 @@ const (
 	deadPID = "222"
 )
 
-func TestRun(t *testing.T) {
+func TestTrackerRun(t *testing.T) {
 	t.Parallel()
 
 	const session = "s1"
@@ -94,9 +94,9 @@ func TestRun(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "ccx")
 			seed(t, dir, session, started)
 
-			h := New(Deps{
+			h := NewTracker(Deps{
 				Dir:     dir,
-				Runner:  fixedRunner{out: tt.parent},
+				Runner:  psRunner{out: tt.parent},
 				Getppid: func() int { return 4242 },
 			}, tt.mode)
 
@@ -130,9 +130,9 @@ func seed(t *testing.T, dir, session string, agents []string) {
 }
 
 // fixedRunner answers ps with one name, or fails when it has none.
-type fixedRunner struct{ out string }
+type psRunner struct{ out string }
 
-func (f fixedRunner) Run(context.Context, runner.Command) ([]byte, error) {
+func (f psRunner) Run(context.Context, runner.Command) ([]byte, error) {
 	if f.out == "" {
 		return nil, &runner.Error{Name: "ps", Err: context.Canceled}
 	}
@@ -178,8 +178,8 @@ func TestBusy(t *testing.T) {
 			}
 
 			d := Deps{Dir: dir, Signaller: fakeSignaller{}}
-			if got := Busy(d, session); got != tt.want {
-				t.Errorf("Busy = %t, want %t", got, tt.want)
+			if got := busy(d, session); got != tt.want {
+				t.Errorf("busy = %t, want %t", got, tt.want)
 			}
 		})
 	}

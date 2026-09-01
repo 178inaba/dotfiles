@@ -1,4 +1,4 @@
-package slacknotify
+package notify
 
 import (
 	"path/filepath"
@@ -47,11 +47,11 @@ func TestProjectAgainstRealGit(t *testing.T) {
 		{"no repository at all", outside, "outside"},
 	}
 
-	h := New(Deps{Runner: runner.Exec{}})
+	d := Deps{Runner: runner.Exec{}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := h.project(t.Context(), tt.dir); got != tt.want {
+			if got := project(t.Context(), d, tt.dir); got != tt.want {
 				t.Errorf("project = %q, want %q", got, tt.want)
 			}
 		})

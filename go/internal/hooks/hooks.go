@@ -2,9 +2,13 @@
 // writes to a hook's standard input, and the exit status, message and JSON
 // directive it reads back.
 //
-// The nine hooks live in packages beneath this one. What they have in common is
-// only this contract; the dispatcher in internal/cmd declares the interface
-// that binds them together, because it is the one that consumes it.
+// The nine hooks live in packages beneath this one, cut by what they do rather
+// than by where Claude Code calls them from: notify holds the four that decide
+// and deliver a notification, caffeinate the two that hold the machine awake,
+// and one package each for the three that inspect a tool call, which share
+// nothing but that. What every one of them has in common is only this contract;
+// the dispatcher in internal/cmd declares the interface that binds them
+// together, because it is the one that consumes it.
 package hooks
 
 import (
@@ -148,7 +152,7 @@ type Result struct {
 // its output again.
 type Directive struct {
 	// TerminalSequence is written to the terminal on the hook's behalf; see
-	// the terminalbell package for why that is the only way to ring a bell.
+	// the notify package for why that is the only way to ring a bell.
 	TerminalSequence string `json:"terminalSequence,omitempty"`
 	// SystemMessage is shown to the user.
 	SystemMessage string `json:"systemMessage,omitempty"`
@@ -160,7 +164,7 @@ func (d Directive) IsEmpty() bool { return d == Directive{} }
 // IsClaude reports whether a process is Claude Code itself.
 //
 // Two hooks ask: caffeinate, to tie a suppression's lifetime to the session,
-// and subagents, to record something a later reader can verify. Both would
+// and notify, to record something a later reader can verify. Both would
 // break in the same way if the answer drifted — Claude Code has already been
 // both names once — so the rule has one owner.
 func IsClaude(ctx context.Context, r runner.Runner, pid int) bool {

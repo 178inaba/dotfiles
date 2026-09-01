@@ -1,7 +1,6 @@
-package idlenotify
+package notify
 
 import (
-	"context"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -10,8 +9,6 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 	"github.com/178inaba/dotfiles/go/internal/hooks/hooktest"
-	"github.com/178inaba/dotfiles/go/internal/hooks/slacknotify"
-	"github.com/178inaba/dotfiles/go/internal/hooks/subagents"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -24,7 +21,7 @@ func payload() hooks.Payload {
 	}
 }
 
-func TestRun(t *testing.T) {
+func TestIdleRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -71,10 +68,10 @@ func TestRun(t *testing.T) {
 					t.Fatalf("Write: %v", err)
 				}
 			}
-			srv := hooktest.NewWebhook(t, http.StatusOK)
+			srv := newWebhook(t, http.StatusOK)
 			sound := &recordingDetacher{}
 
-			got := New(deps(dir, srv, sound)).Run(t.Context(), tt.in)
+			got := NewIdle(deps(dir, srv, sound)).Run(t.Context(), tt.in)
 
 			if got.Decision != hooks.Allow {
 				t.Errorf("Decision = %d, want %d", got.Decision, hooks.Allow)
@@ -99,15 +96,15 @@ func TestRun(t *testing.T) {
 	}
 }
 
-// TestRunRingsTheBellWhenSlackFails is the hole this port closes. The shell
+// TestIdleRunRingsTheBellWhenSlackFails is the hole this port closes. The shell
 // piped into slack-notify.sh under `set -euo pipefail`, so a refused post
 // aborted before terminal-bell.sh ran: a Slack outage took the bell with it.
-func TestRunRingsTheBellWhenSlackFails(t *testing.T) {
+func TestIdleRunRingsTheBellWhenSlackFails(t *testing.T) {
 	t.Parallel()
 
 	dir := filepath.Join(t.TempDir(), "ccx")
-	srv := hooktest.NewWebhook(t, http.StatusForbidden)
-	got := New(deps(dir, srv, &recordingDetacher{})).Run(t.Context(), payload())
+	srv := newWebhook(t, http.StatusForbidden)
+	got := NewIdle(deps(dir, srv, &recordingDetacher{})).Run(t.Context(), payload())
 
 	if got.Decision != hooks.Allow {
 		// Anything else and Claude Code stops reading the directive, which is
@@ -122,15 +119,14 @@ func TestRunRingsTheBellWhenSlackFails(t *testing.T) {
 	}
 }
 
-func deps(dir string, srv *hooktest.Webhook, sound runner.Detacher) Deps {
+func deps(dir string, srv *webhook, sound runner.Detacher) Deps {
 	return Deps{
-		Sound:  sound,
-		Agents: subagents.Deps{Dir: dir, Signaller: deadSignaller{}},
-		Slack: slacknotify.New(slacknotify.Deps{
-			Client: srv.Client(),
-			Runner: gitRunner{},
-			Getenv: func(string) string { return srv.URL },
-		}),
+		Dir:       dir,
+		Sound:     sound,
+		Client:    srv.Client(),
+		Runner:    fixedRunner{toplevel: "/r/proj", common: "/r/proj/.git"},
+		Signaller: deadSignaller{},
+		Getenv:    func(string) string { return srv.URL },
 	}
 }
 
@@ -158,10 +154,3 @@ type deadSignaller struct{}
 
 func (deadSignaller) Terminate(int) error { return nil }
 func (deadSignaller) Alive(int) bool      { return false }
-
-// gitRunner answers the project label's rev-parse.
-type gitRunner struct{}
-
-func (gitRunner) Run(context.Context, runner.Command) ([]byte, error) {
-	return []byte("/r/proj\n/r/proj/.git\n"), nil
-}
