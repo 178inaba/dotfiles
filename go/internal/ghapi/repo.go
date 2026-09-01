@@ -124,3 +124,17 @@ func remoteRank(name string) int {
 		return 0
 	}
 }
+
+// DefaultBranch returns a repository's default branch.
+//
+// The one caller reaches this only where origin/HEAD is missing locally, which
+// a clone sets and only a repository whose remote was added by hand lacks.
+func (c *Client) DefaultBranch(ctx context.Context, repo Repo) (string, error) {
+	var out struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := c.Get(ctx, "repos/"+repo.Owner+"/"+repo.Name, &out); err != nil {
+		return "", fmt.Errorf("look up the default branch of %s: %w", repo, err)
+	}
+	return out.DefaultBranch, nil
+}

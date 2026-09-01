@@ -29,12 +29,18 @@ func prOrigin(t *testing.T) (bare, head, previous string) {
 	gittest.Run(t, seed, "config", "user.email", "test@example.com")
 	gittest.Run(t, seed, "config", "user.name", "test")
 	gittest.Write(t, filepath.Join(seed, "file.txt"), "base\n")
-	gittest.Run(t, seed, "add", "file.txt")
+	// The ignore rules belong to the repository as a whole, so they go on the
+	// default branch; the list of what to carry into a worktree belongs to the
+	// commit being checked out, so it goes on the head branch below.
+	gittest.Write(t, filepath.Join(seed, ".gitignore"), ".env\n")
+	gittest.Run(t, seed, "add", "file.txt", ".gitignore")
 	gittest.Run(t, seed, "commit", "-qm", "initial")
 	gittest.Run(t, seed, "push", "-q", "origin", "main")
 
 	gittest.Run(t, seed, "switch", "-qc", headRef)
 	gittest.Write(t, filepath.Join(seed, "file.txt"), "base\none\n")
+	gittest.Write(t, filepath.Join(seed, ".worktreeinclude"), ".env\n")
+	gittest.Run(t, seed, "add", ".worktreeinclude")
 	gittest.Run(t, seed, "commit", "-qam", "one")
 	gittest.Write(t, filepath.Join(seed, "file.txt"), "base\none\ntwo\n")
 	gittest.Run(t, seed, "commit", "-qam", "two")
@@ -150,7 +156,7 @@ func TestCheckFreshness(t *testing.T) {
 			if want == "" {
 				want = headRef
 			}
-			pr := Checkout{HeadRef: want, HeadOID: head, BaseRef: "main", IsOwnPR: tc.isOwnPR}
+			pr := PullRequest{HeadRef: want, HeadOID: head, BaseRef: "main", IsOwnPR: tc.isOwnPR}
 
 			got, err := CheckFreshness(t.Context(), runner.Exec{}, repo, pr)
 			if err != nil {
@@ -190,7 +196,7 @@ func TestCheckFreshnessKeepsDirtyWork(t *testing.T) {
 	gittest.Write(t, filepath.Join(repo, "file.txt"), "dirty\n")
 
 	if _, err := CheckFreshness(t.Context(), runner.Exec{}, repo,
-		Checkout{HeadRef: headRef, HeadOID: head, BaseRef: "main"}); err != nil {
+		PullRequest{HeadRef: headRef, HeadOID: head, BaseRef: "main"}); err != nil {
 		t.Fatalf("CheckFreshness: %v", err)
 	}
 
@@ -203,7 +209,7 @@ func TestCheckFreshnessKeepsDirtyWork(t *testing.T) {
 	}
 }
 
-func TestParseCheckout(t *testing.T) {
+func TestParsePullRequest(t *testing.T) {
 	t.Parallel()
 
 	const full = `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"},"is_own_pr":true}`
@@ -211,20 +217,20 @@ func TestParseCheckout(t *testing.T) {
 	tests := []struct {
 		name    string
 		in      string
-		want    Checkout
+		want    PullRequest
 		wantErr string
 	}{
 		{
 			name: "every field",
 			in:   full,
-			want: Checkout{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
+			want: PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
 		},
 		{
 			// false is an answer, and reading its absence as one would treat a
 			// reviewer's checkout as the author's.
 			name: "is_own_pr false",
 			in:   `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"},"is_own_pr":false}`,
-			want: Checkout{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main"},
+			want: PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main"},
 		},
 		{name: "no head_oid", in: `{"pr":{"head_ref":"feature/x","base_ref":"main"},"is_own_pr":true}`, wantErr: "pr.head_oid missing"},
 		{name: "no head_ref", in: `{"pr":{"head_oid":"abc123","base_ref":"main"},"is_own_pr":true}`, wantErr: "pr.head_ref missing"},
@@ -237,21 +243,21 @@ func TestParseCheckout(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ParseCheckout([]byte(tc.in))
+			got, err := ParsePullRequest([]byte(tc.in))
 			if tc.wantErr != "" {
 				if err == nil {
-					t.Fatalf("ParseCheckout = %+v, want an error mentioning %q", got, tc.wantErr)
+					t.Fatalf("ParsePullRequest = %+v, want an error mentioning %q", got, tc.wantErr)
 				}
 				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Errorf("ParseCheckout error = %q, want it to mention %q", err, tc.wantErr)
+					t.Errorf("ParsePullRequest error = %q, want it to mention %q", err, tc.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("ParseCheckout: %v", err)
+				t.Fatalf("ParsePullRequest: %v", err)
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ParseCheckout (-want +got):\n%s", diff)
+				t.Errorf("ParsePullRequest (-want +got):\n%s", diff)
 			}
 		})
 	}

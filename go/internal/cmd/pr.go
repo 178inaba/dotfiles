@@ -30,7 +30,7 @@ func prFreshnessCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			pr, err := worktree.ParseCheckout([]byte(content))
+			pr, err := worktree.ParsePullRequest([]byte(content))
 			if err != nil {
 				// The package reports the field without naming the file,
 				// because the path is the caller's; a message that says which

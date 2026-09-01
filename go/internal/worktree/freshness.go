@@ -38,8 +38,9 @@ const (
 	FreshnessFetchFailed Freshness = "fetch_failed"
 )
 
-// Checkout is what the freshness check needs to know about a pull request.
-type Checkout struct {
+// PullRequest is what the freshness check needs to know about the pull request
+// the checkout is supposed to be following.
+type PullRequest struct {
 	HeadRef string
 	HeadOID string
 	BaseRef string
@@ -59,13 +60,13 @@ type FreshnessReport struct {
 	LocalHead string `json:"local_head"`
 }
 
-// ParseCheckout reads the four fields of a pull request context that the
+// ParsePullRequest reads the four fields of a pull request context that the
 // freshness check depends on.
 //
 // A subset of what `ccx pr context` writes, deliberately: this is a consumer of
 // that contract, and naming only what it reads keeps a field it never looks at
 // from becoming a reason this fails.
-func ParseCheckout(b []byte) (Checkout, error) {
+func ParsePullRequest(b []byte) (PullRequest, error) {
 	var wire struct {
 		PR struct {
 			HeadOID string `json:"head_oid"`
@@ -78,7 +79,7 @@ func ParseCheckout(b []byte) (Checkout, error) {
 		IsOwnPR *bool `json:"is_own_pr"`
 	}
 	if err := json.Unmarshal(b, &wire); err != nil {
-		return Checkout{}, fmt.Errorf("decode the pull request context: %w", err)
+		return PullRequest{}, fmt.Errorf("decode the pull request context: %w", err)
 	}
 
 	for _, field := range []struct{ name, value string }{
@@ -87,13 +88,13 @@ func ParseCheckout(b []byte) (Checkout, error) {
 		{"pr.base_ref", wire.PR.BaseRef},
 	} {
 		if field.value == "" {
-			return Checkout{}, fmt.Errorf("%s missing", field.name)
+			return PullRequest{}, fmt.Errorf("%s missing", field.name)
 		}
 	}
 	if wire.IsOwnPR == nil {
-		return Checkout{}, fmt.Errorf("is_own_pr missing")
+		return PullRequest{}, fmt.Errorf("is_own_pr missing")
 	}
-	return Checkout{
+	return PullRequest{
 		HeadRef: wire.PR.HeadRef,
 		HeadOID: wire.PR.HeadOID,
 		BaseRef: wire.PR.BaseRef,
@@ -106,7 +107,7 @@ func ParseCheckout(b []byte) (Checkout, error) {
 //
 // It fetches first, so a caller need not: the comparison is worthless against
 // refs that were last updated before the pull request moved.
-func CheckFreshness(ctx context.Context, r runner.Runner, dir string, pr Checkout) (FreshnessReport, error) {
+func CheckFreshness(ctx context.Context, r runner.Runner, dir string, pr PullRequest) (FreshnessReport, error) {
 	report := func(status Freshness) (FreshnessReport, error) {
 		local, err := head(ctx, r, dir)
 		if err != nil {
