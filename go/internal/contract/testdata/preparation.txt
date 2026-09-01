@@ -6,8 +6,8 @@
                     Status is ok, branch_mismatch, or whichever freshness status stopped
                     it.
   flags             object
-    pr_number       integer or null
-    issue           integer or null
+    pr_number       integer (may be null)
+    issue           integer (may be null)
     worktree        boolean
     local_only      boolean
     no_autofix      boolean
@@ -17,15 +17,15 @@
                     confusing the two would let a review of somebody else's work run
                     with this repository's own conventions and automatic fixing switched
                     on.
-  head_ref          string or null
-  context_path      string or null
-  work_dir          string or null
+  head_ref          string (may be null)
+  context_path      string (may be null)
+  work_dir          string (may be null)
                     WorkDir, ReviewPath and ThreadsPath are handed out rather than left
                     to the prompt; the binding is in reviewdir.go.
-  review_path       string or null
-  threads_path      string or null
-  base_branch       string or null
-  modes             object or null
+  review_path       string (may be null)
+  threads_path      string (may be null)
+  base_branch       string (may be null)
+  modes             object (may be null)
     comment         boolean
                     Comment says the findings are posted as a review rather than acted
                     on, which is what reviewing somebody else's work means.
@@ -33,7 +33,7 @@
                     PersonalRules says this repository's own conventions apply, which
                     they do to our own work and not to a stranger's.
     autofix         boolean
-  freshness         object or null
+  freshness         object (may be null)
                     Freshness is the whole report, so that a caller stopping on one can
                     say what it compared.
     status          string, one of: ok, synced, ahead_own, behind_dirty, diverged,
@@ -44,7 +44,7 @@
                     LocalHead is read after any synchronisation, so it is where the
                     checkout ended up rather than where it started.
   issues            array of object
-    repo            string or null
+    repo            string (may be null)
                     Repo is null for an issue in this repository, which is how the body
                     wrote it.
     number          integer

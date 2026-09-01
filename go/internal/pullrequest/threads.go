@@ -38,7 +38,7 @@ type RepliedThread struct {
 // FailedResolve is a reply that landed with a resolve that did not.
 type FailedResolve struct {
 	ID string `json:"id"`
-	// Error is what GitHub said, which is usually about write access.
+	// What GitHub said, which is usually about write access.
 	Error string `json:"error"`
 }
 
@@ -46,7 +46,7 @@ type FailedResolve struct {
 type ThreadReplies struct {
 	Replied  []RepliedThread `json:"replied"`
 	Resolved []string        `json:"resolved"`
-	// ResolveFailed is a degradation rather than a failure: the replies are
+	// A degradation rather than a failure: the replies are
 	// posted, and a fork or a repository without write access cannot resolve
 	// at all. Stopping the whole review over it would help nobody.
 	ResolveFailed []FailedResolve `json:"resolve_failed"`

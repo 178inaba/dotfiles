@@ -71,7 +71,7 @@ type Submission struct {
 type ReviewFile struct {
 	// The verdict, which decides whether the review is posted as an approval,
 	// a request for changes or a comment.
-	Assessment *string `json:"assessment" contract:"required"`
+	Assessment *Assessment `json:"assessment" contract:"required"`
 	// The review body, written inline.
 	Body *string `json:"body"`
 	// The name of a markdown file in the review work dir holding the body. A
@@ -115,7 +115,7 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 		return Submission{}, commentsError(file)
 	}
 
-	out := Submission{Assessment: Assessment(*wire.Assessment), Body: body, Comments: []SubmissionComment{}}
+	out := Submission{Assessment: *wire.Assessment, Body: body, Comments: []SubmissionComment{}}
 	for _, c := range wire.Comments {
 		if c.Path == nil || c.Line == nil || !bodyShapeOK(c.Body, c.BodyFile) {
 			return Submission{}, commentsError(file)

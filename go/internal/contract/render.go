@@ -190,22 +190,25 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 		return "", err
 	}
 
+	// The qualifier goes in brackets rather than after a comma, because a
+	// value set is itself a comma-separated list and "one of: a, b, required"
+	// reads as four values.
 	switch {
 	case mode == Input && f.Tag.Get("contract") == "required":
-		return base + ", required", nil
+		return base + " (required)", nil
 	case mode == Input:
-		return base + ", optional", nil
+		return base + " (optional)", nil
 	case strings.Contains(opts, "omitzero"):
 		// The key is left out rather than written as null, so saying both
 		// would describe two shapes only one of which appears.
 		if t.Kind() == reflect.Pointer {
-			return base + ", may be absent", nil
+			return base + " (may be absent)", nil
 		}
-		return base + ", absent when empty", nil
+		return base + " (absent when empty)", nil
 	case t.Kind() == reflect.Pointer && !tb.marshals(t):
 		// A type that serialises itself has already said whether it can be
 		// null, and the pointer here is Go's business rather than the wire's.
-		return base + " or null", nil
+		return base + " (may be null)", nil
 	}
 	return base, nil
 }

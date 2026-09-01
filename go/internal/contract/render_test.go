@@ -66,7 +66,7 @@ func TestRenderOutput(t *testing.T) {
 	want := `  found     boolean
             Found is whether anything was there at all.
   kind      string, one of: alpha, beta
-  parent    object or null
+  parent    object (may be null)
             Parent is null when there is none, and also when it could not be read — the
             warning tells those apart.
     number  integer
@@ -74,7 +74,7 @@ func TestRenderOutput(t *testing.T) {
   refs      array of object
     number  integer
     url     string
-  note      string, absent when empty
+  note      string (absent when empty)
             Note is absent unless the flag that fetches it was given.
 `
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -90,10 +90,10 @@ func TestRenderInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	want := `  id        string, required
-  body      string, optional
+	want := `  id        string (required)
+  body      string (optional)
             Body is omitted to resolve without replying.
-  entries   array of integer, required
+  entries   array of integer (required)
 `
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Render (-want +got):\n%s", diff)
