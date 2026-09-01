@@ -237,3 +237,83 @@ func TestPullRequestForCurrentBranchFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestPullRequestForBranchHeadOwner covers what PullRequestForCurrentBranch
+// cannot reach: it always passes repo's own owner, so the empty filter has only
+// the badge as a caller. That is the fork checkout, where the head lives on
+// someone else's copy and the pull request is still one of this repository's.
+func TestPullRequestForBranchHeadOwner(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		headOwner string
+		nodes     []string
+		want      ghapi.PullRequest
+		wantErr   bool
+	}{
+		{
+			name:      "an empty owner accepts a head on a fork",
+			headOwner: "",
+			nodes:     []string{node(130, "OPEN", "someone")},
+			want:      wantPR(130, ghapi.StateOpen),
+		},
+		{
+			// The narrowing is still there when an owner is named, so the
+			// existing callers keep the behaviour they had.
+			name:      "a named owner rejects the same head",
+			headOwner: "178inaba",
+			nodes:     []string{node(130, "OPEN", "someone")},
+			wantErr:   true,
+		},
+		{
+			// Open still beats merged with the filter off, rather than the
+			// widening changing which of two candidates wins.
+			name:      "an empty owner still prefers the open one",
+			headOwner: "",
+			nodes:     []string{node(130, "MERGED", "someone"), node(128, "OPEN", "someone")},
+			want:      wantPR(128, ghapi.StateOpen),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := `{"data":{"repository":{"pullRequests":{"nodes":[` + strings.Join(tc.nodes, ",") + `]}}}}`
+			c := ghapitest.New(t, graphQL(t, body, nil))
+
+			got, err := c.PullRequestForBranch(t.Context(), repo, "feature/121-port-scripts-to-ccx", tc.headOwner)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("PullRequestForBranch = %v, want an error", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PullRequestForBranch: %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("PullRequestForBranch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestPullRequestForBranchUsesTheGivenRef is the other half of what the badge
+// needs: the head ref is the argument, not the checked-out branch, so no git
+// call decides which pull request is looked up.
+func TestPullRequestForBranchUsesTheGivenRef(t *testing.T) {
+	t.Parallel()
+
+	var vars map[string]any
+	body := `{"data":{"repository":{"pullRequests":{"nodes":[` + node(128, "OPEN", "178inaba") + `]}}}}`
+	c := ghapitest.New(t, graphQL(t, body, &vars))
+
+	if _, err := c.PullRequestForBranch(t.Context(), repo, "fork-side-name", ""); err != nil {
+		t.Fatalf("PullRequestForBranch: %v", err)
+	}
+	if got, want := vars["headRefName"], "fork-side-name"; got != want {
+		t.Errorf("headRefName = %v, want %q", got, want)
+	}
+}

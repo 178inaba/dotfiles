@@ -207,3 +207,58 @@ func TestCurrentRepoFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestRemoteRepo covers the half of CurrentRepo that answers without asking
+// GitHub. Taking no client is the guarantee itself — the badge takes this path
+// precisely to avoid the round trip, and a signature with no client cannot make
+// one.
+func TestRemoteRepo(t *testing.T) {
+	t.Parallel()
+
+	run := &fakeRunner{out: "origin\tgit@github.com:178inaba/dotfiles.git (fetch)\n"}
+	got, err := ghapi.RemoteRepo(t.Context(), run, "/repo")
+	if err != nil {
+		t.Fatalf("RemoteRepo: %v", err)
+	}
+	if want := (ghapi.Repo{Owner: "178inaba", Name: "dotfiles"}); got != want {
+		t.Errorf("RemoteRepo = %v, want %v", got, want)
+	}
+	wantCalls := [][]string{{"git", "-C", "/repo", "remote", "-v"}}
+	if diff := cmp.Diff(wantCalls, run.calls); diff != "" {
+		t.Errorf("commands run (-want +got):\n%s", diff)
+	}
+}
+
+func TestDefaultBranch(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		fmt.Fprint(w, `{"default_branch":"main"}`)
+	}))
+
+	got, err := c.DefaultBranch(t.Context(), ghapi.Repo{Owner: "178inaba", Name: "dotfiles"})
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("DefaultBranch = %q, want %q", got, "main")
+	}
+	if want := "/repos/178inaba/dotfiles"; gotPath != want {
+		t.Errorf("DefaultBranch looked up %q, want %q", gotPath, want)
+	}
+}
+
+func TestDefaultBranchFailure(t *testing.T) {
+	t.Parallel()
+
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"message":"Not Found"}`)
+	}))
+
+	if got, err := c.DefaultBranch(t.Context(), ghapi.Repo{Owner: "178inaba", Name: "gone"}); err == nil {
+		t.Fatalf("DefaultBranch = %q, want an error", got)
+	}
+}
