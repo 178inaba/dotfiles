@@ -1,0 +1,5 @@
+  found          boolean
+  worktree_path  string or null
+                 Path and Branch are null when nothing was found, rather than empty
+                 strings: the caller branches on found and reads these only after.
+  branch         string or null

@@ -1,0 +1,47 @@
+  status            string
+                    Status is ok, branch_mismatch, or whichever freshness status stopped
+                    it.
+  flags             object
+    pr_number       integer or null
+    issue           integer or null
+    worktree        boolean
+    local_only      boolean
+    no_autofix      boolean
+  pr_exists         boolean
+                    PRExists false is the ordinary degradation to a local review rather
+                    than a failure. Everything else that goes wrong stops instead:
+                    confusing the two would let a review of somebody else's work run
+                    with this repository's own conventions and automatic fixing switched
+                    on.
+  head_ref          string or null
+  context_path      string or null
+  work_dir          string or null
+                    WorkDir, ReviewPath and ThreadsPath are handed out rather than left
+                    to the prompt; the binding is in reviewdir.go.
+  review_path       string or null
+  threads_path      string or null
+  base_branch       string or null
+  modes             object or null
+    comment         boolean
+                    Comment says the findings are posted as a review rather than acted
+                    on, which is what reviewing somebody else's work means.
+    personal_rules  boolean
+                    PersonalRules says this repository's own conventions apply, which
+                    they do to our own work and not to a stranger's.
+    autofix         boolean
+  freshness         object or null
+                    Freshness is the whole report, so that a caller stopping on one can
+                    say what it compared.
+    status          string, one of: ok, synced, ahead_own, behind_dirty, diverged,
+                    branch_mismatch, fetch_failed
+    head_ref        string
+    head_oid        string
+    local_head      string
+                    LocalHead is read after any synchronisation, so it is where the
+                    checkout ended up rather than where it started.
+  issues            array of object
+    repo            string or null
+                    Repo is null for an issue in this repository, which is how the body
+                    wrote it.
+    number          integer
+  warnings          array of string

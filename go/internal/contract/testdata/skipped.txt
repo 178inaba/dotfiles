@@ -1,0 +1,8 @@
+  type      string, one of: worktree, branch
+  target    string
+  branch    string, absent when empty
+            Branch is absent for a bare branch, whose name is already the target.
+  reason    string, one of: uncommitted_changes, unpushed_commits,
+            no_upstream_with_commits, commits_beyond_merged_pr, local_commits_beyond_pr,
+            in_use_by_process
+  detail    string
