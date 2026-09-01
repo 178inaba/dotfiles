@@ -30,7 +30,7 @@ const (
 	// FreshnessBranchMismatch is a checkout of something else entirely, a
 	// detached head included.
 	FreshnessBranchMismatch Freshness = "branch_mismatch"
-	// Most often means the head branch is not on origin
+	// FreshnessFetchFailed most often means the head branch is not on origin
 	// at all, which is what a pull request from a fork looks like from here.
 	FreshnessFetchFailed Freshness = "fetch_failed"
 )

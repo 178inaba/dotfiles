@@ -50,8 +50,9 @@
                        person to resolve rather than for this command.
       diverged         The same, with commits the remote has never seen.
       branch_mismatch  A checkout of something else entirely, a detached head included.
-      fetch_failed     Most often means the head branch is not on origin at all, which
-                       is what a pull request from a fork looks like from here.
+      fetch_failed     fetch_failed most often means the head branch is not on origin at
+                       all, which is what a pull request from a fork looks like from
+                       here.
     head_ref           string
     head_oid           string
     local_head         string

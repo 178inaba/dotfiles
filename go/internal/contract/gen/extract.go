@@ -135,9 +135,9 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 		}
 		// A single-spec declaration keeps its doc comment on the declaration;
 		// one inside a parenthesised block keeps it on the spec.
-		if doc := docText(ts.Doc, ts.Name.Name); doc != "" {
+		if doc := docText(ts.Doc, ts.Name.Name, ""); doc != "" {
 			out.Types[path+"."+ts.Name.Name] = doc
-		} else if doc := docText(gd.Doc, ts.Name.Name); doc != "" && len(gd.Specs) == 1 {
+		} else if doc := docText(gd.Doc, ts.Name.Name, ""); doc != "" && len(gd.Specs) == 1 {
 			out.Types[path+"."+ts.Name.Name] = doc
 		}
 
@@ -148,7 +148,7 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 				continue
 			}
 			for _, name := range field.Names {
-				if doc := docText(field.Doc, name.Name); doc != "" {
+				if doc := docText(field.Doc, name.Name, jsonName(field.Tag.Value)); doc != "" {
 					out.Fields[path+"."+ts.Name.Name+"."+name.Name] = doc
 				}
 			}
@@ -181,7 +181,7 @@ func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, out
 				continue
 			}
 			out.Enums[path+"."+current] = append(out.Enums[path+"."+current], s)
-			if doc := docText(vs.Doc, name(vs)); doc != "" {
+			if doc := docText(vs.Doc, name(vs), s); doc != "" {
 				out.EnumDocs[path+"."+current+"."+s] = doc
 			}
 		}
@@ -193,6 +193,18 @@ func isStringIdent(e ast.Expr) bool {
 	return ok && id.Name == "string"
 }
 
+// jsonName is the wire name in a struct tag, empty where the tag carries
+// none. Read from the tag's source text, since this side has no reflection.
+func jsonName(tag string) string {
+	_, rest, found := strings.Cut(tag, `json:"`)
+	if !found {
+		return ""
+	}
+	value, _, _ := strings.Cut(rest, `"`)
+	key, _, _ := strings.Cut(value, ",")
+	return key
+}
+
 // name is a value specification's first declared name, which is what its doc
 // comment opens with.
 func name(vs *ast.ValueSpec) string {
@@ -202,28 +214,43 @@ func name(vs *ast.ValueSpec) string {
 	return vs.Names[0].Name
 }
 
-// docText flattens a doc comment to one line and drops the Go name it opens
-// with.
+// docText flattens a doc comment to one line and puts the name it opens with
+// into the words the reader has.
 //
-// Two readers, one comment. Go convention is to open with the declaration's
-// own name; the reader of a --help has no such name in front of them, and
-// "HeadOID is the head" is worse there than "The head". Stripping it by the
-// exact name rather than by a general pattern keeps a sentence that genuinely
-// starts with a capitalised word intact.
+// Two readers, one comment. Go convention — and revive, which the lint step
+// enables for exactly this — is to open with the declaration's own name, so
+// the source keeps it. The reader of a --help has never seen that name: what
+// they have is the JSON key, or the value of the constant.
+//
+// So a field's comment gets its JSON name substituted, which leaves a sentence
+// that still has a subject; "HeadOID is set only when" becomes "head_oid is set
+// only when". A type has no wire name — it is the block's preamble rather than
+// a row — so its name comes off along with the verb after it. Dropping the name
+// alone would leave "Are the degradations that…", a fragment.
 //
 // Help is rendered into a column whose width is decided at render time, so the
 // comment's own line breaks would fight it; they are joined here and the
 // renderer wraps.
-func docText(g *ast.CommentGroup, decl string) string {
+func docText(g *ast.CommentGroup, decl, wire string) string {
 	if g == nil {
 		return ""
 	}
 	text := strings.Join(strings.Fields(g.Text()), " ")
-	for _, verb := range []string{" is ", " are ", " says ", " counts "} {
-		if prefix := decl + verb; strings.HasPrefix(text, prefix) {
-			rest := text[len(prefix):]
-			return strings.ToUpper(rest[:1]) + rest[1:]
+	rest, found := strings.CutPrefix(text, decl+" ")
+	if !found || rest == "" {
+		return text
+	}
+	// The row already carries the name, so the plain "X is a thing" form reads
+	// best with both the subject and its verb gone.
+	for _, verb := range []string{"is ", "are "} {
+		if tail, ok := strings.CutPrefix(rest, verb); ok && tail != "" {
+			return strings.ToUpper(tail[:1]) + tail[1:]
 		}
+	}
+	// Any other verb, and dropping the subject would leave a fragment, so the
+	// name is replaced instead of removed.
+	if wire != "" {
+		return wire + " " + rest
 	}
 	return text
 }

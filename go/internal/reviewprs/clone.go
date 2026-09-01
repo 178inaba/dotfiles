@@ -12,13 +12,11 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// workspace is the directory the review clones live under.
+// Workspace is the directory the review clones live under.
 //
 // Away from wherever the user keeps their own checkout, so that a worktree
 // created for a review never appears in the repository they are working in.
-// Workspace is the directory every review clone lives under.
-//
-// Exported so that the help stating where they go reads the same value the
+// Exported so that the help saying where they go reads the same value the
 // clone is put at, rather than a copy of it.
 const Workspace = "claude-review-prs"
 
