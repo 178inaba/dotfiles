@@ -113,8 +113,10 @@ func TestDelete(t *testing.T) {
 			wantContains: fmt.Sprintf("in use by sleep (PID %d)", pid),
 		},
 		{
-			// git would remove it happily, and every command that process ran
-			// afterwards would fail; only this check stops it.
+			// -D skips git's safety net, so the verdict's head is checked
+			// again here: commits made since it was formed would go, and a
+			// closed pull request's refs/pull/N/head no longer brings them
+			// back.
 			name: "a head that has moved since the verdict", target: "closed-stale", wantKind: KindBranch,
 			wantContains: "no longer matches",
 		},

@@ -174,11 +174,10 @@ func TestIssueSectionsJSON(t *testing.T) {
 }
 
 // TestIssueSectionsBareParentPrintsHelp records a difference from the shell,
-// which exited 1 on a missing subcommand. newParentCmd answers a parent with no
-// arguments with its help and a zero status, the same as `ccx` and `ccx hook`,
-// and diverging for one subtree would be worse than the difference: a caller
-// that typed the parent by hand wants the listing, and the dangerous case — a
-// subcommand that is misspelled rather than absent — is still an error.
+// which exited 1 on a missing subcommand: a parent with no arguments answers
+// with its help and a zero status, the same as `ccx` and `ccx hook`. The
+// dangerous case, a subcommand misspelled rather than absent, is still an
+// error — see newParentCmd.
 func TestIssueSectionsBareParentPrintsHelp(t *testing.T) {
 	t.Parallel()
 

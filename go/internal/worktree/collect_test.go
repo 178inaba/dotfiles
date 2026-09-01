@@ -335,7 +335,6 @@ func TestCollect(t *testing.T) {
 			{name: "unpushed commits", target: "unpushed-br", want: SkipUnpushedCommits, wantDetail: "未 push commit あり"},
 			{name: "an uncommitted change", target: "wt-dirty", want: SkipUncommittedChanges, wantDetail: "未コミット変更あり"},
 			{name: "commits with nowhere to have pushed them", target: "wt-noupstream", want: SkipNoUpstreamWithCommits, wantDetail: "upstream 未設定 & 自前 commit あり"},
-			// The dirty check runs before the closed pull request's exemption.
 			{name: "an uncommitted change on a closed pull request", target: "wt-closed-dirty", want: SkipUncommittedChanges},
 			{name: "commits the pull request never saw", target: "closed-local-ahead", want: SkipLocalCommitsBeyondPR, wantContains: []string{"9"}},
 			{

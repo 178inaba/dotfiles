@@ -117,7 +117,6 @@ func CheckRefs(skillsDir string) (Refs, error) {
 	return Refs{SkillsDir: root, Violations: refViolations(refs), Warnings: []string{}}, nil
 }
 
-// refsIn reads one file's references.
 func refsIn(root, rel string) ([]reference, error) {
 	content, err := os.ReadFile(filepath.Join(root, rel))
 	if err != nil {

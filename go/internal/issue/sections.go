@@ -2,8 +2,7 @@
 // them: the section schema that issue bodies are written against, and the
 // parent/child hierarchy behind them.
 //
-// It replaces scripts/issue-sections.sh and scripts/issue-hierarchy.sh, which
-// issue-draft, issue-handle, deep-review and github-sub-issues all call.
+// issue-draft, issue-handle, deep-review and github-sub-issues all read it.
 package issue
 
 import (
@@ -286,7 +285,6 @@ func normalizeBody(lines []string) string {
 	return strings.Join(trimmed[first:last+1], "\n")
 }
 
-// row returns the table entry for key.
 func row(key string) (Section, bool) {
 	for _, s := range table {
 		if s.Key == key {
@@ -296,7 +294,6 @@ func row(key string) (Section, bool) {
 	return Section{}, false
 }
 
-// requiredOn reports whether k must carry this section.
 func (s Section) requiredOn(k Kind) bool {
 	return slices.Contains(s.RequiredOn, k)
 }

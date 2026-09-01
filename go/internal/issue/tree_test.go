@@ -28,9 +28,7 @@ func at(suffix string) string { return "/repos/" + repoName + "/issues/" + suffi
 //
 // A path answers with the body registered for it, a status registered for it,
 // or 404; the two GraphQL lookups answer by the url they are asked about, and
-// a url with no entry fails the way an unreadable one did. Every request is
-// recorded, because half of what this script promises is the round trips it
-// does not make.
+// a url with no entry fails the way an unreadable one did.
 type fixtures struct {
 	// rest maps an api path to its body.
 	rest map[string]string

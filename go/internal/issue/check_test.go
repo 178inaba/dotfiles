@@ -18,7 +18,7 @@ func TestCheck(t *testing.T) {
 		locale  issue.Locale
 		kind    issue.Kind
 		mapping []issue.Mapping
-		// wantCodes is the class of each violation, in the order reported.
+		// wantClasses is the class of each violation, in the order reported.
 		wantClasses []issue.Class
 		// wantIn are fragments each message must name, so that a reader can
 		// tell which heading or key is at fault.

@@ -439,9 +439,9 @@ func (c *collector) judgeClosed(ctx context.Context, branch string, pr branchPR)
 // commits here that deleting it would be the end of.
 //
 // dir is where git runs and rev is what it is asked about — a worktree asks
-// about its own HEAD, a bare branch about itself from the repository. The two
-// were one procedure in the shell as well, and keeping them one is what stops
-// a fix landing on the branch path and not the worktree path.
+// about its own HEAD, a bare branch about itself from the repository. Keeping
+// them one procedure is what stops a fix landing on the branch path and not
+// the worktree path.
 func (c *collector) safety(ctx context.Context, dir, rev string, verdict Verdict) (SkipReason, string) {
 	// A closed pull request has already been checked against its head, which
 	// is the same worry the unpushed checks have — and its remote branch is

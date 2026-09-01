@@ -16,7 +16,6 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
-// newIssueCmd builds `ccx issue`.
 func newIssueCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("issue", "Read GitHub issues")
 	c.AddCommand(newSectionsCmd(build), newTreeCmd(build))
@@ -194,7 +193,6 @@ func sectionsCheckCmd(build selfbuild.State) *cobra.Command {
 	return c
 }
 
-// sectionsFindCmd extracts one section from an issue body.
 func sectionsFindCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "find <file> <key>",

@@ -129,8 +129,7 @@ func CheckFrontmatter(target string) (Frontmatter, error) {
 // skillFiles lists the SKILL.md files directly under root, and the directories
 // that have none.
 //
-// Both checks read the same tree, and a directory without a SKILL.md is worth
-// reporting rather than skipping in silence: it went unchecked.
+// Both checks read the same tree.
 func skillFiles(root string) (found, missing []string, err error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -234,9 +233,6 @@ func frontmatterEnd(lines []string) (int, bool) {
 }
 
 // field reads one frontmatter value as a string.
-//
-// Frontmatter that parses to a sequence or a scalar rather than a mapping
-// leaves every field empty, which is what missing means here.
 func field(parsed map[string]any, key string) string {
 	value, ok := parsed[key]
 	if !ok || value == nil {

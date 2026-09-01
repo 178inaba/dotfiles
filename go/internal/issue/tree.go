@@ -112,8 +112,8 @@ type Summary struct {
 
 // Hierarchy is where one issue sits among its parent, children and blockers.
 //
-// The field order is the output contract: the shell built this object in this
-// order with jq, which prints keys as they were constructed.
+// The field order is the output contract: it is the order the keys are
+// printed in.
 type Hierarchy struct {
 	Repo   string   `json:"repo"`
 	Number int      `json:"number"`
@@ -161,8 +161,7 @@ func Tree(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number int, o T
 }
 
 // resolver carries what every step of one resolution shares, including the
-// warnings it accumulates. The shell kept those in a global because a $()
-// substitution runs in a subshell and loses whatever it appended.
+// warnings it accumulates.
 type resolver struct {
 	c        *ghapi.Client
 	repo     ghapi.Repo

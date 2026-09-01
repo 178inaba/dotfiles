@@ -259,7 +259,6 @@ func contextLimits() (pullrequest.Limits, error) {
 	return limits, nil
 }
 
-// prPostReviewCmd builds `ccx pr post-review`.
 func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "post-review <pr-context.json> <review-file>",
@@ -305,7 +304,6 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 	}
 }
 
-// prReplyThreadsCmd builds `ccx pr reply-threads`.
 func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "reply-threads <pr-context.json> <threads-file>",

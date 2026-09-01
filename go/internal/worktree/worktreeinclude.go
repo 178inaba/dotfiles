@@ -97,10 +97,8 @@ func copyWorktreeInclude(ctx context.Context, r runner.Runner, srcRoot, worktree
 //
 // Both halves are needed and neither implies the other: a file may match a
 // pattern in the list without being gitignored, and copying that one would
-// duplicate something the worktree already gets from the commit. The shell
-// piped one git into another; here the second listing is the gitignored
-// untracked files and the answer is the intersection, in the order the first
-// produced.
+// duplicate something the worktree already gets from the commit. The answer is
+// the intersection of the two listings, in the order the first produced.
 func included(ctx context.Context, r runner.Runner, srcRoot, list string) ([]string, error) {
 	matching, err := lsFiles(ctx, r, srcRoot, "--exclude-from="+list)
 	if err != nil {

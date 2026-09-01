@@ -44,8 +44,7 @@ type cwdTable []cwdRow
 // could not be evaluated, which is the moment it matters.
 func loadCWDTable(ctx context.Context, r runner.Runner) (cwdTable, error) {
 	// The one place the environment is consulted rather than injected: which
-	// lsof runs is a property of the machine, and the shell's LSOF_BIN existed
-	// only so a test could point at a stub.
+	// lsof runs is a property of the machine.
 	if _, err := exec.LookPath("lsof"); err != nil {
 		return nil, errors.New("lsof is required")
 	}

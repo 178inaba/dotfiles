@@ -110,7 +110,6 @@ func CheckFreshness(ctx context.Context, r runner.Runner, dir string, pr PullReq
 	return report(FreshnessDiverged)
 }
 
-// head returns the commit dir has checked out.
 func head(ctx context.Context, r runner.Runner, dir string) (string, error) {
 	return runner.Git(ctx, r, dir, "rev-parse", "HEAD")
 }

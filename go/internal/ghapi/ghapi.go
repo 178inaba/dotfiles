@@ -78,7 +78,7 @@ func New(o Options) (*Client, error) {
 		Transport: o.Transport,
 		// Otherwise a GH_DEBUG left in the environment attaches a request log
 		// to standard error, and these subcommands promise standard output
-		// that is JSON and nothing else. The shell version had no such switch.
+		// that is JSON and nothing else.
 		LogIgnoreEnv: true,
 	}
 
@@ -141,8 +141,6 @@ func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any,
 // issue-hierarchy depends on the distinction: the sub-issue parent endpoint
 // answers 404 for an issue that simply has no parent, which is an ordinary
 // result, while any other failure is a degradation it records in warnings[].
-// The shell told them apart by grepping gh's standard error for "HTTP 404",
-// which also matched a 404 mentioned anywhere else in the message.
 func IsNotFound(err error) bool {
 	if e, ok := errors.AsType[*api.HTTPError](err); ok {
 		return e.StatusCode == http.StatusNotFound

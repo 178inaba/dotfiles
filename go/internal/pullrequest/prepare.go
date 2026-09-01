@@ -48,8 +48,7 @@ type Preparation struct {
 	HeadRef     *string `json:"head_ref"`
 	ContextPath *string `json:"context_path"`
 	// WorkDir, ReviewPath and ThreadsPath are handed out rather than left to
-	// the prompt: parallel subagents share one scratch directory, and a fixed
-	// name in it is overwritten by whichever review wrote last.
+	// the prompt; the binding is in reviewdir.go.
 	WorkDir     *string `json:"work_dir"`
 	ReviewPath  *string `json:"review_path"`
 	ThreadsPath *string `json:"threads_path"`

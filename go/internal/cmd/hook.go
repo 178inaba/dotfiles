@@ -139,8 +139,7 @@ func runHook(ctx context.Context, h hook, build selfbuild.State, stdin io.Reader
 	in, _ := io.ReadAll(stdin)
 	result := h.Run(ctx, hooks.Parse(in))
 
-	// Only on the invocation that ran the build. A broken tree otherwise
-	// produces one message per hook per tool call until somebody fixes it.
+	// Only on the invocation that ran the build; see selfbuild.State.JustFailed.
 	// Which channel it goes to follows the decision, because Claude Code only
 	// parses the standard output of a hook that exited 0.
 	if build.JustFailed {

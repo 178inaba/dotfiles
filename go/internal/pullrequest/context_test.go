@@ -99,7 +99,7 @@ func serve(t *testing.T, p pages) *ghapi.Client {
 	}))
 }
 
-// The fixture below is the corpus the shell suite used, thread by thread: one
+// The fixture below is, thread by thread: one
 // remark of a reviewer's, one resolved, one we answered, one resolved after we
 // answered, one of ours that was answered, one of ours we already confirmed,
 // one of ours resolved, and one of ours the author never replied to.
@@ -279,8 +279,6 @@ func TestFetch(t *testing.T) {
 			{name: "resolved after we answered", index: 3},
 			// Our own remark, answered by somebody else: ours to judge.
 			{name: "our remark was answered", index: 4, wantMine: true},
-			// We confirmed after the head commit, so it is off our list until
-			// another commit arrives.
 			// Our reply is last on our own pull request, so the reviewer owes
 			// an answer — and it is off our own list because we confirmed
 			// after the head commit.

@@ -145,8 +145,8 @@ type Limits struct {
 	ThreadComments int
 }
 
-// DefaultLimits are what the shell used, and are generous enough that no pull
-// request in this repository has reached one.
+// DefaultLimits are generous enough that no pull request in this repository
+// has reached one.
 var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200}
 
 // Fetch gathers the context of one pull request.

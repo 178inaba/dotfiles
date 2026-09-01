@@ -15,8 +15,7 @@ import (
 // systemMessage on their standard output when they exit 0, because Claude Code
 // parses it; these subcommands promise standard output that is JSON and nothing
 // else, and their caller pipes it to jq. Once per failure rather than once per
-// run, because selfbuild records the failing source state and a broken tree
-// would otherwise print this on every command until somebody fixed it.
+// run; see selfbuild.State.JustFailed.
 func reportBuild(c *cobra.Command, build selfbuild.State) {
 	if !build.JustFailed {
 		return

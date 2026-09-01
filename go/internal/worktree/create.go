@@ -155,8 +155,8 @@ func startRefFor(ctx context.Context, r runner.Runner, root, base string) (strin
 // hasRef reports whether a ref exists.
 //
 // git answers with its exit status alone, so a git that could not run at all
-// reads as the ref being absent — which is what the shell did too, and what the
-// caller then reports as a base branch that is not there.
+// reads as the ref being absent, which the caller then reports as a base
+// branch that is not there.
 func hasRef(ctx context.Context, r runner.Runner, root, ref string) bool {
 	_, err := r.Run(ctx, runner.Command{
 		Name: "git",
