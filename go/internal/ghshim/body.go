@@ -1,0 +1,158 @@
+package ghshim
+
+import (
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// The three body rules, and the quoting the messages echo commands with. The
+// shell reached for awk here because it has no line scan of its own; what it
+// asked awk to decide is kept, the sub-language is not.
+
+var (
+	// A line that opens or closes a fenced code block.
+	fenceLine = regexp.MustCompile("^[[:space:]]*(```|~~~)")
+	// An inline code span.
+	codeSpan = regexp.MustCompile("`[^`]*`")
+	// A whitespace-separated token that starts a bare #1 to #9. What follows
+	// the digit must not be alphanumeric: #12 and up are likely real
+	// references, #1a2b3c is a colour and #1st an ordinal. A token whose first
+	// character is alphanumeric is skipped entirely, which is what leaves
+	// OWNER/REPO#1 alone.
+	bareHashToken = regexp.MustCompile(`^[^[:alnum:]#]*#[1-9]([^[:alnum:]]|$)`)
+	// A closing keyword next to a reference. GitHub reads only the direct
+	// adjacency of keyword, optional colon, space and reference, so the
+	// detection is limited to it as well.
+	closingKeyword = regexp.MustCompile(
+		`(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
+)
+
+// countBareHashRefs counts the distinct digits of the bare #1 to #9 in body,
+// ignoring the places GitHub does not autolink.
+//
+// [[:alnum:]] is ASCII here while awk's was whatever the locale said, so a
+// digit followed by a multibyte letter counts where it might not have. That
+// errs towards blocking, and a decision that does not move with the locale is
+// worth more than the agreement — macOS awk compares multibyte text unreliably.
+//
+// A known limit carried over: an unclosed fence hides everything after it.
+func countBareHashRefs(body string) int {
+	seen := map[byte]bool{}
+	fence := false
+	for line := range strings.Lines(body) {
+		if fenceLine.MatchString(line) {
+			fence = !fence
+			continue
+		}
+		if fence {
+			continue
+		}
+		for token := range strings.FieldsSeq(codeSpan.ReplaceAllString(line, "")) {
+			if !bareHashToken.MatchString(token) {
+				continue
+			}
+			seen[token[strings.IndexByte(token, '#')+1]] = true
+		}
+	}
+	return len(seen)
+}
+
+// hasQuotedClosingKeyword reports whether body holds a closing keyword in a
+// place GitHub will not read as one: inside a fenced block, or inside a code
+// span.
+func hasQuotedClosingKeyword(body string) bool {
+	fence := false
+	for line := range strings.Lines(body) {
+		line = strings.ToLower(line)
+		if fenceLine.MatchString(line) {
+			fence = !fence
+			continue
+		}
+		if fence {
+			if closingKeyword.MatchString(line) {
+				return true
+			}
+			continue
+		}
+		if slices.ContainsFunc(codeSpan.FindAllString(line, -1), closingKeyword.MatchString) {
+			return true
+		}
+	}
+	return false
+}
+
+// attemptedCommand echoes the command that was refused, in a form that can be
+// pasted back into a shell.
+func attemptedCommand(argv []string) string {
+	quoted := make([]string, 0, len(argv)+1)
+	quoted = append(quoted, "gh")
+	for _, arg := range argv {
+		quoted = append(quoted, shellQuote(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+// backslashed are the characters bash 3.2's printf %q escapes in the middle of
+// a word. The set is what that shell produces rather than a notion of shell
+// metacharacters, which would get two of them wrong in opposite directions: the
+// comma is escaped and is not a metacharacter, and # is one and is passed
+// through except at the start.
+const backslashed = " !\"$&'()*,;<>?[\\]^`{|}"
+
+// cEscapes are the names bash gives the control characters inside $'...'.
+var cEscapes = map[byte]byte{
+	'\a': 'a', '\b': 'b', 0x1b: 'E', '\f': 'f', '\n': 'n', '\r': 'r', '\t': 't', '\v': 'v',
+}
+
+// shellQuote renders one argument the way bash's printf %q did.
+//
+// One form is deliberately not reproduced. Of a UTF-8 sequence, bash 3.2
+// escapes only the bytes from 0x80 to 0x9f and leaves the rest raw, so a
+// Japanese title came back as an unreadable mixture of octal and text. That is
+// a defect of an interpreter written before multibyte support rather than
+// anything a reader of the message wants, so non-ASCII is passed through — the
+// same call this port makes wherever the shell's behaviour is a bug.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return dollarQuote(s)
+	}
+
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if strings.IndexByte(backslashed, c) >= 0 || (c == '#' && i == 0) {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+// dollarQuote is the $'...' form, which is the only one that can carry a
+// control character.
+func dollarQuote(s string) string {
+	var b strings.Builder
+	b.WriteString("$'")
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\'' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case cEscapes[c] != 0:
+			b.WriteByte('\\')
+			b.WriteByte(cEscapes[c])
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(&b, `\%03o`, c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte('\'')
+	return b.String()
+}

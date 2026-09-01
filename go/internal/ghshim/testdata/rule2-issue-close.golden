@@ -1,0 +1,15 @@
+gh の書き込み系サブコマンドで複数行の本文を --comment/-c で渡すことは禁止しています。
+
+実行しようとしたコマンド:
+  gh issue close -R foo/bar 1 -c $'line1\nline2'
+
+理由:
+  --comment "$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
+  誤ったエスケープ（バッククォート前の不要なバックスラッシュ等）が
+  そのまま本文に残る事故が起きます。
+
+対処:
+  1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
+  2. 本文は gh issue comment --body-file で別途投稿し、close は -c なしで実行する
+       例: gh issue comment -R owner/repo 123 --body-file /path/to/body.md
+           gh issue close -R owner/repo 123

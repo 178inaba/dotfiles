@@ -53,13 +53,18 @@ type target struct {
 	gobin string
 }
 
-// targets is the fixed list. cmd/gh joins it, with gobin ".local/shims", when
-// that binary exists; never list a package that has not been written yet.
+// targets is the fixed list. cmd/gh has a gobin of its own because the shim's
+// whole function is shadowing the real gh, and ~/go/bin is a shared namespace
+// where go install github.com/cli/cli/v2/cmd/gh@latest would overwrite it.
+// Never list a package that has not been written yet.
 //
 // A function rather than a variable so nothing — a later subcommand, a test —
 // can change what the whole process installs.
 func targets() []target {
-	return []target{{pkg: "./cmd/ccx"}}
+	return []target{
+		{pkg: "./cmd/ccx"},
+		{pkg: "./cmd/gh", gobin: ".local/shims"},
+	}
 }
 
 // ChildEnv is what a process this binary spawns must carry.

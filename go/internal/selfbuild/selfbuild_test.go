@@ -260,7 +260,15 @@ func TestRunRebuildsAndReExecs(t *testing.T) {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
 	}
 
-	wantCalls := []runner.Command{{Name: "go", Args: []string{"-C", h.root, "install", "./cmd/ccx"}}}
+	// Every target, so that editing either binary's source rebuilds both.
+	wantCalls := []runner.Command{
+		{Name: "go", Args: []string{"-C", h.root, "install", "./cmd/ccx"}},
+		{
+			Name: "go",
+			Args: []string{"-C", h.root, "install", "./cmd/gh"},
+			Env:  []string{"GOBIN=" + filepath.Join(h.home, ".local", "shims")},
+		},
+	}
 	if diff := cmp.Diff(wantCalls, h.runner.calls); diff != "" {
 		t.Errorf("commands mismatch (-want +got):\n%s", diff)
 	}
@@ -343,8 +351,8 @@ func TestRunRetriesAfterTheSourceChanges(t *testing.T) {
 	if diff := cmp.Diff(State{}, Run(t.Context(), h.deps())); diff != "" {
 		t.Errorf("State mismatch (-want +got):\n%s", diff)
 	}
-	if len(h.runner.calls) != 1 {
-		t.Errorf("ran %v, want one install", h.runner.calls)
+	if len(h.runner.calls) != len(targets()) {
+		t.Errorf("ran %v, want one install per target", h.runner.calls)
 	}
 	if _, err := os.Stat(failurePath(h.deps())); !os.IsNotExist(err) {
 		t.Errorf("failure record still present after a successful build (err=%v)", err)
@@ -402,7 +410,7 @@ func TestInstallResolvesGOBIN(t *testing.T) {
 	h := newHarness(t)
 	shims := target{pkg: "./cmd/gh", gobin: ".local/shims"}
 
-	if _, err := install(t.Context(), h.deps(), h.root, append(targets(), shims)); err != nil {
+	if _, err := install(t.Context(), h.deps(), h.root, targets()); err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
@@ -431,7 +439,7 @@ func TestInstallPathFollowsGOBIN(t *testing.T) {
 		t.Errorf("installPath = %q, want %q", got, want)
 	}
 
-	// A target's own directory wins, which is how cmd/gh will land in
+	// A target's own directory wins, which is how cmd/gh lands in
 	// ~/.local/shims rather than the shared ~/go/bin. It is resolved against
 	// home rather than written with a tilde, because nothing here runs a shell
 	// and go install would create a directory actually called "~".

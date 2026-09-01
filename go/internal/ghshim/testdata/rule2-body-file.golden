@@ -1,0 +1,14 @@
+gh の書き込み系サブコマンドで複数行の本文を --body/-b で渡すことは禁止しています。
+
+実行しようとしたコマンド:
+  gh pr edit -R foo/bar 1 --body $'line1\nline2'
+
+理由:
+  --body "$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
+  誤ったエスケープ（バッククォート前の不要なバックスラッシュ等）が
+  そのまま本文に残る事故が起きます。
+
+対処:
+  1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
+  2. --body の代わりに --body-file <path> を指定して再実行する
+       例: gh pr edit -R owner/repo ... --body-file /path/to/body.md
