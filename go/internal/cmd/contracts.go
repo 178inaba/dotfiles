@@ -5,6 +5,8 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/issue"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
+	"github.com/178inaba/dotfiles/go/internal/reviewprs"
+	"github.com/178inaba/dotfiles/go/internal/skill"
 	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
@@ -269,6 +271,80 @@ git's own safety net is skipped.`,
 			reads("Input (JSON on standard input)", reflect.TypeFor[worktree.DeleteInput]()),
 			prints(reflect.TypeFor[worktree.Deletion]()),
 		},
+		statuses: with(),
+	},
+
+	"review pending": {
+		intro: `List the pull requests waiting for this user's review.
+
+Somebody else's pull request, this user asked to review it, and this user has
+not reviewed it yet. A pull request another reviewer has already been through
+is left out, since the point of the loop this feeds is to get to the ones
+nobody has looked at.`,
+		blocks:   []block{prints(reflect.TypeFor[reviewprs.Pending]())},
+		statuses: with(),
+	},
+
+	"review verify": {
+		intro: `Check that this user's review reached each pull request.
+
+The same judgement ` + "`ccx review pending`" + ` makes, asked from the other end: a
+subagent that reported posting a review and did not would otherwise leave the
+loop believing the work was done.
+
+Each argument names one pull request as <owner>/<repo>#<number>.`,
+		blocks:   []block{prints(reflect.TypeFor[reviewprs.Verification]())},
+		statuses: with(),
+	},
+
+	"review clone": {
+		intro: `Make a review clone of a repository available.
+
+Reviews are done in a workspace of their own, at
+
+    $XDG_DATA_HOME/claude-review-prs/<owner>/<repo>
+
+with $XDG_DATA_HOME defaulting to ~/.local/share. Away from wherever the user
+keeps their own checkout, so that a worktree created for a review never turns
+up in the repository they are working in. Nothing here is ever cleaned up
+automatically; deleting the workspace is a person's to do.
+
+An existing clone is brought up to date with git fetch --prune. A new one is
+built in a hidden temporary directory beside its destination and moved into
+place, so two subagents racing to clone the same repository never see a
+half-finished one — the loser simply adopts the winner's. A crash that skips
+the cleanup can leave one of those temporary .<repo>.XXXXXX directories in the
+owner's directory; they are safe to remove.`,
+		blocks:   []block{prints(reflect.TypeFor[reviewprs.Clone]())},
+		statuses: with(),
+	},
+
+	"skill frontmatter": {
+		intro: `Check the frontmatter of a skill directory or one SKILL.md.
+
+Claude Code's own parser is forgiving enough to load a skill whose frontmatter
+is not valid YAML, so nothing goes wrong loudly: an argument-hint holding two
+flow sequences on one line sat broken in two files until somebody happened to
+look.
+
+<target> is a directory or a single SKILL.md; left out, it is the skills
+directory of the repository this configuration is stowed from. Violations are
+not a failure of the check — the caller reads them and decides. Only being
+unable to check at all is.`,
+		blocks:   []block{prints(reflect.TypeFor[skill.Frontmatter]())},
+		statuses: with(),
+	},
+
+	"skill refs": {
+		intro: `Check the @ references between skills.
+
+A reference attaches its target one level only, and nothing says so when a
+second hop goes unattached — which is how a verification once ran with its
+convergence protocol unread.
+
+<skills-dir> defaults to the skills directory of the repository this
+configuration is stowed from.`,
+		blocks:   []block{prints(reflect.TypeFor[skill.Refs]())},
 		statuses: with(),
 	},
 }

@@ -22,6 +22,7 @@ func skillFrontmatterCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "frontmatter [<target>]",
 		Short: "Check the frontmatter of a skill directory or one SKILL.md",
+		Long:  longFor("skill frontmatter"),
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -73,6 +74,7 @@ func skillRefsCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "refs [<skills-dir>]",
 		Short: "Check the @ references between skills",
+		Long:  longFor("skill refs"),
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)

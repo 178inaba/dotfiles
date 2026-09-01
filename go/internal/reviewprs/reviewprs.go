@@ -139,7 +139,8 @@ type Result struct {
 	Owner  string `json:"owner"`
 	Repo   string `json:"repo"`
 	Number int    `json:"number"`
-	Posted bool   `json:"posted"`
+	// False means the review that was reported as posted did not reach GitHub.
+	Posted bool `json:"posted"`
 }
 
 // Verification is the answer to "did the reviews I was told about get posted".

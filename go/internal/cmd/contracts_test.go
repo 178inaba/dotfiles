@@ -62,3 +62,29 @@ func TestContractsNameRealCommands(t *testing.T) {
 		}
 	}
 }
+
+// TestEverySkillFacingCommandHasAContract is the list itself, written out.
+//
+// These are the commands a skill reads the output of, so these are the ones
+// whose contract has to be obtainable from the command. The statusline, the
+// hooks and the refresh commands are not here: a hook answers Claude Code with
+// an exit status and no skill reads any of them.
+func TestEverySkillFacingCommandHasAContract(t *testing.T) {
+	want := []string{
+		"issue tree",
+		"issue sections schema", "issue sections list", "issue sections check", "issue sections find",
+		"pr context", "pr freshness", "pr prepare-review", "pr post-review", "pr reply-threads",
+		"worktree detect", "worktree create", "worktree resolve", "worktree checkout",
+		"worktree collect", "worktree delete",
+		"review pending", "review verify", "review clone",
+		"skill frontmatter", "skill refs",
+	}
+	for _, path := range want {
+		if _, ok := contracts[path]; !ok {
+			t.Errorf("%q has no contract", path)
+		}
+	}
+	if len(contracts) != len(want) {
+		t.Errorf("contracts has %d entries, want the %d listed here", len(contracts), len(want))
+	}
+}

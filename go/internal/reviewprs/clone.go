@@ -64,6 +64,8 @@ type CloneOptions struct {
 
 // Clone is where a repository has been made available for review.
 type Clone struct {
+	// The absolute path of the clone. Use this rather than composing the path
+	// from the workspace layout, which is this command's to decide.
 	Path string `json:"path"`
 }
 
