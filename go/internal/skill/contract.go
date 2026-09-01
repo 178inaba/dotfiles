@@ -18,9 +18,15 @@ type Contract struct {
 	// what decides whether it is checked at all.
 	Commands []string
 	// Identifiers is every field name, value and key any command publishes.
+	//
 	// The set is global rather than per-command on purpose: a skill may name a
 	// field of a command it does not run itself, because it delegates the
 	// running to another skill's procedure, and those references are correct.
+	//
+	// What that costs is that a rename is caught only when the name leaves
+	// every registered type. head_oid is declared seven times, so renaming one
+	// of them leaves the token in the set and nothing here fails — which is
+	// also why testing this check by renaming one is no test at all.
 	Identifiers []string
 }
 

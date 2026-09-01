@@ -19,7 +19,11 @@ type Modes struct {
 	// This repository's own conventions apply, which they
 	// do to our own work and not to a stranger's.
 	PersonalRules bool `json:"personal_rules"`
-	Autofix       bool `json:"autofix"`
+	// The findings are acted on here rather than posted. Never true at the
+	// same time as comment: a review either tells somebody else what it found
+	// or fixes it, and doing both would post remarks about code that has
+	// already changed.
+	Autofix bool `json:"autofix"`
 }
 
 // Flags echo what the command was asked for, including a pull request number
@@ -54,13 +58,16 @@ type Preparation struct {
 	WorkDir     *string `json:"work_dir"`
 	ReviewPath  *string `json:"review_path"`
 	ThreadsPath *string `json:"threads_path"`
-	BaseBranch  *string `json:"base_branch"`
-	Modes       *Modes  `json:"modes"`
+	// The branch to diff against, already prefixed with origin/.
+	BaseBranch *string `json:"base_branch"`
+	Modes      *Modes  `json:"modes"`
 	// The whole freshness report, so that a caller stopping on one can say
 	// what it compared.
 	Freshness *worktree.FreshnessReport `json:"freshness"`
-	Issues    []LinkedIssue             `json:"issues"`
-	Warnings  []string                  `json:"warnings"`
+	// The issues the review checks the work against: the one --issue named, or
+	// else the ones the pull request body's closing keywords point at.
+	Issues   []LinkedIssue `json:"issues"`
+	Warnings []string      `json:"warnings"`
 }
 
 // Options are what the command line asked for.

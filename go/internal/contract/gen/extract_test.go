@@ -95,9 +95,10 @@ func TestExtract(t *testing.T) {
 	}
 }
 
-// TestExtractConstBlockStatesTypeOnce covers the other way Go lets a typed
-// const block be written, which the worktree and issue packages both use.
-func TestExtractConstBlockStatesTypeOnce(t *testing.T) {
+// TestExtractUntypedConstIsNotAMember covers the shape that looks like a value
+// set and is not: a constant declared without a type of its own is untyped,
+// whatever the specification above it said.
+func TestExtractUntypedConstIsNotAMember(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "sample.go"), "package sample\n\ntype Verdict string\n\nconst (\n\tA Verdict = \"a\"\n\tB          = \"b\"\n)\n")
 
@@ -105,7 +106,7 @@ func TestExtractConstBlockStatesTypeOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
-	want := map[string][]string{"example.com/sample.Verdict": {"a", "b"}}
+	want := map[string][]string{"example.com/sample.Verdict": {"a"}}
 	if diff := cmp.Diff(want, got.Enums); diff != "" {
 		t.Errorf("enums (-want +got):\n%s", diff)
 	}

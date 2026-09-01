@@ -231,14 +231,15 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 // contextLimits reads the three caps a caller raises when a pull request was
 // cut short.
 //
-// limitVars are the environment variables that raise them, in the order the
-// limits are read. Named here so that the help lists the same three rather
-// than a copy of them.
-var limitVars = [3]string{"MAX_COMMENTS", "MAX_THREADS", "MAX_THREAD_COMMENTS"}
-
+// limitVars are the environment variables that raise the fetch limits, in the
+// order the limits are read.
+//
+// Named here so that the help lists the same three rather than a copy of them.
 // They stay environment variables rather than becoming flags: the only time
 // anybody sets one is to run the same command again with more room, and the
 // command line belongs to the skill.
+var limitVars = [3]string{"MAX_COMMENTS", "MAX_THREADS", "MAX_THREAD_COMMENTS"}
+
 func contextLimits() (pullrequest.Limits, error) {
 	limits := pullrequest.DefaultLimits
 	for _, l := range []struct {

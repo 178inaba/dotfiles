@@ -145,7 +145,9 @@ type Result struct {
 
 // Verification is the answer to "did the reviews I was told about get posted".
 type Verification struct {
-	Results  []Result `json:"results"`
+	Results []Result `json:"results"`
+	// At least one pull request could not be checked, and it is absent from
+	// results rather than reported as unposted — not knowing is a third answer.
 	Degraded bool     `json:"degraded"`
 	Warnings []string `json:"warnings"`
 }

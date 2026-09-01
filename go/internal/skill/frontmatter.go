@@ -24,7 +24,7 @@ const (
 	// InvalidYAML is frontmatter that will not parse. Nothing else is reported
 	// for such a file: there is no parsed value to judge it by.
 	InvalidYAML FrontmatterViolation = "invalid_yaml"
-	// MissingField covers a file with no frontmatter block at all, which is
+	// Covers a file with no frontmatter block at all, which is
 	// missing both fields rather than being a kind of its own.
 	MissingField FrontmatterViolation = "missing_field"
 	// NameMismatch is a name field that is not the skill's directory name,

@@ -102,9 +102,11 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 		return "", err
 	}
 
+	// Counted in runes: three of the assessment values are Japanese, and a
+	// column measured in bytes puts their rows out of line with the rest.
 	width := minNameColumn
 	for _, r := range rows {
-		if end := len(r.indent()) + len(r.name) + 2; end > width {
+		if end := len(r.indent()) + utf8.RuneCountInString(r.name) + 2; end > width {
 			width = end
 		}
 	}
@@ -127,7 +129,7 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 		// well past a terminal, and a name column is no reason to let it.
 		for i, line := range wrap(r.kind, LineWidth-width) {
 			if i == 0 {
-				b.WriteString(head + pad[len(head):] + line + "\n")
+				b.WriteString(head + pad[:width-utf8.RuneCountInString(head)] + line + "\n")
 				continue
 			}
 			b.WriteString(pad + line + "\n")
@@ -241,27 +243,37 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 		return "", err
 	}
 
-	// The qualifier goes in brackets rather than after a comma, because a
-	// value set is itself a comma-separated list and "one of: a, b, required"
-	// reads as four values.
 	switch {
 	case mode == Input && f.Tag.Get("contract") == "required":
-		return base + " (required)", nil
+		return qualify(base, "required"), nil
 	case mode == Input:
-		return base + " (optional)", nil
+		return qualify(base, "optional"), nil
 	case strings.Contains(opts, "omitzero"):
 		// The key is left out rather than written as null, so saying both
 		// would describe two shapes only one of which appears.
 		if t.Kind() == reflect.Pointer {
-			return base + " (may be absent)", nil
+			return qualify(base, "may be absent"), nil
 		}
-		return base + " (absent when empty)", nil
+		return qualify(base, "absent when empty"), nil
 	case t.Kind() == reflect.Pointer && !tb.marshals(t):
 		// A type that serialises itself has already said whether it can be
 		// null, and the pointer here is Go's business rather than the wire's.
-		return base + " (may be null)", nil
+		return qualify(base, "may be null"), nil
 	}
 	return base, nil
+}
+
+// qualify attaches how a field may be absent to what it is.
+//
+// In brackets rather than after a comma, because a value set is itself a
+// comma-separated list and "one of: a, b, required" reads as three values. And
+// before the list rather than after it, because a qualifier sitting past the
+// colon reads as one more member.
+func qualify(base, q string) string {
+	if kind, values, found := strings.Cut(base, ", one of"); found {
+		return kind + " (" + q + "), one of" + values
+	}
+	return base + " (" + q + ")"
 }
 
 // enumOf is the named type behind a field, past any pointer or list: where a

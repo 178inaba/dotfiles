@@ -36,7 +36,7 @@ const (
 type Action string
 
 const (
-	// ActionEnterExisting names a worktree that is already there.
+	// A worktree that is already there.
 	ActionEnterExisting Action = "enter_existing"
 	// ActionCreate says one has to be made first.
 	ActionCreate Action = "create"

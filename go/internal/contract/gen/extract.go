@@ -157,20 +157,20 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 }
 
 func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, out docs) {
-	// Go lets a typed const block state its type on the first spec only, so
-	// the type carries down until another one replaces it.
-	current := ""
 	for _, spec := range gd.Specs {
 		vs, ok := spec.(*ast.ValueSpec)
 		if !ok {
 			continue
 		}
-		if id, ok := vs.Type.(*ast.Ident); ok {
-			current = id.Name
-		}
-		if !stringTypes[current] {
+		// Only a specification that names its own type. A constant declared
+		// without one is untyped, whatever the specification above it said, so
+		// carrying the type down would collect an unrelated string as a member
+		// of the value set.
+		id, ok := vs.Type.(*ast.Ident)
+		if !ok || !stringTypes[id.Name] {
 			continue
 		}
+		current := id.Name
 		for _, v := range vs.Values {
 			lit, ok := v.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {

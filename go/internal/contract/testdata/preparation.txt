@@ -25,6 +25,7 @@
   review_path          string (may be null)
   threads_path         string (may be null)
   base_branch          string (may be null)
+                       The branch to diff against, already prefixed with origin/.
   modes                object (may be null)
     comment            boolean
                        The findings are posted as a review rather than acted on, which
@@ -33,6 +34,10 @@
                        This repository's own conventions apply, which they do to our own
                        work and not to a stranger's.
     autofix            boolean
+                       The findings are acted on here rather than posted. Never true at
+                       the same time as comment: a review either tells somebody else
+                       what it found or fixes it, and doing both would post remarks
+                       about code that has already changed.
   freshness            object (may be null)
                        The whole freshness report, so that a caller stopping on one can
                        say what it compared.
@@ -45,15 +50,17 @@
                        person to resolve rather than for this command.
       diverged         The same, with commits the remote has never seen.
       branch_mismatch  A checkout of something else entirely, a detached head included.
-      fetch_failed     FreshnessFetchFailed most often means the head branch is not on
-                       origin at all, which is what a pull request from a fork looks
-                       like from here.
+      fetch_failed     Most often means the head branch is not on origin at all, which
+                       is what a pull request from a fork looks like from here.
     head_ref           string
     head_oid           string
     local_head         string
                        Read after any synchronisation, so it is where the checkout ended
                        up rather than where it started.
   issues               array of object
+                       The issues the review checks the work against: the one --issue
+                       named, or else the ones the pull request body's closing keywords
+                       point at.
     repo               string (may be null)
                        Null for an issue in this repository, which is how the body wrote
                        it.

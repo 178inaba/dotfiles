@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -25,6 +26,42 @@ func TestContractsRender(t *testing.T) {
 		for _, line := range strings.Split(text, "\n") {
 			if len([]rune(line)) > contract.LineWidth {
 				t.Errorf("%s: line is %d wide, over %d:\n%s", path, len([]rune(line)), contract.LineWidth, line)
+			}
+		}
+	}
+}
+
+// goIdentifier is a word only a Go reader could resolve: two or more
+// capital-led parts run together, which is how this module spells a
+// declaration and never how it spells English.
+var goIdentifier = regexp.MustCompile(`\b[A-Z][a-z0-9]+([A-Z][A-Za-z0-9]*)+\b`)
+
+// notAnIdentifier are the words that look like one and are names of things
+// outside this module, so a help is right to print them.
+var notAnIdentifier = map[string]bool{
+	"GitHub": true, "GraphQL": true, "SemanticError": true,
+}
+
+// TestNoGoNamesInTheRenderedContract is the guard behind the rule that a doc
+// comment now has two readers.
+//
+// The extractor drops the name a comment opens with, but only for the verbs it
+// knows, and nothing stopped a comment from naming a Go declaration in the
+// middle of a sentence. Three had reached a published help before this existed.
+// Only the rendered blocks are checked: an intro is hand-written English and
+// may legitimately name a Go type it is telling the reader about.
+func TestNoGoNamesInTheRenderedContract(t *testing.T) {
+	for path, h := range contracts {
+		for _, blk := range h.blocks {
+			text, err := contract.Render(blk.typ, blk.mode)
+			if err != nil {
+				t.Errorf("%s: %v", path, err)
+				continue
+			}
+			for _, word := range goIdentifier.FindAllString(text, -1) {
+				if !notAnIdentifier[word] {
+					t.Errorf("%s: the contract names %q, which only a Go reader can resolve", path, word)
+				}
 			}
 		}
 	}
