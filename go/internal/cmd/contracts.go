@@ -253,7 +253,10 @@ Deletes nothing. The list goes to a person for approval, and
 A branch with an open pull request is left out entirely rather than reported
 as skipped: it is in flight, not finished. Everything judged finished but held
 back for a reason appears under skipped, so that nothing disappears silently
-between the two commands.`,
+between the two commands.
+
+Never considered at all: main, master, develop, the remote's default branch,
+and the main worktree, which cannot be removed anyway.`,
 		blocks:   []block{prints(reflect.TypeFor[worktree.Collection]())},
 		statuses: with(),
 	},
@@ -268,9 +271,12 @@ nothing approved — fails the command itself.
 
 The processes holding a worktree as their working directory are checked again
 here, immediately before the removal, so that somebody entering one between
-the approval and the deletion does not lose it. A branch whose pull request
-closed unmerged is checked against the head recorded at collection time before
-git's own safety net is skipped.`,
+the approval and the deletion does not lose it.
+
+Deletion is git branch -d, so git's own merged check is a second safety net
+under the judgement that put a branch on the list. Only a branch whose pull
+request closed unmerged is deleted with -D, and only after its head is checked
+against the one recorded at collection time. --force is never used.`,
 		blocks: []block{
 			reads("Input (JSON on standard input)", reflect.TypeFor[worktree.DeleteInput]()),
 			prints(reflect.TypeFor[worktree.Deletion]()),

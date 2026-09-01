@@ -52,13 +52,19 @@ const (
 	// upstream to compare against.
 	SkipNoUpstreamWithCommits SkipReason = "no_upstream_with_commits"
 	// SkipCommitsBeyondMergedPR is a branch pushed to after its pull request
-	// merged. Nothing else catches it: the commits are on the remote, so every
-	// unpushed check passes and `git branch -d` agrees to delete.
+	// merged, or diverged from it, or whose merged head is not here at all.
+	// Nothing else catches it: the commits are on the remote, so every
+	// unpushed check passes and `git branch -d` agrees to delete. detail
+	// lists the commits beyond the merge, or says the merged head is missing
+	// locally where that is why.
 	SkipCommitsBeyondMergedPR SkipReason = "commits_beyond_merged_pr"
-	// SkipLocalCommitsBeyondPR is the same as commits_beyond_merged_pr for
-	// commits that were never pushed at all.
+	// SkipLocalCommitsBeyondPR is a branch whose pull request closed unmerged
+	// and which carries commits the pull request never had.
 	SkipLocalCommitsBeyondPR SkipReason = "local_commits_beyond_pr"
-	// SkipInUseByProcess is a worktree some process is still standing in.
+	// SkipInUseByProcess is a worktree some process is still standing in —
+	// another Claude Code session, a shell. detail names the process and its
+	// pid. The worktree the caller is standing in is exempt from the check and
+	// becomes an is_current candidate instead.
 	SkipInUseByProcess SkipReason = "in_use_by_process"
 )
 
