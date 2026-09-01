@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -19,7 +20,8 @@ import (
 // main worktree itself, because a skill may be running in a worktree already.
 func newWorktreeCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("worktree", "Create and resolve the worktrees the skills work in")
-	c.AddCommand(worktreeDetectCmd(build), worktreeCreateCmd(build), worktreeResolveCmd(build), worktreeCheckoutCmd(build))
+	c.AddCommand(worktreeDetectCmd(build), worktreeCreateCmd(build), worktreeResolveCmd(build), worktreeCheckoutCmd(build),
+		worktreeCollectCmd(build), worktreeDeleteCmd(build))
 	return c
 }
 
@@ -122,6 +124,53 @@ func worktreeCheckoutCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), checked))
+		},
+	}
+}
+
+// worktreeCollectCmd builds `ccx worktree collect`, the first half of
+// /cleanup-merged. It deletes nothing: the list goes to a person for approval,
+// and worktreeDeleteCmd takes back whatever survives that.
+func worktreeCollectCmd(build selfbuild.State) *cobra.Command {
+	return &cobra.Command{
+		Use:   "collect",
+		Short: "List the worktrees and branches whose work is finished",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			reportBuild(c, build)
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			collected, err := worktree.Collect(c.Context(), runner.Exec{}, client, ".")
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), collected))
+		},
+	}
+}
+
+func worktreeDeleteCmd(build selfbuild.State) *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete",
+		Short: "Delete the approved worktrees and branches read from standard input",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			reportBuild(c, build)
+			in, err := io.ReadAll(c.InOrStdin())
+			if err != nil {
+				return silent(err)
+			}
+			candidates, err := worktree.ParseCandidates(in)
+			if err != nil {
+				return silent(err)
+			}
+			deleted, err := worktree.Delete(c.Context(), runner.Exec{}, ".", candidates)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), deleted))
 		},
 	}
 }
