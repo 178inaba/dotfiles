@@ -25,7 +25,8 @@ const (
 	// it: either stop referencing and start the other skill as a skill, or
 	// reference the second file directly as well.
 	UncoveredNested RefViolation = "uncovered_nested"
-	MissingTarget   RefViolation = "missing_target"
+	// MissingTarget is a reference to a file that is not there.
+	MissingTarget RefViolation = "missing_target"
 	// RefInCode is a reference inside backticks or a fence, which suggests the
 	// `@` was meant as a mention rather than as an attachment.
 	RefInCode RefViolation = "ref_in_code"

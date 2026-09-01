@@ -248,8 +248,8 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 }
 
 // thread normalises one review thread, fetching the rest of its comments.
-func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwnPR bool, headCommittedAt *string, max int) (Thread, error) {
-	comments, err := pages(ctx, max, n.Comments.Nodes, n.Comments.PageInfo,
+func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwnPR bool, headCommittedAt *string, limit int) (Thread, error) {
+	comments, err := pages(ctx, limit, n.Comments.Nodes, n.Comments.PageInfo,
 		func(ctx context.Context, cursor string) ([]commentNode, pageInfo, error) {
 			var page struct {
 				Node struct {
@@ -372,18 +372,19 @@ func mustAtoi(s string) int {
 	return n
 }
 
-// pages walks the rest of a connection, stopping once max elements are in hand.
+// pages walks the rest of a connection, stopping once limit elements are in
+// hand.
 //
 // The limit is checked before each further request rather than applied to the
 // result, so the first page always arrives whole and a final count may exceed
 // the limit. That is deliberate: the limit bounds the round trips, and the
 // truncation flag — the total against what actually arrived — is what tells the
 // caller something was left behind.
-func pages[T any](ctx context.Context, max int, first []T, info pageInfo,
+func pages[T any](ctx context.Context, limit int, first []T, info pageInfo,
 	next func(context.Context, string) ([]T, pageInfo, error),
 ) ([]T, error) {
 	all := first
-	for info.HasNextPage && len(all) < max {
+	for info.HasNextPage && len(all) < limit {
 		nodes, page, err := next(ctx, info.EndCursor)
 		if err != nil {
 			return nil, err

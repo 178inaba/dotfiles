@@ -27,6 +27,8 @@ const (
 	// MissingField covers a file with no frontmatter block at all, which is
 	// missing both fields rather than being a kind of its own.
 	MissingField FrontmatterViolation = "missing_field"
+	// NameMismatch is a name field that is not the skill's directory name,
+	// which is the name the model is given to invoke it by.
 	NameMismatch FrontmatterViolation = "name_mismatch"
 	// UnquotedFlow is a value beginning with an unquoted [ or {, which YAML
 	// reads as a sequence or a mapping rather than as the string it was meant

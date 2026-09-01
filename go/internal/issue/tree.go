@@ -20,9 +20,15 @@ import (
 type TreeKind string
 
 const (
-	KindStandalone   TreeKind = "standalone"
-	KindParent       TreeKind = "parent"
-	KindSub          TreeKind = "sub"
+	// KindStandalone is an issue with neither a parent nor children.
+	KindStandalone TreeKind = "standalone"
+	// KindParent is an issue with children and no parent of its own, which is
+	// how a release-sized issue looks.
+	KindParent TreeKind = "parent"
+	// KindSub is an issue with a parent and no children, which is a leaf: one
+	// pull request closes it.
+	KindSub TreeKind = "sub"
+	// KindParentAndSub is both, a middle level of the hierarchy.
 	KindParentAndSub TreeKind = "parent_and_sub"
 )
 

@@ -18,9 +18,14 @@ import (
 type ResolveStatus string
 
 const (
-	ResolveOK          ResolveStatus = "ok"
+	// ResolveOK is a worktree at the pull request's head, ready to be entered.
+	ResolveOK ResolveStatus = "ok"
+	// ResolveBehindDirty is a checkout with uncommitted changes in it, which
+	// cannot be moved to the head.
 	ResolveBehindDirty ResolveStatus = "behind_dirty"
-	ResolveDiverged    ResolveStatus = "diverged"
+	// ResolveDiverged is a checkout carrying commits the remote has never
+	// seen.
+	ResolveDiverged ResolveStatus = "diverged"
 	// ResolveEvacuationDirty is the main repository sitting on the pull
 	// request's branch with changes in it, so it cannot be moved off to make
 	// room for the worktree.
@@ -31,8 +36,10 @@ const (
 type Action string
 
 const (
+	// ActionEnterExisting names a worktree that is already there.
 	ActionEnterExisting Action = "enter_existing"
-	ActionCreate        Action = "create"
+	// ActionCreate says one has to be made first.
+	ActionCreate Action = "create"
 )
 
 // Resolution is where a pull request's worktree is, or what has to happen for

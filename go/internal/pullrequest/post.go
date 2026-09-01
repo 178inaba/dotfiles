@@ -18,8 +18,13 @@ import (
 type Assessment string
 
 const (
+	// AssessmentApprove is a review with nothing that has to change. The
+	// values are Japanese because the review file they are read out of is
+	// written by a skill that speaks Japanese, and these are what it writes.
 	AssessmentApprove Assessment = "Approve可能"
+	// AssessmentChanges is a review with something that has to change.
 	AssessmentChanges Assessment = "修正が必要"
+	// AssessmentDiscuss is a review that asks rather than tells.
 	AssessmentDiscuss Assessment = "要議論"
 )
 
@@ -202,7 +207,7 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 		Comments []comment `json:"comments"`
 	}{CommitID: target.HeadOID, Event: event, Body: sub.Body, Comments: []comment{}}
 	for _, s := range sub.Comments {
-		payload.Comments = append(payload.Comments, comment{Path: s.Path, Line: s.Line, Body: s.Body})
+		payload.Comments = append(payload.Comments, comment(s))
 	}
 
 	var response struct {

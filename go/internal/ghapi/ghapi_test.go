@@ -110,7 +110,7 @@ func TestGetAllStopsWithoutNext(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		// A last page still carries a Link header, just without rel="next".
 		w.Header().Set("Link", `<https://api.github.com/repos/o/r/issues?page=1>; rel="prev"`)

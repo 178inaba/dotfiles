@@ -22,7 +22,9 @@ linters:
         - fmt.Fprintf
         - fmt.Fprintln
         - os.Remove
+        - os.RemoveAll
         - (*os.File).Close
+        - (*os.Root).Close
         - (io.ReadCloser).Close
         - (*github.com/178inaba/dotfiles/go/internal/hooks/state.Store).Close
 

@@ -68,7 +68,7 @@ func TestDelete(t *testing.T) {
 	pid := hold(t, busy)
 
 	candidates := Candidates{
-		Worktrees: []WorktreeCandidate{
+		Worktrees: []Candidate{
 			{Path: busy, Branch: "wt-busy", Verdict: VerdictMergedNoPR},
 			{Path: del, Branch: "wt-del", Verdict: VerdictMergedNoPR},
 		},
@@ -184,7 +184,7 @@ func TestParseCandidates(t *testing.T) {
 			name: "what collect wrote",
 			in:   `{"candidates":{"worktrees":[{"path":"/w","branch":"b","verdict":"merged_no_pr","head_oid":""}],"branches":[]}}`,
 			want: Candidates{
-				Worktrees: []WorktreeCandidate{{Path: "/w", Branch: "b", Verdict: VerdictMergedNoPR}},
+				Worktrees: []Candidate{{Path: "/w", Branch: "b", Verdict: VerdictMergedNoPR}},
 				Branches:  []BranchCandidate{},
 			},
 		},

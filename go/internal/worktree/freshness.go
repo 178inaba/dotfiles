@@ -15,18 +15,18 @@ import (
 type Freshness string
 
 const (
-	// FreshnessOK and FreshnessSynced are a checkout at the pull request's
-	// head, before and after this command moved it there.
-	FreshnessOK     Freshness = "ok"
+	// FreshnessOK is a checkout already at the pull request's head.
+	FreshnessOK Freshness = "ok"
+	// FreshnessSynced is the same checkout after this command moved it there.
 	FreshnessSynced Freshness = "synced"
 	// FreshnessAheadOwn is the author's own checkout with commits not pushed
 	// yet, which is ordinary rather than stale.
 	FreshnessAheadOwn Freshness = "ahead_own"
-	// FreshnessBehindDirty and FreshnessDiverged are stops with work at stake:
-	// uncommitted changes in the first, commits the remote has never seen in
-	// the second. Both are for a person to resolve.
+	// FreshnessBehindDirty is a stale checkout with uncommitted changes in it,
+	// which is for a person to resolve rather than for this command.
 	FreshnessBehindDirty Freshness = "behind_dirty"
-	FreshnessDiverged    Freshness = "diverged"
+	// FreshnessDiverged is the same, with commits the remote has never seen.
+	FreshnessDiverged Freshness = "diverged"
 	// FreshnessBranchMismatch is a checkout of something else entirely, a
 	// detached head included.
 	FreshnessBranchMismatch Freshness = "branch_mismatch"

@@ -56,13 +56,15 @@ func Detect(ctx context.Context, r runner.Runner, root string, issue int) (Detec
 type CreateStatus string
 
 const (
+	// CreateOK is a worktree that now exists and did not before.
 	CreateOK CreateStatus = "ok"
-	// CreateBranchExists and CreatePathExists are stopping conditions rather
-	// than failures. Either may be the remains of earlier work on the same
-	// issue, and whether to throw that away is a question for the person, not
-	// for a command that would answer it by deleting.
+	// CreateBranchExists is a stopping condition rather than a failure: the
+	// branch may be the remains of earlier work on the same issue, and whether
+	// to throw that away is a question for the person, not for a command that
+	// would answer it by deleting.
 	CreateBranchExists CreateStatus = "branch_exists"
-	CreatePathExists   CreateStatus = "path_exists"
+	// CreatePathExists is the same stopping condition for the directory.
+	CreatePathExists CreateStatus = "path_exists"
 )
 
 // Created is the outcome of making a worktree.

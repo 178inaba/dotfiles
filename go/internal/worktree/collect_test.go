@@ -246,13 +246,13 @@ func branchCandidate(c Collection, name string) (BranchCandidate, bool) {
 	return BranchCandidate{}, false
 }
 
-func worktreeCandidate(c Collection, branch string) (WorktreeCandidate, bool) {
+func worktreeCandidate(c Collection, branch string) (Candidate, bool) {
 	for _, w := range c.Candidates.Worktrees {
 		if w.Branch == branch {
 			return w, true
 		}
 	}
-	return WorktreeCandidate{}, false
+	return Candidate{}, false
 }
 
 func skippedFor(c Collection, target string) (Skipped, bool) {

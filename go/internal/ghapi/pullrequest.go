@@ -13,8 +13,14 @@ import (
 type PRState string
 
 const (
-	StateOpen   PRState = "OPEN"
+	// StateOpen is GraphQL's spelling, as are the other two, and is also what
+	// `gh pr view --json state` printed.
+	StateOpen PRState = "OPEN"
+	// StateClosed is a pull request closed without merging. REST calls a
+	// merged one closed as well and puts the distinction in a separate field,
+	// so telling these two apart means coming through GraphQL.
 	StateClosed PRState = "CLOSED"
+	// StateMerged is a pull request that was merged.
 	StateMerged PRState = "MERGED"
 )
 

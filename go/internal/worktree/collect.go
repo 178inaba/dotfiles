@@ -32,16 +32,21 @@ const (
 type TargetKind string
 
 const (
+	// KindWorktree is a checkout with a directory of its own, which has to be
+	// left before it can be removed.
 	KindWorktree TargetKind = "worktree"
-	KindBranch   TargetKind = "branch"
+	// KindBranch is a branch with no worktree, which needs no evacuation.
+	KindBranch TargetKind = "branch"
 )
 
 // SkipReason is why something that looked finished is being left alone.
 type SkipReason string
 
 const (
+	// SkipUncommittedChanges is work that exists nowhere but this checkout.
 	SkipUncommittedChanges SkipReason = "uncommitted_changes"
-	SkipUnpushedCommits    SkipReason = "unpushed_commits"
+	// SkipUnpushedCommits is work that exists nowhere but this clone.
+	SkipUnpushedCommits SkipReason = "unpushed_commits"
 	// SkipNoUpstreamWithCommits is a branch with commits and nowhere to have
 	// pushed them, which the unpushed check cannot see because it needs an
 	// upstream to compare against.
@@ -50,12 +55,16 @@ const (
 	// merged. Nothing else catches it: the commits are on the remote, so every
 	// unpushed check passes and `git branch -d` agrees to delete.
 	SkipCommitsBeyondMergedPR SkipReason = "commits_beyond_merged_pr"
-	SkipLocalCommitsBeyondPR  SkipReason = "local_commits_beyond_pr"
-	SkipInUseByProcess        SkipReason = "in_use_by_process"
+	// SkipLocalCommitsBeyondPR is the same as SkipCommitsBeyondMergedPR for
+	// commits that were never pushed at all.
+	SkipLocalCommitsBeyondPR SkipReason = "local_commits_beyond_pr"
+	// SkipInUseByProcess is a worktree some process is still standing in.
+	SkipInUseByProcess SkipReason = "in_use_by_process"
 )
 
-// WorktreeCandidate is a worktree that can be removed.
-type WorktreeCandidate struct {
+// Candidate is a worktree that can be removed. A branch with no worktree of
+// its own is a BranchCandidate instead.
+type Candidate struct {
 	Path    string  `json:"path"`
 	Branch  string  `json:"branch"`
 	Verdict Verdict `json:"verdict"`
@@ -89,10 +98,11 @@ type Skipped struct {
 	Detail string     `json:"detail"`
 }
 
-// Candidates is what may be deleted, which is also what Delete takes back.
+// Candidates is the two lists of what may be deleted, and is also what Delete
+// takes back.
 type Candidates struct {
-	Worktrees []WorktreeCandidate `json:"worktrees"`
-	Branches  []BranchCandidate   `json:"branches"`
+	Worktrees []Candidate       `json:"worktrees"`
+	Branches  []BranchCandidate `json:"branches"`
 }
 
 // Collection is the whole answer to "what is finished with here".
@@ -195,7 +205,7 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 	out := Collection{
 		DefaultBranch:   c.defaultBranch,
 		CurrentWorktree: currentWorktree,
-		Candidates:      Candidates{Worktrees: []WorktreeCandidate{}, Branches: []BranchCandidate{}},
+		Candidates:      Candidates{Worktrees: []Candidate{}, Branches: []BranchCandidate{}},
 		Skipped:         []Skipped{},
 		Detached:        []string{},
 	}
@@ -254,7 +264,7 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 			})
 			continue
 		}
-		out.Candidates.Worktrees = append(out.Candidates.Worktrees, WorktreeCandidate{
+		out.Candidates.Worktrees = append(out.Candidates.Worktrees, Candidate{
 			Path: e.Path, Branch: e.Branch, Verdict: j.verdict, Detail: j.detail,
 			IsCurrent: isCurrent, HeadOID: j.headOID,
 		})
