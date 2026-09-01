@@ -95,7 +95,7 @@ PlanモードではBashが使えないため、以下を**移行前に**必ず�
 - 失敗時（リモート未設定等）は警告のみで続行
 
 **Step 3. 既存 worktree 検出と再開判定**（`--worktree` 指定 & Issue番号指定時のみ）
-- Issue 番号に対応する既存 worktree を検索する（現行命名・旧 EnterWorktree(name:) 方式の命名の両方に対応。パターンの正は `go/internal/worktree/` のパッケージドキュメント）:
+- Issue 番号に対応する既存 worktree を検索する（現行命名・旧 EnterWorktree(name:) 方式の命名の両方を拾う）:
   ```bash
   ccx worktree detect <issue-number>
   ```
@@ -142,7 +142,7 @@ PlanモードではBashが使えないため、以下を**移行前に**必ず�
 
 **Step 6. EnterWorktree 実行**（`--worktree` 指定 & 新規シナリオのみ）
 - `EnterWorktree(path: <worktree_path>)` で session を worktree に切り替える（`<worktree_path>` は Step 5 の出力値）
-  - `EnterWorktree(name:)` を使わないのは base branch を指定できないため（経緯は `go/internal/worktree/create.go` のドキュメントコメント参照）。path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定は働かない（後始末は「注意事項」参照）
+  - `EnterWorktree(name:)` を使わないのは base branch を指定できないため。path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定は働かない（後始末は「注意事項」参照）
 - **失敗時のリカバリ**: session はまだメインツリーの cwd。Step 5 で作成した worktree・branch を片付けて（`git worktree remove <worktree_path>` + `git branch -D <branch>`。作成直後でコミット・変更なしのため安全）、ユーザーに失敗を通知して abort（原因究明はユーザーに委ねる）
 
 **Step 7. EnterPlanModeツールでPlanモードに移行**（auto mode中でも必ず実行）

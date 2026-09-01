@@ -231,7 +231,7 @@ ccx issue sections list --locale <ja|en> --kind <leaf|sub|parent>
 - `template_mappable` — false のキーは、リポジトリの issue テンプレートに従うときも canonical 見出しのまま置く（他スキルが機械的に探す節のため）
 - `none_markers` — 「なし」を表す固定文字列を持つキーだけ非 null。決定したロケールの値をそのまま書く
 
-**節の並びは下の kind ごとの一覧が正**（`sections[]` の並びはレンダリング順ではない — 理由は `go/internal/issue/` のパッケージドキュメント）。
+**節の並びは下の kind ごとの一覧が正**（`sections[]` の並びはレンダリング順ではない）。
 
 ### kind ごとの節と書き方
 

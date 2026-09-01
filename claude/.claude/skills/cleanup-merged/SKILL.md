@@ -30,7 +30,7 @@ argument-hint: "[--yes]"
 ccx worktree collect
 ```
 
-事前準備（デフォルトブランチ取得・`git fetch`・保護 branch 除外）、worktree/branch の収集、マージ判定、セーフティチェックを一括実行し、JSON を stdout に出力する。判定ロジックの詳細は `go/internal/worktree/collect.go` を、挙動の担保は `go/internal/worktree/collect_test.go` を参照。
+事前準備（デフォルトブランチ取得・`git fetch`・保護 branch 除外）、worktree/branch の収集、マージ判定、セーフティチェックを一括実行し、JSON を stdout に出力する。候補と判断した理由は各要素の `verdict` / `detail` に載る。
 
 #### 出力 JSON の契約
 
@@ -115,7 +115,7 @@ ccx worktree delete < <(承認済み候補の JSON)
 ```
 
 - 個別の削除失敗は `failures` に記録され処理は継続する（exit 0）。失敗があれば個別に報告する
-- 削除の分岐（`-d`/`-D`・`--force` 不使用・使用中 worktree の拒否）は `ccx worktree delete` に集約されている。削除直前にも cwd 保持プロセスを再検査するため、収集〜承認の間に誰かが worktree に入っても削除されない。詳細は `go/internal/worktree/delete.go` のドキュメントコメントを参照
+- 削除の分岐（`-d`/`-D`・`--force` 不使用・使用中 worktree の拒否）は `ccx worktree delete` に集約されている。削除直前にも cwd 保持プロセスを再検査するため、収集〜承認の間に誰かが worktree に入っても削除されない
 
 `WorktreeRemove` hook がプロジェクトに設定されていれば、`git worktree remove` の発火に合わせて実行される（per-worktree DB のクリーンアップ等）。
 
