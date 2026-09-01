@@ -20,7 +20,7 @@ import (
 // newPRCmd builds `ccx pr`, the commands that work from a pull request.
 func newPRCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
-	c.AddCommand(prContextCmd(build), prFreshnessCmd(build), prPostReviewCmd(build), prReplyThreadsCmd(build))
+	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build), prReplyThreadsCmd(build))
 	return c
 }
 
@@ -106,12 +106,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			// owner and name are separated by @, which neither may contain:
-			// with a hyphen, a-b/c and a/b-c would collapse onto one name and
-			// the uniqueness this file's whole purpose rests on would have a
-			// hole in it.
-			name := fmt.Sprintf("pr-context-%s@%s-%d.json", repo.Owner, repo.Name, meta.Number)
-			path, err := writeContext(outDir, name, fetched)
+			path, err := storeContext(outDir)(fetched)
 			if err != nil {
 				return silent(err)
 			}
@@ -142,28 +137,86 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 	return pr, nil
 }
 
-// writeContext puts the context at its name, through a temporary file in the
-// same directory so that a run interrupted halfway leaves no partial document
-// where a complete one is expected.
-func writeContext(outDir, name string, v any) (string, error) {
-	tmp, err := os.CreateTemp(outDir, ".pr-context.*")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
+// storeContext writes a fetched context into outDir and answers with its path.
+//
+// Through a temporary file in the same directory, so that a run interrupted
+// halfway leaves no partial document where a complete one is expected. The name
+// separates the owner from the repository with an @, which neither may contain:
+// with a hyphen, a-b/c and a/b-c would collapse onto one name, and the
+// uniqueness this file's whole purpose rests on would have a hole in it.
+func storeContext(outDir string) pullrequest.Store {
+	return func(c pullrequest.Context) (string, error) {
+		owner, name, _ := strings.Cut(c.Repo, "/")
+		tmp, err := os.CreateTemp(outDir, ".pr-context.*")
+		if err != nil {
+			return "", err
+		}
+		defer os.Remove(tmp.Name())
 
-	if err := renderJSON(tmp, v); err != nil {
-		tmp.Close()
-		return "", err
+		if err := renderJSON(tmp, c); err != nil {
+			tmp.Close()
+			return "", err
+		}
+		if err := tmp.Close(); err != nil {
+			return "", err
+		}
+		path := filepath.Join(outDir, fmt.Sprintf("pr-context-%s@%s-%d.json", owner, name, c.PR.Number))
+		if err := os.Rename(tmp.Name(), path); err != nil {
+			return "", err
+		}
+		return path, nil
 	}
-	if err := tmp.Close(); err != nil {
-		return "", err
+}
+
+// prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
+// with: it settles which pull request, whether the checkout matches it, its
+// context, its freshness and which mode the review runs in, in one call.
+func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
+	var issue int
+	var worktreeFlag, localOnly, noAutofix bool
+	c := &cobra.Command{
+		Use:   "prepare-review <scratchpad-dir> [<pr-number>]",
+		Short: "Settle everything a review needs before it starts",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			scratch := args[0]
+			if info, err := os.Stat(scratch); err != nil || !info.IsDir() {
+				return silent(fmt.Errorf("scratchpad directory not found: %s", scratch))
+			}
+			number := 0
+			if len(args) == 2 {
+				var err error
+				if number, err = issueNumber(args[1]); err != nil {
+					return fmt.Errorf("invalid argument: %s", args[1])
+				}
+			}
+
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			repo, err := client.CurrentRepo(c.Context(), runner.Exec{})
+			if err != nil {
+				return silent(fmt.Errorf("failed to resolve repository (gh repo view)"))
+			}
+
+			options := pullrequest.Options{
+				Number: number, Issue: issue,
+				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
+			}
+			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext(scratch))
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), prepared))
+		},
 	}
-	path := filepath.Join(outDir, name)
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return "", err
-	}
-	return path, nil
+	c.Flags().IntVar(&issue, "issue", 0, "issue the review is about, instead of the ones the pull request body names")
+	c.Flags().BoolVar(&worktreeFlag, "worktree", false, "the checkout is a worktree already resolved for this pull request")
+	c.Flags().BoolVar(&localOnly, "local-only", false, "do not post the findings as a review")
+	c.Flags().BoolVar(&noAutofix, "no-autofix", false, "do not act on the findings")
+	return c
 }
 
 // contextLimits reads the three caps a caller raises when a pull request was
