@@ -111,8 +111,8 @@ set_dir_part() {
 set_dir_part "${BASH_SOURCE[0]}"
 self_dir=$(cd -P "$dir_part" && pwd -P)
 
-# 実体の gh を探す。GH_BIN はこのリポジトリ既存のスタブ差し替え規約
-# （issue-hierarchy.sh・fetch-pr-context.sh 等）で、テストが実 gh に触れずに済むのはこれのため。
+# 実体の gh を探す。GH_BIN はこのリポジトリ既存のスタブ差し替え規約で、
+# テストが実 gh に触れずに済むのはこれのため（Go 側は go-gh の transport 差し替えへ移行済み）。
 # 自分自身を指す GH_BIN（export された GH_BIN=gh 等）は無限再帰になるので無視する。
 # 比較を物理パスで行うのは、stow 後の ~/.local/shims がリポジトリへの symlink で、
 # リポジトリ内の実体パスから起動された場合に論理パスが一致しないため。

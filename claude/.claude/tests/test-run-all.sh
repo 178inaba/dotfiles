@@ -114,8 +114,8 @@ run_runner bash "$RUNNER" "$ROOT_STDIN"
 assert 'stdin-reading suite does not swallow the rest' 'printf "%s" "$out" | grep -q "^3 suites: 3 passed, 0 failed$"' "(out=$out)"
 
 # ---- ケース6: バックグラウンドプロセスを残すスイートでブロックしない ----
-# $( ) キャプチャはパイプの書き込み端を持つ全プロセスの終了を待つため、実スイートの
-# test-inuse-lib.sh のように sleep を残すスイートでハングしうる
+# $( ) キャプチャはパイプの書き込み端を持つ全プロセスの終了を待つため、sleep 等の
+# バックグラウンドプロセスを残すスイートでハングしうる
 
 ROOT_BG="$TMP/bg"
 # しきい値は sleep の秒数より小さくしないとテストが空振りする（ブロックする実装でも
