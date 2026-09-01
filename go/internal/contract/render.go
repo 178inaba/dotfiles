@@ -389,6 +389,13 @@ func key(t reflect.Type, field string) string { return typeKey(t) + "." + field 
 
 func typeKey(t reflect.Type) string { return t.PkgPath() + "." + t.Name() }
 
+// Wrap breaks text to the width a help is laid out at.
+//
+// Exported because a hand-written intro that is built rather than typed — the
+// schema's key list, say — has the same column to stay inside, and the layout
+// is this package's to decide.
+func Wrap(text string) string { return strings.Join(wrap(text, lineWidth), "\n") }
+
 // wrap breaks text to width, counting runes, since a doc comment may hold an
 // em dash and a column is measured in what a terminal shows.
 func wrap(text string, width int) []string {

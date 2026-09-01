@@ -4,6 +4,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/contract"
 
@@ -45,7 +46,9 @@ sub-issue, and this runs at the start of every skill that reads a leaf issue.`,
 
 Takes no locale, because its callers are consumers: they accept a heading in
 either language, since they do not know which one the issue they are reading
-was written in.`,
+was written in.
+
+` + sectionKeys() + ``,
 		blocks:   []block{prints(reflect.TypeFor[issue.Section]())},
 		statuses: with(),
 	},
@@ -56,7 +59,9 @@ was written in.`,
 This is what the drafting side renders a body from, so the heading is already
 chosen and the requirement already decided. Both flags are required: neither
 has a defensible default, and a wrong guess would report every heading as
-being in the wrong language.`,
+being in the wrong language.
+
+` + sectionKeys() + ``,
 		blocks:   []block{prints(reflect.TypeFor[issue.Listing]())},
 		statuses: with(),
 	},
@@ -392,6 +397,17 @@ func published() skill.Contract {
 	}
 	slices.Sort(out.Identifiers)
 	return skill.Contract{Commands: out.Commands, Identifiers: slices.Compact(out.Identifiers)}
+}
+
+// sectionKeys is the schema's key column, wrapped into a sentence.
+//
+// Read from the schema rather than written out, so that a key added to it
+// appears here without anyone remembering to. The keys are the one part of
+// this contract that is data rather than a type, which is why they cannot come
+// from the rendering.
+func sectionKeys() string {
+	keys := issue.Keys()
+	return contract.Wrap("The keys are " + strings.Join(keys[:len(keys)-1], ", ") + " and " + keys[len(keys)-1] + ".")
 }
 
 // longFor is a command's help text, or empty where none is registered.
