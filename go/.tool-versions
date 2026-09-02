@@ -1,0 +1,4 @@
+# .tool-versions rather than mise.toml: golangci-lint-action's version-file input
+# parses only .tool-versions and .golangci-lint-version files, so the format is
+# dictated by the CI reader.
+golangci-lint 2.13.2
