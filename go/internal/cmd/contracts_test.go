@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	encodingjson "encoding/json"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -300,6 +301,13 @@ func (w *sampleWalk) walk(typ reflect.Type, doc any, path []any) {
 		if inner == nil {
 			continue
 		}
+		// No input document holds one today. If one ever does, its Go fields
+		// are not what reaches the wire, so descending into them would bind
+		// tags to keys no parser ever sees — say so instead of guessing.
+		if serialisesItself(inner) {
+			w.t.Errorf("%s serialises itself, so the fields under %s are not its wire shape", inner, at(here))
+			continue
+		}
 		if !isList {
 			w.walk(inner, value, here)
 			continue
@@ -383,15 +391,22 @@ func TestNoRequiredTagOnAnOutputOnlyType(t *testing.T) {
 	}
 }
 
-// reachableStructs collects every struct a contract publishes below typ,
-// through fields, pointers and lists.
+// reachableStructs collects every struct typ reaches, through fields of any
+// kind, pointers, lists and map values.
 //
-// Only fields the contract publishes are followed, and maps are not, so that
-// reachable here means what the renderer means by it: a field with no json
-// name reaches nothing a help prints, and a map field has no rendering at all.
+// Deliberately wider than what a help prints, and every field is followed
+// whether or not it has a json name. A type that serialises itself reaches its
+// wire form through a Go field the contract never names — issue.PRList holds
+// its issue.PR values in an untagged field, and the renderer descends to them
+// through the marshaler table instead. Narrowing this to published fields
+// hides issue.PR here, and a required tag on it would then pass.
+//
+// Being wide costs nothing, because the question asked of the result is only
+// whether a type is reached from an input contract as well. A type this finds
+// and the help does not is one whose tag is even more certainly never read.
 func reachableStructs(typ reflect.Type, into map[reflect.Type]bool) {
 	switch typ.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Array:
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
 		reachableStructs(typ.Elem(), into)
 	case reflect.Struct:
 		if into[typ] {
@@ -399,10 +414,7 @@ func reachableStructs(typ reflect.Type, into map[reflect.Type]bool) {
 		}
 		into[typ] = true
 		for i := range typ.NumField() {
-			f := typ.Field(i)
-			if _, ok := jsonFieldName(f); ok {
-				reachableStructs(f.Type, into)
-			}
+			reachableStructs(typ.Field(i).Type, into)
 		}
 	}
 }
@@ -453,9 +465,9 @@ func withoutField(t *testing.T, sample string, path []any) []byte {
 // A copy of the renderer's own rule rather than a call to it: the rule lives in
 // an unexported function of internal/contract, and exporting a view of a walk
 // that does not itself back the rendering would put a third answer in the
-// module rather than one. What stops the two drifting is that a shape they
-// would disagree about — a type that serialises itself, a map — stops the
-// render outright, so it cannot appear in a contract unnoticed.
+// module rather than one. The one shape the two would describe differently is
+// a type that serialises itself, and the sample walk refuses those outright
+// rather than guessing at a wire form it cannot see.
 func jsonFieldName(f reflect.StructField) (string, bool) {
 	tag, ok := f.Tag.Lookup("json")
 	if !ok || tag == "-" {
@@ -463,6 +475,21 @@ func jsonFieldName(f reflect.StructField) (string, bool) {
 	}
 	name, _, _ := strings.Cut(tag, ",")
 	return name, name != ""
+}
+
+// serialisesItself reports whether a type takes its own serialisation over,
+// checked against both marshaler interfaces for the reason the renderer checks
+// both: jsontext.Value implements only the older one.
+func serialisesItself(typ reflect.Type) bool {
+	for _, iface := range []reflect.Type{
+		reflect.TypeFor[json.MarshalerTo](),
+		reflect.TypeFor[encodingjson.Marshaler](),
+	} {
+		if typ.Implements(iface) || reflect.PointerTo(typ).Implements(iface) {
+			return true
+		}
+	}
+	return false
 }
 
 // structUnder is the struct a field's json value is made of, past any pointer
