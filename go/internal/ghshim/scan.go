@@ -5,9 +5,8 @@ import (
 	"strings"
 )
 
-// scanned is one walk of the argv: whether the repository was named, the first
-// positional argument, and whichever body the command carries. One walk answers
-// all four because the flags have to be parsed the same way for each of them.
+// scanned is what one walk of the argv found. One walk answers all four,
+// because the flags have to be parsed the same way for each of them.
 type scanned struct {
 	hasRepo    bool
 	positional string
@@ -15,13 +14,8 @@ type scanned struct {
 	bodyFile   string
 }
 
-// scan walks the arguments that follow the noun and the verb.
-//
-// GH_REPO never appears in the argv — the shell consumes an assignment before
-// the command sees it — so a value there is folded in at the start. Whether it
-// was written in front of the command or exported earlier cannot be told apart,
-// and need not be: either way gh resolves the repository from it rather than
-// from the working directory.
+// scan walks the arguments that follow the noun and the verb. ghRepo is folded
+// in at the start, since it never appears in the argv; see Env.GHRepo.
 func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
 	s := scanned{hasRepo: ghRepo != ""}
 	endOfFlags := false
@@ -40,8 +34,6 @@ func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
 			endOfFlags = true
 
 		case strings.HasPrefix(tok, "--"):
-			// --repo=owner/repo and --repo owner/repo are the same flag, so
-			// the attached and the separate spelling are one case.
 			name, value, attached := strings.Cut(tok[2:], "=")
 			if name == "repo" {
 				s.hasRepo = true
@@ -71,9 +63,9 @@ func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
 				switch {
 				case rest != "":
 					// One leading = is dropped, as pflag does: the value of
-					// -F=x is x and the value of -F==x is =x. Keeping it made
-					// the body file "=path", which then failed to open and
-					// blocked the command for the wrong reason.
+					// -F=x is x and of -F==x is =x. Keeping it made the body
+					// file "=path" and blocked the command for the wrong
+					// reason.
 					value = strings.TrimPrefix(rest, "=")
 				case i+1 < len(args):
 					i++
@@ -119,34 +111,28 @@ var repoPositional = regexp.MustCompile(
 var issueURL = regexp.MustCompile(
 	`^https?://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/(issues|pull)/[0-9]+/?$`)
 
-// explicitness is how a command can name its own repository.
-//
-// The invariant the first rule holds is that the repository is not resolved
-// from the working directory; -R is one sufficient condition for that and not
-// the only one, and which conditions exist differs per noun. Naming the ways
-// once is what keeps the test and the guidance it offers on a refusal from
-// drifting apart: both switch over this.
+// explicitness is how a command can name its own repository, which differs per
+// noun. Naming the ways once is what keeps the test and the guidance a refusal
+// offers from drifting apart: both switch over this.
 type explicitness int
 
 const (
-	// byFlag: -R/--repo or GH_REPO, and nothing else. Release tags and label
-	// names are not repositories.
+	// byFlag: -R/--repo or GH_REPO. Release tags and label names are not
+	// repositories.
 	byFlag explicitness = iota
 	// byFlagOrURL: also a selector given as a full issue or pull request URL.
 	byFlagOrURL
-	// byFlagNoSelector: the verb takes no selector, so no URL can carry a
-	// repository — gh issue create and gh pr create.
+	// byFlagNoSelector: gh issue create and gh pr create take no selector, so
+	// no URL can carry a repository.
 	byFlagNoSelector
-	// byPositional: gh repo edit and its siblings have no -R at all, and gh
-	// resolves GH_REPO only as a default for -R, so the positional is the only
-	// way left.
+	// byPositional: gh repo edit and its siblings have no -R at all, so the
+	// positional is the only way left.
 	byPositional
-	// byFlagNotPositional: gh repo rename takes a positional, but it is the
-	// new repository name, so it names nothing.
+	// byFlagNotPositional: gh repo rename's positional is the new repository
+	// name, so it names nothing.
 	byFlagNotPositional
 )
 
-// classify says which of the ways applies to c.
 func classify(c command) explicitness {
 	switch {
 	case c.noun == "repo" && c.verb == "rename":

@@ -39,11 +39,8 @@
 // and --branch under gh pr checkout — so both are recorded per verb.
 //
 // This is a program rather than a PreToolUse hook because a hook is handed the
-// command as a string, and a string does not say what will actually run. Both
-// failure modes followed from that and neither improved with better patterns: a
-// single -R covered every write on the line, and a literal inside quotes or a
-// heredoc was read as a write. Reading the argv the shell built leaves no room
-// for either.
+// command as a string, which does not say what will actually run; see
+// claude/.claude/rules/hooks-design.md for the two failure modes that followed.
 //
 // The guard applies inside Claude Code sessions only, and reading subcommands
 // go straight through. A refusal exits 78, which none of gh's own statuses use.
@@ -61,16 +58,13 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
-// blockExit is the status a refusal exits with. It is one value rather than
-// several so that a caller can tell a refusal from gh's own failure, and it
-// avoids the statuses gh documents (0 success, 1 error, 2 cancelled, 4
-// authentication) as well as the shell's reserved 126 and 127.
+// blockExit avoids every status gh documents (0, 1, 2, 4) and the shell's
+// reserved 126 and 127, so that a caller can tell a refusal from gh's own
+// failure.
 const blockExit = 78
 
 const noRealGHMessage = "gh shim: 実体の gh が見つかりません（GH_BIN と PATH を確認してください）。\n"
 
-// internalErrorMessage is the last resort. Reaching it means a bug here, and
-// the guard answers a bug the way it answers a violation: gh is not run.
 const internalErrorMessage = `gh shim: 判定中に内部エラーが発生したため、gh を実行しませんでした（%v）。
 
 これは shim (~/.local/shims/gh) 側の不具合です。
@@ -88,11 +82,8 @@ type deps struct {
 	env      Env
 	ghBin    string
 	pathList string
-	// selfDir is this executable's directory, resolved.
-	selfDir string
-	// exec replaces this process with the real gh, so that the exit status and
-	// the three streams stay exactly where the caller expects them. It returns
-	// only when the hand-off failed.
+	selfDir  string
+	// exec returns only when the hand-off failed.
 	exec    func(argv0 string, argv, env []string) error
 	environ func() []string
 	build   selfbuild.State
@@ -100,13 +91,10 @@ type deps struct {
 
 // Execute runs the guard and returns the process exit status.
 //
-// There is no standard input here, and there is no standard output: the shim
-// writes neither, and the hand-off gives the real gh all three streams
-// untouched. Leaving them out is what makes that checkable rather than
-// promised — reading standard input would consume what gh is about to read.
+// It takes no standard input and no standard output on purpose: reading
+// standard input would consume what gh is about to read, and leaving the
+// parameters out is what makes that checkable rather than promised.
 func Execute(ctx context.Context, argv []string, stderr io.Writer) int {
-	// One resolution of this executable, shared with the self-rebuild rather
-	// than taken twice.
 	sb := selfbuild.NewDeps(argv)
 	build := selfbuild.Run(ctx, sb)
 
@@ -127,9 +115,6 @@ func Execute(ctx context.Context, argv []string, stderr io.Writer) int {
 }
 
 // NewEnv wires the inputs of the decision to the process.
-//
-// The working directory and the remote are resolved lazily because the first
-// rule's message is their only reader, and resolving the remote runs git.
 func NewEnv(ctx context.Context, r runner.Runner) Env {
 	return Env{
 		GHRepo:     os.Getenv("GH_REPO"),
@@ -154,12 +139,11 @@ func NewEnv(ctx context.Context, r runner.Runner) Env {
 // run is Execute with the process resolved away, so that a test can drive the
 // hand-off without one.
 //
-// The deferred recover is the net the shell kept as a trap on EXIT. It is not
-// how anything here reports a problem — no panic is raised on purpose — and
-// leaving it out would still keep gh from running, since the hand-off is only
-// on the path where every check passed. What it buys is the status: a panic
-// exits 2, which is one of the values gh itself documents, and telling a
-// refusal from gh's own outcome is the whole reason 78 was chosen.
+// The deferred recover is the net the shell kept as a trap on EXIT; nothing
+// here raises a panic on purpose. Without it a fault would still keep gh from
+// running, since the hand-off is only on the path where every check passed —
+// what it buys is the status, because a panic exits 2 and 78 was chosen not to
+// collide with gh's own.
 func run(argv []string, stderr io.Writer, d deps) (code int) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -191,13 +175,10 @@ func run(argv []string, stderr io.Writer, d deps) (code int) {
 	return 0
 }
 
-// reportBuild says that the module no longer compiles, on the one invocation
-// that tried to rebuild it.
-//
-// The same contract the script subcommands of ccx follow: standard error, once
-// per failure rather than once per run, and the status the guard arrived at is
-// unchanged. A guard that started blocking everything, or stopped blocking
-// anything, because the toolchain is unhappy would be worse than a stale one.
+// reportBuild follows the same contract as the script subcommands of ccx:
+// standard error, and the status the guard arrived at is unchanged. A guard
+// that started blocking everything because the toolchain is unhappy would be
+// worse than a stale one.
 func reportBuild(stderr io.Writer, build selfbuild.State) {
 	if report := build.Report("gh shim"); report != "" {
 		fmt.Fprintln(stderr, report)

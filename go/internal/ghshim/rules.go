@@ -121,12 +121,10 @@ func valueFlagsFor(c command) valueFlags {
 
 // recovery is how the second rule tells the caller to pass the body instead.
 //
-// It belongs to the table rather than being derived from whether the verb has
-// a file form, because "no file form" does not imply that gh <noun> comment
-// exists to take the body instead — the shell version had a third branch for
-// exactly that case, unreachable and there to keep the message from offering a
-// command that does not exist. Registering a body flag names one of these
-// instead, and TestEveryBodyFlagOffersARecoveryItHas holds the pairing.
+// It belongs to the table rather than being derived from whether the verb has a
+// file form, because "no file form" does not imply that gh <noun> comment exists
+// to take the body instead. TestEveryBodyFlagOffersARecoveryItHas holds the
+// pairing.
 type recovery int
 
 const (
@@ -138,18 +136,10 @@ const (
 )
 
 // bodyFlags are the flags of one command that carry a body, and how to offer an
-// alternative when one of them is refused.
-//
-// Membership is decided by whether GitHub renders the value as markdown, not by
-// the spelling: the three body rules guard against mishaps — a mis-escape, an
-// autolinked #N, a closing keyword that will not fire — that can only happen to
-// rendered text. gh label create/edit --description and gh repo edit
-// --description are plain text and stay out; gh pr merge --subject is one line,
-// so nothing can reach it either.
-//
-// The spellings differ per verb, which is why they are recorded per verb: -b is
-// --base under gh issue develop and --branch under gh pr checkout, and -F is
-// --notes-file under gh release.
+// alternative when one of them is refused. Membership follows the rule in the
+// package comment: gh label create/edit --description and gh repo edit
+// --description are plain text and stay out, and gh pr merge --subject is one
+// line, so nothing can reach it either.
 type bodyFlags struct {
 	inlineLong, inlineShort string
 	fileLong, fileShort     string

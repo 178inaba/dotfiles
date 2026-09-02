@@ -11,21 +11,18 @@ import (
 // not this program.
 var ErrNoRealGH = errors.New("ghshim: no real gh on GH_BIN or PATH")
 
-// Real finds the gh this program stands in front of.
+// Real finds the gh this program stands in front of. ghBin is GH_BIN, pathList
+// is PATH and selfDir is this executable's directory, resolved; nothing is read
+// from the environment here, so a test can lay out a PATH of its own.
 //
-// ghBin is GH_BIN, pathList is PATH and selfDir is the directory this
-// executable is in, resolved. Nothing is read from the environment here so that
-// a test can lay out a PATH of its own without disturbing the process.
-//
-// GH_BIN is this repository's long-standing way of pointing a test at a stub,
-// and it is the one such variable the port keeps: finding the real gh is what
-// this program does, so the variable is an input rather than a seam. A GH_BIN
-// that points back here — an exported GH_BIN=gh, say — would recurse, so it is
+// GH_BIN is the one test-stub variable the port keeps, because finding the real
+// gh is what this program does, which makes it an input rather than a seam. One
+// that points back here — an exported GH_BIN=gh — would recurse, so it is
 // passed over.
 //
-// Directories are compared resolved because after stow ~/.local/shims is a
-// symlink into the repository, and a shim started through the repository's own
-// path would otherwise fail to recognise itself.
+// Directories are compared resolved: after stow ~/.local/shims is a symlink
+// into the repository, so a shim started through the repository's own path
+// would otherwise fail to recognise itself.
 func Real(ghBin, pathList, selfDir string) (string, error) {
 	if ghBin != "" {
 		// command -v: a name holding a separator is a path, anything else is
@@ -48,9 +45,8 @@ func Real(ghBin, pathList, selfDir string) (string, error) {
 		if !executable(candidate) {
 			continue
 		}
-		// Here an unresolvable directory does disqualify the candidate: PATH is
-		// walked over whatever it happens to hold, so a candidate that cannot
-		// be placed is passed over rather than trusted.
+		// Unlike GH_BIN above, a candidate that cannot be placed is passed
+		// over: PATH is walked over whatever it happens to hold.
 		if resolved, err := resolvedDir(candidate); err != nil || resolved == selfDir {
 			continue
 		}
@@ -85,13 +81,12 @@ func executable(path string) bool {
 }
 
 // resolvedDir is the directory of path, made absolute and with its symlinks
-// resolved. The file itself is not followed, which is what the shell's cd -P on
-// the dirname did.
+// resolved. The file itself is not followed, as the shell's cd -P on the
+// dirname did not.
 //
-// Absolute first, because a relative path resolves to a relative one and would
-// never equal selfDir: a GH_BIN of ./gh, or a relative PATH entry, would then
-// fail to be recognised as this program and hand off to itself for ever. The
-// shell could not have that, since cd -P and pwd -P always answered absolutely.
+// Absolute first: a relative path resolves to a relative one and would never
+// equal selfDir, so a GH_BIN of ./gh would fail to be recognised as this
+// program and hand off to itself for ever.
 func resolvedDir(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {

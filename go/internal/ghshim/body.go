@@ -12,19 +12,14 @@ import (
 // asked awk to decide is kept, the sub-language is not.
 
 var (
-	// A line that opens or closes a fenced code block.
 	fenceLine = regexp.MustCompile("^[[:space:]]*(```|~~~)")
-	// An inline code span.
-	codeSpan = regexp.MustCompile("`[^`]*`")
-	// A whitespace-separated token that starts a bare #1 to #9. What follows
-	// the digit must not be alphanumeric: #12 and up are likely real
-	// references, #1a2b3c is a colour and #1st an ordinal. A token whose first
-	// character is alphanumeric is skipped entirely, which is what leaves
-	// OWNER/REPO#1 alone.
+	codeSpan  = regexp.MustCompile("`[^`]*`")
+	// The trailing class is what excludes #12 and up, #1a2b3c and #1st; the
+	// leading one is what leaves OWNER/REPO#1 alone, by skipping any token
+	// that opens with an alphanumeric.
 	bareHashToken = regexp.MustCompile(`^[^[:alnum:]#]*#[1-9]([^[:alnum:]]|$)`)
-	// A closing keyword next to a reference. GitHub reads only the direct
-	// adjacency of keyword, optional colon, space and reference, so the
-	// detection is limited to it as well.
+	// GitHub reads only the direct adjacency of keyword, optional colon, space
+	// and reference, so the detection is limited to it as well.
 	//
 	// The same knowledge is encoded in pullrequest.closingKeyword, which reads
 	// a body for the issues it closes; if GitHub ever changes the set, both
@@ -53,8 +48,7 @@ func countBareHashRefs(body string) int {
 		if fence {
 			continue
 		}
-		// The substitution allocates, so it is worth asking first whether the
-		// line holds a code span at all; most do not.
+		// The substitution allocates, and most lines hold no code span.
 		if strings.IndexByte(line, '`') >= 0 {
 			line = codeSpan.ReplaceAllString(line, "")
 		}
@@ -68,9 +62,8 @@ func countBareHashRefs(body string) int {
 	return len(seen)
 }
 
-// hasQuotedClosingKeyword reports whether body holds a closing keyword in a
-// place GitHub will not read as one: inside a fenced block, or inside a code
-// span.
+// hasQuotedClosingKeyword reports whether body holds a closing keyword where
+// GitHub will not read it as one: inside a fence, or inside a code span.
 func hasQuotedClosingKeyword(body string) bool {
 	fence := false
 	for line := range strings.Lines(body) {
@@ -123,14 +116,11 @@ var cEscapes = map[byte]byte{
 	'\a': 'a', '\b': 'b', 0x1b: 'E', '\f': 'f', '\n': 'n', '\r': 'r', '\t': 't', '\v': 'v',
 }
 
-// shellQuote renders one argument the way bash's printf %q did.
-//
-// One form is deliberately not reproduced. Of a UTF-8 sequence, bash 3.2
-// escapes only the bytes from 0x80 to 0x9f and leaves the rest raw, so a
-// Japanese title came back as an unreadable mixture of octal and text. That is
-// a defect of an interpreter written before multibyte support rather than
-// anything a reader of the message wants, so non-ASCII is passed through — the
-// same call this port makes wherever the shell's behaviour is a bug.
+// shellQuote renders one argument the way bash's printf %q did, except for
+// non-ASCII: of a UTF-8 sequence bash 3.2 escapes only the bytes from 0x80 to
+// 0x9f and leaves the rest raw, so a Japanese title came back as an unreadable
+// mixture of octal and text. That is a defect of an interpreter written before
+// multibyte support rather than behaviour to keep, so it is passed through.
 func shellQuote(s string) string {
 	if s == "" {
 		return "''"

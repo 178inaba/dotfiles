@@ -12,22 +12,17 @@ import (
 // below this line calls os.Getenv, so the tests need neither t.Setenv nor a
 // serial run.
 type Env struct {
-	// GHRepo is GH_REPO. The shell could not see it in the argv either — an
-	// assignment is consumed before the command sees it — so a value here
-	// means gh will resolve the repository from it rather than from the
-	// working directory, which is what the first rule asks for.
+	// GHRepo is GH_REPO, which never appears in the argv because the shell
+	// consumes an assignment before the command sees it. A value here means gh
+	// resolves the repository from it rather than from the working directory.
 	GHRepo string
-	// ClaudeCode is CLAUDECODE. Empty means an interactive shell, which the
-	// guard leaves alone: the mishaps it exists for are an agent writing to a
-	// repository it had only cd'd into, and a guard that costs something every
-	// day gets switched off.
+	// ClaudeCode is CLAUDECODE. Empty means an interactive shell.
 	ClaudeCode string
 
 	// Dir and OriginRemote fill in the two lines the first rule's message ends
-	// with. They are functions because that message is their only reader:
-	// resolving the remote runs git, and the shell ran it only after the rule
-	// had already failed. Resolving either eagerly would put a subprocess in
-	// front of every command the guard lets through.
+	// with, and are functions because that message is their only reader:
+	// resolving the remote runs git, and doing it eagerly would put a
+	// subprocess in front of every command the guard lets through.
 	Dir          func() string
 	OriginRemote func() string
 }
@@ -43,8 +38,6 @@ type Block struct{ Message string }
 // both the first rule and one of the body rules is answered by the first, which
 // is the one whose fix comes first.
 func Decide(argv []string, env Env) *Block {
-	// Too few arguments to name a command: gh gets them as they are and says
-	// what it makes of them.
 	if len(argv) < 2 {
 		return nil
 	}
@@ -56,8 +49,8 @@ func Decide(argv []string, env Env) *Block {
 	vf := valueFlagsFor(c)
 	bf := bodyFlagsFor(c)
 
-	// Help right after the verb is a read. -h is only help where the verb does
-	// not take a value for it — under gh repo edit it is --homepage.
+	// -h is only help where the verb does not take a value for it — under
+	// gh repo edit it is --homepage.
 	if len(argv) > 2 {
 		switch argv[2] {
 		case "--help":
@@ -80,11 +73,8 @@ func Decide(argv []string, env Env) *Block {
 	return bodyBlock(c, bf, argv, s)
 }
 
-// bodyBlock applies the three rules that look at the body: it must be one line,
-// it must be readable, and what it says must be what GitHub will read.
+// bodyBlock applies the three rules that look at the body.
 func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
-	// Whether the body is well formed is judged on the value itself, so a
-	// multi-line value of some other flag is not touched.
 	if strings.Contains(s.inlineBody, "\n") {
 		return &Block{Message: multilineBodyMessage(c, bf, argv)}
 	}
@@ -114,17 +104,15 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 	if distinct := countBareHashRefs(body); distinct >= 3 {
 		return &Block{Message: bareHashRefsMessage(distinct, source)}
 	}
-	// A closing keyword is only read as one in a pull request body; in an issue
-	// body or a comment it is an ordinary link.
 	if c.noun == "pr" && (c.verb == "create" || c.verb == "edit") && hasQuotedClosingKeyword(body) {
 		return &Block{Message: quotedClosingKeywordMessage(source)}
 	}
 	return nil
 }
 
-// The three reasons a named body file cannot be read. They are told apart
-// because the fix differs, and returned rather than wrapped in an error: each
-// one is a line of the guidance, not a failure of this program.
+// The three reasons a named body file cannot be read, told apart because the
+// fix differs. They are guidance rather than a failure of this program, which
+// is why they are returned as text and not as an error.
 const (
 	reasonMissing    = "ファイルが存在しません（本文をまだ書き出していない可能性があります）"
 	reasonNotRegular = "通常ファイルではありません（ディレクトリ・プロセス置換・パイプ等）"
