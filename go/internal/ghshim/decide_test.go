@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,8 +37,7 @@ const multiline = "line1\nline2"
 func bodyFixtures(t *testing.T) string {
 	t.Helper()
 
-	dir := t.TempDir()
-	for name, content := range map[string]string{
+	return writeFixtures(t, map[string]string{
 		"hash-numbering.md":  "- #1 foo\n- #2 bar\n- #3 baz\n",
 		"ordered-list.md":    "1. foo\n2. bar\n3. baz\n",
 		"two-distinct.md":    "see #1 and #2 and #2\n",
@@ -54,7 +54,16 @@ func bodyFixtures(t *testing.T) string {
 		"quoted-placeholder-closes.md": "docs update: `Closes #N` placeholder\n",
 		"quoted-closes-no-ref.md":      "call `closes the stream` explicitly\n",
 		"quoted-discloses.md":          "word `discloses #656` here\n",
-	} {
+	})
+}
+
+// writeFixtures lays out one temporary directory of files a test names on a
+// command line.
+func writeFixtures(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatalf("WriteFile(%q): %v", name, err)
 		}
@@ -182,7 +191,6 @@ func TestDecideReadSubcommands(t *testing.T) {
 		{name: "read: issue list", argv: []string{"issue", "list"}},
 		{name: "read: repo clone", argv: []string{"repo", "clone", "foo/bar"}},
 		{name: "read: pr view without CLAUDECODE", argv: []string{"pr", "view", "1"}, noClaudeCode: true},
-		{name: "read: api is not a guarded noun", argv: []string{"api", "repos/foo/bar"}},
 		{name: "excluded: repo create", argv: []string{"repo", "create", "foo/bar", "--public"}},
 		{name: "excluded: repo fork", argv: []string{"repo", "fork", "foo/bar"}},
 
@@ -233,6 +241,11 @@ func TestDecideRepositoryExplicitness(t *testing.T) {
 		{name: "repo sync does not read --source as the target", argv: []string{"repo", "sync", "-s", "178inaba/dotfiles", "dotfiles"}, block: true},
 		{name: "repo sync with an explicit target", argv: []string{"repo", "sync", "-s", "178inaba/upstream", "178inaba/dotfiles"}},
 		{name: "repo edit does not read --homepage as the target", argv: []string{"repo", "edit", "--homepage", "https://github.com/178inaba/dotfiles", "--description", "x"}, block: true},
+
+		// A long option with no name is gh's "bad flag syntax", and it names no
+		// repository — reading its value as the positional would let one
+		// through on an argv that cannot run.
+		{name: "an empty long name is not the positional", argv: []string{"repo", "edit", "--=178inaba/dotfiles"}, block: true},
 
 		// -- ends the flags.
 		{name: "positional after --", argv: []string{"repo", "edit", "--", "178inaba/dotfiles"}},
@@ -310,6 +323,12 @@ func TestDecideBodyFile(t *testing.T) {
 		// The one carve-out: the shim cannot read stdin without eating what gh
 		// is about to read, so it gives up on the scan instead.
 		{name: "body-file: the stdin spelling is fail open", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "--body-file", "-"}},
+
+		// A flag written last with nothing left to take carries no value, so it
+		// cannot erase the body the same flag named earlier. gh rejects the
+		// argv either way; what this pins is that the scan does not fall open
+		// on the way there.
+		{name: "body-file: a trailing -F does not erase the file already named", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("hash-numbering.md"), "-F"}, block: true},
 
 		{name: "no CLAUDECODE: unreadable body file", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("missing.md")}, noClaudeCode: true},
 	}
@@ -435,4 +454,197 @@ func TestDecideEveryBodyFlagIsScanned(t *testing.T) {
 		}
 		runDecideCases(t, bodies, cases)
 	}
+}
+
+// The two mutations the fifth rule refuses, written as a query would spell
+// them. unresolveMutation is the near miss: the parent issue leaves it out of
+// scope, so it is what holds the identifier match to whole words.
+const (
+	resolveMutation   = `mutation { resolveReviewThread(input:{threadId:"x"}) { thread { isResolved } } }`
+	replyMutation     = `mutation { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:"x", body:"y"}) { comment { id } } }`
+	unresolveMutation = `mutation { unresolveReviewThread(input:{threadId:"x"}) { thread { isResolved } } }`
+)
+
+// apiFixtures writes the query files the fifth rule reads and returns the
+// directory. They are separate from bodyFixtures because no golden names one:
+// every message the api cases compare in full is written with an argv that
+// holds no temporary path.
+func apiFixtures(t *testing.T) string {
+	t.Helper()
+
+	return writeFixtures(t, map[string]string{
+		"reply.graphql": replyMutation + "\n",
+		"request.json":  `{"query": ` + strconv.Quote(resolveMutation) + `}`,
+		// JSON that parses and holds no query, and a query that holds a
+		// mutation and is not JSON: neither contributes any query text.
+		"variables.json": `{"variables": {"threadId": "x"}}`,
+		"raw.graphql":    resolveMutation + "\n",
+	})
+}
+
+func TestDecideAPIGraphQLThreadMutations(t *testing.T) {
+	t.Parallel()
+
+	queries := apiFixtures(t)
+	at := func(name string) string { return filepath.Join(queries, name) }
+
+	runDecideCases(t, "", []decideCase{
+		// Blocked: the query holds one of the two mutations.
+		{name: "graphql: inline -f query", argv: []string{"api", "graphql", "-f", "query=" + resolveMutation}, block: true, golden: "rule5-graphql"},
+		{name: "graphql: --raw-field spelling", argv: []string{"api", "graphql", "--raw-field", "query=" + replyMutation}, block: true},
+		{name: "graphql: -F reads the file the @ names", argv: []string{"api", "graphql", "-F", "query=@" + at("reply.graphql")}, block: true},
+		{name: "graphql: --field spelling", argv: []string{"api", "graphql", "--field", "query=@" + at("reply.graphql")}, block: true},
+		{name: "graphql: -F= attached form", argv: []string{"api", "graphql", "-F=query=@" + at("reply.graphql")}, block: true},
+		{name: "graphql: --input JSON", argv: []string{"api", "graphql", "--input", at("request.json")}, block: true},
+		{name: "graphql: --input= attached form", argv: []string{"api", "graphql", "--input=" + at("request.json")}, block: true},
+
+		// The same endpoint under its other spellings.
+		{name: "graphql: a leading slash", argv: []string{"api", "/graphql", "-f", "query=" + resolveMutation}, block: true},
+		{name: "graphql: the full URL", argv: []string{"api", "https://api.github.com/graphql", "-f", "query=" + resolveMutation}, block: true},
+		{name: "graphql: an enterprise URL", argv: []string{"api", "https://ghe.example.com/api/graphql", "-f", "query=" + resolveMutation}, block: true},
+
+		// An input that cannot be read is refused rather than passed.
+		{name: "graphql: --input names no file", argv: []string{"api", "graphql", "--input", "missing.json"}, block: true, golden: "rule5-query-file"},
+		{name: "graphql: -F query=@ names no file", argv: []string{"api", "graphql", "-F", "query=@missing.graphql"}, block: true},
+		{name: "graphql: --input names a directory", argv: []string{"api", "graphql", "--input", queries}, block: true},
+
+		// Allowed: a read, another mutation, and the one next door.
+		{name: "graphql: a query reaches gh", argv: []string{"api", "graphql", "-f", "query={ viewer { login } }"}},
+		{name: "graphql: another mutation reaches gh", argv: []string{"api", "graphql", "-f", `query=mutation { addPullRequestReview(input:{pullRequestId:"x"}) { clientMutationId } }`}},
+		{name: "graphql: unresolveReviewThread is out of scope", argv: []string{"api", "graphql", "-f", "query=" + unresolveMutation}},
+
+		// -f is the static spelling, so its @ is part of the string.
+		{name: "graphql: -f does not read the file the @ names", argv: []string{"api", "graphql", "-f", "query=@" + at("reply.graphql")}},
+		// Only the field named query carries one.
+		{name: "graphql: another field is not the query", argv: []string{"api", "graphql", "-F", "body=@" + at("reply.graphql"), "-f", "query={ viewer { login } }"}},
+
+		// The stdin spellings are the carve-out, as --body-file - already is.
+		{name: "graphql: --input - is fail open", argv: []string{"api", "graphql", "--input", "-"}},
+		{name: "graphql: -F query=@- is fail open", argv: []string{"api", "graphql", "-F", "query=@-"}},
+
+		// An input gh will read and this rule cannot: left to gh.
+		{name: "graphql: --input JSON without a query", argv: []string{"api", "graphql", "--input", at("variables.json")}},
+		{name: "graphql: --input that is not JSON", argv: []string{"api", "graphql", "--input", at("raw.graphql")}},
+
+		// Help is not a request.
+		{name: "api --help", argv: []string{"api", "--help"}},
+		{name: "api -h", argv: []string{"api", "-h"}},
+
+		// Without CLAUDECODE nothing is judged.
+		{name: "no CLAUDECODE: graphql thread mutation", argv: []string{"api", "graphql", "-f", "query=" + resolveMutation}, noClaudeCode: true},
+		{name: "no CLAUDECODE: graphql unreadable input", argv: []string{"api", "graphql", "--input", "missing.json"}, noClaudeCode: true},
+	})
+
+	if os.Getuid() == 0 {
+		t.Log("running as root, which can read a file with no permission bits")
+		return
+	}
+	unreadable := unreadableBody(t, queries)
+	runDecideCases(t, "", []decideCase{
+		{name: "graphql: -F query=@ names a file with no read permission", argv: []string{"api", "graphql", "-F", "query=@" + unreadable}, block: true},
+	})
+}
+
+func TestDecideAPIRESTReplies(t *testing.T) {
+	t.Parallel()
+
+	const replies = "repos/o/r/pulls/1/comments/2/replies"
+
+	runDecideCases(t, "", []decideCase{
+		// Blocked: a POST to the replies endpoint, however the method arrives.
+		{name: "rest: fields make it a POST", argv: []string{"api", replies, "-f", "body=hi"}, block: true, golden: "rule5-rest"},
+		{name: "rest: --input makes it a POST", argv: []string{"api", replies, "--input", "body.json"}, block: true},
+		{name: "rest: -X POST apart from its value", argv: []string{"api", "-X", "POST", replies, "--input", "body.json"}, block: true},
+		{name: "rest: -XPOST attached", argv: []string{"api", "-XPOST", "repos/{owner}/{repo}/pulls/1/comments/2/replies", "-f", "body=hi"}, block: true},
+		{name: "rest: --method is case-insensitive", argv: []string{"api", "--method", "post", replies}, block: true},
+
+		// The same endpoint under its other spellings.
+		{name: "rest: a leading slash", argv: []string{"api", "/" + replies, "-f", "body=hi"}, block: true},
+		{name: "rest: the full URL", argv: []string{"api", "https://api.github.com/" + replies, "-f", "body=hi"}, block: true},
+		{name: "rest: an enterprise URL", argv: []string{"api", "https://ghe.example.com/api/v3/" + replies, "-f", "body=hi"}, block: true},
+		{name: "rest: a trailing slash", argv: []string{"api", replies + "/", "-f", "body=hi"}, block: true},
+		// A query string or a fragment hangs off the end of a path both
+		// patterns anchor, so normalisation drops them.
+		{name: "rest: a query string", argv: []string{"api", replies + "?per_page=1", "-f", "body=hi"}, block: true},
+		{name: "rest: a fragment", argv: []string{"api", replies + "#x", "-f", "body=hi"}, block: true},
+		// The stdin carve-out belongs to the query scan, which this half does
+		// not run: nothing is read here, so nothing is given up either.
+		{name: "rest: --input - still makes it a POST", argv: []string{"api", replies, "--input", "-"}, block: true},
+
+		// Allowed: everything that is not a POST there.
+		{name: "rest: no method and no field is a GET", argv: []string{"api", replies}},
+		{name: "rest: an explicit GET beats the implicit POST", argv: []string{"api", "-X", "GET", replies, "-f", "body=x"}},
+		{name: "rest: a GET reaches gh", argv: []string{"api", "repos/foo/bar"}},
+		{name: "rest: another endpoint reaches gh", argv: []string{"api", "repos/o/r/pulls/1/comments", "-f", "body=x"}},
+		{name: "rest: editing a review comment is out of scope", argv: []string{"api", "-X", "PATCH", "repos/o/r/pulls/comments/2", "-f", "body=x"}},
+
+		// Without CLAUDECODE nothing is judged.
+		{name: "no CLAUDECODE: rest reply", argv: []string{"api", replies, "-f", "body=hi"}, noClaudeCode: true},
+	})
+}
+
+// TestDecideAPIEveryValueFlagIsScanned is the drift check for apiValueFlags,
+// in the shape TestDecideRepositoryExplicitness runs for gh repo sync
+// --source. A flag missing a row is walked as a boolean, its value is taken
+// for the endpoint the rule matches on, and the reply that follows goes
+// through without a word — the failure the table's own comment names.
+//
+// The flags are listed here rather than read out of the table, because the
+// table is what is under test: iterating it would drop the case for the row
+// that went missing along with the row. The count is asserted both ways, so a
+// row added to the table has to be added here too.
+func TestDecideAPIEveryValueFlagIsScanned(t *testing.T) {
+	t.Parallel()
+
+	// Every value-taking flag of gh api, copied from gh api --help as the
+	// table was, with a value gh would accept. None may be read as the
+	// endpoint. --method is the one that also decides the rule, so it carries
+	// the method the rule is looking for.
+	long := map[string]string{
+		"cache":     "60s",
+		"field":     "a=b",
+		"header":    "Accept: application/json",
+		"hostname":  "github.com",
+		"input":     "body.json",
+		"jq":        ".",
+		"method":    "POST",
+		"preview":   "nebula",
+		"raw-field": "a=b",
+		"template":  "{{.}}",
+	}
+	short := map[byte]string{
+		'F': "a=b",
+		'f': "a=b",
+		'H': "Accept: application/json",
+		'p': "nebula",
+		'q': ".",
+		't': "{{.}}",
+		'X': "POST",
+	}
+
+	if len(apiValueFlags.long) != len(long) {
+		t.Errorf("the table lists %d long flags and this test %d; they are copied from the same help", len(apiValueFlags.long), len(long))
+	}
+	if len(apiValueFlags.short) != len(short) {
+		t.Errorf("the table lists %d short flags and this test %d; they are copied from the same help", len(apiValueFlags.short), len(short))
+	}
+
+	const replies = "repos/o/r/pulls/1/comments/2/replies"
+	var cases []decideCase
+
+	for name, value := range long {
+		cases = append(cases, decideCase{
+			name:  "--" + name + " does not read as the endpoint",
+			argv:  []string{"api", "--" + name, value, replies, "-f", "body=hi"},
+			block: true,
+		})
+	}
+	for flag, value := range short {
+		cases = append(cases, decideCase{
+			name:  "-" + string(flag) + " does not read as the endpoint",
+			argv:  []string{"api", "-" + string(flag), value, replies, "-f", "body=hi"},
+			block: true,
+		})
+	}
+	runDecideCases(t, "", cases)
 }

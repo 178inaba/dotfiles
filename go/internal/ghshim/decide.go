@@ -41,6 +41,19 @@ func Decide(argv []string, env Env) *Block {
 	if len(argv) < 2 {
 		return nil
 	}
+	// The guard applies inside Claude Code sessions only, and every rule
+	// inherits that from here rather than restating it, so that a rule added to
+	// the dispatch below cannot arrive without it and start refusing what a
+	// person typed at a shell.
+	if env.ClaudeCode == "" {
+		return nil
+	}
+	// gh api is judged apart, before the table: it has no verb — argv[1] is the
+	// endpoint — so it can be no row of one, and the read fast path below would
+	// let every one of them through.
+	if argv[0] == "api" {
+		return decideAPI(argv)
+	}
 	c := command{noun: argv[0], verb: argv[1]}
 	if !writes(c) {
 		return nil
@@ -49,20 +62,7 @@ func Decide(argv []string, env Env) *Block {
 	vf := valueFlagsFor(c)
 	bf := bodyFlagsFor(c)
 
-	// -h is only help where the verb does not take a value for it — under
-	// gh repo edit it is --homepage.
-	if len(argv) > 2 {
-		switch argv[2] {
-		case "--help":
-			return nil
-		case "-h":
-			if !strings.ContainsRune(vf.short, 'h') {
-				return nil
-			}
-		}
-	}
-
-	if env.ClaudeCode == "" {
+	if len(argv) > 2 && isHelp(argv[2], vf) {
 		return nil
 	}
 
@@ -71,6 +71,60 @@ func Decide(argv []string, env Env) *Block {
 		return &Block{Message: notExplicitMessage(c, argv, env.Dir(), env.OriginRemote())}
 	}
 	return bodyBlock(c, bf, argv, s)
+}
+
+// isHelp reports whether tok asks the command to describe itself rather than
+// to do anything.
+//
+// -h is help only where the command takes no value for it — under gh repo edit
+// it is --homepage — so the answer comes from the same table the walk reads,
+// and a flag added there cannot leave this behind.
+func isHelp(tok string, vf valueFlags) bool {
+	switch tok {
+	case "--help":
+		return true
+	case "-h":
+		return !strings.ContainsRune(vf.short, 'h')
+	}
+	return false
+}
+
+// decideAPI is the fifth rule: a review-thread reply or resolve may not be
+// typed at gh api.
+//
+// The first rule is not applied here. What it asks for is that the repository
+// not be resolved from the working directory, and a gh api endpoint names it
+// outright — the {owner} and {repo} placeholders being the exception that gh
+// itself fills in from there, which is a spelling of the endpoint rather than
+// a way of leaving the target open.
+//
+// The order the checks run in is part of the contract, as it is in Decide.
+// Help comes first, as it does for the other four. Then a query that could be
+// read and asks for a mutation answers before a file that could not be read:
+// naming the mutation is the more useful of the two refusals, and the second
+// is the one that fires when nothing is known.
+func decideAPI(argv []string) *Block {
+	if isHelp(argv[1], apiValueFlags) {
+		return nil
+	}
+
+	s := scanAPI(argv[1:])
+	endpoint := normaliseEndpoint(s.endpoint)
+
+	if endpoint == "graphql" {
+		query, source, reason := s.queryText()
+		if name := threadMutationName(query); name != "" {
+			return &Block{Message: apiThreadMutationMessage(argv, "mutation:", name)}
+		}
+		if source != "" {
+			return &Block{Message: apiQueryFileMessage(argv, source, reason)}
+		}
+		return nil
+	}
+	if replyEndpoint.MatchString(endpoint) && s.isPOST() {
+		return &Block{Message: apiThreadMutationMessage(argv, "endpoint:", "POST "+endpoint)}
+	}
+	return nil
 }
 
 // bodyBlock applies the three rules that look at the body.
@@ -88,7 +142,7 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 		if s.bodyFile == "-" {
 			return nil
 		}
-		content, reason := readBody(s.bodyFile)
+		content, reason := readNamedFile(s.bodyFile)
 		if reason != "" {
 			return &Block{Message: unreadableBodyMessage(bf, argv, s.bodyFile, reason)}
 		}
@@ -114,18 +168,19 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 // fix differs. They are guidance rather than a failure of this program, which
 // is why they are returned as text and not as an error.
 const (
-	reasonMissing    = "the file does not exist (the body may not be written out yet)"
+	reasonMissing    = "the file does not exist (it may not be written out yet)"
 	reasonNotRegular = "not a regular file (a directory, a process substitution, a pipe)"
 	reasonUnreadable = "no read permission"
 )
 
-// readBody reads a named body file, or says why it could not.
+// readNamedFile reads a file a flag named, or says why it could not. Both the
+// bodies of rules 2 to 4 and the GraphQL queries of rule 5 arrive this way.
 //
 // A file that gh can read but that is not a regular one — a process
 // substitution, a piped /dev/stdin — is refused as well. That is a change from
 // what gh alone would do, and it is kept because neither spelling appears in
-// this repository's use while both would leave the body unscanned.
-func readBody(path string) (body, reason string) {
+// this repository's use while both would leave the content unscanned.
+func readNamedFile(path string) (content, reason string) {
 	// Anything that stops the stat — including a directory on the way that
 	// cannot be searched — reads as absent, which is what the shell's -e said.
 	info, err := os.Stat(path)
