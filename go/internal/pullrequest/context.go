@@ -327,10 +327,9 @@ func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwn
 		t.OpenedBy, t.OpenedByType = comments[0].Author.login(), comments[0].Author.typename()
 	}
 
-	opened := len(comments) > 0 && isLogin(comments[0].Author.login(), me)
 	botAlone := botOnly(comments, t.CommentsTruncated, me)
-	t.Ball = ball(t, isOwnPR, opened, botAlone, me, headCommittedAt)
-	t.ResolvableByMe = !n.IsResolved && (opened || (isOwnPR && botAlone))
+	t.Ball = ball(t, isOwnPR, botAlone, me, headCommittedAt)
+	t.ResolvableByMe = !n.IsResolved && (isLogin(t.OpenedBy, me) || (isOwnPR && botAlone))
 	return t, nil
 }
 
@@ -340,13 +339,13 @@ func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwn
 // A thread with no comments has no opener and no last comment, so there is
 // nobody to hand it to; it falls to none rather than to the branch a missing
 // opener would otherwise land in. GitHub does not produce one.
-func ball(t Thread, isOwnPR, openedByMe, botAlone bool, me string, headCommittedAt *string) Ball {
+func ball(t Thread, isOwnPR, botAlone bool, me string, headCommittedAt *string) Ball {
 	if t.IsResolved || t.LastComment == nil {
 		return BallNone
 	}
 	spokeLast := isLogin(t.LastComment.Author, me)
 
-	if openedByMe {
+	if isLogin(t.OpenedBy, me) {
 		// Ours to judge once somebody has answered — or once a commit has
 		// overtaken our remark, which is how an author who pushes a fix without
 		// replying hands it back.

@@ -219,16 +219,24 @@ func TestReplyRefuses(t *testing.T) {
 			wantErr: []string{"PRRT_dup1", "PRRT_dup2", `"id"`},
 		},
 		{
+			// The thread is there, it is simply settled — which the message
+			// says by naming it and its ball, rather than reading as "nothing
+			// here" and sending the caller to try another line.
 			name:    "a path with nothing we may act on",
 			actions: []pullrequest.ThreadAction{{Path: "src/settled.go", Body: new("fixed"), Resolve: true}},
-			wantErr: []string{"src/settled.go", "no thread"},
+			wantErr: []string{"src/settled.go", "PRRT_none", "ball none"},
 		},
 		{
-			// A thread waiting on the reviewer is not ours to reopen, and the
-			// message lists what we could have named at that path instead.
+			// The same for a thread waiting on the reviewer: not ours to
+			// reopen, and the refusal says whose move it is.
 			name:    "a thread waiting on somebody else",
 			actions: []pullrequest.ThreadAction{{Path: "src/waiting.go", Body: new("fixed"), Resolve: true}},
-			wantErr: []string{"src/waiting.go", "no thread"},
+			wantErr: []string{"src/waiting.go", "PRRT_theirs", "ball theirs"},
+		},
+		{
+			name:    "a path no thread is on at all",
+			actions: []pullrequest.ThreadAction{{Path: "src/absent.go", Body: new("fixed"), Resolve: true}},
+			wantErr: []string{"no thread at all is recorded at src/absent.go"},
 		},
 		{
 			name:    "a line no thread is on",

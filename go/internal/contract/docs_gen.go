@@ -133,7 +133,7 @@ var genTypes = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.SubmissionComment": "One comment anchored to a line of the diff.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Target":            "The pull request a review is being posted to.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Thread":            "One conversation on the diff.",
-	"github.com/178inaba/dotfiles/go/internal/pullrequest.ThreadAction":      "One entry of the threads file, with its body already read but its selector not yet resolved.",
+	"github.com/178inaba/dotfiles/go/internal/pullrequest.ThreadAction":      "One entry of ThreadsFile, with its body already read and its selector not yet resolved. What each field means is on ThreadsFileEntry, which is the half the contract publishes; the difference here is that body and body_file have collapsed into the text they named.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ThreadComment":     "One comment inside a review thread.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ThreadReplies":     "What one run did.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ThreadsFile":       "The document `ccx pr reply-threads` reads.",

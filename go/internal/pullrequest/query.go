@@ -26,8 +26,17 @@ const threadNodeFields = `
           pageInfo { hasNextPage endCursor }
           nodes { author { login __typename } body createdAt url }
         }
-        tail: comments(last: 1) { nodes { author { login __typename } body createdAt url } }
+        tail: ` + newestComment + `
 `
+
+// newestComment is the window that decides which comment counts as a thread's
+// last one.
+//
+// Shared by the context's tail alias and by the liveness re-read below, because
+// the staleness check is an equality between the two: the moment one of them
+// means something other than "the newest comment", a thread that has been
+// answered reads as unchanged.
+const newestComment = `comments(last: 1) { nodes { author { login __typename } body createdAt url } }`
 
 // bodyQuery reads everything the first round trip can carry.
 //
@@ -82,6 +91,18 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
         pageInfo { hasNextPage endCursor }
         nodes {` + threadNodeFields + `      }
       }
+    }
+  }
+}`
+
+// liveThreadQuery re-reads one thread as it is now, which is what a write
+// checks itself against before it is sent.
+const liveThreadQuery = `
+query($threadId: ID!) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      isResolved
+      ` + newestComment + `
     }
   }
 }`

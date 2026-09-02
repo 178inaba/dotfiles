@@ -42,18 +42,16 @@ type KnownThread struct {
 	LastCommentURL string
 }
 
-// ThreadAction is one entry of the threads file, with its body already read but
-// its selector not yet resolved.
+// ThreadAction is one entry of ThreadsFile, with its body already read and its
+// selector not yet resolved.
+//
+// What each field means is on ThreadsFileEntry, which is the half the contract
+// publishes; the difference here is that body and body_file have collapsed into
+// the text they named.
 type ThreadAction struct {
-	Path string
-	// Line matches either line or original_line, since the first goes null the
-	// moment the commented lines leave the diff.
-	Line *int
-	// ID narrows the candidates where a path and a line reach more than one.
-	ID *string
-	// Body absent means resolving without replying, which is how a repeated
-	// run avoids saying the same thing twice, and how a resolve is retried
-	// where the reply already landed.
+	Path    string
+	Line    *int
+	ID      *string
 	Body    *string
 	Resolve bool
 }
@@ -268,10 +266,10 @@ func resolveSelectors(actions []ThreadAction, threads []KnownThread, contextFile
 	for _, a := range actions {
 		candidates := matching(threads, a)
 		if a.ID != nil {
-			if !slices.ContainsFunc(candidates, func(t KnownThread) bool { return t.ID == *a.ID }) {
+			candidates = slices.DeleteFunc(candidates, func(t KnownThread) bool { return t.ID != *a.ID })
+			if len(candidates) == 0 {
 				return nil, wrongID(*a.ID, a, threads, contextFile)
 			}
-			candidates = slices.DeleteFunc(candidates, func(t KnownThread) bool { return t.ID != *a.ID })
 		}
 
 		switch len(candidates) {
@@ -329,17 +327,27 @@ func wrongID(id string, a ThreadAction, threads []KnownThread, contextFile strin
 }
 
 // atPath is the "you could have meant these" half of a refusal.
+//
+// Where the path holds nothing we may act on it names the threads that are
+// there with the ball each is waiting on, rather than reporting an empty match:
+// "there is a thread here, it is just not yours to move" sends the caller to
+// the protocol, and "nothing matches" sends them back to try another line.
 func atPath(threads []KnownThread, path string) string {
-	var at []KnownThread
+	if ours := matching(threads, ThreadAction{Path: path}); len(ours) > 0 {
+		return "threads we may act on at " + path + ":\n" + list(ours)
+	}
+
+	var others []string
 	for _, t := range threads {
-		if t.Ball == BallMine && t.Path == path {
-			at = append(at, t)
+		if t.Path == path {
+			others = append(others, fmt.Sprintf("  %s  %s  opened by %s  ball %s",
+				t.ID, position(t), login(t.OpenedBy), t.Ball))
 		}
 	}
-	if len(at) == 0 {
-		return "no thread at " + path + " is ours to act on (see review_threads[].ball)"
+	if len(others) == 0 {
+		return "no thread at all is recorded at " + path
 	}
-	return "threads we may act on at " + path + ":\n" + list(at)
+	return "no thread at " + path + " is ours to act on; the threads there are:\n" + strings.Join(others, "\n")
 }
 
 // list renders threads one to a line, with everything a caller picks between
@@ -414,20 +422,6 @@ func describe(t KnownThread) string {
 	}
 	return where + " (" + t.ID + ")"
 }
-
-// liveThreadQuery re-reads one thread as it is now.
-//
-// comments(last: 1) mirrors the tail alias the context query uses, so the url
-// compared is the newest comment either way.
-const liveThreadQuery = `
-query($threadId: ID!) {
-  node(id: $threadId) {
-    ... on PullRequestReviewThread {
-      isResolved
-      comments(last: 1) { nodes { url } }
-    }
-  }
-}`
 
 // checkLive re-reads every thread a run would touch and stops the whole run if
 // any of them has moved since the context was fetched.
