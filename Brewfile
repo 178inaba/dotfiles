@@ -12,8 +12,8 @@ brew "mise"
 brew "stow"
 brew "gh"
 brew "jq"
-# cflio, rdsh and slio are casks, not formulae -- `brew "178inaba/tap/..."` fails
+# rdsh, slio and cflio are casks, not formulae -- `brew "178inaba/tap/..."` fails
 # to resolve them (it does not fall back to a cask of the same name).
-cask "178inaba/tap/cflio"
 cask "178inaba/tap/rdsh"
 cask "178inaba/tap/slio"
+cask "178inaba/tap/cflio"
