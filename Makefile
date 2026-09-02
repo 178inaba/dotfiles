@@ -9,9 +9,7 @@ PACKAGES := tmux git vim zsh claude ghostty
 setup: bundle
 	$(MAKE) -j stow mise build
 
-# --no-upgrade: a routine `bundle`/`update` should only install what the
-# Brewfile just gained, not also churn through upgrading every outdated
-# formula already on the machine.
+# --no-upgrade: a routine update shouldn't also upgrade every outdated formula.
 bundle:
 	brew bundle install --no-upgrade
 
