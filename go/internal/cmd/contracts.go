@@ -95,7 +95,10 @@ was already said. All three are fetched at once and normalised into one
 document.
 
 <out-dir> has to exist. <pr-number> may be left out, in which case the pull
-request is inferred from the branch checked out here.
+request is inferred from the branch checked out here. The work directory
+paired with the context file is created too, since a caller that goes on to
+reply to threads writes into it; it is the same directory
+` + "`ccx pr prepare-review`" + ` hands out for the same pull request.
 
 ` + limitSentence(),
 		blocks: []block{
@@ -157,12 +160,21 @@ the body rather than dropped.`,
 	},
 
 	"pr reply-threads": {
-		intro: `Reply to and resolve the review threads awaiting our confirmation.
+		intro: `Reply to and resolve the review threads it is our move on.
 
-Only threads the context file flagged as awaiting our confirmation are
-accepted; naming any other stops the run before a single reply is posted,
-which is what keeps one run from settling somebody else's remark. The local
-HEAD is confirmed to be the pull request's head first.
+A thread is named by its path and line rather than by its id, because a path
+and a line are what the writer was reasoning about and an id is what gets
+copied from the wrong thread. The selector is resolved against the threads the
+context file marked ` + "`ball: \"mine\"`" + `; anything ambiguous, unmatched, or naming
+an id that belongs elsewhere stops the run before a single reply is posted,
+naming the threads it could have meant. Resolving a thread the context did not
+mark ` + "`resolvable_by_me`" + ` is refused too: a person's remark is closed by that
+person.
+
+The local HEAD is confirmed to be the pull request's head, and then every
+target thread is re-read live: one that has been resolved or answered since the
+context was fetched stops the whole run, since the replies were written as one
+judgement of one view.
 
 Each reply that lands is recorded beside the threads file, so a re-run after a
 partial failure cannot post the same reply twice — it refuses instead. On a
@@ -170,10 +182,15 @@ failure part-way through, the posted and the unprocessed threads are listed on
 standard error; write a threads file holding only the unprocessed ones and run
 it again.
 
+--dry-run runs every one of those checks, the live re-read included, sends
+nothing, records nothing, and prints the plan instead. A refusal in a dry run
+is the same refusal with the same exit status.
+
 The output is compact rather than indented, except when there is nothing to do.`,
 		blocks: []block{
 			reads("Input (the threads file named as the second argument)", reflect.TypeFor[pullrequest.ThreadsFile]()),
 			prints(reflect.TypeFor[pullrequest.ThreadReplies]()),
+			writes("Output with --dry-run", reflect.TypeFor[pullrequest.ReplyPlan]()),
 		},
 		statuses: with(),
 	},

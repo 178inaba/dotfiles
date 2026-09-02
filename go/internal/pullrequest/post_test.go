@@ -18,42 +18,6 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-func TestWorkDir(t *testing.T) {
-	t.Parallel()
-
-	// The identifier is the context file's own name with its prefix and
-	// extension taken off, so that the two commands that write into the
-	// directory and the one that hands it out cannot disagree about it.
-	got := pullrequest.WorkDir("/scratch/pr-context-owner@repo-5.json")
-	if want := "/scratch/deep-review-owner@repo-5"; got != want {
-		t.Errorf("WorkDir = %q, want %q", got, want)
-	}
-}
-
-func TestRequireInWorkDir(t *testing.T) {
-	t.Parallel()
-
-	scratch := t.TempDir()
-	contextFile := filepath.Join(scratch, "pr-context-owner@repo-5.json")
-	work := pullrequest.WorkDir(contextFile)
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	if err := pullrequest.RequireInWorkDir(filepath.Join(work, "review.json"), "review_path", contextFile); err != nil {
-		t.Errorf("a file in the work dir was rejected: %v", err)
-	}
-	// A fixed name in the shared scratch directory is what a parallel review of
-	// another pull request overwrites.
-	err := pullrequest.RequireInWorkDir(filepath.Join(scratch, "review.json"), "review_path", contextFile)
-	if err == nil {
-		t.Fatal("a file outside the work dir was accepted")
-	}
-	if !strings.Contains(err.Error(), "review_path") {
-		t.Errorf("error = %q, want it to name the field that would have been right", err)
-	}
-}
-
 func TestParseSubmission(t *testing.T) {
 	t.Parallel()
 
@@ -92,7 +56,7 @@ func TestParseSubmission(t *testing.T) {
 		{name: "an empty body_file", in: `{"assessment":"要議論","body_file":"","comments":[]}`, wantErr: "exactly one of body"},
 		// Allowing a path would reach round the directory binding.
 		{name: "a body_file with a path", in: `{"assessment":"要議論","body_file":"sub/x.md","comments":[]}`, wantErr: "bare filename"},
-		{name: "a body_file that is not there", in: `{"assessment":"要議論","body_file":"nope.md","comments":[]}`, wantErr: "not found in the review work dir"},
+		{name: "a body_file that is not there", in: `{"assessment":"要議論","body_file":"nope.md","comments":[]}`, wantErr: "not found in the work dir"},
 		{name: "comments missing", in: `{"assessment":"要議論","body":"x"}`, wantErr: "comments must be an array"},
 		{name: "comments not an array", in: `{"assessment":"要議論","body":"x","comments":{}}`, wantErr: "comments must be an array"},
 		{name: "a comment without a line", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","body":"y"}]}`, wantErr: "comments must be an array"},

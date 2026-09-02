@@ -74,9 +74,9 @@ type ReviewFile struct {
 	Assessment *Assessment `json:"assessment" contract:"required"`
 	// The review body, written inline.
 	Body *string `json:"body"`
-	// The name of a markdown file in the review work dir holding the body. A
-	// bare file name: a path would let a review reach round the directory
-	// binding that keeps parallel reviews of different pull requests apart.
+	// The name of a markdown file in the work dir holding the body. A bare
+	// file name: a path would let a review reach round the directory binding
+	// that keeps parallel runs on different pull requests apart.
 	BodyFile *string `json:"body_file"`
 	// The remarks anchored to lines of the diff, empty for a review that is
 	// all body.
@@ -186,11 +186,11 @@ func resolveBody(body, file *string, workDir string) (string, error) {
 		return *body, nil
 	}
 	if strings.ContainsRune(*file, filepath.Separator) {
-		return "", fmt.Errorf("body_file must be a bare filename in the review work dir (no path separators): %s", *file)
+		return "", fmt.Errorf("body_file must be a bare filename in the work dir (no path separators): %s", *file)
 	}
 	content, err := os.ReadFile(filepath.Join(workDir, *file))
 	if err != nil {
-		return "", fmt.Errorf("body_file not found in the review work dir: %s", filepath.Join(workDir, *file))
+		return "", fmt.Errorf("body_file not found in the work dir: %s", filepath.Join(workDir, *file))
 	}
 	return string(content), nil
 }

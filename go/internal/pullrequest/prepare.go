@@ -3,8 +3,6 @@ package pullrequest
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -138,12 +136,11 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	}
 	p.ContextPath = &path
 
-	work := WorkDir(path)
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		return Preparation{}, fmt.Errorf("failed to create review work dir: %s", work)
+	work, err := EnsureWorkFiles(path)
+	if err != nil {
+		return Preparation{}, err
 	}
-	review, threads := filepath.Join(work, "review.json"), filepath.Join(work, "threads.json")
-	p.WorkDir, p.ReviewPath, p.ThreadsPath = &work, &review, &threads
+	p.WorkDir, p.ReviewPath, p.ThreadsPath = &work.Dir, &work.ReviewPath, &work.ThreadsPath
 
 	freshness, err := worktree.CheckFreshness(ctx, r, dir, worktree.PullRequest{
 		HeadRef: fetched.PR.HeadRef, HeadOID: fetched.PR.HeadOID,

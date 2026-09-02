@@ -59,12 +59,13 @@ func prFreshnessCmd(build selfbuild.State) *cobra.Command {
 // prContextCmd builds `ccx pr context`, which /deep-review and
 // /review-response both open with.
 //
-// Standard output is the path and nothing else. The context itself runs to
-// hundreds of kilobytes on a large pull request, so it is written to a file
-// here rather than passed back through a redirection the model composes — and
-// the name is composed here too, because parallel subagents share one scratch
-// directory and a fixed name has already caused one to read another
-// repository's pull request.
+// Standard output is where things were put and nothing else. The context
+// itself runs to hundreds of kilobytes on a large pull request, so it is
+// written to a file here rather than passed back through a redirection the
+// model composes — and the name is composed here too, because parallel
+// subagents share one scratch directory and a fixed name has already caused
+// one to read another repository's pull request. The work dir comes with it,
+// since a caller that goes on to reply to threads writes into it.
 func prContextCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "context <out-dir> [<pr-number>]",
@@ -110,7 +111,13 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{Path: path}))
+			work, err := pullrequest.EnsureWorkFiles(path)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{
+				Path: path, WorkDir: work.Dir, ThreadsPath: work.ThreadsPath,
+			}))
 		},
 	}
 }
@@ -309,9 +316,10 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 }
 
 func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "reply-threads <pr-context.json> <threads-file>",
-		Short: "Reply to and resolve the review threads awaiting our confirmation",
+		Short: "Reply to and resolve the review threads it is our move on",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -325,7 +333,7 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			eligible, headOID, err := pullrequest.ParseEligible([]byte(context))
+			known, headOID, err := pullrequest.ParseThreads([]byte(context))
 			if err != nil {
 				return silent(fmt.Errorf("%v in %s", err, contextFile))
 			}
@@ -336,13 +344,18 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			actions, err := pullrequest.ParseThreadActions([]byte(threads), threadsFile)
+			// The work dir is where a body_file is looked for, exactly as
+			// post-review looks for a review body beside the review file.
+			actions, err := pullrequest.ParseThreadActions([]byte(threads), filepath.Dir(threadsFile), threadsFile)
 			if err != nil {
 				return silent(err)
 			}
 			// Nothing to do is an ordinary answer, and the one exit of this
 			// command that renders indented rather than compact.
 			if len(actions) == 0 {
+				if dryRun {
+					return silent(renderJSON(c.OutOrStdout(), pullrequest.ReplyPlan{Plan: []pullrequest.PlannedThread{}}))
+				}
 				return silent(renderJSON(c.OutOrStdout(), pullrequest.ThreadReplies{
 					Replied: []pullrequest.RepliedThread{}, Resolved: []string{},
 					ResolveFailed: []pullrequest.FailedResolve{}, Warnings: []string{},
@@ -353,13 +366,23 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			replies, err := pullrequest.Reply(c.Context(), client, pullrequest.ReplyRequest{
-				Actions: actions, Eligible: eligible, ContextFile: contextFile, ThreadsFile: threadsFile,
-			})
+			req := pullrequest.ReplyRequest{
+				Actions: actions, Threads: known, ContextFile: contextFile, ThreadsFile: threadsFile,
+			}
+			if dryRun {
+				planned, err := pullrequest.DryRun(c.Context(), client, req)
+				if err != nil {
+					return silent(err)
+				}
+				return silent(renderCompactJSON(c.OutOrStdout(), planned))
+			}
+			replies, err := pullrequest.Reply(c.Context(), client, req)
 			if err != nil {
 				return silent(err)
 			}
 			return silent(renderCompactJSON(c.OutOrStdout(), replies))
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Run every check and print the plan without posting anything")
+	return cmd
 }
