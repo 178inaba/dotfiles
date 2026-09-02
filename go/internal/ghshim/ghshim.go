@@ -1,7 +1,7 @@
 // Package ghshim guards the writing subcommands of gh.
 //
 // It is installed as a program called gh, in front of the real one on PATH, and
-// hands every invocation on to it unless one of four rules refuses.
+// hands every invocation on to it unless one of five rules refuses.
 //
 // Rule 1: the repository has to be named on the command line. An agent that has
 // cd'd into another repository to look at something would otherwise create the
@@ -33,6 +33,18 @@
 // GitHub does not read Closes #N as one there, so the issue stays open after
 // the merge. Only gh pr create and gh pr edit are in scope, since that is where
 // the keyword does anything.
+//
+// Rule 5: a review-thread reply or resolve may not be typed at gh api. Both
+// are irreversible and both address the thread by an id nothing on the command
+// line checks: one copied from the neighbouring thread put a reply where it
+// was not meant, and one typed outside any skill left two threads open for a
+// day because nothing resolved them. ccx pr reply-threads does the same work
+// from a path and a line and validates the selector, so the hand-typed route
+// is closed: the GraphQL mutations addPullRequestReviewThreadReply and
+// resolveReviewThread, and POST on the REST replies endpoint. gh api has no
+// verb, so this one is dispatched on the noun before the table the other four
+// consult, and the first rule does not reach it — the endpoint names the
+// repository rather than leaving it to the working directory.
 //
 // Which flags carry a body is decided by whether GitHub renders the value as
 // markdown, not by the spelling — the same -b is --base under gh issue develop

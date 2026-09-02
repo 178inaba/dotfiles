@@ -172,6 +172,64 @@ That keeps the link and does not trip this guard.
 `, distinct, source)
 }
 
+// replyThreadsRecovery is the way through for both of the fifth rule's
+// refusals: the command that does the same thing with the selector checked.
+const replyThreadsRecovery = `Fix: reply and resolve through ccx pr reply-threads, which names a thread by
+its path and its line, resolves that against the threads of the pull request,
+and refuses an id belonging to another one:
+  ccx pr context <out-dir>      # the threads, and whose move each one is
+  ccx pr reply-threads --help   # what the threads file holds
+On a pull request that is not ours it handles only the threads we opened; for
+the rest the routes are the GitHub UI and an interactive shell.
+
+ccx is not affected by this guard. It talks to GitHub in process, through
+go-gh's client and gh's own credentials, and never execs gh.`
+
+// apiThreadMutationMessage is the fifth rule. found names what was recognised,
+// already spelled as a label line, since the two halves of the rule recognise
+// different things.
+func apiThreadMutationMessage(argv []string, found string) string {
+	return fmt.Sprintf(`Blocked: this gh api call replies to or resolves a review thread.
+
+  command:  %s
+  %s
+
+A reply and a resolve are the two irreversible things done to a review thread,
+and both address it by an opaque id that nothing on this command line checks.
+One copied from the thread above the one it was meant for put a reply on the
+wrong thread; another, typed outside any skill, left two threads open for a day
+because nothing resolved them afterwards.
+
+%s
+`, attemptedCommand(argv), found, replyThreadsRecovery)
+}
+
+// apiQueryFileMessage is the fifth rule's other refusal: the query could not be
+// read, so what the request asks for is unknown.
+//
+// The way through is about the file rather than about the thread, so this one
+// does not end on replyThreadsRecovery: a second Fix: would leave which of the
+// two to follow ambiguous, and a command that reads its query from a file is
+// not yet known to be a reply at all.
+func apiQueryFileMessage(argv []string, source, reason string) string {
+	return fmt.Sprintf(`Blocked: the GraphQL query could not be read, so gh was not run.
+
+  command: %s
+  query:   %s
+  reason:  %s
+
+Without the query text there is no telling a read from a review-thread reply or
+resolve, and those go through ccx pr reply-threads rather than gh api. gh
+itself exits before touching the API when it cannot read the file, so blocking
+here loses no command that would otherwise have succeeded.
+
+Fix: write the file if it is not written yet, or check the path and run again —
+a relative one resolves against the working directory. To pass the request on
+standard input use --input -; the shim leaves that alone, because reading stdin
+here would consume what gh is meant to read.
+`, attemptedCommand(argv), source, reason)
+}
+
 // quotedClosingKeywordMessage is the fourth rule. It is written as an
 // interpreted string because it quotes a backtick, which a raw one cannot hold.
 func quotedClosingKeywordMessage(source string) string {

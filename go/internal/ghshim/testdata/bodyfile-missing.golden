@@ -2,7 +2,7 @@ Blocked: the body file could not be read, so gh was not run.
 
   command:   gh pr comment -R foo/bar 1 --body-file {{BODY_DIR}}/missing.md
   body file: --body-file {{BODY_DIR}}/missing.md
-  reason:    the file does not exist (the body may not be written out yet)
+  reason:    the file does not exist (it may not be written out yet)
 
 Without the body, the scan for bare #N numbering and for a quoted closing
 keyword cannot run. gh itself exits before touching the API when it cannot read

@@ -89,6 +89,19 @@ var valueFlagTable = withInheritedRepo(map[command]valueFlags{
 // command outside gh repo takes.
 var inheritedRepo = valueFlags{names("repo"), "R"}
 
+// apiValueFlags is the same for gh api, which has no verb to key a row on and
+// so keeps its row apart. Copied from gh api --help; the booleans it leaves
+// out are --include/-i, --paginate, --silent, --slurp and --verbose.
+//
+// Reading one of these as a boolean would have the walk take its value for the
+// endpoint, and a reply typed at an endpoint the rule then fails to recognise
+// goes through without a word. That is the fail-open of #71 in the shape this
+// rule can take it.
+var apiValueFlags = valueFlags{
+	names("cache", "field", "header", "hostname", "input", "jq", "method", "preview", "raw-field", "template"),
+	"FfHpqtX",
+}
+
 // withInheritedRepo adds -R/--repo to every command that inherits it, so that
 // the table itself does not have to say so once per row.
 func withInheritedRepo(table map[command]valueFlags) map[command]valueFlags {

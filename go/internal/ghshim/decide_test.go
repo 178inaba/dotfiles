@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -182,7 +183,6 @@ func TestDecideReadSubcommands(t *testing.T) {
 		{name: "read: issue list", argv: []string{"issue", "list"}},
 		{name: "read: repo clone", argv: []string{"repo", "clone", "foo/bar"}},
 		{name: "read: pr view without CLAUDECODE", argv: []string{"pr", "view", "1"}, noClaudeCode: true},
-		{name: "read: api is not a guarded noun", argv: []string{"api", "repos/foo/bar"}},
 		{name: "excluded: repo create", argv: []string{"repo", "create", "foo/bar", "--public"}},
 		{name: "excluded: repo fork", argv: []string{"repo", "fork", "foo/bar"}},
 
@@ -441,4 +441,130 @@ func TestDecideEveryBodyFlagIsScanned(t *testing.T) {
 		}
 		runDecideCases(t, bodies, cases)
 	}
+}
+
+// The two mutations the fifth rule refuses, written as a query would spell
+// them. unresolveMutation is the near miss: the parent issue leaves it out of
+// scope, so it is what holds the identifier match to whole words.
+const (
+	resolveMutation   = `mutation { resolveReviewThread(input:{threadId:"x"}) { thread { isResolved } } }`
+	replyMutation     = `mutation { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:"x", body:"y"}) { comment { id } } }`
+	unresolveMutation = `mutation { unresolveReviewThread(input:{threadId:"x"}) { thread { isResolved } } }`
+)
+
+// apiFixtures writes the query files the fifth rule reads and returns the
+// directory. They are separate from bodyFixtures because no golden names one:
+// every message the api cases compare in full is written with an argv that
+// holds no temporary path.
+func apiFixtures(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"reply.graphql": replyMutation + "\n",
+		"request.json":  `{"query": ` + strconv.Quote(resolveMutation) + `}`,
+		// JSON that parses and holds no query, and a query that holds a
+		// mutation and is not JSON: neither contributes any query text.
+		"variables.json": `{"variables": {"threadId": "x"}}`,
+		"raw.graphql":    resolveMutation + "\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q): %v", name, err)
+		}
+	}
+	return dir
+}
+
+func TestDecideAPIGraphQLThreadMutations(t *testing.T) {
+	t.Parallel()
+
+	queries := apiFixtures(t)
+	at := func(name string) string { return filepath.Join(queries, name) }
+
+	runDecideCases(t, "", []decideCase{
+		// Blocked: the query holds one of the two mutations.
+		{name: "graphql: inline -f query", argv: []string{"api", "graphql", "-f", "query=" + resolveMutation}, block: true, golden: "rule5-graphql"},
+		{name: "graphql: --raw-field spelling", argv: []string{"api", "graphql", "--raw-field", "query=" + replyMutation}, block: true},
+		{name: "graphql: -F reads the file the @ names", argv: []string{"api", "graphql", "-F", "query=@" + at("reply.graphql")}, block: true},
+		{name: "graphql: --field spelling", argv: []string{"api", "graphql", "--field", "query=@" + at("reply.graphql")}, block: true},
+		{name: "graphql: -F= attached form", argv: []string{"api", "graphql", "-F=query=@" + at("reply.graphql")}, block: true},
+		{name: "graphql: --input JSON", argv: []string{"api", "graphql", "--input", at("request.json")}, block: true},
+		{name: "graphql: --input= attached form", argv: []string{"api", "graphql", "--input=" + at("request.json")}, block: true},
+
+		// The same endpoint under its other spellings.
+		{name: "graphql: a leading slash", argv: []string{"api", "/graphql", "-f", "query=" + resolveMutation}, block: true},
+		{name: "graphql: the full URL", argv: []string{"api", "https://api.github.com/graphql", "-f", "query=" + resolveMutation}, block: true},
+		{name: "graphql: an enterprise URL", argv: []string{"api", "https://ghe.example.com/api/graphql", "-f", "query=" + resolveMutation}, block: true},
+
+		// An input that cannot be read is refused rather than passed.
+		{name: "graphql: --input names no file", argv: []string{"api", "graphql", "--input", "missing.json"}, block: true, golden: "rule5-query-file"},
+		{name: "graphql: -F query=@ names no file", argv: []string{"api", "graphql", "-F", "query=@missing.graphql"}, block: true},
+		{name: "graphql: --input names a directory", argv: []string{"api", "graphql", "--input", queries}, block: true},
+
+		// Allowed: a read, another mutation, and the one next door.
+		{name: "graphql: a query reaches gh", argv: []string{"api", "graphql", "-f", "query={ viewer { login } }"}},
+		{name: "graphql: another mutation reaches gh", argv: []string{"api", "graphql", "-f", `query=mutation { addPullRequestReview(input:{pullRequestId:"x"}) { clientMutationId } }`}},
+		{name: "graphql: unresolveReviewThread is out of scope", argv: []string{"api", "graphql", "-f", "query=" + unresolveMutation}},
+
+		// -f is the static spelling, so its @ is part of the string.
+		{name: "graphql: -f does not read the file the @ names", argv: []string{"api", "graphql", "-f", "query=@" + at("reply.graphql")}},
+		// Only the field named query carries one.
+		{name: "graphql: another field is not the query", argv: []string{"api", "graphql", "-F", "body=@" + at("reply.graphql"), "-f", "query={ viewer { login } }"}},
+
+		// The stdin spellings are the carve-out, as --body-file - already is.
+		{name: "graphql: --input - is fail open", argv: []string{"api", "graphql", "--input", "-"}},
+		{name: "graphql: -F query=@- is fail open", argv: []string{"api", "graphql", "-F", "query=@-"}},
+
+		// An input gh will read and this rule cannot: left to gh.
+		{name: "graphql: --input JSON without a query", argv: []string{"api", "graphql", "--input", at("variables.json")}},
+		{name: "graphql: --input that is not JSON", argv: []string{"api", "graphql", "--input", at("raw.graphql")}},
+
+		// Help is not a request.
+		{name: "api --help", argv: []string{"api", "--help"}},
+		{name: "api -h", argv: []string{"api", "-h"}},
+
+		// Without CLAUDECODE nothing is judged.
+		{name: "no CLAUDECODE: graphql thread mutation", argv: []string{"api", "graphql", "-f", "query=" + resolveMutation}, noClaudeCode: true},
+		{name: "no CLAUDECODE: graphql unreadable input", argv: []string{"api", "graphql", "--input", "missing.json"}, noClaudeCode: true},
+	})
+
+	if os.Getuid() == 0 {
+		t.Log("running as root, which can read a file with no permission bits")
+		return
+	}
+	unreadable := unreadableBody(t, queries)
+	runDecideCases(t, "", []decideCase{
+		{name: "graphql: -F query=@ names a file with no read permission", argv: []string{"api", "graphql", "-F", "query=@" + unreadable}, block: true},
+	})
+}
+
+func TestDecideAPIRESTReplies(t *testing.T) {
+	t.Parallel()
+
+	const replies = "repos/o/r/pulls/1/comments/2/replies"
+
+	runDecideCases(t, "", []decideCase{
+		// Blocked: a POST to the replies endpoint, however the method arrives.
+		{name: "rest: fields make it a POST", argv: []string{"api", replies, "-f", "body=hi"}, block: true, golden: "rule5-rest"},
+		{name: "rest: --input makes it a POST", argv: []string{"api", replies, "--input", "body.json"}, block: true},
+		{name: "rest: -X POST apart from its value", argv: []string{"api", "-X", "POST", replies, "--input", "body.json"}, block: true},
+		{name: "rest: -XPOST attached", argv: []string{"api", "-XPOST", "repos/{owner}/{repo}/pulls/1/comments/2/replies", "-f", "body=hi"}, block: true},
+		{name: "rest: --method is case-insensitive", argv: []string{"api", "--method", "post", replies}, block: true},
+
+		// The same endpoint under its other spellings.
+		{name: "rest: a leading slash", argv: []string{"api", "/" + replies, "-f", "body=hi"}, block: true},
+		{name: "rest: the full URL", argv: []string{"api", "https://api.github.com/" + replies, "-f", "body=hi"}, block: true},
+		{name: "rest: an enterprise URL", argv: []string{"api", "https://ghe.example.com/api/v3/" + replies, "-f", "body=hi"}, block: true},
+		{name: "rest: a trailing slash", argv: []string{"api", replies + "/", "-f", "body=hi"}, block: true},
+
+		// Allowed: everything that is not a POST there.
+		{name: "rest: no method and no field is a GET", argv: []string{"api", replies}},
+		{name: "rest: an explicit GET beats the implicit POST", argv: []string{"api", "-X", "GET", replies, "-f", "body=x"}},
+		{name: "rest: a GET reaches gh", argv: []string{"api", "repos/foo/bar"}},
+		{name: "rest: another endpoint reaches gh", argv: []string{"api", "repos/o/r/pulls/1/comments", "-f", "body=x"}},
+		{name: "rest: editing a review comment is out of scope", argv: []string{"api", "-X", "PATCH", "repos/o/r/pulls/comments/2", "-f", "body=x"}},
+
+		// Without CLAUDECODE nothing is judged.
+		{name: "no CLAUDECODE: rest reply", argv: []string{"api", replies, "-f", "body=hi"}, noClaudeCode: true},
+	})
 }

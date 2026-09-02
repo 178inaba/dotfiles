@@ -1,0 +1,15 @@
+Blocked: the GraphQL query could not be read, so gh was not run.
+
+  command: gh api graphql --input missing.json
+  query:   --input missing.json
+  reason:  the file does not exist (it may not be written out yet)
+
+Without the query text there is no telling a read from a review-thread reply or
+resolve, and those go through ccx pr reply-threads rather than gh api. gh
+itself exits before touching the API when it cannot read the file, so blocking
+here loses no command that would otherwise have succeeded.
+
+Fix: write the file if it is not written yet, or check the path and run again —
+a relative one resolves against the working directory. To pass the request on
+standard input use --input -; the shim leaves that alone, because reading stdin
+here would consume what gh is meant to read.
