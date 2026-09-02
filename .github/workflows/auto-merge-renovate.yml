@@ -1,0 +1,41 @@
+name: Auto Merge Renovate
+
+on: pull_request
+
+# ci.yml と違って cancel しない: 下の job は 2 つの write の並びで、その間に cancel が
+# 落ちると承認済みなのに auto-merge が有効にならない PR が残る
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# 下の write はすべて App トークンで行い、GITHUB_TOKEN は一切使わない
+permissions: {}
+
+jobs:
+  auto-merge:
+    name: Auto Merge
+    runs-on: ubuntu-latest
+    # github.actor は synchronize だと最後に push した人になるので、PR の author を見る。
+    # 178inaba/rdsh は同じ観察から github.actor を採っているが、ruleset が
+    # dismiss_stale_reviews_on_push: false なのでどちらでも初回の承認は push 後も残る
+    if: github.event.pull_request.user.login == 'renovate[bot]'
+    # 実作業は API 2 回分しかないので、ハングが既定の 6 時間張り付くのを防ぐ
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # ruleset が承認 1 件を要求する一方 Renovate は自分の PR を承認できないので、
+      # ruleset を弱める代わりに App の identity で承認する。
+      # checkout はどこにも無いので、PR head のコードはここで一切実行されない
+      - name: Enable auto-merge for Renovate PRs
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh pr review --approve "${PR_URL}"
+          gh pr merge --auto --merge "${PR_URL}"
