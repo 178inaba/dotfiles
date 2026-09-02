@@ -405,8 +405,8 @@ func checkResolved(planned []plannedAction, threadsFile string) error {
 	// file again would pass every check and reply twice. The record of what was
 	// posted is what stops that.
 	log := PostedLog(threadsFile)
-	if resent := alreadyPosted(log, planned); len(resent) > 0 {
-		return fmt.Errorf("thread(s) already replied to in an earlier run of this file: %s\nremove them from %s (resending would post duplicate replies); the record is in %s",
+	if resent := wouldResend(log, planned); len(resent) > 0 {
+		return fmt.Errorf("thread(s) already replied to in an earlier run of this file, with nothing said since: %s\nremove them from %s (resending would post duplicate replies); the record is in %s",
 			strings.Join(resent, ","), threadsFile, log)
 	}
 	return nil
@@ -545,11 +545,13 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 				return ThreadReplies{}, abort(p.thread, err.Error(), log, planned)
 			}
 			// Recorded before anything else can fail, so that a run which
-			// stops after this still refuses to resend it.
-			if err := record(log, id); err != nil {
+			// stops after this still refuses to resend it. A missing url is
+			// recorded as one, which is the unconditional refusal.
+			url := reply.AddPullRequestReviewThreadReply.Comment.URL
+			if err := record(log, id, url); err != nil {
 				return ThreadReplies{}, err
 			}
-			if reply.AddPullRequestReviewThreadReply.Comment.URL == "" {
+			if url == "" {
 				return ThreadReplies{}, abort(p.thread, "reply was posted but comment url is missing in the API response", log, planned)
 			}
 			out.Replied = append(out.Replied, RepliedThread{
@@ -592,51 +594,92 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 // a file holding only those is what a retry does; the id goes beside each so
 // the record on disk can be read against it.
 func abort(t KnownThread, reason, log string, planned []plannedAction) error {
-	done := alreadyPosted(log, planned)
+	done := postedHere(log, planned)
 	var b strings.Builder
 	fmt.Fprintf(&b, "failed to reply to thread %s:\n%s\n", describe(t), reason)
 	if len(done) > 0 {
-		fmt.Fprintf(&b, "already replied (do NOT resend on retry): %s\n", strings.Join(done, ","))
+		fmt.Fprintf(&b, "already replied (do NOT resend on retry): %s\n", strings.Join(done, ", "))
 	}
 	fmt.Fprintf(&b, "not processed: %s\n", strings.Join(remaining(done, planned), ", "))
 	return &AbortedReply{Message: strings.TrimSuffix(b.String(), "\n")}
 }
 
-// record appends a thread id to the log of what has been replied to.
-func record(log, id string) error {
+// record notes a reply in the log, by the thread it landed on and the url it
+// landed at.
+//
+// The url is what makes the record answer the question it is asked. Written
+// before the reply's url is known — a mutation that failed after posting — the
+// line carries the id alone, which reads as "posted, whereabouts unknown" and
+// is refused unconditionally.
+func record(log, id, url string) error {
 	f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("record the reply to %s: %w", id, err)
 	}
 	defer f.Close()
-	if _, err := fmt.Fprintln(f, id); err != nil {
+	if _, err := fmt.Fprintln(f, strings.TrimSpace(id+" "+url)); err != nil {
 		return fmt.Errorf("record the reply to %s: %w", id, err)
 	}
 	return nil
 }
 
-// postedIDs reads the log, treating its absence as nothing having been posted.
-func postedIDs(log string) []string {
+// postedReply is one line of the log: a thread, and where our reply to it
+// landed.
+type postedReply struct{ id, url string }
+
+// postedReplies reads the log, treating its absence as nothing having been
+// posted.
+func postedReplies(log string) []postedReply {
 	b, err := os.ReadFile(log)
 	if err != nil {
 		return nil
 	}
-	var ids []string
+	var out []postedReply
 	for line := range strings.SplitSeq(string(b), "\n") {
-		if line != "" {
-			ids = append(ids, line)
+		if line == "" {
+			continue
 		}
+		id, url, _ := strings.Cut(line, " ")
+		out = append(out, postedReply{id: id, url: url})
 	}
-	return ids
+	return out
 }
 
-// alreadyPosted is the ids of threads the log already holds, sorted and
-// deduplicated.
-func alreadyPosted(log string, planned []plannedAction) []string {
+// wouldResend is the threads an entry would say the same thing on twice.
+//
+// Two entries the record must not refuse, because neither can duplicate
+// anything and both are what a caller is told to do next: one that resolves
+// without replying, which is how a resolve is retried where only it failed, and
+// a fresh reply to a thread somebody has spoken in since — a later /loop
+// iteration answering a new remark, not resending the old one. What is left is
+// a reply to a thread whose newest comment is still the reply we posted, and
+// that is the mistake worth stopping.
+func wouldResend(log string, planned []plannedAction) []string {
+	posted := postedReplies(log)
 	var found []string
-	for _, id := range postedIDs(log) {
-		if slices.ContainsFunc(planned, func(p plannedAction) bool { return p.thread.ID == id }) {
-			found = append(found, id)
+	for _, p := range planned {
+		if p.body == nil {
+			continue
+		}
+		for _, r := range posted {
+			if r.id == p.thread.ID && (r.url == "" || r.url == p.thread.LastCommentURL) {
+				found = append(found, describe(p.thread))
+				break
+			}
+		}
+	}
+	slices.Sort(found)
+	return slices.Compact(found)
+}
+
+// postedHere is the threads of this run the log already holds, whatever was
+// said since: what a stopped run reports as done, rather than what a fresh one
+// would refuse.
+func postedHere(log string, planned []plannedAction) []string {
+	var found []string
+	for _, r := range postedReplies(log) {
+		if slices.ContainsFunc(planned, func(p plannedAction) bool { return p.thread.ID == r.id }) {
+			found = append(found, r.id)
 		}
 	}
 	slices.Sort(found)
