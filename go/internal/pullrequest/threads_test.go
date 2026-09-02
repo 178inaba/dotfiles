@@ -17,10 +17,62 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
 )
 
+// lastURL is the newest comment a context recorded for a thread, and what the
+// live read is compared against.
+func lastURL(id string) string { return "https://example.com/last/" + id }
+
+// contextThreads is one context's review_threads, covering every shape a
+// selector has to tell apart: two threads on one line, one whose line has left
+// the diff, one waiting on somebody else and one that is nobody's move.
+var contextThreads = []pullrequest.KnownThread{
+	{
+		ID: "PRRT_bot", Path: "src/a.go", Line: new(10), OriginalLine: new(10),
+		OpenedBy: new("copilot-pull-request-reviewer"), Ball: pullrequest.BallMine,
+		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_bot"),
+	},
+	{
+		// A person's remark: ours to answer, theirs to close.
+		ID: "PRRT_person", Path: "src/a.go", Line: new(20), OriginalLine: new(20),
+		OpenedBy: new("reviewer1"), Ball: pullrequest.BallMine,
+		LastCommentURL: lastURL("PRRT_person"),
+	},
+	{
+		// The lines are gone from the diff, which is the state the author is in
+		// right after the fixing push.
+		ID: "PRRT_outdated", Path: "src/b.go", OriginalLine: new(55),
+		OpenedBy: new("testuser"), Ball: pullrequest.BallMine,
+		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_outdated"),
+	},
+	{
+		ID: "PRRT_dup1", Path: "src/dup.go", Line: new(7), OriginalLine: new(7),
+		OpenedBy: new("reviewer1"), Ball: pullrequest.BallMine,
+		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_dup1"),
+	},
+	{
+		ID: "PRRT_dup2", Path: "src/dup.go", Line: new(7), OriginalLine: new(7),
+		OpenedBy: new("reviewer2"), Ball: pullrequest.BallMine,
+		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_dup2"),
+	},
+	{
+		ID: "PRRT_theirs", Path: "src/waiting.go", Line: new(5), OriginalLine: new(5),
+		OpenedBy: new("testuser"), Ball: pullrequest.BallTheirs,
+		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_theirs"),
+	},
+	{
+		ID: "PRRT_none", Path: "src/settled.go", Line: new(6), OriginalLine: new(6),
+		OpenedBy: new("reviewer1"), Ball: pullrequest.BallNone,
+		LastCommentURL: lastURL("PRRT_none"),
+	},
+}
+
 func TestParseThreadActions(t *testing.T) {
 	t.Parallel()
 
-	body := "looks fixed"
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "r1.md"), []byte("a long reply"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
 	tests := []struct {
 		name    string
 		in      string
@@ -29,38 +81,61 @@ func TestParseThreadActions(t *testing.T) {
 	}{
 		{
 			name: "a reply and a resolve",
-			in:   `{"threads":[{"id":"PRRT_1","resolve":true,"body":"looks fixed"}]}`,
-			want: []pullrequest.ThreadAction{{ID: "PRRT_1", Body: &body, Resolve: true}},
+			in:   `{"threads":[{"path":"src/a.go","line":10,"resolve":true,"body":"looks fixed"}]}`,
+			want: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("looks fixed"), Resolve: true}},
 		},
 		{
 			// No body means resolving without replying, which is how a repeat
 			// run avoids saying the same thing twice.
 			name: "a resolve alone",
-			in:   `{"threads":[{"id":"PRRT_1","resolve":true}]}`,
-			want: []pullrequest.ThreadAction{{ID: "PRRT_1", Resolve: true}},
+			in:   `{"threads":[{"path":"src/a.go","resolve":true}]}`,
+			want: []pullrequest.ThreadAction{{Path: "src/a.go", Resolve: true}},
 		},
+		{
+			// The id only narrows: the path is still what names the thread.
+			name: "an id to break a tie",
+			in:   `{"threads":[{"path":"src/dup.go","line":7,"id":"PRRT_dup2","resolve":false,"body":"x"}]}`,
+			want: []pullrequest.ThreadAction{{Path: "src/dup.go", Line: new(7), ID: new("PRRT_dup2"), Body: new("x")}},
+		},
+		{
+			// A long reply is written as markdown beside the file rather than
+			// escaped into a JSON string, exactly as a review body is.
+			name: "a body in a file",
+			in:   `{"threads":[{"path":"src/a.go","resolve":true,"body_file":"r1.md"}]}`,
+			want: []pullrequest.ThreadAction{{Path: "src/a.go", Body: new("a long reply"), Resolve: true}},
+		},
+
 		{name: "no threads at all", in: `{}`, wantErr: "threads must be an array"},
 		{name: "threads not an array", in: `{"threads":{}}`, wantErr: "threads must be an array"},
-		{name: "no id", in: `{"threads":[{"resolve":true}]}`, wantErr: "{id: string, resolve: boolean"},
-		{name: "resolve is a string", in: `{"threads":[{"id":"a","resolve":"yes"}]}`, wantErr: "{id: string, resolve: boolean"},
-		{name: "body is a number", in: `{"threads":[{"id":"a","resolve":true,"body":3}]}`, wantErr: "{id: string, resolve: boolean"},
+		{name: "no path", in: `{"threads":[{"resolve":true}]}`, wantErr: "{path: string"},
+		{name: "resolve missing", in: `{"threads":[{"path":"a","body":"x"}]}`, wantErr: "{path: string"},
+		{name: "resolve is a string", in: `{"threads":[{"path":"a","resolve":"yes"}]}`, wantErr: "{path: string"},
+		{name: "line is a string", in: `{"threads":[{"path":"a","line":"7","resolve":true}]}`, wantErr: "{path: string"},
+		{name: "body is a number", in: `{"threads":[{"path":"a","resolve":true,"body":3}]}`, wantErr: "{path: string"},
 		{name: "not json at all", in: "nope", wantErr: "invalid JSON"},
-
-		// Two distinctions the raw-JSON reading left uncovered, pinned so that
-		// giving the fields their real Go types cannot change them unnoticed.
-		{name: "resolve missing", in: `{"threads":[{"id":"a","body":"x"}]}`, wantErr: "{id: string, resolve: boolean"},
+		{
+			name:    "both a body and a file",
+			in:      `{"threads":[{"path":"a","resolve":true,"body":"x","body_file":"r1.md"}]}`,
+			wantErr: "exactly one of body",
+		},
+		{
+			// A path would let an entry reach round the directory binding that
+			// keeps parallel runs on different pull requests apart.
+			name:    "a body file outside the work dir",
+			in:      `{"threads":[{"path":"a","resolve":true,"body_file":"../r1.md"}]}`,
+			wantErr: "bare filename",
+		},
+		{
+			name:    "a body file that is not there",
+			in:      `{"threads":[{"path":"a","resolve":true,"body_file":"missing.md"}]}`,
+			wantErr: "body_file not found",
+		},
 		{
 			// An explicit null says "not this one", which is what leaving the
 			// field out says: resolve without replying.
 			name: "a null body",
-			in:   `{"threads":[{"id":"a","resolve":true,"body":null}]}`,
-			want: []pullrequest.ThreadAction{{ID: "a", Resolve: true}},
-		},
-		{
-			// An empty id is a value, and validate is what rejects it later.
-			name: "an empty id",
-			in:   `{"threads":[{"id":"","resolve":true}]}`,
-			want: []pullrequest.ThreadAction{{ID: "", Resolve: true}},
+			in:   `{"threads":[{"path":"a","resolve":true,"body":null}]}`,
+			want: []pullrequest.ThreadAction{{Path: "a", Resolve: true}},
 		},
 	}
 
@@ -68,7 +143,7 @@ func TestParseThreadActions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := pullrequest.ParseThreadActions([]byte(tc.in), "threads.json")
+			got, err := pullrequest.ParseThreadActions([]byte(tc.in), work, "threads.json")
 			if tc.wantErr != "" {
 				if err == nil {
 					t.Fatalf("ParseThreadActions = %+v, want an error mentioning %q", got, tc.wantErr)
@@ -90,53 +165,93 @@ func TestParseThreadActions(t *testing.T) {
 
 // TestReplyRefuses drives the checks through Reply with a client that fails the
 // test if it is reached: that a refusal happens is the point, but that nothing
-// was posted first is what the all-or-nothing promise is made of.
+// was sent first — not even the live read — is what the all-or-nothing promise
+// is made of.
 func TestReplyRefuses(t *testing.T) {
 	t.Parallel()
-
-	body, blank := "fixed", "   "
-	eligible := []string{"PRRT_ok", "PRRT_ok2"}
 
 	tests := []struct {
 		name    string
 		actions []pullrequest.ThreadAction
 		// posted is what an earlier run of the same file recorded.
-		posted  []string
-		wantErr string
+		posted []string
+		// wantErr is every fragment the message has to carry.
+		wantErr []string
 	}{
 		{
 			name:    "a body of only whitespace",
-			actions: []pullrequest.ThreadAction{{ID: "PRRT_ok", Body: &blank, Resolve: true}},
-			wantErr: "reply body is present but blank",
+			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("   "), Resolve: true}},
+			wantErr: []string{"reply body is present but blank", "src/a.go:10"},
 		},
 		{
 			name:    "neither a reply nor a resolve",
-			actions: []pullrequest.ThreadAction{{ID: "PRRT_ok"}},
-			wantErr: "do nothing",
+			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10)}},
+			wantErr: []string{"do nothing", "src/a.go:10"},
 		},
 		{
-			name: "the same thread twice",
+			// The transcription error the whole selector exists to catch: the
+			// id belongs to a thread on another file entirely.
+			name: "an id from another thread",
 			actions: []pullrequest.ThreadAction{
-				{ID: "PRRT_ok", Body: &body, Resolve: true},
-				{ID: "PRRT_ok", Body: &body, Resolve: true},
+				{Path: "src/a.go", Line: new(10), ID: new("PRRT_outdated"), Body: new("fixed"), Resolve: true},
 			},
-			wantErr: "duplicate thread id",
+			wantErr: []string{"PRRT_outdated", "src/b.go", "testuser", "mine"},
 		},
 		{
-			// Whose thread it is and whether it is still open was decided when
-			// the context was fetched; deciding it again here from different
-			// information is how the two would come apart.
-			name:    "a thread the context does not flag",
-			actions: []pullrequest.ThreadAction{{ID: "PRRT_other", Body: &body, Resolve: true}},
-			wantErr: "not awaiting our confirmation",
+			name: "an id no thread has",
+			actions: []pullrequest.ThreadAction{
+				{Path: "src/a.go", Line: new(10), ID: new("PRRT_typo"), Body: new("fixed"), Resolve: true},
+			},
+			wantErr: []string{"PRRT_typo", "context.json"},
+		},
+		{
+			// Two reviewers on one line: the path cannot say which, so the run
+			// stops and asks rather than guessing.
+			name:    "two threads on the line",
+			actions: []pullrequest.ThreadAction{{Path: "src/dup.go", Line: new(7), Body: new("fixed"), Resolve: true}},
+			wantErr: []string{"PRRT_dup1", "PRRT_dup2", `"id"`},
+		},
+		{
+			name:    "a path with nothing we may act on",
+			actions: []pullrequest.ThreadAction{{Path: "src/settled.go", Body: new("fixed"), Resolve: true}},
+			wantErr: []string{"src/settled.go", "no thread"},
+		},
+		{
+			// A thread waiting on the reviewer is not ours to reopen, and the
+			// message lists what we could have named at that path instead.
+			name:    "a thread waiting on somebody else",
+			actions: []pullrequest.ThreadAction{{Path: "src/waiting.go", Body: new("fixed"), Resolve: true}},
+			wantErr: []string{"src/waiting.go", "no thread"},
+		},
+		{
+			name:    "a line no thread is on",
+			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(99), Body: new("fixed"), Resolve: true}},
+			wantErr: []string{"src/a.go", "PRRT_bot", "PRRT_person"},
+		},
+		{
+			// A person's remark is closed by that person; replying to it is
+			// fine, resolving it is not.
+			name:    "resolving a person's remark",
+			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(20), Body: new("fixed"), Resolve: true}},
+			wantErr: []string{"resolve", "PRRT_person", "src/a.go:20"},
+		},
+		{
+			// Two selectors, one thread: without the check the reply lands
+			// twice.
+			name: "two entries on one thread",
+			actions: []pullrequest.ThreadAction{
+				{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true},
+				{Path: "src/a.go", ID: new("PRRT_bot"), Body: new("fixed again"), Resolve: true},
+			},
+			wantErr: []string{"duplicate", "PRRT_bot"},
 		},
 		{
 			// Eligibility is frozen in the context, so running the same file
 			// again would pass every check and reply a second time.
 			name:    "a thread an earlier run already replied to",
-			actions: []pullrequest.ThreadAction{{ID: "PRRT_ok", Body: &body, Resolve: true}},
-			posted:  []string{"PRRT_ok"},
-			wantErr: "already replied to in an earlier run",
+			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true}},
+			posted:  []string{"PRRT_bot"},
+			wantErr: []string{"already replied to in an earlier run"},
 		},
 	}
 
@@ -144,63 +259,250 @@ func TestReplyRefuses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			threadsFile := filepath.Join(t.TempDir(), "threads.json")
+			file := threadsFile(t)
 			if len(tc.posted) > 0 {
-				if err := os.WriteFile(pullrequest.PostedLog(threadsFile), []byte(strings.Join(tc.posted, "\n")+"\n"), 0o644); err != nil {
+				if err := os.WriteFile(pullrequest.PostedLog(file), []byte(strings.Join(tc.posted, "\n")+"\n"), 0o644); err != nil {
 					t.Fatalf("WriteFile: %v", err)
 				}
 			}
 
-			// Only the refusals reach here; the accepting case is covered by
-			// TestReply, which does let the mutations through.
+			// Only the refusals reach here; the accepting cases are covered by
+			// TestReply, which does let the requests through.
 			unreachable := ghapitest.New(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-				t.Error("a mutation was sent despite the refusal")
+				t.Error("a request was sent despite the refusal")
 			}))
-			_, err := pullrequest.Reply(t.Context(), unreachable, pullrequest.ReplyRequest{
-				Actions: tc.actions, Eligible: eligible, ContextFile: "context.json", ThreadsFile: threadsFile,
-			})
+			req := pullrequest.ReplyRequest{
+				Actions: tc.actions, Threads: contextThreads, ContextFile: "context.json", ThreadsFile: file,
+			}
+			_, err := pullrequest.Reply(t.Context(), unreachable, req)
 			if err == nil {
 				t.Fatalf("Reply succeeded, want an error mentioning %q", tc.wantErr)
 			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
+			for _, want := range tc.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to mention %q", err, want)
+				}
+			}
+			// A dry run refuses the same way, since it shares every check.
+			if _, err := pullrequest.DryRun(t.Context(), unreachable, req); err == nil {
+				t.Error("DryRun accepted what Reply refused")
 			}
 		})
 	}
 }
 
-func TestParseEligible(t *testing.T) {
+// TestReplyResolvesSelectors is the accepting half: what a path, a line and an
+// id pick out when they are unambiguous.
+func TestReplyResolvesSelectors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action pullrequest.ThreadAction
+		wantID string
+	}{
+		{
+			name:   "a path and a line",
+			action: pullrequest.ThreadAction{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true},
+			wantID: "PRRT_bot",
+		},
+		{
+			// The only thread at the path, so the line is not needed.
+			name:   "a path alone",
+			action: pullrequest.ThreadAction{Path: "src/b.go", Body: new("fixed"), Resolve: true},
+			wantID: "PRRT_outdated",
+		},
+		{
+			// line is null on this thread, so the number the skill has in hand
+			// after the fixing push only matches original_line.
+			name:   "a line that only original_line has",
+			action: pullrequest.ThreadAction{Path: "src/b.go", Line: new(55), Body: new("fixed"), Resolve: true},
+			wantID: "PRRT_outdated",
+		},
+		{
+			name:   "an id breaking a tie",
+			action: pullrequest.ThreadAction{Path: "src/dup.go", Line: new(7), ID: new("PRRT_dup2"), Body: new("fixed"), Resolve: true},
+			wantID: "PRRT_dup2",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := &mutations{}
+			got, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
+				Actions: []pullrequest.ThreadAction{tc.action}, Threads: contextThreads,
+				ContextFile: "context.json", ThreadsFile: threadsFile(t),
+			})
+			if err != nil {
+				t.Fatalf("Reply: %v", err)
+			}
+			if diff := cmp.Diff([]string{tc.wantID}, m.replied); diff != "" {
+				t.Errorf("replies posted (-want +got):\n%s", diff)
+			}
+			if len(got.Replied) != 1 || got.Replied[0].Path != tc.action.Path {
+				t.Errorf("replied = %+v, want one carrying the thread's path", got.Replied)
+			}
+		})
+	}
+}
+
+// TestReplyRefusesOnAStaleView is the last guard before the first mutation: the
+// context is a snapshot, and a thread that has been resolved or answered since
+// it was fetched is one the reply no longer belongs on. One such thread stops
+// every entry, not only its own.
+func TestReplyRefusesOnAStaleView(t *testing.T) {
+	t.Parallel()
+
+	actions := []pullrequest.ThreadAction{
+		{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true},
+		{Path: "src/b.go", Body: new("fixed"), Resolve: true},
+		// Resolve-only entries are read too: resolving a thread somebody has
+		// since answered discards the answer from the author's list.
+		{Path: "src/dup.go", Line: new(7), ID: new("PRRT_dup1"), Resolve: true},
+	}
+
+	tests := []struct {
+		name string
+		m    *mutations
+		want string
+	}{
+		{
+			name: "a thread gained a comment",
+			m:    &mutations{movedNow: "PRRT_outdated"},
+			want: "PRRT_outdated",
+		},
+		{
+			name: "a thread is already resolved",
+			m:    &mutations{resolvedNow: "PRRT_dup1"},
+			want: "PRRT_dup1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			file := threadsFile(t)
+			req := pullrequest.ReplyRequest{
+				Actions: actions, Threads: contextThreads, ContextFile: "context.json", ThreadsFile: file,
+			}
+			_, err := pullrequest.Reply(t.Context(), tc.m.client(t), req)
+			if err == nil {
+				t.Fatal("Reply succeeded over a stale context")
+			}
+			for _, want := range []string{tc.want, "ccx pr context"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to mention %q", err, want)
+				}
+			}
+			if len(tc.m.replied)+len(tc.m.resolved) > 0 {
+				t.Errorf("replied %v and resolved %v, want nothing sent for any of the three", tc.m.replied, tc.m.resolved)
+			}
+			if posted := read(t, pullrequest.PostedLog(file)); posted != "" {
+				t.Errorf("the record holds %q, want nothing", posted)
+			}
+		})
+	}
+}
+
+// TestDryRun is the promise that the plan shown is the plan executed: every
+// check runs, the live read included, and only the first mutation is held back.
+func TestDryRun(t *testing.T) {
+	t.Parallel()
+
+	file := threadsFile(t)
+	m := &mutations{}
+	got, err := pullrequest.DryRun(t.Context(), m.client(t), pullrequest.ReplyRequest{
+		Actions: []pullrequest.ThreadAction{
+			{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true},
+			{Path: "src/b.go", Line: new(55), Resolve: true},
+		},
+		Threads: contextThreads, ContextFile: "context.json", ThreadsFile: file,
+	})
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+
+	want := pullrequest.ReplyPlan{Plan: []pullrequest.PlannedThread{
+		{
+			ID: "PRRT_bot", Path: "src/a.go", Line: new(10), OriginalLine: new(10),
+			OpenedBy: new("copilot-pull-request-reviewer"), Reply: true, Resolve: true,
+		},
+		{
+			ID: "PRRT_outdated", Path: "src/b.go", OriginalLine: new(55),
+			OpenedBy: new("testuser"), Resolve: true,
+		},
+	}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("DryRun (-want +got):\n%s", diff)
+	}
+	if len(m.replied)+len(m.resolved) > 0 {
+		t.Errorf("replied %v and resolved %v, want a dry run to send neither", m.replied, m.resolved)
+	}
+	// The live read did happen, which is what makes the plan trustworthy.
+	if diff := cmp.Diff([]string{"PRRT_bot", "PRRT_outdated"}, m.read); diff != "" {
+		t.Errorf("threads read (-want +got):\n%s", diff)
+	}
+	// A dry run leaves no trace, so the real run that follows is not refused
+	// as a repeat.
+	if _, err := os.Stat(pullrequest.PostedLog(file)); !os.IsNotExist(err) {
+		t.Errorf("the posted log exists after a dry run (%v)", err)
+	}
+}
+
+func TestParseThreads(t *testing.T) {
 	t.Parallel()
 
 	const context = `{"pr":{"head_oid":"abc"},"review_threads":[
-		{"id":"PRRT_1","awaiting_my_confirmation":true},
-		{"id":"PRRT_2","awaiting_my_confirmation":false},
-		{"id":"PRRT_3","awaiting_my_confirmation":true}]}`
+		{"id":"PRRT_1","path":"a.go","line":3,"original_line":3,"opened_by":"me",
+		 "ball":"mine","resolvable_by_me":true,"last_comment":{"url":"https://example.com/1"}},
+		{"id":"PRRT_2","path":"b.go","line":null,"original_line":9,"opened_by":null,
+		 "ball":"none","resolvable_by_me":false,"last_comment":null}]}`
 
-	ids, head, err := pullrequest.ParseEligible([]byte(context))
+	got, head, err := pullrequest.ParseThreads([]byte(context))
 	if err != nil {
-		t.Fatalf("ParseEligible: %v", err)
+		t.Fatalf("ParseThreads: %v", err)
 	}
-	if diff := cmp.Diff([]string{"PRRT_1", "PRRT_3"}, ids); diff != "" {
-		t.Errorf("eligible (-want +got):\n%s", diff)
+	want := []pullrequest.KnownThread{
+		{
+			ID: "PRRT_1", Path: "a.go", Line: new(3), OriginalLine: new(3), OpenedBy: new("me"),
+			Ball: pullrequest.BallMine, ResolvableByMe: true, LastCommentURL: "https://example.com/1",
+		},
+		// A thread with no comments has no url to compare the live read
+		// against, which the empty string is.
+		{ID: "PRRT_2", Path: "b.go", OriginalLine: new(9), Ball: pullrequest.BallNone},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ParseThreads (-want +got):\n%s", diff)
 	}
 	if head != "abc" {
 		t.Errorf("head = %q, want abc", head)
 	}
 
-	if _, _, err := pullrequest.ParseEligible([]byte(`{"pr":{"head_oid":"abc"}}`)); err == nil {
+	if _, _, err := pullrequest.ParseThreads([]byte(`{"pr":{"head_oid":"abc"}}`)); err == nil {
 		t.Error("a context with no review_threads was accepted")
+	}
+	if _, _, err := pullrequest.ParseThreads([]byte(`{"review_threads":[]}`)); err == nil {
+		t.Error("a context with no head_oid was accepted")
 	}
 }
 
-// mutations answers the two mutations, recording what it was asked and failing
-// whichever the test says.
+// mutations answers the two mutations and the live read, recording what it was
+// asked and failing whichever the test says.
 type mutations struct {
 	// failReply and failResolve name the thread whose mutation fails.
 	failReply, failResolve string
 	replied, resolved      []string
+	// read is every thread the live check looked at, which is what says the
+	// check ran at all.
+	read []string
 	// urlless names a thread whose reply comes back with no url.
 	urlless string
+	// resolvedNow and movedNow name the thread the live read finds already
+	// resolved, or holding a comment the context never saw.
+	resolvedNow, movedNow string
 }
 
 func (m *mutations) client(t *testing.T) *ghapi.Client {
@@ -220,6 +522,16 @@ func (m *mutations) client(t *testing.T) *ghapi.Client {
 		id := req.Variables.ThreadID
 		w.Header().Set("Content-Type", "application/json")
 
+		if strings.Contains(req.Query, "node(id:") {
+			m.read = append(m.read, id)
+			url := lastURL(id)
+			if id == m.movedNow {
+				url += "-newer"
+			}
+			fmt.Fprintf(w, `{"data":{"node":{"isResolved":%v,"comments":{"nodes":[{"url":%q}]}}}}`,
+				id == m.resolvedNow, url)
+			return
+		}
 		if strings.Contains(req.Query, "addPullRequestReviewThreadReply") {
 			if id == m.failReply {
 				fmt.Fprint(w, `{"errors":[{"message":"reply refused"}]}`)
@@ -250,24 +562,26 @@ func threadsFile(t *testing.T) string {
 func TestReply(t *testing.T) {
 	t.Parallel()
 
-	body := "confirmed"
 	file := threadsFile(t)
 	m := &mutations{}
 	actions := []pullrequest.ThreadAction{
-		{ID: "PRRT_1", Body: &body, Resolve: true},
-		{ID: "PRRT_2", Resolve: true},
+		{Path: "src/a.go", Line: new(10), Body: new("confirmed"), Resolve: true},
+		{Path: "src/b.go", Resolve: true},
 	}
 
 	got, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
-		Actions: actions, Eligible: []string{"PRRT_1", "PRRT_2"}, ThreadsFile: file,
+		Actions: actions, Threads: contextThreads, ContextFile: "context.json", ThreadsFile: file,
 	})
 	if err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
 
 	want := pullrequest.ThreadReplies{
-		Replied:       []pullrequest.RepliedThread{{ID: "PRRT_1", URL: "https://example.com/PRRT_1"}},
-		Resolved:      []string{"PRRT_1", "PRRT_2"},
+		Replied: []pullrequest.RepliedThread{{
+			ID: "PRRT_bot", Path: "src/a.go", Line: new(10), OriginalLine: new(10),
+			URL: "https://example.com/PRRT_bot",
+		}},
+		Resolved:      []string{"PRRT_bot", "PRRT_outdated"},
 		ResolveFailed: []pullrequest.FailedResolve{},
 		Warnings:      []string{},
 	}
@@ -276,11 +590,11 @@ func TestReply(t *testing.T) {
 	}
 	// Only the thread with a body was replied to; the other was resolved
 	// without one.
-	if diff := cmp.Diff([]string{"PRRT_1"}, m.replied); diff != "" {
+	if diff := cmp.Diff([]string{"PRRT_bot"}, m.replied); diff != "" {
 		t.Errorf("replies posted (-want +got):\n%s", diff)
 	}
 	// The record is what a second run of the same file consults.
-	if posted := read(t, pullrequest.PostedLog(file)); posted != "PRRT_1\n" {
+	if posted := read(t, pullrequest.PostedLog(file)); posted != "PRRT_bot\n" {
 		t.Errorf("the record holds %q, want the thread that was replied to", posted)
 	}
 }
@@ -292,15 +606,13 @@ func TestReply(t *testing.T) {
 func TestReplyDegradesOnResolve(t *testing.T) {
 	t.Parallel()
 
-	body := "confirmed"
-	m := &mutations{failResolve: "PRRT_1"}
+	m := &mutations{failResolve: "PRRT_bot"}
 	got, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
 		Actions: []pullrequest.ThreadAction{
-			{ID: "PRRT_1", Body: &body, Resolve: true},
-			{ID: "PRRT_2", Body: &body, Resolve: true},
+			{Path: "src/a.go", Line: new(10), Body: new("confirmed"), Resolve: true},
+			{Path: "src/b.go", Body: new("confirmed"), Resolve: true},
 		},
-		Eligible:    []string{"PRRT_1", "PRRT_2"},
-		ThreadsFile: threadsFile(t),
+		Threads: contextThreads, ContextFile: "context.json", ThreadsFile: threadsFile(t),
 	})
 	if err != nil {
 		t.Fatalf("Reply: %v", err)
@@ -309,13 +621,13 @@ func TestReplyDegradesOnResolve(t *testing.T) {
 	if len(got.Replied) != 2 {
 		t.Errorf("replied = %+v, want both", got.Replied)
 	}
-	if diff := cmp.Diff([]string{"PRRT_2"}, got.Resolved); diff != "" {
+	if diff := cmp.Diff([]string{"PRRT_outdated"}, got.Resolved); diff != "" {
 		t.Errorf("resolved (-want +got):\n%s", diff)
 	}
-	if len(got.ResolveFailed) != 1 || got.ResolveFailed[0].ID != "PRRT_1" {
+	if len(got.ResolveFailed) != 1 || got.ResolveFailed[0].ID != "PRRT_bot" {
 		t.Errorf("resolve_failed = %+v, want the one that could not be resolved", got.ResolveFailed)
 	}
-	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "PRRT_1") {
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "PRRT_bot") {
 		t.Errorf("warnings = %v, want one naming the thread", got.Warnings)
 	}
 }
@@ -323,11 +635,10 @@ func TestReplyDegradesOnResolve(t *testing.T) {
 func TestReplyStops(t *testing.T) {
 	t.Parallel()
 
-	body := "confirmed"
 	actions := []pullrequest.ThreadAction{
-		{ID: "PRRT_1", Body: &body, Resolve: true},
-		{ID: "PRRT_2", Body: &body, Resolve: true},
-		{ID: "PRRT_3", Body: &body, Resolve: true},
+		{Path: "src/a.go", Line: new(10), Body: new("confirmed"), Resolve: true},
+		{Path: "src/b.go", Body: new("confirmed"), Resolve: true},
+		{Path: "src/dup.go", ID: new("PRRT_dup1"), Body: new("confirmed"), Resolve: true},
 	}
 
 	tests := []struct {
@@ -340,17 +651,19 @@ func TestReplyStops(t *testing.T) {
 	}{
 		{
 			name:        "the reply is refused",
-			m:           &mutations{failReply: "PRRT_2"},
-			wantReplied: []string{"PRRT_1"},
-			wantLeft:    "not processed: PRRT_2,PRRT_3",
+			m:           &mutations{failReply: "PRRT_outdated"},
+			wantReplied: []string{"PRRT_bot"},
+			// The outdated thread is named by its original_line, which is the
+			// number a retry would write against it.
+			wantLeft: "not processed: src/b.go:55 (PRRT_outdated), src/dup.go:7 (PRRT_dup1)",
 		},
 		{
 			// The reply landed even though the answer was unusable, so it has
 			// to be on the record or a retry would post it again.
 			name:        "the reply lands without a url",
-			m:           &mutations{urlless: "PRRT_2"},
-			wantReplied: []string{"PRRT_1", "PRRT_2"},
-			wantLeft:    "not processed: PRRT_3",
+			m:           &mutations{urlless: "PRRT_outdated"},
+			wantReplied: []string{"PRRT_bot", "PRRT_outdated"},
+			wantLeft:    "not processed: src/dup.go:7 (PRRT_dup1)",
 		},
 	}
 
@@ -360,7 +673,7 @@ func TestReplyStops(t *testing.T) {
 
 			file := threadsFile(t)
 			_, err := pullrequest.Reply(t.Context(), tc.m.client(t), pullrequest.ReplyRequest{
-				Actions: actions, Eligible: []string{"PRRT_1", "PRRT_2", "PRRT_3"}, ThreadsFile: file,
+				Actions: actions, Threads: contextThreads, ContextFile: "context.json", ThreadsFile: file,
 			})
 			if err == nil {
 				t.Fatal("Reply succeeded, want it to stop")
@@ -368,7 +681,7 @@ func TestReplyStops(t *testing.T) {
 
 			// Nothing after the failure was touched: a run acts on its input in
 			// order and stops, rather than skipping past what went wrong.
-			if slices.Contains(tc.m.replied, "PRRT_3") {
+			if slices.Contains(tc.m.replied, "PRRT_dup1") {
 				t.Errorf("replies posted = %v, want nothing after the failure", tc.m.replied)
 			}
 			for _, want := range []string{"already replied", tc.wantLeft} {
