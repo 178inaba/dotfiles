@@ -13,16 +13,16 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
-// A review gets a directory of its own, and the files a review works with have
-// to be inside it.
+// A pull request gets a directory of its own, and the files a run works with
+// have to be inside it.
 //
 // Parallel subagents share one scratch directory, so a fixed file name in the
-// shared root is overwritten by whichever review of whichever pull request
-// wrote last. Binding by directory rather than by file name is what covers the
-// working files a review makes for itself as well as the two this command
-// hands out.
+// shared root is overwritten by whichever run on whichever pull request wrote
+// last. Binding by directory rather than by file name is what covers the
+// working files a run makes for itself as well as the ones handed out.
 
-// Stored is where a fetched context was written.
+// Stored is where a fetched context and the directory paired with it were
+// written.
 //
 // The document itself never goes to standard output: on a pull request with a
 // busy conversation it runs to hundreds of kilobytes, and the caller reads it
@@ -30,6 +30,10 @@ import (
 type Stored struct {
 	// The absolute path of the file holding the context document.
 	Path string `json:"path"`
+	// work_dir and threads_path are handed out rather than left to the caller
+	// to name, which is what binds a run's working files to one pull request.
+	WorkDir     string `json:"work_dir"`
+	ThreadsPath string `json:"threads_path"`
 }
 
 // ContextFileName is what a fetched context is stored as.
@@ -51,18 +55,45 @@ func ContextFileName(repo ghapi.Repo, number int) string {
 // changes.
 func WorkDir(contextFile string) string {
 	token := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(contextFile), "pr-context-"), ".json")
-	return filepath.Join(filepath.Dir(contextFile), "deep-review-"+token)
+	return filepath.Join(filepath.Dir(contextFile), "pr-"+token)
+}
+
+// WorkFiles is the directory a run works in and the two documents handed out
+// with it.
+type WorkFiles struct {
+	Dir         string
+	ReviewPath  string
+	ThreadsPath string
+}
+
+// EnsureWorkFiles creates the directory paired with a context file and names
+// the documents inside it.
+//
+// One implementation for both commands that hand the directory out: fetching a
+// context and preparing a review each produce it, and a second spelling of the
+// two file names is how the two would come to disagree about where a caller
+// should write.
+func EnsureWorkFiles(contextFile string) (WorkFiles, error) {
+	dir := WorkDir(contextFile)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return WorkFiles{}, fmt.Errorf("failed to create the work dir: %s", dir)
+	}
+	return WorkFiles{
+		Dir:         dir,
+		ReviewPath:  filepath.Join(dir, "review.json"),
+		ThreadsPath: filepath.Join(dir, "threads.json"),
+	}, nil
 }
 
 // RequireInWorkDir checks that an input file sits directly in the work dir the
 // context file is paired with.
 //
-// field names the output of `ccx pr prepare-review` that would have been the
-// right path, because that is what the caller does about it.
+// field names the output of the command that fetched the context that would
+// have been the right path, because that is what the caller does about it.
 func RequireInWorkDir(file, field, contextFile string) error {
 	expected := WorkDir(contextFile)
 	if info, err := os.Stat(expected); err != nil || !info.IsDir() {
-		return fmt.Errorf("review work dir not found: %s\nrerun `ccx pr prepare-review` to create it", expected)
+		return fmt.Errorf("work dir not found: %s\nrerun `ccx pr context` or `ccx pr prepare-review` to create it", expected)
 	}
 	// Both sides resolved, so that the same directory named relatively or
 	// through a symlink does not read as a different one.
@@ -76,7 +107,7 @@ func RequireInWorkDir(file, field, contextFile string) error {
 	}
 	if got != want {
 		return fmt.Errorf(
-			"input file must be in the review work dir paired with %s: %s\nuse the %s emitted by `ccx pr prepare-review` (files outside it are overwritten by parallel reviews of other PRs)",
+			"input file must be in the work dir paired with %s: %s\nuse the %s emitted by `ccx pr context` or `ccx pr prepare-review` (files outside it are overwritten by parallel runs on other PRs)",
 			contextFile, file, field)
 	}
 	return nil

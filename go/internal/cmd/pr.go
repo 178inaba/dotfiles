@@ -59,12 +59,13 @@ func prFreshnessCmd(build selfbuild.State) *cobra.Command {
 // prContextCmd builds `ccx pr context`, which /deep-review and
 // /review-response both open with.
 //
-// Standard output is the path and nothing else. The context itself runs to
-// hundreds of kilobytes on a large pull request, so it is written to a file
-// here rather than passed back through a redirection the model composes — and
-// the name is composed here too, because parallel subagents share one scratch
-// directory and a fixed name has already caused one to read another
-// repository's pull request.
+// Standard output is where things were put and nothing else. The context
+// itself runs to hundreds of kilobytes on a large pull request, so it is
+// written to a file here rather than passed back through a redirection the
+// model composes — and the name is composed here too, because parallel
+// subagents share one scratch directory and a fixed name has already caused
+// one to read another repository's pull request. The work dir comes with it,
+// since a caller that goes on to reply to threads writes into it.
 func prContextCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "context <out-dir> [<pr-number>]",
@@ -110,7 +111,13 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{Path: path}))
+			work, err := pullrequest.EnsureWorkFiles(path)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{
+				Path: path, WorkDir: work.Dir, ThreadsPath: work.ThreadsPath,
+			}))
 		},
 	}
 }

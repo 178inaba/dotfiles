@@ -95,7 +95,10 @@ was already said. All three are fetched at once and normalised into one
 document.
 
 <out-dir> has to exist. <pr-number> may be left out, in which case the pull
-request is inferred from the branch checked out here.
+request is inferred from the branch checked out here. The work directory
+paired with the context file is created too, since a caller that goes on to
+reply to threads writes into it; it is the same directory
+` + "`ccx pr prepare-review`" + ` hands out for the same pull request.
 
 ` + limitSentence(),
 		blocks: []block{

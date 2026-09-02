@@ -186,7 +186,7 @@ func TestPrepare(t *testing.T) {
 			}
 			// The three paths are handed out rather than left to the prompt,
 			// and all sit in the directory paired with the context file.
-			want := filepath.Join(scratch, "deep-review-owner@repo-5")
+			want := filepath.Join(scratch, "pr-owner@repo-5")
 			if got.WorkDir == nil || *got.WorkDir != want {
 				t.Errorf("work_dir = %v, want %q", got.WorkDir, want)
 			}
