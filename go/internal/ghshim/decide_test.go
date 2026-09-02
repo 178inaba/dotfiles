@@ -566,6 +566,10 @@ func TestDecideAPIRESTReplies(t *testing.T) {
 		// A query string or a fragment hangs off the end of a path both
 		// patterns anchor, so normalisation drops them.
 		{name: "rest: a query string", argv: []string{"api", replies + "?per_page=1", "-f", "body=hi"}, block: true},
+		{name: "rest: a fragment", argv: []string{"api", replies + "#x", "-f", "body=hi"}, block: true},
+		// The stdin carve-out belongs to the query scan, which this half does
+		// not run: nothing is read here, so nothing is given up either.
+		{name: "rest: --input - still makes it a POST", argv: []string{"api", replies, "--input", "-"}, block: true},
 
 		// Allowed: everything that is not a POST there.
 		{name: "rest: no method and no field is a GET", argv: []string{"api", replies}},
@@ -577,4 +581,70 @@ func TestDecideAPIRESTReplies(t *testing.T) {
 		// Without CLAUDECODE nothing is judged.
 		{name: "no CLAUDECODE: rest reply", argv: []string{"api", replies, "-f", "body=hi"}, noClaudeCode: true},
 	})
+}
+
+// TestDecideAPIEveryValueFlagIsScanned is the drift check for apiValueFlags,
+// in the shape TestDecideRepositoryExplicitness runs for gh repo sync
+// --source. A flag missing a row is walked as a boolean, its value is taken
+// for the endpoint the rule matches on, and the reply that follows goes
+// through without a word — the failure the table's own comment names.
+//
+// The flags are listed here rather than read out of the table, because the
+// table is what is under test: iterating it would drop the case for the row
+// that went missing along with the row. The count is asserted both ways, so a
+// row added to the table has to be added here too.
+func TestDecideAPIEveryValueFlagIsScanned(t *testing.T) {
+	t.Parallel()
+
+	// Every value-taking flag of gh api, copied from gh api --help as the
+	// table was, with a value gh would accept. None may be read as the
+	// endpoint. --method is the one that also decides the rule, so it carries
+	// the method the rule is looking for.
+	long := map[string]string{
+		"cache":     "60s",
+		"field":     "a=b",
+		"header":    "Accept: application/json",
+		"hostname":  "github.com",
+		"input":     "body.json",
+		"jq":        ".",
+		"method":    "POST",
+		"preview":   "nebula",
+		"raw-field": "a=b",
+		"template":  "{{.}}",
+	}
+	short := map[byte]string{
+		'F': "a=b",
+		'f': "a=b",
+		'H': "Accept: application/json",
+		'p': "nebula",
+		'q': ".",
+		't': "{{.}}",
+		'X': "POST",
+	}
+
+	if len(apiValueFlags.long) != len(long) {
+		t.Errorf("the table lists %d long flags and this test %d; they are copied from the same help", len(apiValueFlags.long), len(long))
+	}
+	if len(apiValueFlags.short) != len(short) {
+		t.Errorf("the table lists %d short flags and this test %d; they are copied from the same help", len(apiValueFlags.short), len(short))
+	}
+
+	const replies = "repos/o/r/pulls/1/comments/2/replies"
+	var cases []decideCase
+
+	for name, value := range long {
+		cases = append(cases, decideCase{
+			name:  "--" + name + " does not read as the endpoint",
+			argv:  []string{"api", "--" + name, value, replies, "-f", "body=hi"},
+			block: true,
+		})
+	}
+	for flag, value := range short {
+		cases = append(cases, decideCase{
+			name:  "-" + string(flag) + " does not read as the endpoint",
+			argv:  []string{"api", "-" + string(flag), value, replies, "-f", "body=hi"},
+			block: true,
+		})
+	}
+	runDecideCases(t, "", cases)
 }

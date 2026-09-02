@@ -26,7 +26,7 @@
     - `--notes`/`-n`（`gh release create` / `edit`）→ `--notes-file <path>`
     - `--comment`/`-c`（`gh issue close` / `reopen`、`gh pr close` / `reopen`）→ **ファイル代替が無い**ので、本文は `gh <noun> comment -R owner/repo N --body-file <path>` で別途投稿し、close / reopen は `-c` なしで実行する
     - `gh label create`/`edit` と `gh repo edit` の `--description` は対象外（プレーンテキストで、素の `#数字` が自動リンクにならないため）
-  - review thread への返信・解決を `gh api` で直接叩くこと（GraphQL の `addPullRequestReviewThreadReply` / `resolveReviewThread`、REST の `POST repos/{owner}/{repo}/pulls/<n>/comments/<id>/replies`）。返信・解決は `ccx pr reply-threads` を使う（入力契約は `ccx pr reply-threads --help`、スレッド一覧は `ccx pr context`）。他人の PR では自分が起こしたスレッドしか扱えないので、それ以外は GitHub UI か対話シェルで行う。`ccx` は `gh` を exec しないのでこのブロックの影響を受けない
+  - review thread への返信・解決を `gh api` で直接叩くこと（GraphQL の `addPullRequestReviewThreadReply` / `resolveReviewThread`、REST の `POST repos/{owner}/{repo}/pulls/<n>/comments/<id>/replies`）。返信・解決は `ccx pr reply-threads` を使う（入力契約は `ccx pr reply-threads --help`、スレッド一覧は `ccx pr context`）。他人の PR では自分が起こしたスレッドしか扱えないので、それ以外は GitHub UI か対話シェルで行う。`ccx` は GitHub を in-process に叩くのでこのブロックの影響を受けない
     - GraphQL のクエリを `--input <file>` / `-F query=@<path>` で渡す場合、読めないパスはブロックされる（`-` で標準入力から渡す形のみ対象外）
   - 本文ファイル（`--body-file` / `--notes-file`）に、存在しない・読めない・通常ファイルでないパスを渡すこと（`gh` 自身も API に触れる前に読み込みで失敗するため、先にファイルを Write してから実行する。`-` で標準入力から渡す形のみ対象外）
   - 後述「マークダウン記法」の項番・closing keyword 規約への違反

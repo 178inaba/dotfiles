@@ -191,7 +191,9 @@ On a pull request that is not ours it handles only the threads we opened; for
 the rest the routes are the GitHub UI and an interactive shell.
 
 ccx is not affected by this guard. It talks to GitHub in process, through
-go-gh's client and gh's own credentials, and never execs gh.`
+go-gh's client, rather than by running gh; the one gh it can reach for is
+gh auth token, where the environment and gh's config hold no token, and no
+rule here judges a read.`
 
 // apiThreadMutationMessage is the fifth rule. The two halves of the rule
 // recognise different things, so what was found arrives as its own label and

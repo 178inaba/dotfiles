@@ -19,8 +19,12 @@ type apiScanned struct {
 	method string
 	// fields are the -F/--field and -f/--raw-field parameters, in order.
 	fields []apiField
-	// input is the value of --input. hasInput is what tells an empty one from
-	// an absent one, which matters because the presence alone makes gh POST.
+	// input is the value of --input, and hasInput says the flag was there.
+	//
+	// gh reads the flag as absent when its value is empty, so --input= is
+	// neither a POST nor a file to it, while the two are separate here and
+	// that spelling is refused as a file that cannot be read. That is the
+	// closed side of the difference, and no use of gh spells it.
 	input    string
 	hasInput bool
 }
