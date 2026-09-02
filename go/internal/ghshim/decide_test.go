@@ -12,19 +12,20 @@ import (
 
 var update = flag.Bool("update", false, "update .golden files")
 
-// The subtest names are the case names of shims/.local/shims/tests/test-gh.sh,
-// verbatim, so that the suite this replaces can be read against it line by
-// line. The cases that do not belong to the decision are in resolve_test.go
-// (finding the real gh) and ghshim_test.go (the hand-off and the fail-closed
-// net); together the three files account for every case of the shell suite.
+// The subtest names name the case rather than the rule, so that a case can be
+// found by what it does. The ones that do not belong to the decision are in
+// resolve_test.go (finding the real gh) and ghshim_test.go (the hand-off and
+// the fail-closed net).
 //
-// assert_runs becomes want: allow, assert_blocked becomes want: block, and
-// assert_block_message becomes a golden: the shell could only match substrings,
-// so the guidance is compared in full here instead.
+// want: allow and want: block say what Decide returns; a golden says what it
+// writes. The guidance is compared in full, so changing a word of it means
+// editing a golden on purpose — which is the whole of what the goldens are
+// for now that they are generated from this package rather than captured from
+// anything.
 
 const (
-	// The values the goldens were captured with. The shell shim reads both
-	// from the process; Decide takes them as functions, so a test can pin them.
+	// The values the goldens hold placeholders for. Decide takes them as
+	// functions, so a test can pin them.
 	fixtureDir    = "/fixture/repo"
 	fixtureRemote = "git@github.com:owner/repo.git"
 )
@@ -77,7 +78,7 @@ func unreadableBody(t *testing.T, dir string) string {
 	return path
 }
 
-// testEnv is the environment the goldens were captured under.
+// testEnv is the environment the goldens are generated under.
 func testEnv() Env {
 	return Env{
 		ClaudeCode:   "1",
