@@ -1,6 +1,7 @@
 package ghshim
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 )
+
+var update = flag.Bool("update", false, "update .golden files")
 
 // The subtest names are the case names of shims/.local/shims/tests/test-gh.sh,
 // verbatim, so that the suite this replaces can be read against it line by
@@ -117,7 +120,7 @@ func runDecideCases(t *testing.T, bodies string, cases []decideCase) {
 				return
 			}
 
-			want := readGolden(t, tc.golden, bodies)
+			want := wantGolden(t, tc.golden, bodies, got.Message)
 			if diff := cmp.Diff(want, got.Message); diff != "" {
 				t.Errorf("message differs from %s.golden (-want +got):\n%s", tc.golden, diff)
 			}
@@ -125,13 +128,24 @@ func runDecideCases(t *testing.T, bodies string, cases []decideCase) {
 	}
 }
 
-// readGolden reads the captured message and puts back the three values that
-// vary per run. They were replaced at capture time so that the file is the same
-// on every machine.
-func readGolden(t *testing.T, name, bodies string) string {
+// wantGolden is the expected message, with the three values that vary per run
+// put back. The file holds placeholders for them so that it is the same on
+// every machine.
+//
+// Under -update it first writes got out, with the same three values turned back
+// into their placeholders. Every golden comparison goes through here, so the
+// flag reaches all of them from this one place.
+func wantGolden(t *testing.T, name, bodies, got string) string {
 	t.Helper()
 
-	b, err := os.ReadFile(filepath.Join("testdata", name+".golden"))
+	path := filepath.Join("testdata", name+".golden")
+	if *update {
+		if err := os.WriteFile(path, []byte(placeholders(bodies).Replace(got)), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q): %v", path, err)
+		}
+	}
+
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -140,6 +154,20 @@ func readGolden(t *testing.T, name, bodies string) string {
 		"{{REMOTE}}", fixtureRemote,
 		"{{BODY_DIR}}", bodies,
 	).Replace(string(b))
+}
+
+// placeholders is the reverse. bodies is empty for the messages that name no
+// body file, and an empty pattern would have the replacer insert at every
+// position, so it is left out then rather than passed through.
+func placeholders(bodies string) *strings.Replacer {
+	pairs := []string{
+		fixtureDir, "{{CWD}}",
+		fixtureRemote, "{{REMOTE}}",
+	}
+	if bodies != "" {
+		pairs = append(pairs, bodies, "{{BODY_DIR}}")
+	}
+	return strings.NewReplacer(pairs...)
 }
 
 func TestDecideReadSubcommands(t *testing.T) {

@@ -128,7 +128,7 @@ func TestRunRefuses(t *testing.T) {
 	if code != blockExit {
 		t.Errorf("exit = %d, want %d", code, blockExit)
 	}
-	if want := readGolden(t, "rule1-issue-create", ""); stderr.String() != want {
+	if want := wantGolden(t, "rule1-issue-create", "", stderr.String()); stderr.String() != want {
 		t.Errorf("stderr differs from the golden:\n%s", cmp.Diff(want, stderr.String()))
 	}
 }
@@ -152,7 +152,7 @@ func TestRunWithoutARealGH(t *testing.T) {
 	if code != blockExit {
 		t.Errorf("exit = %d, want %d", code, blockExit)
 	}
-	if want := readGolden(t, "no-real-gh", ""); stderr.String() != want {
+	if want := wantGolden(t, "no-real-gh", "", stderr.String()); stderr.String() != want {
 		t.Errorf("stderr differs from the golden:\n%s", cmp.Diff(want, stderr.String()))
 	}
 }
