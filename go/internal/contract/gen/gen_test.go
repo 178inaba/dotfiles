@@ -1,4 +1,4 @@
-package main
+package gen
 
 import (
 	"os"
@@ -12,15 +12,15 @@ import (
 func TestGeneratedFileIsCurrent(t *testing.T) {
 	contractDir := filepath.Join("..")
 
-	want, err := generate(contractDir)
+	want, err := Generate(contractDir)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	got, err := os.ReadFile(filepath.Join(contractDir, outputFile))
+	got, err := os.ReadFile(filepath.Join(contractDir, OutputFile))
 	if err != nil {
-		t.Fatalf("read %s: %v", outputFile, err)
+		t.Fatalf("read %s: %v", OutputFile, err)
 	}
 	if string(got) != string(want) {
-		t.Errorf("%s is out of date; run `go generate ./internal/contract/...`", outputFile)
+		t.Errorf("%s is out of date; run `go generate ./internal/contract/...`", OutputFile)
 	}
 }
