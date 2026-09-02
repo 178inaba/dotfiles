@@ -5,27 +5,39 @@ import (
 	"strings"
 )
 
-// scanned is what one walk of the argv found. One walk answers all four,
-// because the flags have to be parsed the same way for each of them.
-type scanned struct {
-	hasRepo    bool
-	positional string
-	inlineBody string
-	bodyFile   string
+// arg is one item a walk found: an option, or a positional argument, which
+// arrives with an empty name.
+type arg struct {
+	// long says the option was spelled with two dashes, which is what tells
+	// --body from the -b of a run of short options; name is the long name in
+	// that case and the one letter otherwise.
+	long bool
+	name string
+	// value is what the option carried, or the positional itself. hasValue
+	// says whether an option carried one at all: one written at the end with
+	// nothing left to take is reported without a value rather than with an
+	// empty one, so that it cannot erase a value the same flag gave earlier.
+	value    string
+	hasValue bool
 }
 
-// scan walks the arguments that follow the noun and the verb. ghRepo is folded
-// in at the start, since it never appears in the argv; see Env.GHRepo.
-func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
-	s := scanned{hasRepo: ghRepo != ""}
+// walk reports every option and every positional in the arguments that follow
+// a command, in the order they were written.
+//
+// It is the one place that knows gh's argument grammar — the runs of short
+// options, the value written attached or apart, the one = that pflag drops,
+// and the -- that ends the flags. The rules that judge a noun and a verb and
+// the one that judges gh api read the same argv for different things, and a
+// second walk written for the second reader is how the two would come to
+// disagree; the -F=path mis-parse of #71 was one such disagreement inside a
+// single walk.
+func walk(args []string, vf valueFlags, visit func(arg)) {
 	endOfFlags := false
 
 	for i := 0; i < len(args); i++ {
 		tok := args[i]
 		if endOfFlags {
-			if s.positional == "" {
-				s.positional = tok
-			}
+			visit(arg{value: tok, hasValue: true})
 			continue
 		}
 
@@ -35,16 +47,11 @@ func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
 
 		case strings.HasPrefix(tok, "--"):
 			name, value, attached := strings.Cut(tok[2:], "=")
-			if name == "repo" {
-				s.hasRepo = true
-			}
 			if !attached && vf.long[name] && i+1 < len(args) {
 				i++
 				value, attached = args[i], true
 			}
-			if attached {
-				s.recordBody(name, value, bf.inlineLong, bf.fileLong)
-			}
+			visit(arg{long: true, name: name, value: value, hasValue: attached})
 
 		case strings.HasPrefix(tok, "-") && len(tok) > 1:
 			// A run of short options can be written as one token, attached to
@@ -53,34 +60,69 @@ func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
 			for rest != "" {
 				ch := rest[0]
 				rest = rest[1:]
-				if ch == 'R' {
-					s.hasRepo = true
-				}
 				if strings.IndexByte(vf.short, ch) < 0 {
+					visit(arg{name: string(ch)})
 					continue
 				}
 				var value string
+				var hasValue bool
 				switch {
 				case rest != "":
 					// One leading = is dropped, as pflag does: the value of
 					// -F=x is x and of -F==x is =x. Keeping it made the body
 					// file "=path" and blocked the command for the wrong
 					// reason.
-					value = strings.TrimPrefix(rest, "=")
+					value, hasValue = strings.TrimPrefix(rest, "="), true
 				case i+1 < len(args):
 					i++
-					value = args[i]
+					value, hasValue = args[i], true
 				}
-				s.recordBody(string(ch), value, bf.inlineShort, bf.fileShort)
+				visit(arg{name: string(ch), value: value, hasValue: hasValue})
 				rest = ""
 			}
 
 		default:
-			if s.positional == "" {
-				s.positional = tok
-			}
+			visit(arg{value: tok, hasValue: true})
 		}
 	}
+}
+
+// scanned is what one walk of the argv found for the rules that judge a noun
+// and a verb. One walk answers all four, because the flags have to be parsed
+// the same way for each of them.
+type scanned struct {
+	hasRepo    bool
+	positional string
+	inlineBody string
+	bodyFile   string
+}
+
+// scan reads the arguments that follow the noun and the verb. ghRepo is folded
+// in at the start, since it never appears in the argv; see Env.GHRepo.
+func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
+	s := scanned{hasRepo: ghRepo != ""}
+
+	walk(args, vf, func(a arg) {
+		switch {
+		case a.name == "":
+			if s.positional == "" {
+				s.positional = a.value
+			}
+			return
+		// gh spells its own repository flag -R/--repo, and an option after --
+		// is a positional rather than that flag, which the case above catches.
+		case a.long && a.name == "repo", !a.long && a.name == "R":
+			s.hasRepo = true
+		}
+		if !a.hasValue {
+			return
+		}
+		if a.long {
+			s.recordBody(a.name, a.value, bf.inlineLong, bf.fileLong)
+		} else {
+			s.recordBody(a.name, a.value, bf.inlineShort, bf.fileShort)
+		}
+	})
 	return s
 }
 

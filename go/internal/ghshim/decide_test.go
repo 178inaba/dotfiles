@@ -311,6 +311,12 @@ func TestDecideBodyFile(t *testing.T) {
 		// is about to read, so it gives up on the scan instead.
 		{name: "body-file: the stdin spelling is fail open", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "--body-file", "-"}},
 
+		// A flag written last with nothing left to take carries no value, so it
+		// cannot erase the body the same flag named earlier. gh rejects the
+		// argv either way; what this pins is that the scan does not fall open
+		// on the way there.
+		{name: "body-file: a trailing -F does not erase the file already named", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("hash-numbering.md"), "-F"}, block: true},
+
 		{name: "no CLAUDECODE: unreadable body file", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("missing.md")}, noClaudeCode: true},
 	}
 	runDecideCases(t, bodies, cases)
