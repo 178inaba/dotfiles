@@ -1,0 +1,14 @@
+PR 本文中に、バッククォート（コードスパン/コードブロック）で囲まれた
+GitHub closing keyword（Closes/Fixes/Resolves #N）を検出しました。
+
+検出元: --body の本文
+
+理由:
+  バッククォートで囲むと GitHub が closing keyword として解釈せず、
+  PR をマージしても対象 Issue が自動 close されません（open のまま残る事故）。
+
+対処:
+  1. Issue を自動 close する意図の場合: バッククォートを外して生のまま書く
+       例: Closes #656
+  2. closing keyword を引用・文書化する意図の場合: 実番号を避けて
+     プレースホルダに置き換える（例: `Closes #N`。番号がなければ検出されません）

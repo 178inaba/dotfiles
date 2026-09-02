@@ -53,13 +53,18 @@ type target struct {
 	gobin string
 }
 
-// targets is the fixed list. cmd/gh joins it, with gobin ".local/shims", when
-// that binary exists; never list a package that has not been written yet.
+// targets is the fixed list. cmd/gh has a gobin of its own because the shim's
+// whole function is shadowing the real gh, and ~/go/bin is a shared namespace
+// where go install github.com/cli/cli/v2/cmd/gh@latest would overwrite it.
+// Never list a package that has not been written yet.
 //
 // A function rather than a variable so nothing — a later subcommand, a test —
 // can change what the whole process installs.
 func targets() []target {
-	return []target{{pkg: "./cmd/ccx"}}
+	return []target{
+		{pkg: "./cmd/ccx"},
+		{pkg: "./cmd/gh", gobin: ".local/shims"},
+	}
 }
 
 // ChildEnv is what a process this binary spawns must carry.
@@ -88,6 +93,21 @@ type State struct {
 	JustFailed bool
 	// FirstError is the first line of the compiler output for that failure.
 	FirstError string
+}
+
+// Report is what a command says about a build that has just failed, prefixed
+// with its own name. Empty unless this invocation is the one that ran the
+// build, so that a broken tree produces one message rather than one per hook
+// and per script until somebody fixes it.
+//
+// The wording lives here because the three callers — the hooks, the script
+// subcommands and the gh shim — say the same thing on channels of their own,
+// and a sentence written out three times drifts.
+func (s State) Report(name string) string {
+	if !s.JustFailed {
+		return ""
+	}
+	return name + ": the Go module does not build, so this ran the previously installed binary: " + s.FirstError
 }
 
 // Deps are the seams. Use NewDeps for the real ones.

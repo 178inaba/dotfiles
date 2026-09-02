@@ -1,0 +1,18 @@
+gh の書き込み系サブコマンドは、対象リポジトリをコマンド上で明示することを必須としています。
+
+実行しようとしたコマンド:
+  gh label create bug --color FF0000
+
+明示が確認できなかった箇所: gh label create
+現在の作業ディレクトリ: {{CWD}}
+現在の origin remote: {{REMOTE}}
+
+このまま実行すると、上記の origin (もしくは gh が解決する remote) が対象になります。
+別リポジトリの調査中などに cwd を取り違えると、意図しないリポジトリに書き込みが行われます。
+
+対処:
+  1. 対象リポジトリを -R owner/repo で明示して再実行する
+       例: gh label create -R owner/repo ...
+  ※ 現在のディレクトリの remote が正しいと確信できる場合も、
+       gh repo view --json nameWithOwner -q .nameWithOwner
+     で取得した値を -R に渡して明示する

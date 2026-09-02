@@ -455,8 +455,11 @@ func TestCollectSkipsAWorktreeInUse(t *testing.T) {
 func hold(t *testing.T, dir string) int {
 	t.Helper()
 
+	// A failure rather than a skip: lsof is what loadCWDTable reads, so a
+	// machine without it cannot run /cleanup-merged at all. Skipping here would
+	// leave the only check on the real output format silently unrun.
 	if _, err := exec.LookPath("lsof"); err != nil {
-		t.Skip("lsof is not installed")
+		t.Fatal("lsof is required by ccx worktree collect and delete, and is missing")
 	}
 	cmd := exec.Command("sleep", "120")
 	cmd.Dir = dir

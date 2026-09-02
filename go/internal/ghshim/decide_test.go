@@ -1,0 +1,406 @@
+package ghshim
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
+
+// The subtest names are the case names of shims/.local/shims/tests/test-gh.sh,
+// verbatim, so that the suite this replaces can be read against it line by
+// line. The cases that do not belong to the decision are in resolve_test.go
+// (finding the real gh) and ghshim_test.go (the hand-off and the fail-closed
+// net); together the three files account for every case of the shell suite.
+//
+// assert_runs becomes want: allow, assert_blocked becomes want: block, and
+// assert_block_message becomes a golden: the shell could only match substrings,
+// so the guidance is compared in full here instead.
+
+const (
+	// The values the goldens were captured with. The shell shim reads both
+	// from the process; Decide takes them as functions, so a test can pin them.
+	fixtureDir    = "/fixture/repo"
+	fixtureRemote = "git@github.com:owner/repo.git"
+)
+
+// multiline is the two-line body the second rule fires on. The shell built it
+// with $(printf 'line1\nline2'), whose trailing newline the substitution ate.
+const multiline = "line1\nline2"
+
+// bodyFixtures writes the body files the shell suite kept in $BODY_DIR and
+// returns the directory. The unreadable one is left for unreadableBody, which
+// the test skips as root.
+func bodyFixtures(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"hash-numbering.md":  "- #1 foo\n- #2 bar\n- #3 baz\n",
+		"ordered-list.md":    "1. foo\n2. bar\n3. baz\n",
+		"two-distinct.md":    "see #1 and #2 and #2\n",
+		"backtick-refs.md":   "- `#1` foo\n- `#2` bar\n- `#3` baz\n",
+		"fenced-refs.md":     "before\n```\n#1 #2 #3\n```\nafter\n",
+		"cross-repo-refs.md": "- foo/bar#1 x\n- foo/bar#2 y\n- foo/bar#3 z\n",
+		"multi-digit.md":     "refs #123 #456 #789\n",
+		"alnum-suffix.md":    "colors #1a2b3c and #2f4f4f, place #3rd\n",
+
+		"quoted-closes.md":             "Related\n\n`Closes #656`\n",
+		"fenced-closes.md":             "before\n```\ncloses #656\n```\nafter\n",
+		"quoted-cross-repo-closes.md":  "see `Resolves foo/bar#12` here\n",
+		"raw-closes.md":                "Closes #656\n",
+		"quoted-placeholder-closes.md": "docs update: `Closes #N` placeholder\n",
+		"quoted-closes-no-ref.md":      "call `closes the stream` explicitly\n",
+		"quoted-discloses.md":          "word `discloses #656` here\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q): %v", name, err)
+		}
+	}
+	return dir
+}
+
+// unreadableBody writes a body file nothing can read. Root can read it anyway,
+// so the caller skips there, as the shell suite did.
+func unreadableBody(t *testing.T, dir string) string {
+	t.Helper()
+
+	path := filepath.Join(dir, "unreadable.md")
+	if err := os.WriteFile(path, []byte("body\n"), 0o000); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}
+
+// testEnv is the environment the goldens were captured under.
+func testEnv() Env {
+	return Env{
+		ClaudeCode:   "1",
+		Dir:          func() string { return fixtureDir },
+		OriginRemote: func() string { return fixtureRemote },
+	}
+}
+
+type decideCase struct {
+	name string
+	argv []string
+	// ghRepo is GH_REPO; noClaudeCode unsets CLAUDECODE.
+	ghRepo       string
+	noClaudeCode bool
+	// block is what the decision must be.
+	block bool
+	// golden names a file under testdata whose content the whole message must
+	// equal, with the placeholders resolved. Only meaningful when block.
+	golden string
+}
+
+func runDecideCases(t *testing.T, bodies string, cases []decideCase) {
+	t.Helper()
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := testEnv()
+			env.GHRepo = tc.ghRepo
+			if tc.noClaudeCode {
+				env.ClaudeCode = ""
+			}
+
+			got := Decide(tc.argv, env)
+			if tc.block != (got != nil) {
+				t.Fatalf("Decide = %v, want blocked: %v", got, tc.block)
+			}
+			if tc.golden == "" {
+				return
+			}
+
+			want := readGolden(t, tc.golden, bodies)
+			if diff := cmp.Diff(want, got.Message); diff != "" {
+				t.Errorf("message differs from %s.golden (-want +got):\n%s", tc.golden, diff)
+			}
+		})
+	}
+}
+
+// readGolden reads the captured message and puts back the three values that
+// vary per run. They were replaced at capture time so that the file is the same
+// on every machine.
+func readGolden(t *testing.T, name, bodies string) string {
+	t.Helper()
+
+	b, err := os.ReadFile(filepath.Join("testdata", name+".golden"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	return strings.NewReplacer(
+		"{{CWD}}", fixtureDir,
+		"{{REMOTE}}", fixtureRemote,
+		"{{BODY_DIR}}", bodies,
+	).Replace(string(b))
+}
+
+func TestDecideReadSubcommands(t *testing.T) {
+	t.Parallel()
+
+	runDecideCases(t, "", []decideCase{
+		{name: "read: pr view", argv: []string{"pr", "view", "1"}},
+		{name: "read: issue list", argv: []string{"issue", "list"}},
+		{name: "read: repo clone", argv: []string{"repo", "clone", "foo/bar"}},
+		{name: "read: pr view without CLAUDECODE", argv: []string{"pr", "view", "1"}, noClaudeCode: true},
+		{name: "read: api is not a guarded noun", argv: []string{"api", "repos/foo/bar"}},
+		{name: "excluded: repo create", argv: []string{"repo", "create", "foo/bar", "--public"}},
+		{name: "excluded: repo fork", argv: []string{"repo", "fork", "foo/bar"}},
+
+		// Too few arguments to name a noun and a verb: gh gets them as they are.
+		{name: "no arguments", argv: nil},
+		{name: "noun only", argv: []string{"issue"}},
+		{name: "version flag", argv: []string{"--version"}},
+	})
+}
+
+func TestDecideRepositoryExplicitness(t *testing.T) {
+	t.Parallel()
+
+	runDecideCases(t, "", []decideCase{
+		// Blocked: the repository is not on the command line.
+		{name: "issue create without -R", argv: []string{"issue", "create", "--title", "x", "--body", "y"}, block: true, golden: "rule1-issue-create"},
+		{name: "pr create without -R", argv: []string{"pr", "create", "--title", "x", "--body", "y"}, block: true},
+		{name: "issue comment with bare number", argv: []string{"issue", "comment", "1", "--body", "x"}, block: true, golden: "rule1-issue-selector"},
+		{name: "pr comment with bare number", argv: []string{"pr", "comment", "55", "--body", "x"}, block: true, golden: "rule1-pr-selector"},
+		{name: "pr edit with branch selector", argv: []string{"pr", "edit", "feature/54-add-eli5-mode", "--body", "x"}, block: true},
+		{name: "pr merge without -R", argv: []string{"pr", "merge", "5", "--squash"}, block: true},
+		{name: "release create without -R", argv: []string{"release", "create", "v1", "--title", "v1"}, block: true, golden: "rule1-release"},
+		{name: "label create without -R", argv: []string{"label", "create", "bug", "--color", "FF0000"}, block: true, golden: "rule1-label"},
+		{name: "repo edit without a positional", argv: []string{"repo", "edit", "--description", "x"}, block: true, golden: "rule1-repo-positional"},
+		{name: "repo edit with a bare name", argv: []string{"repo", "edit", "dotfiles", "--description", "x"}, block: true},
+		{name: "repo rename without -R", argv: []string{"repo", "rename", "new-name"}, block: true, golden: "rule1-repo-rename"},
+		{name: "repo rename with OWNER/REPO as the new name", argv: []string{"repo", "rename", "178inaba/dotfiles"}, block: true},
+
+		// Allowed: the repository is named.
+		{name: "issue create with -R", argv: []string{"issue", "create", "-R", "foo/bar", "--title", "x", "--body", "y"}},
+		{name: "pr create with --repo", argv: []string{"pr", "create", "--repo", "foo/bar", "--title", "x"}},
+		{name: "pr comment with --repo=", argv: []string{"pr", "comment", "--repo=foo/bar", "1", "--body", "x"}},
+		{name: "issue comment with -R attached", argv: []string{"issue", "comment", "-Rfoo/bar", "1", "--body", "x"}},
+		{name: "repo edit with OWNER/REPO", argv: []string{"repo", "edit", "178inaba/dotfiles", "--description", "x"}},
+		{name: "repo edit with HOST/OWNER/REPO", argv: []string{"repo", "edit", "github.com/178inaba/dotfiles", "--description", "x"}},
+		{name: "repo edit with a repository URL", argv: []string{"repo", "edit", "https://github.com/178inaba/dotfiles", "--description", "x"}},
+		{name: "repo rename with -R", argv: []string{"repo", "rename", "new-name", "-R", "178inaba/dotfiles"}},
+		{name: "issue close with an issue URL", argv: []string{"issue", "close", "https://github.com/178inaba/dotfiles/issues/59"}},
+		{name: "pr comment with a PR URL", argv: []string{"pr", "comment", "https://github.com/178inaba/dotfiles/pull/55", "--body", "x"}},
+		{name: "release create with -R", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1"}},
+
+		// A positional may follow the flags.
+		{name: "repo delete with a flag before the positional", argv: []string{"repo", "delete", "--yes", "178inaba/dotfiles"}},
+		{name: "repo delete with a flag before a bare name", argv: []string{"repo", "delete", "--yes", "dotfiles"}, block: true},
+		{name: "issue close with a value flag before the URL", argv: []string{"issue", "close", "-c", "done", "https://github.com/178inaba/dotfiles/issues/59"}},
+
+		// A value must not be mistaken for the positional.
+		{name: "repo sync does not read --source as the target", argv: []string{"repo", "sync", "-s", "178inaba/dotfiles", "dotfiles"}, block: true},
+		{name: "repo sync with an explicit target", argv: []string{"repo", "sync", "-s", "178inaba/upstream", "178inaba/dotfiles"}},
+		{name: "repo edit does not read --homepage as the target", argv: []string{"repo", "edit", "--homepage", "https://github.com/178inaba/dotfiles", "--description", "x"}, block: true},
+
+		// -- ends the flags.
+		{name: "positional after --", argv: []string{"repo", "edit", "--", "178inaba/dotfiles"}},
+		{name: "-R after -- is a positional, not explicitness", argv: []string{"issue", "create", "--", "-R", "foo/bar"}, block: true},
+
+		// Help right after the verb is not a write.
+		{name: "repo edit --help", argv: []string{"repo", "edit", "--help"}},
+		{name: "pr create -h", argv: []string{"pr", "create", "-h"}},
+		{name: "repo edit -h is --homepage, not help", argv: []string{"repo", "edit", "-h", "https://example.com", "--description", "x"}, block: true},
+
+		// GH_REPO reaches gh as an environment variable, never in the argv.
+		{name: "GH_REPO covers issue create", argv: []string{"issue", "create", "--title", "x", "--body", "y"}, ghRepo: "foo/bar"},
+		{name: "GH_REPO covers repo rename", argv: []string{"repo", "rename", "new-name"}, ghRepo: "foo/bar"},
+		{name: "GH_REPO does not cover repo edit", argv: []string{"repo", "edit", "--description", "x"}, ghRepo: "foo/bar", block: true},
+		{name: "empty GH_REPO is not explicitness", argv: []string{"issue", "create", "--title", "x"}, block: true},
+
+		// Without CLAUDECODE nothing is judged.
+		{name: "no CLAUDECODE: issue create", argv: []string{"issue", "create", "--title", "x", "--body", "y"}, noClaudeCode: true},
+		{name: "no CLAUDECODE: repo rename", argv: []string{"repo", "rename", "new-name"}, noClaudeCode: true},
+		{name: "no CLAUDECODE: repo delete with a bare name", argv: []string{"repo", "delete", "--yes", "dotfiles"}, noClaudeCode: true},
+	})
+}
+
+func TestDecideInlineBody(t *testing.T) {
+	t.Parallel()
+
+	runDecideCases(t, "", []decideCase{
+		{name: "multiline --body=", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body=" + multiline}, block: true},
+		{name: "multiline -b", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "-b", multiline}, block: true},
+		{name: "multiline -b attached", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "-b" + multiline}, block: true},
+		// pflag accepts an attached = on a short flag too.
+		{name: "multiline -b=", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "-b=" + multiline}, block: true},
+		// Both rules are broken; the first one answers. The order is behaviour.
+		{name: "rule 1 wins over rule 2", argv: []string{"pr", "edit", "1", "--body", multiline}, block: true, golden: "rule1-pr-selector-multiline"},
+		{name: "single-line --body", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body", "line1"}},
+
+		// A multi-line value that is not a body is not a body.
+		{name: "multiline value in --title", argv: []string{"pr", "create", "-R", "foo/bar", "--title", multiline, "--body", "x"}},
+		{name: "issue develop: -b is --base, not --body", argv: []string{"issue", "develop", "-R", "foo/bar", "1", "-b", multiline}},
+
+		// close and reopen carry their body in -c, which has no file form.
+		{name: "issue close: multiline -c", argv: []string{"issue", "close", "-R", "foo/bar", "1", "-c", multiline}, block: true, golden: "rule2-issue-close"},
+		{name: "pr close: multiline -c", argv: []string{"pr", "close", "-R", "foo/bar", "1", "-c", multiline}, block: true, golden: "rule2-pr-close"},
+
+		{name: "message: rule 2 points at --body-file", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body", multiline}, block: true, golden: "rule2-body-file"},
+		{name: "message: rule 2 points release at --notes-file", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1", "--notes", multiline}, block: true, golden: "rule2-notes-file"},
+		{name: "release: multiline -n", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1", "-n", multiline}, block: true},
+		// The echo of the command quotes its arguments the way bash's printf %q
+		// did, so an argument with a space stays re-runnable.
+		{name: "message: the echoed command is quoted", argv: []string{"pr", "edit", "-R", "foo/bar", "--title", "a b", "--body", multiline}, block: true, golden: "quoting"},
+
+		// Without CLAUDECODE nothing is judged.
+		{name: "no CLAUDECODE: multiline --body", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body", multiline}, noClaudeCode: true},
+		{name: "no CLAUDECODE: multiline -c", argv: []string{"issue", "close", "-R", "foo/bar", "1", "-c", multiline}, noClaudeCode: true},
+	})
+}
+
+func TestDecideBodyFile(t *testing.T) {
+	t.Parallel()
+
+	bodies := bodyFixtures(t)
+	at := func(name string) string { return filepath.Join(bodies, name) }
+
+	cases := []decideCase{
+		// Every spelling of the flag has to reach the same file.
+		{name: "body-file: -F short flag, bare #N", argv: []string{"issue", "create", "-R", "foo/bar", "--title", "x", "-F", at("hash-numbering.md")}, block: true},
+		{name: "body-file: --body-file= form", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file=" + at("hash-numbering.md")}, block: true},
+		{name: "body-file: -F= form", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "-F=" + at("hash-numbering.md")}, block: true},
+		{name: "body-file: -F attached form", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "-F" + at("hash-numbering.md")}, block: true},
+
+		// An unreadable named path is a refusal, and the reason is named.
+		{name: "body-file: nonexistent path", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("missing.md")}, block: true, golden: "bodyfile-missing"},
+		{name: "body-file: a directory is not a regular file", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", bodies}, block: true, golden: "bodyfile-not-regular"},
+		{name: "body-file: notes-file names its own flag", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1", "--notes-file", at("missing.md")}, block: true, golden: "bodyfile-notes-missing"},
+		// The one carve-out: the shim cannot read stdin without eating what gh
+		// is about to read, so it gives up on the scan instead.
+		{name: "body-file: the stdin spelling is fail open", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "--body-file", "-"}},
+
+		{name: "no CLAUDECODE: unreadable body file", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("missing.md")}, noClaudeCode: true},
+	}
+	runDecideCases(t, bodies, cases)
+
+	if os.Getuid() == 0 {
+		t.Log("running as root, which can read a file with no permission bits")
+		return
+	}
+	unreadable := unreadableBody(t, bodies)
+	runDecideCases(t, bodies, []decideCase{
+		{name: "body-file: no read permission", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", unreadable}, block: true, golden: "bodyfile-unreadable"},
+	})
+}
+
+func TestDecideBareHashRefs(t *testing.T) {
+	t.Parallel()
+
+	bodies := bodyFixtures(t)
+	at := func(name string) string { return filepath.Join(bodies, name) }
+
+	runDecideCases(t, bodies, []decideCase{
+		{name: "message: rule 3 reports the distinct count", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("hash-numbering.md")}, block: true, golden: "rule3-body-file"},
+		{name: "inline --body: bare #N", argv: []string{"issue", "comment", "-R", "foo/bar", "1", "--body", "fix #1, #2, #3"}, block: true, golden: "rule3-inline"},
+
+		// Forms GitHub does not link, and forms that look like real references.
+		{name: "body-file: ordered list numbering", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("ordered-list.md")}},
+		{name: "body-file: only 2 distinct #N", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("two-distinct.md")}},
+		{name: "body-file: #N in backticks", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("backtick-refs.md")}},
+		{name: "body-file: #N in a fenced code block", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("fenced-refs.md")}},
+		{name: "body-file: OWNER/REPO#N form", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("cross-repo-refs.md")}},
+		{name: "body-file: multi-digit #N only", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("multi-digit.md")}},
+		{name: "body-file: hex color / ordinal #N", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("alnum-suffix.md")}},
+
+		// Release notes render as markdown too, and -F means --notes-file there.
+		{name: "release: -F is --notes-file, and is scanned", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1", "-F", at("hash-numbering.md")}, block: true},
+		{name: "release: bare #N in --notes", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1", "--notes", "fix #1, #2, #3"}, block: true},
+		{name: "release: ordered list numbering in --notes-file", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1", "--notes-file", at("ordered-list.md")}},
+		{name: "issue reopen: bare #N in --comment", argv: []string{"issue", "reopen", "-R", "foo/bar", "1", "--comment", "fix #1, #2, #3"}, block: true},
+
+		// Plain text renders no autolinks, so those flags are not bodies.
+		{name: "label create: --description is not a rendered body", argv: []string{"label", "create", "bug", "-R", "foo/bar", "--color", "FF0000", "--description", "fix #1, #2, #3"}},
+		{name: "repo edit: --description is not a rendered body", argv: []string{"repo", "edit", "foo/bar", "--description", "fix #1, #2, #3"}},
+
+		{name: "no CLAUDECODE: bare #N numbering", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("hash-numbering.md")}, noClaudeCode: true},
+		{name: "no CLAUDECODE: bare #N in --notes", argv: []string{"release", "create", "v1", "-R", "foo/bar", "--title", "v1", "--notes", "fix #1, #2, #3"}, noClaudeCode: true},
+	})
+}
+
+func TestDecideQuotedClosingKeyword(t *testing.T) {
+	t.Parallel()
+
+	bodies := bodyFixtures(t)
+	at := func(name string) string { return filepath.Join(bodies, name) }
+
+	runDecideCases(t, bodies, []decideCase{
+		{name: "pr create: quoted Closes #N", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("quoted-closes.md")}, block: true, golden: "rule4-body-file"},
+		{name: "pr edit: fenced closes #N", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body-file", at("fenced-closes.md")}, block: true},
+		{name: "pr create: quoted cross-repo Resolves", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("quoted-cross-repo-closes.md")}, block: true},
+		{name: "pr edit inline --body: quoted Fixes #N", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body", "see `Fixes #12` here"}, block: true, golden: "rule4-inline"},
+
+		{name: "pr create: raw Closes #N", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("raw-closes.md")}},
+		{name: "pr create: quoted placeholder Closes #N", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("quoted-placeholder-closes.md")}},
+		{name: "pr edit: quoted closes without a #ref", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body-file", at("quoted-closes-no-ref.md")}},
+		{name: "pr edit: quoted discloses (word boundary)", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body-file", at("quoted-discloses.md")}},
+
+		// The keyword only works in a pull request body.
+		{name: "issue create: quoted Closes #N is out of scope", argv: []string{"issue", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("quoted-closes.md")}},
+		{name: "pr comment: quoted Closes #N is out of scope", argv: []string{"pr", "comment", "-R", "foo/bar", "1", "--body-file", at("quoted-closes.md")}},
+
+		{name: "no CLAUDECODE: quoted Closes #N", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("quoted-closes.md")}, noClaudeCode: true},
+	})
+}
+
+// TestDecideEveryBodyFlagIsScanned is the drift check the shell suite ran as
+// assert_body_is_scanned. Registering a body flag is not enough on its own: the
+// argv walk only records a value whose spelling is also registered as taking
+// one, so a half-updated pair would skip that verb's body scan without a word.
+// Every registered noun and verb goes through both rules once.
+func TestDecideEveryBodyFlagIsScanned(t *testing.T) {
+	t.Parallel()
+
+	bodies := bodyFixtures(t)
+	numbering := filepath.Join(bodies, "hash-numbering.md")
+
+	// The spellings differ per verb, and some verbs have only one of the two.
+	for _, tt := range []struct {
+		name       string
+		prefix     []string
+		inlineFlag string
+		fileFlag   string
+	}{
+		{name: "issue create", prefix: []string{"issue", "create", "-R", "foo/bar", "--title", "x"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "issue comment", prefix: []string{"issue", "comment", "-R", "foo/bar", "1"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "issue edit", prefix: []string{"issue", "edit", "-R", "foo/bar", "1"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "issue close", prefix: []string{"issue", "close", "-R", "foo/bar", "1"}, inlineFlag: "--comment"},
+		{name: "issue reopen", prefix: []string{"issue", "reopen", "-R", "foo/bar", "1"}, inlineFlag: "--comment"},
+		{name: "pr create", prefix: []string{"pr", "create", "-R", "foo/bar", "--title", "x"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "pr comment", prefix: []string{"pr", "comment", "-R", "foo/bar", "1"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "pr edit", prefix: []string{"pr", "edit", "-R", "foo/bar", "1"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "pr close", prefix: []string{"pr", "close", "-R", "foo/bar", "1"}, inlineFlag: "--comment"},
+		{name: "pr reopen", prefix: []string{"pr", "reopen", "-R", "foo/bar", "1"}, inlineFlag: "--comment"},
+		{name: "pr merge", prefix: []string{"pr", "merge", "-R", "foo/bar", "1"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "pr review", prefix: []string{"pr", "review", "-R", "foo/bar", "1"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "pr revert", prefix: []string{"pr", "revert", "-R", "foo/bar", "1"}, inlineFlag: "--body", fileFlag: "--body-file"},
+		{name: "release create", prefix: []string{"release", "create", "v1", "-R", "foo/bar"}, inlineFlag: "--notes", fileFlag: "--notes-file"},
+		{name: "release edit", prefix: []string{"release", "edit", "v1", "-R", "foo/bar"}, inlineFlag: "--notes", fileFlag: "--notes-file"},
+	} {
+		var cases []decideCase
+		if tt.inlineFlag != "" {
+			cases = append(cases, decideCase{
+				name:  "body reaches rule 2: " + tt.name,
+				argv:  append(append([]string(nil), tt.prefix...), tt.inlineFlag, multiline),
+				block: true,
+			})
+		}
+		if tt.fileFlag != "" {
+			cases = append(cases, decideCase{
+				name:  "body reaches rule 3: " + tt.name,
+				argv:  append(append([]string(nil), tt.prefix...), tt.fileFlag, numbering),
+				block: true,
+			})
+		}
+		runDecideCases(t, bodies, cases)
+	}
+}

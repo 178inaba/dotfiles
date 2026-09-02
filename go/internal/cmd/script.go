@@ -17,10 +17,7 @@ import (
 // else, and their caller pipes it to jq. Once per failure rather than once per
 // run; see selfbuild.State.JustFailed.
 func reportBuild(c *cobra.Command, build selfbuild.State) {
-	if !build.JustFailed {
-		return
+	if report := build.Report("ccx"); report != "" {
+		fmt.Fprintln(c.ErrOrStderr(), report)
 	}
-	fmt.Fprintf(c.ErrOrStderr(),
-		"ccx: the Go module does not build, so this ran the previously installed binary: %s\n",
-		build.FirstError)
 }

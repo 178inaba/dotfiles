@@ -22,8 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Go のステップをシェルスイートより前に置くのは、シェル側が Sub 4 で消えたときに
-      # このジョブがそのまま Go 専用ジョブになり、チェック名が変わらないようにするため
       - uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
@@ -43,29 +41,5 @@ jobs:
           version: v2.13.2
           working-directory: go
 
-      # Go テストが実行時に要求する外部コマンド。いずれも無い環境ではテストが
-      # skip に落ちて担保が静かに消える（lsof は cleanup-merged の使用中 worktree
-      # 検出、jq は golden が jq の出力と byte 一致することの確認）。ランナー
-      # イメージの内容は変わるため preinstall を信頼せず、欠けているものだけを
-      # 入れる。依存が増えたときはこのリストに足す
-      - name: Ensure required tools
-        run: |
-          missing=""
-          for tool in lsof jq; do
-            command -v "$tool" >/dev/null || missing="$missing $tool"
-          done
-          if [ -n "$missing" ]; then
-            echo "missing from the runner image:$missing"
-            # イメージには apt のパッケージリストが焼き込まれているので update 無しで通ることが多い。
-            # 毎回の update は数秒〜十数秒のネットワーク往復になるため、失敗したときだけ実行する
-            sudo apt-get install -y $missing \
-              || { sudo apt-get update && sudo apt-get install -y $missing; }
-          fi
-
       - name: Run Go tests
         run: go -C go test -race ./...
-
-      # スイートは claude/.claude/ の外（stow パッケージ shims/）にもあるため、
-      # ランナーの既定ルートに任せず全ルートを明示する
-      - name: Run shell test suites
-        run: bash claude/.claude/tests/run-all.sh claude/.claude shims

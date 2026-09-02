@@ -166,7 +166,7 @@ func runHook(ctx context.Context, h hook, build selfbuild.State, stdin io.Reader
 // says which binary ran, because the answer the hook just gave came from the
 // previous build and may not be the one the current source would give.
 func buildFailure(build selfbuild.State) string {
-	return "ccx: the Go module does not build, so this ran the previously installed binary: " + build.FirstError
+	return build.Report("ccx")
 }
 
 func join(existing, added string) string {
