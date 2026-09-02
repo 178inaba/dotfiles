@@ -4,15 +4,19 @@ export PATH := /opt/homebrew/bin:$(PATH)
 
 PACKAGES := tmux git vim zsh claude ghostty
 
-.PHONY: setup update stow mise build
+.PHONY: setup update bundle stow mise build
 
-setup:
-	brew bundle
-	$(MAKE) stow
-	$(MAKE) mise
-	$(MAKE) build
+setup: bundle
+	$(MAKE) -j stow mise build
 
-update: stow mise
+# --no-upgrade: a routine `bundle`/`update` should only install what the
+# Brewfile just gained, not also churn through upgrading every outdated
+# formula already on the machine.
+bundle:
+	brew bundle install --no-upgrade
+
+update: bundle
+	$(MAKE) -j stow mise
 
 # stow -R is idempotent, so update always runs it -- no need to judge whether a
 # pull actually added new dotfiles state.

@@ -16,9 +16,11 @@ brew "stow"
 brew "gh"
 # jq is what the skills read ccx's JSON output with.
 brew "jq"
-brew "178inaba/tap/cflio"
-brew "178inaba/tap/rdsh"
-brew "178inaba/tap/slio"
+# cflio, rdsh and slio are casks, not formulae -- `brew "178inaba/tap/..."` fails
+# to resolve them (it does not fall back to a cask of the same name).
+cask "178inaba/tap/cflio"
+cask "178inaba/tap/rdsh"
+cask "178inaba/tap/slio"
 
 # lsof ships with macOS and isn't listed above: `ccx worktree collect` and
 # `ccx worktree delete` use it to find the processes sitting in a worktree, so
