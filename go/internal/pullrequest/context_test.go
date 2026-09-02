@@ -323,42 +323,6 @@ func TestFetch(t *testing.T) {
 		}
 	})
 
-	t.Run("who the ball is with", func(t *testing.T) {
-		tests := []struct {
-			name                  string
-			index                 int
-			wantWaiting, wantMine bool
-		}{
-			{name: "a reviewer's remark nobody answered", index: 0},
-			{name: "a resolved thread", index: 1},
-			// Ours, unresolved, our reply last: the reviewer has it.
-			{name: "we answered a reviewer", index: 2, wantWaiting: true},
-			{name: "resolved after we answered", index: 3},
-			// Our own remark, answered by somebody else: ours to judge.
-			{name: "our remark was answered", index: 4, wantMine: true},
-			// Our reply is last on our own pull request, so the reviewer owes
-			// an answer — and it is off our own list because we confirmed
-			// after the head commit.
-			{name: "our remark we already confirmed", index: 5, wantWaiting: true},
-			{name: "our remark, resolved", index: 6},
-			// Nobody replied, but the head moved past our remark: the author
-			// pushed a fix silently, which the tail test alone would miss.
-			{name: "our remark overtaken by a commit", index: 7, wantWaiting: true, wantMine: true},
-		}
-
-		for _, tc := range tests {
-			t.Run(tc.name, func(t *testing.T) {
-				thread := got.ReviewThreads[tc.index]
-				if thread.WaitingForResponse != tc.wantWaiting {
-					t.Errorf("waiting_for_response = %v, want %v", thread.WaitingForResponse, tc.wantWaiting)
-				}
-				if thread.AwaitingMyConfirmation != tc.wantMine {
-					t.Errorf("awaiting_my_confirmation = %v, want %v", thread.AwaitingMyConfirmation, tc.wantMine)
-				}
-			})
-		}
-	})
-
 	t.Run("whose move it is, and who may close it", func(t *testing.T) {
 		tests := []struct {
 			name           string
@@ -455,14 +419,8 @@ func TestFetchWithoutAHeadDate(t *testing.T) {
 	if got.HeadCommittedAt != nil {
 		t.Errorf("head_committed_at = %v, want null", got.HeadCommittedAt)
 	}
-	// The one that only the time clause reached is gone; the one answered by
-	// somebody else stays.
-	if got.ReviewThreads[7].AwaitingMyConfirmation {
-		t.Error("a thread nobody replied to is still awaiting confirmation without a head date")
-	}
-	if !got.ReviewThreads[4].AwaitingMyConfirmation {
-		t.Error("a thread somebody answered stopped awaiting confirmation without a head date")
-	}
+	// The one that only the time clause reached is handed back; the one
+	// answered by somebody else stays ours.
 	if ball := got.ReviewThreads[7].Ball; ball != pullrequest.BallTheirs {
 		t.Errorf("ball = %q, want %q: with no head date the time clause never holds", ball, pullrequest.BallTheirs)
 	}
@@ -471,10 +429,9 @@ func TestFetchWithoutAHeadDate(t *testing.T) {
 	}
 }
 
-// TestFetchOnAnotherAuthorsPR pins the asymmetry between the two flags: "our
-// reply is last" means the reviewer owes an answer on our own pull request and
-// the opposite on somebody else's, while "our remark was answered" means the
-// same thing either way.
+// TestFetchOnAnotherAuthorsPR pins the asymmetry: a remark on somebody else's
+// work is theirs to answer and theirs to close, while our own remark means the
+// same thing whoever owns the pull request.
 func TestFetchOnAnotherAuthorsPR(t *testing.T) {
 	t.Parallel()
 
@@ -485,15 +442,6 @@ func TestFetchOnAnotherAuthorsPR(t *testing.T) {
 	if got.IsOwnPR {
 		t.Error("is_own_pr = true on somebody else's pull request")
 	}
-	for i, thread := range got.ReviewThreads {
-		if thread.WaitingForResponse {
-			t.Errorf("thread %d is waiting for a response on somebody else's pull request", i)
-		}
-	}
-	if !got.ReviewThreads[4].AwaitingMyConfirmation {
-		t.Error("our own remark stopped awaiting confirmation on somebody else's pull request")
-	}
-
 	// Nothing we did not open is ours to move on, the bot thread included:
 	// closing somebody else's remark on their own pull request is not ours to
 	// do.

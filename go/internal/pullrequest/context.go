@@ -125,14 +125,6 @@ type Thread struct {
 	// even where Comments was truncated — which means it is not always the
 	// last element of Comments, and must not be treated as one.
 	LastComment *ThreadComment `json:"last_comment"`
-	// Our own pull request, unresolved, with our reply
-	// last: the reviewer has the ball. On somebody else's pull request the
-	// same shape means the opposite, which is why it is limited to ours.
-	WaitingForResponse bool `json:"waiting_for_response"`
-	// A remark of ours, unresolved, that has either
-	// been answered or been overtaken by a commit. Resolving is the remarker's
-	// act, so this is about our own threads whoever owns the pull request.
-	AwaitingMyConfirmation bool `json:"awaiting_my_confirmation"`
 	// Whose move it is. A thread with no comments at all — which
 	// GitHub does not produce, and which leaves the opener unknown — falls to
 	// none rather than being guessed at.
@@ -335,11 +327,7 @@ func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwn
 		t.OpenedBy, t.OpenedByType = comments[0].Author.login(), comments[0].Author.typename()
 	}
 
-	t.WaitingForResponse = isOwnPR && !n.IsResolved && t.LastComment != nil && isLogin(t.LastComment.Author, me)
 	opened := len(comments) > 0 && isLogin(comments[0].Author.login(), me)
-	t.AwaitingMyConfirmation = !n.IsResolved && opened && t.LastComment != nil &&
-		(!isLogin(t.LastComment.Author, me) || movedSince(headCommittedAt, t.LastComment.CreatedAt))
-
 	botAlone := botOnly(comments, t.CommentsTruncated, me)
 	t.Ball = ball(t, isOwnPR, opened, botAlone, me, headCommittedAt)
 	t.ResolvableByMe = !n.IsResolved && (opened || (isOwnPR && botAlone))
