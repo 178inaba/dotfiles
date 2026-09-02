@@ -89,8 +89,7 @@ source is newer than the binary and reinstalls both.
 `go/` is not a stow package. It is the Go module the Claude Code tooling lives
 in — `ccx` for the status line, the hooks and the skill plumbing, and `gh` for
 the shim — and the binaries it produces are never committed. `go/.tool-versions`
-pins golangci-lint for that module, and both mise locally and the lint job in CI
-read the version from it.
+pins golangci-lint for it, read by both mise locally and the lint job in CI.
 
 ## License
 
