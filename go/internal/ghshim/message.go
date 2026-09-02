@@ -9,9 +9,9 @@ import "fmt"
 // can produce one of these. The three messages in ghshim.go that report a
 // failure of the shim itself are written for a person instead — the way
 // through they name is something a person does at a shell — and are Japanese.
-// That is the question to ask of a new message: who is it addressed to. Not
-// who can see it, which sorts nothing: selfbuild.Report goes to the same
-// stderr in English, because its reader is whoever called the module.
+// The question is who a message is addressed to, not who can see it, which
+// sorts nothing: selfbuild.Report reaches the same stderr in English, because
+// its reader is whoever called the module.
 //
 // The shape is the one the repository's other guards use
 // (internal/hooks/noopwait, internal/hooks/worktreeguard): Blocked: and a line
@@ -28,8 +28,8 @@ value from
 to -R rather than leaving it implicit.`
 )
 
-// bodyFileStep opens the second rule's advice. Where the body goes next is the
-// only part that differs per verb, so it is the only part bodyRecovery holds.
+// bodyFileStep opens the second rule's advice wherever a file is the way
+// through, which is both of the two.
 const bodyFileStep = "Fix: write the body to a file (a scratchpad, say)"
 
 // notExplicitMessage is the first rule: the repository has to be named.
@@ -57,9 +57,8 @@ pull request there instead.
 func explicitnessRecovery(c command) string {
 	k := classify(c)
 
-	// byPositional is the one with no -R to offer, so it is written out. The
-	// other four share the skeleton repoFlagStep opens and repoFlagHint closes,
-	// and differ only in the example and the note under it.
+	// byPositional is the one with no -R to offer, so it is written out rather
+	// than fitted to the skeleton the other four share.
 	if k == byPositional {
 		return fmt.Sprintf(`Fix: name the repository in a positional argument and run again.
   gh repo %s owner/repo ...

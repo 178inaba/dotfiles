@@ -12,15 +12,12 @@ import (
 
 var update = flag.Bool("update", false, "update .golden files")
 
-// The subtest names name the case rather than the rule, so that a case can be
-// found by what it does. The ones that do not belong to the decision are in
-// resolve_test.go (finding the real gh) and ghshim_test.go (the hand-off and
-// the fail-closed net).
+// The cases that do not belong to the decision are in resolve_test.go (finding
+// the real gh) and ghshim_test.go (the hand-off and the fail-closed net).
 //
-// want: allow and want: block say what Decide returns; a golden says what it
-// writes. -update generates the goldens from this package, and the guidance is
-// compared in full, so changing a word of it takes a deliberate regeneration.
-// That is what they are for.
+// -update generates the goldens from this package, and the guidance is compared
+// in full, so changing a word of it takes a deliberate regeneration. That is
+// what they are for.
 
 const (
 	// The values the goldens hold placeholders for. Decide takes them as
@@ -132,9 +129,8 @@ func runDecideCases(t *testing.T, bodies string, cases []decideCase) {
 // put back. The file holds placeholders for them so that it is the same on
 // every machine.
 //
-// Under -update it first writes got out, with the same three values turned back
-// into their placeholders. Every golden comparison goes through here, so the
-// flag reaches all of them from this one place.
+// Every golden comparison goes through here, so -update reaches all of them
+// from this one place.
 func wantGolden(t *testing.T, name, bodies, got string) string {
 	t.Helper()
 
