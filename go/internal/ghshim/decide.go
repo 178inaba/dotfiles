@@ -19,16 +19,16 @@ type Env struct {
 	// ClaudeCode is CLAUDECODE. Empty means an interactive shell.
 	ClaudeCode string
 
-	// Dir and OriginRemote fill in the two lines the first rule's message ends
-	// with, and are functions because that message is their only reader:
+	// Dir and OriginRemote fill in the last two lines of the first rule's label
+	// block, and are functions because that message is their only reader:
 	// resolving the remote runs git, and doing it eagerly would put a
 	// subprocess in front of every command the guard lets through.
 	Dir          func() string
 	OriginRemote func() string
 }
 
-// Block is a refusal. Message is the guidance shown to the user, complete and
-// ready for standard error.
+// Block is a refusal. Message is the guidance written for the model, complete
+// and ready for standard error.
 type Block struct{ Message string }
 
 // Decide reports whether argv may be handed to the real gh, returning nil when

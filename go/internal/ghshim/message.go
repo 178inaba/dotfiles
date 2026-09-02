@@ -158,7 +158,7 @@ because reading stdin here would consume what gh is meant to read.
 func bareHashRefsMessage(distinct int, source string) string {
 	return fmt.Sprintf(`Blocked: the body numbers its items with bare #N.
 
-  found:  %d distinct of #1 to #9
+  found:  %d distinct numbers in #1 to #9
   source: %s
 
 GitHub autolinks a bare #number, so using one to number a list of remarks

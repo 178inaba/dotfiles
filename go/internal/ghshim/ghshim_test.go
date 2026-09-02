@@ -132,9 +132,15 @@ func TestRunRefuses(t *testing.T) {
 	// Against Decide rather than the golden: what this test is about is that
 	// run puts the block's message on stderr and nothing else. The wording is
 	// decide_test.go's to pin, and it owns rule1-issue-create.golden alone.
-	got := stderr.String()
-	if want := Decide(argv, testEnv()).Message; got != want {
-		t.Errorf("stderr differs from the block message:\n%s", cmp.Diff(want, got))
+	//
+	// Fatal on a nil block, so that a decision which stopped refusing this
+	// command is reported rather than dereferenced.
+	block := Decide(argv, testEnv())
+	if block == nil {
+		t.Fatal("Decide did not refuse the command run refused")
+	}
+	if got := stderr.String(); got != block.Message {
+		t.Errorf("stderr differs from the block message:\n%s", cmp.Diff(block.Message, got))
 	}
 }
 
