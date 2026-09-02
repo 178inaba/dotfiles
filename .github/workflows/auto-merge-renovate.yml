@@ -1,0 +1,33 @@
+name: Auto Merge Renovate
+
+on: pull_request
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    name: Auto Merge
+    runs-on: ubuntu-latest
+    # github.actor は synchronize だと最後に push した人になるので、PR の author を見る
+    if: github.event.pull_request.user.login == 'renovate[bot]'
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+
+      # ruleset が承認 1 件を要求する一方 Renovate は自分の PR を承認できないので、
+      # ruleset を弱める代わりに App の identity で承認する
+      - name: Enable auto-merge for Renovate PRs
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh pr review --approve "${PR_URL}"
+          gh pr merge --auto --merge "${PR_URL}"
