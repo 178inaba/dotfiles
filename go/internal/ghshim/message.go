@@ -4,12 +4,14 @@ import "fmt"
 
 // The guidance the guard writes when it refuses.
 //
-// English, because the model is the only reader: the judgement runs only when
-// CLAUDECODE is set, so nothing typed at an interactive shell can produce one
-// of these. The three messages in ghshim.go that report a failure of the shim
-// itself are the other side of that rule — a person at a shell does reach
-// those, and they stay Japanese. A message added here belongs on whichever
-// side its reader puts it.
+// A string here is English because it is written for the model: the judgement
+// runs only when CLAUDECODE is set, so nothing typed at an interactive shell
+// can produce one of these. The three messages in ghshim.go that report a
+// failure of the shim itself are written for a person instead — the way
+// through they name is something a person does at a shell — and are Japanese.
+// That is the question to ask of a new message: who is it addressed to. Not
+// who can see it, which sorts nothing: selfbuild.Report goes to the same
+// stderr in English, because its reader is whoever called the module.
 //
 // The shape is the one the repository's other guards use
 // (internal/hooks/noopwait, internal/hooks/worktreeguard): Blocked: and a line
@@ -25,6 +27,10 @@ value from
   gh repo view --json nameWithOwner -q .nameWithOwner
 to -R rather than leaving it implicit.`
 )
+
+// bodyFileStep opens the second rule's advice. Where the body goes next is the
+// only part that differs per verb, so it is the only part bodyRecovery holds.
+const bodyFileStep = "Fix: write the body to a file (a scratchpad, say)"
 
 // notExplicitMessage is the first rule: the repository has to be named.
 func notExplicitMessage(c command, argv []string, dir, remote string) string {
@@ -49,16 +55,12 @@ pull request there instead.
 // which has none, and offering a URL to a verb with no selector would be a way
 // through that is not one.
 func explicitnessRecovery(c command) string {
-	switch classify(c) {
-	case byFlagNotPositional:
-		return fmt.Sprintf(`%s
-  gh repo rename new-name -R owner/repo
-The positional argument of gh repo rename is the new name, so it names no
-repository.
+	k := classify(c)
 
-%s`, repoFlagStep, repoFlagHint)
-
-	case byPositional:
+	// byPositional is the one with no -R to offer, so it is written out. The
+	// other four share the skeleton repoFlagStep opens and repoFlagHint closes,
+	// and differ only in the example and the note under it.
+	if k == byPositional {
 		return fmt.Sprintf(`Fix: name the repository in a positional argument and run again.
   gh repo %s owner/repo ...
 The form is OWNER/REPO, HOST/OWNER/REPO or a repository URL. A bare REPO
@@ -66,35 +68,35 @@ names nothing, because gh completes it with the authenticated user.
 
 gh repo %s has no -R/--repo and ignores the environment, so the
 positional is the only way; it may come before or after the flags.`, c.verb, c.verb)
+	}
+
+	example := fmt.Sprintf("gh %s %s -R owner/repo ...", c.noun, c.verb)
+	var note string
+	switch k {
+	case byFlagNotPositional:
+		example = "gh repo rename new-name -R owner/repo"
+		note = `The positional argument of gh repo rename is the new name, so it names no
+repository.`
 
 	case byFlagNoSelector:
-		return fmt.Sprintf(`%s
-  gh %s create -R owner/repo ...
-create takes no selector, so there is no URL form that names the repository
-here.
-
-%s`, repoFlagStep, c.noun, repoFlagHint)
+		note = `create takes no selector, so there is no URL form that names the repository
+here.`
 
 	case byFlagOrURL:
-		example := "https://github.com/owner/repo/issues/123"
+		url := "https://github.com/owner/repo/issues/123"
 		if c.noun == "pr" {
-			example = "https://github.com/owner/repo/pull/123"
+			url = "https://github.com/owner/repo/pull/123"
 		}
-		return fmt.Sprintf(`%s
-  gh %s %s -R owner/repo ...
-Naming the target by its full URL works too — the URL holds the repository:
+		note = fmt.Sprintf(`Naming the target by its full URL works too — the URL holds the repository:
   gh %s %s %s ...
 A number on its own, or a branch name, is resolved against the working
-directory's remote and so names nothing.
-
-%s`, repoFlagStep, c.noun, c.verb, c.noun, c.verb, example, repoFlagHint)
-
-	default:
-		return fmt.Sprintf(`%s
-  gh %s %s -R owner/repo ...
-
-%s`, repoFlagStep, c.noun, c.verb, repoFlagHint)
+directory's remote and so names nothing.`, c.noun, c.verb, url)
 	}
+
+	if note != "" {
+		note = "\n" + note
+	}
+	return fmt.Sprintf("%s\n  %s%s\n\n%s", repoFlagStep, example, note, repoFlagHint)
 }
 
 // multilineBodyMessage is the second rule: a body of more than one line has to
@@ -117,16 +119,16 @@ text.
 func bodyRecovery(c command, bf bodyFlags) string {
 	switch bf.recovery {
 	case recoverByComment:
-		return fmt.Sprintf(`Fix: write the body to a file (a scratchpad, say), post it with
+		return fmt.Sprintf(`%s, post it with
 gh %s comment --body-file, and run %s without -%s:
   gh %s comment -R owner/repo 123 --body-file /path/to/body.md
   gh %s %s -R owner/repo 123`,
-			c.noun, c.verb, bf.inlineShort, c.noun, c.noun, c.verb)
+			bodyFileStep, c.noun, c.verb, bf.inlineShort, c.noun, c.noun, c.verb)
 	default:
-		return fmt.Sprintf(`Fix: write the body to a file (a scratchpad, say) and pass --%s
+		return fmt.Sprintf(`%s and pass --%s
 instead of --%s:
   gh %s %s -R owner/repo ... --%s /path/to/body.md`,
-			bf.fileLong, bf.inlineLong, c.noun, c.verb, bf.fileLong)
+			bodyFileStep, bf.fileLong, bf.inlineLong, c.noun, c.verb, bf.fileLong)
 	}
 }
 

@@ -18,10 +18,9 @@ var update = flag.Bool("update", false, "update .golden files")
 // the fail-closed net).
 //
 // want: allow and want: block say what Decide returns; a golden says what it
-// writes. The guidance is compared in full, so changing a word of it means
-// editing a golden on purpose — which is the whole of what the goldens are
-// for now that they are generated from this package rather than captured from
-// anything.
+// writes. -update generates the goldens from this package, and the guidance is
+// compared in full, so changing a word of it takes a deliberate regeneration.
+// That is what they are for.
 
 const (
 	// The values the goldens hold placeholders for. Decide takes them as
@@ -123,7 +122,7 @@ func runDecideCases(t *testing.T, bodies string, cases []decideCase) {
 
 			want := wantGolden(t, tc.golden, bodies, got.Message)
 			if diff := cmp.Diff(want, got.Message); diff != "" {
-				t.Errorf("message differs from %s.golden (-want +got):\n%s", tc.golden, diff)
+				t.Errorf("message differs from %s.golden (re-run with -update) (-want +got):\n%s", tc.golden, diff)
 			}
 		})
 	}
@@ -139,9 +138,11 @@ func runDecideCases(t *testing.T, bodies string, cases []decideCase) {
 func wantGolden(t *testing.T, name, bodies, got string) string {
 	t.Helper()
 
+	fromGolden, toGolden := replacers(bodies)
+
 	path := filepath.Join("testdata", name+".golden")
 	if *update {
-		if err := os.WriteFile(path, []byte(placeholders(bodies).Replace(got)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(toGolden.Replace(got)), 0o644); err != nil {
 			t.Fatalf("WriteFile(%q): %v", path, err)
 		}
 	}
@@ -150,25 +151,31 @@ func wantGolden(t *testing.T, name, bodies, got string) string {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	return strings.NewReplacer(
-		"{{CWD}}", fixtureDir,
-		"{{REMOTE}}", fixtureRemote,
-		"{{BODY_DIR}}", bodies,
-	).Replace(string(b))
+	return fromGolden.Replace(string(b))
 }
 
-// placeholders is the reverse. bodies is empty for the messages that name no
-// body file, and an empty pattern would have the replacer insert at every
-// position, so it is left out then rather than passed through.
-func placeholders(bodies string) *strings.Replacer {
-	pairs := []string{
-		fixtureDir, "{{CWD}}",
-		fixtureRemote, "{{REMOTE}}",
+// replacers derives both directions of the placeholder table from one list, so
+// that a fourth value cannot be added to one direction alone — which would
+// write a golden that only matches on the machine that wrote it.
+//
+// bodies is empty for the messages that name no body file. An empty pattern
+// would have the replacer insert at every position, so that pair is left out
+// rather than passed through.
+func replacers(bodies string) (fromGolden, toGolden *strings.Replacer) {
+	pairs := [][2]string{
+		{"{{CWD}}", fixtureDir},
+		{"{{REMOTE}}", fixtureRemote},
 	}
 	if bodies != "" {
-		pairs = append(pairs, bodies, "{{BODY_DIR}}")
+		pairs = append(pairs, [2]string{"{{BODY_DIR}}", bodies})
 	}
-	return strings.NewReplacer(pairs...)
+
+	var forward, reverse []string
+	for _, p := range pairs {
+		forward = append(forward, p[0], p[1])
+		reverse = append(reverse, p[1], p[0])
+	}
+	return strings.NewReplacer(forward...), strings.NewReplacer(reverse...)
 }
 
 func TestDecideReadSubcommands(t *testing.T) {
