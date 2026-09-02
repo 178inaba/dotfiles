@@ -163,7 +163,8 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 - **解決済みスレッド（`is_resolved: true`）**: 既に議論・解決済みの論点
 - **未解決スレッド（`is_resolved: false`）**: 他レビュアーが指摘済みの論点（補足や異なる観点の言及は重複にあたらない）
 - **古くなったスレッド（`is_outdated: true`）**: 指摘後にコードが変更されたスレッド。必要に応じて現状を再確認する
-- **確認待ちスレッド（`awaiting_my_confirmation: true`）**: 未解決 かつ 起点が自分 かつ（末尾が自分でない **または** 自分の最終コメント以降に head が動いた）— 自分が出した指摘の解消判定のボールが自分に戻っているスレッド。セクション9の返信・解決の対象になる。後半の条件は「作者がスレッドに返信せずコミットだけ push した」ケース（GitHub では一般的）を拾うためにある
+- **ボールの所在（`ball`）**: 次に動くのが誰か。`"mine"` は自分が出した指摘に作者が答えた（または返信なしにコミットで追い越した）スレッドで、セクション9の返信・解決の対象になる。「返信せずコミットだけ push した」ケース（GitHub では一般的）もここに入る。`"theirs"` は相手の応答待ち、`"none"` は解決済みか、他人の PR 上の他人のスレッド
+- **解決してよいか（`resolvable_by_me`）**: そのスレッドを resolve してよいか。人の指摘はその人が閉じるため、自分が起こしたスレッドで真になる（作者側が閉じないぶんをレビュアー側が閉じる、というプロトコルの片側）
 - **PR本体への通常コメント（`comments[]`）**: PR説明文に書ききれなかった補足、Q&A、対応報告、AIレビュー結果などが入る。特に「Xを質問 → Yで回答 → 質問者が合意した」流れは通常コメントで確定する。AIレビュー（`[AIによるレビュー]` プレフィックス等）と、それへの対応コメントも同様
 - **レビュー本文（`reviews[].body`）**: 各レビュアーが Approve/Request Changes/Comment 時に付ける総括コメント。総合的な評価軸を把握するために参照する
 - **コメント引用時**: 取得した `url` を併記すると、どのコメントに基づく判断かを明示できる
@@ -307,10 +308,10 @@ ccx pr post-review <context_path> <review_path>
 
 自分が過去に出した指摘スレッドのうち、作者が応答して解消判定のボールが自分に戻っているものに、確認結果を返信し、解消済みのものを解決済みにする。作者側（/review-response）は人間レビュアーのスレッドを「レビュアーの再確認待ち」として未解決のまま残すため、ここで閉じないとスレッドは永久に open のまま積み上がり、確認作業の結果も外部に残らない。
 
-対象は `awaiting_my_confirmation: true` のスレッドのみ（判定条件はセクション5「既存レビュー考慮」の確認待ちスレッド）。0件ならスキップ — ただし**`threads_truncated` の警告が出ている場合は「0件」を対象なしと解釈しない**（取得窓の外に確認待ちスレッドが残りうるため、警告の指示に従い再取得してから判定する）:
+対象は `ball` が `"mine"` のスレッドのみ（意味はセクション5「既存レビュー考慮」のボールの所在）。0件ならスキップ — ただし**`threads_truncated` の警告が出ている場合は「0件」を対象なしと解釈しない**（取得窓の外に確認待ちスレッドが残りうるため、警告の指示に従い再取得してから判定する）:
 
 ```bash
-jq '[.review_threads[] | select(.awaiting_my_confirmation) | {id, path, line, last_comment}]' <context_path>
+jq '[.review_threads[] | select(.ball == "mine") | {path, line, original_line, resolvable_by_me, last_comment}]' <context_path>
 ```
 
 #### 判定の4分岐
@@ -341,19 +342,20 @@ ccx pr reply-threads <context_path> <threads_path>
 
 書式は `ccx pr reply-threads --help` にある。本スキルが決めるのは中身:
 
-- `id` は `review_threads[]` から取る
-- `resolve` は上記の決定表に従う
+- スレッドの指定は `path` と `line`（`review_threads[]` から取る）。1つの `path` に対象スレッドが
+  複数あるときだけ `id` を足す — コマンドが候補を列挙して要求してくるので、先回りして書かなくてよい
+- `resolve` は上記の決定表に従う。`resolvable_by_me` が偽のスレッドに `true` を書くと拒否される
 - `body` はセクション6の原則・口調・言語（対象 PR の言語）で書く。省略して resolve だけを実行する
   用途は2つ — 前回の自分の返信から判定が変わっていない場合と、下記の resolve 権限不足からの回復
 - 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を
-  `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープは
-  セクション8と同じ理由で避ける。セクション8の `body_file` 機構を threads に持たせないのは意図的な
-  省略 — 返信は通常短く機構が過剰なため。長文返信が常態化したら `ccx pr reply-threads` への
-  `body_file` 対応を検討する）:
+  `work_dir` 直下に Write し、`body_file` にそのファイル名（パス区切りなしのベース名）を書く
+  （JSON 文字列への手書きエスケープはセクション8と同じ理由で避ける）:
 
-  ```bash
-  jq -n --rawfile r1 <work_dir>/t1.md \
-    '{threads: [{id: "PRRT_...", body: $r1, resolve: true}]}' > <threads_path>
+  ```json
+  {"threads": [
+    {"path": "internal/cache/cache.go", "line": 192, "body_file": "t1.md", "resolve": true},
+    {"path": "internal/cache/cache_test.go", "line": 40, "body": "確認しました。", "resolve": true}
+  ]}
   ```
 
 #### 実行後の扱い
