@@ -1,15 +1,14 @@
-gh の書き込み系サブコマンドの本文に、項番とみられる素の #N を検出しました
-（#1〜#9 のうち 3 種類）。
+Blocked: the body numbers its items with bare #N.
 
-検出元: --body-file {{BODY_DIR}}/hash-numbering.md
+  found:  3 distinct numbers in #1 to #9
+  source: --body-file {{BODY_DIR}}/hash-numbering.md
 
-理由:
-  素の #数字 は GitHub で Issue/PR への自動リンクになるため、項目の
-  番号付け（指摘 #1, #2, ...）に使うと、無関係な Issue/PR に参照通知
-  （mentioned 表示）が飛ぶ事故が起きます。通知は後から取り消せません。
+GitHub autolinks a bare #number, so using one to number a list of remarks
+(#1, #2, ...) sends a reference notification to unrelated issues and pull
+requests. A notification cannot be taken back.
 
-対処:
-  1. 項番が目的の場合: 順序リスト（1. 2. ...）等、# を使わない形式に書き換える
-  2. 実際に Issue/PR を参照する意図の場合: OWNER/REPO#N 形式で明示する
-       例: 178inaba/dotfiles#3
-     （リンクは維持され、このガードにも掛かりません）
+Fix: if the numbering is the point, write it in a form without # — an
+ordered list (1. 2. ...), say. If an issue or a pull request is really
+being referenced, name it as OWNER/REPO#N:
+  178inaba/dotfiles#3
+That keeps the link and does not trip this guard.

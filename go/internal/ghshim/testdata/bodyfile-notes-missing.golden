@@ -1,18 +1,15 @@
-gh の書き込み系サブコマンドの本文ファイルを読めなかったため、gh を実行しませんでした。
+Blocked: the body file could not be read, so gh was not run.
 
-実行しようとしたコマンド:
-  gh release create v1 -R foo/bar --title v1 --notes-file {{BODY_DIR}}/missing.md
+  command:   gh release create v1 -R foo/bar --title v1 --notes-file {{BODY_DIR}}/missing.md
+  body file: --notes-file {{BODY_DIR}}/missing.md
+  reason:    the file does not exist (the body may not be written out yet)
 
-読めなかった本文ファイル: --notes-file {{BODY_DIR}}/missing.md
-理由: ファイルが存在しません（本文をまだ書き出していない可能性があります）
+Without the body, the scan for bare #N numbering and for a quoted closing
+keyword cannot run. gh itself exits before touching the API when it cannot read
+the file, so blocking here loses no command that would otherwise have
+succeeded.
 
-理由の詳細:
-  本文を読めないと、素の #N の項番・引用された closing keyword を走査できません。
-  gh 自身も本文ファイルを読めなければ API に触れる前にエラー終了するため、ここで
-  ブロックしても、成功したはずのコマンドが失われることはありません。
-
-対処:
-  1. 本文をまだ書いていない場合: 先にファイルへ Write してから再実行する
-  2. パスが違う場合: パスを確認して再実行する（相対パスは現在の作業ディレクトリ基準）
-  3. 標準入力から本文を渡す場合: --notes-file - を使う
-     （stdin は shim が読むと gh の分を消費するため、走査を諦めて素通しします）
+Fix: write the body to the file if it is not written yet, or check the path
+and run again — a relative one resolves against the working directory. To
+pass the body on standard input use --notes-file -; the shim leaves that alone,
+because reading stdin here would consume what gh is meant to read.

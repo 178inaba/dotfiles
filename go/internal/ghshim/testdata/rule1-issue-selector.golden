@@ -1,21 +1,23 @@
-gh の書き込み系サブコマンドは、対象リポジトリをコマンド上で明示することを必須としています。
+Blocked: this gh write subcommand does not name the repository it targets.
 
-実行しようとしたコマンド:
-  gh issue comment 1 --body x
+  command:           gh issue comment 1 --body x
+  unnamed target:    gh issue comment
+  working directory: {{CWD}}
+  origin remote:     {{REMOTE}}
 
-明示が確認できなかった箇所: gh issue comment
-現在の作業ディレクトリ: {{CWD}}
-現在の origin remote: {{REMOTE}}
+Left as it is, gh resolves the target from the working directory, so the origin
+above (or whatever remote gh settles on) is what gets written to. Having cd'd
+into another repository to look at something is enough to send the issue or the
+pull request there instead.
 
-このまま実行すると、上記の origin (もしくは gh が解決する remote) が対象になります。
-別リポジトリの調査中などに cwd を取り違えると、意図しないリポジトリに書き込みが行われます。
+Fix: name the repository with -R owner/repo and run again.
+  gh issue comment -R owner/repo ...
+Naming the target by its full URL works too — the URL holds the repository:
+  gh issue comment https://github.com/owner/repo/issues/123 ...
+A number on its own, or a branch name, is resolved against the working
+directory's remote and so names nothing.
 
-対処:
-  1. 対象リポジトリを -R owner/repo で明示して再実行する
-       例: gh issue comment -R owner/repo ...
-  2. 対象を完全な URL で指定する（URL にリポジトリが含まれます）
-       例: gh issue comment https://github.com/owner/repo/issues/123 ...
-     番号のみ・ブランチ名は cwd の remote で解決されるため明示になりません。
-  ※ 現在のディレクトリの remote が正しいと確信できる場合も、
-       gh repo view --json nameWithOwner -q .nameWithOwner
-     で取得した値を -R に渡して明示する
+Even when the current directory's remote is certainly the right one, pass the
+value from
+  gh repo view --json nameWithOwner -q .nameWithOwner
+to -R rather than leaving it implicit.

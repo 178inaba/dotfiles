@@ -120,7 +120,8 @@ func TestRunRefuses(t *testing.T) {
 	d := testDeps(t, &h)
 	var stderr bytes.Buffer
 
-	code := run([]string{"issue", "create", "--title", "x", "--body", "y"}, &stderr, d)
+	argv := []string{"issue", "create", "--title", "x", "--body", "y"}
+	code := run(argv, &stderr, d)
 
 	if h.called {
 		t.Error("the real gh was run for a command that should have been refused")
@@ -128,8 +129,15 @@ func TestRunRefuses(t *testing.T) {
 	if code != blockExit {
 		t.Errorf("exit = %d, want %d", code, blockExit)
 	}
-	if want := readGolden(t, "rule1-issue-create", ""); stderr.String() != want {
-		t.Errorf("stderr differs from the golden:\n%s", cmp.Diff(want, stderr.String()))
+	// Against Decide rather than the golden: what this test is about is that
+	// run puts the block's message on stderr and nothing else. The wording is
+	// decide_test.go's to pin, and it owns rule1-issue-create.golden alone.
+	block := Decide(argv, testEnv())
+	if block == nil {
+		t.Fatal("Decide did not refuse the command run refused")
+	}
+	if got := stderr.String(); got != block.Message {
+		t.Errorf("stderr differs from the block message:\n%s", cmp.Diff(block.Message, got))
 	}
 }
 
@@ -152,8 +160,9 @@ func TestRunWithoutARealGH(t *testing.T) {
 	if code != blockExit {
 		t.Errorf("exit = %d, want %d", code, blockExit)
 	}
-	if want := readGolden(t, "no-real-gh", ""); stderr.String() != want {
-		t.Errorf("stderr differs from the golden:\n%s", cmp.Diff(want, stderr.String()))
+	got := stderr.String()
+	if want := wantGolden(t, "no-real-gh", "", got); got != want {
+		t.Errorf("stderr differs from no-real-gh.golden (re-run with -update):\n%s", cmp.Diff(want, got))
 	}
 }
 

@@ -1,6 +1,7 @@
 package ghshim
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,19 +10,18 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// The subtest names are the case names of shims/.local/shims/tests/test-gh.sh,
-// verbatim, so that the suite this replaces can be read against it line by
-// line. The cases that do not belong to the decision are in resolve_test.go
-// (finding the real gh) and ghshim_test.go (the hand-off and the fail-closed
-// net); together the three files account for every case of the shell suite.
+var update = flag.Bool("update", false, "update .golden files")
+
+// The cases that do not belong to the decision are in resolve_test.go (finding
+// the real gh) and ghshim_test.go (the hand-off and the fail-closed net).
 //
-// assert_runs becomes want: allow, assert_blocked becomes want: block, and
-// assert_block_message becomes a golden: the shell could only match substrings,
-// so the guidance is compared in full here instead.
+// -update generates the goldens from this package, and the guidance is compared
+// in full, so changing a word of it takes a deliberate regeneration. That is
+// what they are for.
 
 const (
-	// The values the goldens were captured with. The shell shim reads both
-	// from the process; Decide takes them as functions, so a test can pin them.
+	// The values the goldens hold placeholders for. Decide takes them as
+	// functions, so a test can pin them.
 	fixtureDir    = "/fixture/repo"
 	fixtureRemote = "git@github.com:owner/repo.git"
 )
@@ -74,7 +74,7 @@ func unreadableBody(t *testing.T, dir string) string {
 	return path
 }
 
-// testEnv is the environment the goldens were captured under.
+// testEnv is the environment the goldens are generated under.
 func testEnv() Env {
 	return Env{
 		ClaudeCode:   "1",
@@ -117,29 +117,61 @@ func runDecideCases(t *testing.T, bodies string, cases []decideCase) {
 				return
 			}
 
-			want := readGolden(t, tc.golden, bodies)
+			want := wantGolden(t, tc.golden, bodies, got.Message)
 			if diff := cmp.Diff(want, got.Message); diff != "" {
-				t.Errorf("message differs from %s.golden (-want +got):\n%s", tc.golden, diff)
+				t.Errorf("message differs from %s.golden (re-run with -update) (-want +got):\n%s", tc.golden, diff)
 			}
 		})
 	}
 }
 
-// readGolden reads the captured message and puts back the three values that
-// vary per run. They were replaced at capture time so that the file is the same
-// on every machine.
-func readGolden(t *testing.T, name, bodies string) string {
+// wantGolden is the expected message, with the three values that vary per run
+// put back. The file holds placeholders for them so that it is the same on
+// every machine.
+//
+// Every golden comparison goes through here, so -update reaches all of them
+// from this one place.
+func wantGolden(t *testing.T, name, bodies, got string) string {
 	t.Helper()
 
-	b, err := os.ReadFile(filepath.Join("testdata", name+".golden"))
+	fromGolden, toGolden := replacers(bodies)
+
+	path := filepath.Join("testdata", name+".golden")
+	if *update {
+		if err := os.WriteFile(path, []byte(toGolden.Replace(got)), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q): %v", path, err)
+		}
+	}
+
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	return strings.NewReplacer(
-		"{{CWD}}", fixtureDir,
-		"{{REMOTE}}", fixtureRemote,
-		"{{BODY_DIR}}", bodies,
-	).Replace(string(b))
+	return fromGolden.Replace(string(b))
+}
+
+// replacers derives both directions of the placeholder table from one list, so
+// that a fourth value cannot be added to one direction alone — which would
+// write a golden that only matches on the machine that wrote it.
+//
+// bodies is empty for the messages that name no body file. An empty pattern
+// would have the replacer insert at every position, so that pair is left out
+// rather than passed through.
+func replacers(bodies string) (fromGolden, toGolden *strings.Replacer) {
+	pairs := [][2]string{
+		{"{{CWD}}", fixtureDir},
+		{"{{REMOTE}}", fixtureRemote},
+	}
+	if bodies != "" {
+		pairs = append(pairs, [2]string{"{{BODY_DIR}}", bodies})
+	}
+
+	var forward, reverse []string
+	for _, p := range pairs {
+		forward = append(forward, p[0], p[1])
+		reverse = append(reverse, p[1], p[0])
+	}
+	return strings.NewReplacer(forward...), strings.NewReplacer(reverse...)
 }
 
 func TestDecideReadSubcommands(t *testing.T) {

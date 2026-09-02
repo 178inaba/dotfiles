@@ -116,9 +116,9 @@ func Execute(ctx context.Context, argv []string, stderr io.Writer) int {
 
 // NewEnv wires the inputs of the decision to the process.
 //
-// Both lines the first rule's message ends with are about the directory the
-// command was run from, which is the whole point of that rule, so the remote is
-// asked for by that name rather than left to wherever git would stand.
+// Both values it wires in describe the directory the command was run from,
+// which is the whole point of the first rule, so the remote is asked for by
+// that name rather than left to wherever git would stand.
 func NewEnv(ctx context.Context, r runner.Runner) Env {
 	dir := func() string {
 		wd, err := os.Getwd()
@@ -134,7 +134,7 @@ func NewEnv(ctx context.Context, r runner.Runner) Env {
 		OriginRemote: func() string {
 			out, err := runner.Git(ctx, r, dir(), "remote", "get-url", "origin")
 			if err != nil || out == "" {
-				return "(取得不可: git リポジトリ外、または origin が未設定)"
+				return "(unavailable: outside a git repository, or no origin set)"
 			}
 			return out
 		},

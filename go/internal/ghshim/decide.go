@@ -19,16 +19,16 @@ type Env struct {
 	// ClaudeCode is CLAUDECODE. Empty means an interactive shell.
 	ClaudeCode string
 
-	// Dir and OriginRemote fill in the two lines the first rule's message ends
-	// with, and are functions because that message is their only reader:
+	// Dir and OriginRemote fill in the last two lines of the first rule's label
+	// block, and are functions because that message is their only reader:
 	// resolving the remote runs git, and doing it eagerly would put a
 	// subprocess in front of every command the guard lets through.
 	Dir          func() string
 	OriginRemote func() string
 }
 
-// Block is a refusal. Message is the guidance shown to the user, complete and
-// ready for standard error.
+// Block is a refusal. Message is the guidance written for the model, complete
+// and ready for standard error.
 type Block struct{ Message string }
 
 // Decide reports whether argv may be handed to the real gh, returning nil when
@@ -96,7 +96,7 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 		source = fmt.Sprintf("--%s %s", bf.fileLong, s.bodyFile)
 	case s.inlineBody != "":
 		body = s.inlineBody
-		source = fmt.Sprintf("--%s の本文", bf.inlineLong)
+		source = fmt.Sprintf("the --%s value", bf.inlineLong)
 	default:
 		return nil
 	}
@@ -114,9 +114,9 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 // fix differs. They are guidance rather than a failure of this program, which
 // is why they are returned as text and not as an error.
 const (
-	reasonMissing    = "ファイルが存在しません（本文をまだ書き出していない可能性があります）"
-	reasonNotRegular = "通常ファイルではありません（ディレクトリ・プロセス置換・パイプ等）"
-	reasonUnreadable = "読み取り権限がありません"
+	reasonMissing    = "the file does not exist (the body may not be written out yet)"
+	reasonNotRegular = "not a regular file (a directory, a process substitution, a pipe)"
+	reasonUnreadable = "no read permission"
 )
 
 // readBody reads a named body file, or says why it could not.

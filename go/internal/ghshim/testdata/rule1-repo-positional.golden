@@ -1,19 +1,19 @@
-gh の書き込み系サブコマンドは、対象リポジトリをコマンド上で明示することを必須としています。
+Blocked: this gh write subcommand does not name the repository it targets.
 
-実行しようとしたコマンド:
-  gh repo edit --description x
+  command:           gh repo edit --description x
+  unnamed target:    gh repo edit
+  working directory: {{CWD}}
+  origin remote:     {{REMOTE}}
 
-明示が確認できなかった箇所: gh repo edit
-現在の作業ディレクトリ: {{CWD}}
-現在の origin remote: {{REMOTE}}
+Left as it is, gh resolves the target from the working directory, so the origin
+above (or whatever remote gh settles on) is what gets written to. Having cd'd
+into another repository to look at something is enough to send the issue or the
+pull request there instead.
 
-このまま実行すると、上記の origin (もしくは gh が解決する remote) が対象になります。
-別リポジトリの調査中などに cwd を取り違えると、意図しないリポジトリに書き込みが行われます。
+Fix: name the repository in a positional argument and run again.
+  gh repo edit owner/repo ...
+The form is OWNER/REPO, HOST/OWNER/REPO or a repository URL. A bare REPO
+names nothing, because gh completes it with the authenticated user.
 
-対処:
-  1. 対象リポジトリを位置引数で明示して再実行する
-       例: gh repo edit owner/repo ...
-     形式は OWNER/REPO・HOST/OWNER/REPO・リポジトリ URL のいずれかです。
-     bare な REPO は gh が認証ユーザーで補完するため明示になりません。
-  2. gh repo edit に -R/--repo はなく、環境変数によるリポジトリ指定も効きません。
-     位置引数はフラグより前でも後ろでも構いません。
+gh repo edit has no -R/--repo and ignores the environment, so the
+positional is the only way; it may come before or after the flags.
