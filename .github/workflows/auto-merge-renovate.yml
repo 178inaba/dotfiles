@@ -26,8 +26,8 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.PRIVATE_KEY }}
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       # ruleset が承認 1 件を要求する一方 Renovate は自分の PR を承認できないので、
       # ruleset を弱める代わりに App の identity で承認する。
