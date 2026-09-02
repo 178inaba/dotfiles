@@ -6,7 +6,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/issue"
 )
 
-//go:generate go run generate.go
+//go:generate go test . -run=^TestGenerated$ -update
 
 // marshalers is the exception list the renderer's guard is checked against.
 //

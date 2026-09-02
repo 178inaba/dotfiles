@@ -20,7 +20,7 @@ Go モジュール `go/` を編集したら、対応するリグレッション�
 
 テストは対象コードと同一ディレクトリに置く（Go の慣行そのまま）。
 
-スキルが使う配管は `ccx` のサブコマンドで、実装は `go/internal/<domain>/`、cobra 定義は `go/internal/cmd/<group>.go`。**契約に関わる型・json タグ・doc comment を触ったら `go -C go generate ./internal/contract/...` を実行する**（生成物 `go/internal/contract/docs_gen.go` が古いと `go/internal/contract/gen` のテストが落ちる）。**1 つのドメインパッケージを複数のスキルが共有する**ので、パッケージを編集したらそのパッケージのテストを走らせれば足りる。
+スキルが使う配管は `ccx` のサブコマンドで、実装は `go/internal/<domain>/`、cobra 定義は `go/internal/cmd/<group>.go`。**契約に関わる型・json タグ・doc comment を触ったら `go -C go generate ./internal/contract/...` を実行する**（`docs_gen.go` と `testdata/*.txt` はどちらも同じ doc comment・json タグの射影で、この 1 コマンドが両方を書き直す。古いままだと `go/internal/contract` の `TestGenerated` が落ちる）。**1 つのドメインパッケージを複数のスキルが共有する**ので、パッケージを編集したらそのパッケージのテストを走らせれば足りる。
 
 規約から導出できない例外:
 - `skills/review-response/SKILL.md`（`<!-- review-response -->` マーカー変更時のみ）: `go -C go test ./internal/pullrequest/`（マーカー同期テスト `TestSkillMarkerMatchesTheSkill`）

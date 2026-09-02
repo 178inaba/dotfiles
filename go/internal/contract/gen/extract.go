@@ -16,14 +16,14 @@ type pkg struct {
 	dir  string
 }
 
-// docs is everything the types cannot say about themselves at run time:
+// Docs is everything the types cannot say about themselves at run time:
 // reflection sees a field's json tag but not the sentence above it, nor a
 // named type's constants. Both are syntactic, so they are read from source.
 //
 // A field or a type with nothing to say is absent rather than empty — the
 // empties were two thirds of the table, and the renderer asks Enums whether a
 // type is an enum at all.
-type docs struct {
+type Docs struct {
 	Fields   map[string]string
 	Types    map[string]string
 	Enums    map[string][]string
@@ -33,18 +33,18 @@ type docs struct {
 	Packages []string
 }
 
-func extract(pkgs []pkg) (docs, error) {
-	out := docs{Fields: map[string]string{}, Types: map[string]string{}, Enums: map[string][]string{}, EnumDocs: map[string]string{}}
+func extract(pkgs []pkg) (Docs, error) {
+	out := Docs{Fields: map[string]string{}, Types: map[string]string{}, Enums: map[string][]string{}, EnumDocs: map[string]string{}}
 	for _, p := range pkgs {
 		if err := extractPkg(p, out); err != nil {
-			return docs{}, err
+			return Docs{}, err
 		}
 		out.Packages = append(out.Packages, p.path)
 	}
 	return out, nil
 }
 
-func extractPkg(p pkg, out docs) error {
+func extractPkg(p pkg, out Docs) error {
 	files, err := parseDir(p.dir)
 	if err != nil {
 		return err
@@ -104,7 +104,7 @@ func forEachDecl(f *ast.File, tok token.Token, fn func(*ast.GenDecl)) {
 	}
 }
 
-func collectFields(path string, gd *ast.GenDecl, out docs) {
+func collectFields(path string, gd *ast.GenDecl, out Docs) {
 	for _, spec := range gd.Specs {
 		ts, ok := spec.(*ast.TypeSpec)
 		// An unexported type cannot be a contract: nothing outside its own
@@ -138,7 +138,7 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 	}
 }
 
-func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, out docs) {
+func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, out Docs) {
 	for _, spec := range gd.Specs {
 		vs, ok := spec.(*ast.ValueSpec)
 		if !ok {
