@@ -37,8 +37,7 @@ const multiline = "line1\nline2"
 func bodyFixtures(t *testing.T) string {
 	t.Helper()
 
-	dir := t.TempDir()
-	for name, content := range map[string]string{
+	return writeFixtures(t, map[string]string{
 		"hash-numbering.md":  "- #1 foo\n- #2 bar\n- #3 baz\n",
 		"ordered-list.md":    "1. foo\n2. bar\n3. baz\n",
 		"two-distinct.md":    "see #1 and #2 and #2\n",
@@ -55,7 +54,16 @@ func bodyFixtures(t *testing.T) string {
 		"quoted-placeholder-closes.md": "docs update: `Closes #N` placeholder\n",
 		"quoted-closes-no-ref.md":      "call `closes the stream` explicitly\n",
 		"quoted-discloses.md":          "word `discloses #656` here\n",
-	} {
+	})
+}
+
+// writeFixtures lays out one temporary directory of files a test names on a
+// command line.
+func writeFixtures(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatalf("WriteFile(%q): %v", name, err)
 		}
@@ -233,6 +241,11 @@ func TestDecideRepositoryExplicitness(t *testing.T) {
 		{name: "repo sync does not read --source as the target", argv: []string{"repo", "sync", "-s", "178inaba/dotfiles", "dotfiles"}, block: true},
 		{name: "repo sync with an explicit target", argv: []string{"repo", "sync", "-s", "178inaba/upstream", "178inaba/dotfiles"}},
 		{name: "repo edit does not read --homepage as the target", argv: []string{"repo", "edit", "--homepage", "https://github.com/178inaba/dotfiles", "--description", "x"}, block: true},
+
+		// A long option with no name is gh's "bad flag syntax", and it names no
+		// repository — reading its value as the positional would let one
+		// through on an argv that cannot run.
+		{name: "an empty long name is not the positional", argv: []string{"repo", "edit", "--=178inaba/dotfiles"}, block: true},
 
 		// -- ends the flags.
 		{name: "positional after --", argv: []string{"repo", "edit", "--", "178inaba/dotfiles"}},
@@ -459,20 +472,14 @@ const (
 func apiFixtures(t *testing.T) string {
 	t.Helper()
 
-	dir := t.TempDir()
-	for name, content := range map[string]string{
+	return writeFixtures(t, map[string]string{
 		"reply.graphql": replyMutation + "\n",
 		"request.json":  `{"query": ` + strconv.Quote(resolveMutation) + `}`,
 		// JSON that parses and holds no query, and a query that holds a
 		// mutation and is not JSON: neither contributes any query text.
 		"variables.json": `{"variables": {"threadId": "x"}}`,
 		"raw.graphql":    resolveMutation + "\n",
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-			t.Fatalf("WriteFile(%q): %v", name, err)
-		}
-	}
-	return dir
+	})
 }
 
 func TestDecideAPIGraphQLThreadMutations(t *testing.T) {
@@ -556,6 +563,9 @@ func TestDecideAPIRESTReplies(t *testing.T) {
 		{name: "rest: the full URL", argv: []string{"api", "https://api.github.com/" + replies, "-f", "body=hi"}, block: true},
 		{name: "rest: an enterprise URL", argv: []string{"api", "https://ghe.example.com/api/v3/" + replies, "-f", "body=hi"}, block: true},
 		{name: "rest: a trailing slash", argv: []string{"api", replies + "/", "-f", "body=hi"}, block: true},
+		// A query string or a fragment hangs off the end of a path both
+		// patterns anchor, so normalisation drops them.
+		{name: "rest: a query string", argv: []string{"api", replies + "?per_page=1", "-f", "body=hi"}, block: true},
 
 		// Allowed: everything that is not a POST there.
 		{name: "rest: no method and no field is a GET", argv: []string{"api", replies}},

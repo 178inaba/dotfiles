@@ -9,7 +9,7 @@ resolve, and those go through ccx pr reply-threads rather than gh api. gh
 itself exits before touching the API when it cannot read the file, so blocking
 here loses no command that would otherwise have succeeded.
 
-Fix: write the file if it is not written yet, or check the path and run again —
-a relative one resolves against the working directory. To pass the request on
-standard input use --input -; the shim leaves that alone, because reading stdin
-here would consume what gh is meant to read.
+Fix: write the query to the file if it is not written yet, or check the path
+and run again — a relative one resolves against the working directory. To
+pass the query on standard input use --input -; the shim leaves that alone,
+because reading stdin here would consume what gh is meant to read.

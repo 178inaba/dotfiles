@@ -38,7 +38,7 @@ func scanAPI(args []string) apiScanned {
 	var s apiScanned
 
 	walk(args, apiValueFlags, func(a arg) {
-		if a.name == "" {
+		if a.positional() {
 			if s.endpoint == "" {
 				s.endpoint = a.value
 			}
@@ -48,13 +48,14 @@ func scanAPI(args []string) apiScanned {
 			return
 		}
 		switch {
-		case a.long && a.name == "method", !a.long && a.name == "X":
+		case a.is("method", "X"):
 			s.method = a.value
-		case a.long && a.name == "input":
+		// --input has no short spelling, so there is none to pair it with.
+		case a.is("input", ""):
 			s.input, s.hasInput = a.value, true
-		case a.long && a.name == "field", !a.long && a.name == "F":
+		case a.is("field", "F"):
 			s.fields = append(s.fields, newAPIField(a.value, true))
-		case a.long && a.name == "raw-field", !a.long && a.name == "f":
+		case a.is("raw-field", "f"):
 			s.fields = append(s.fields, newAPIField(a.value, false))
 		}
 	})
@@ -80,12 +81,23 @@ func (s apiScanned) isPOST() bool {
 
 // normaliseEndpoint reduces the spellings of one endpoint to a single form.
 //
-// The order is the rule. A URL becomes its path first, since the slash to drop
-// is the one the path starts with. api/v3/ is tried before api/, because
-// dropping api/ from api/v3/repos/... would leave v3/repos/... and match
-// nothing: GitHub Enterprise serves REST under /api/v3 and GraphQL under
-// /api/graphql, while github.com serves both at the root of its api host.
+// The order is the rule. A query string and a fragment go first, since either
+// would otherwise hang off the end of a path the two patterns anchor. Then a
+// URL becomes its path, since the slash to drop is the one the path starts
+// with. api/v3/ is tried before api/, because dropping api/ from
+// api/v3/repos/... would leave v3/repos/... and match nothing: GitHub
+// Enterprise serves REST under /api/v3 and GraphQL under /api/graphql, while
+// github.com serves both at the root of its api host.
+//
+// Cut rather than net/url, which the packages that read GitHub's own urls use:
+// a parse here answers with an error as well, and there is no sound thing to
+// do with one — passing the command on because its endpoint would not parse is
+// the fail-open this rule exists to close, and refusing it would block reads
+// that gh accepts.
 func normaliseEndpoint(endpoint string) string {
+	endpoint, _, _ = strings.Cut(endpoint, "#")
+	endpoint, _, _ = strings.Cut(endpoint, "?")
+
 	if _, rest, ok := strings.Cut(endpoint, "://"); ok {
 		_, path, found := strings.Cut(rest, "/")
 		if !found {
@@ -101,12 +113,13 @@ func normaliseEndpoint(endpoint string) string {
 	return strings.TrimPrefix(endpoint, "api/")
 }
 
-// threadMutation matches either field name as a whole GraphQL identifier —
-// [_0-9A-Za-z] is what one is made of — so that unresolveReviewThread, which
-// the parent issue leaves out of scope, is not caught by the other half. A
+// threadMutation matches either field name as a whole word, so that
+// unresolveReviewThread, which the parent issue leaves out of scope, is not
+// caught by the other half. RE2's \b is the ASCII boundary, and the class it
+// is drawn around — [0-9A-Za-z_] — is what a GraphQL identifier is made of. A
 // regexp rather than a parse: the query only has to be recognised, not read.
 var threadMutation = regexp.MustCompile(
-	`(^|[^_0-9A-Za-z])(addPullRequestReviewThreadReply|resolveReviewThread)([^_0-9A-Za-z]|$)`)
+	`\b(?:addPullRequestReviewThreadReply|resolveReviewThread)\b`)
 
 // replyEndpoint matches the REST endpoint that adds a reply to a review
 // thread. A segment is anything without a slash, which is what admits gh's
@@ -120,11 +133,7 @@ var replyEndpoint = regexp.MustCompile(
 // asks for neither. The name is returned rather than a bool so that the
 // refusal can say which of the two it found.
 func threadMutationName(query string) string {
-	m := threadMutation.FindStringSubmatch(query)
-	if m == nil {
-		return ""
-	}
-	return m[2]
+	return threadMutation.FindString(query)
 }
 
 // queryText is the GraphQL query the request carries, gathered from every

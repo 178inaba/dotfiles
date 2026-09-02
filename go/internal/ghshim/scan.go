@@ -21,6 +21,29 @@ type arg struct {
 	hasValue bool
 }
 
+// positional reports whether a is a positional argument rather than an option.
+// A short option always has a letter for a name, so an empty one without the
+// long spelling is the only way a positional arrives.
+func (a arg) positional() bool { return !a.long && a.name == "" }
+
+// is reports whether a is the option spelled --long or -short.
+//
+// An empty name is no option: it belongs to a positional, or to the --=value
+// that pflag rejects outright, and neither is the flag being asked after. The
+// check matters because the tables below hold an empty spelling for a flag a
+// verb does not have — matching one against the other would read a body out of
+// an argument that carries none.
+func (a arg) is(long, short string) bool {
+	switch {
+	case a.name == "":
+		return false
+	case a.long:
+		return a.name == long
+	default:
+		return a.name == short
+	}
+}
+
 // walk reports every option and every positional in the arguments that follow
 // a command, in the order they were written.
 //
@@ -103,42 +126,28 @@ func scan(args []string, vf valueFlags, bf bodyFlags, ghRepo string) scanned {
 	s := scanned{hasRepo: ghRepo != ""}
 
 	walk(args, vf, func(a arg) {
-		switch {
-		case a.name == "":
+		if a.positional() {
 			if s.positional == "" {
 				s.positional = a.value
 			}
 			return
-		// gh spells its own repository flag -R/--repo, and an option after --
-		// is a positional rather than that flag, which the case above catches.
-		case a.long && a.name == "repo", !a.long && a.name == "R":
+		}
+		// gh spells its own repository flag -R/--repo. One written after -- is
+		// a positional instead, which the case above has already taken.
+		if a.is("repo", "R") {
 			s.hasRepo = true
 		}
 		if !a.hasValue {
 			return
 		}
-		if a.long {
-			s.recordBody(a.name, a.value, bf.inlineLong, bf.fileLong)
-		} else {
-			s.recordBody(a.name, a.value, bf.inlineShort, bf.fileShort)
+		switch {
+		case a.is(bf.inlineLong, bf.inlineShort):
+			s.inlineBody = a.value
+		case a.is(bf.fileLong, bf.fileShort):
+			s.bodyFile = a.value
 		}
 	})
 	return s
-}
-
-// recordBody keeps the value if the flag is one of the two that carry a body.
-// The names to compare against are passed in because the long and the short
-// spelling of the same flag register under different names.
-func (s *scanned) recordBody(name, value, inlineName, fileName string) {
-	if name == "" {
-		return
-	}
-	switch name {
-	case inlineName:
-		s.inlineBody = value
-	case fileName:
-		s.bodyFile = value
-	}
 }
 
 // A positional argument naming a repository. OWNER/REPO and HOST/OWNER/REPO are

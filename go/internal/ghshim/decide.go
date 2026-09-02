@@ -41,11 +41,18 @@ func Decide(argv []string, env Env) *Block {
 	if len(argv) < 2 {
 		return nil
 	}
+	// The guard applies inside Claude Code sessions only, and every rule
+	// inherits that from here rather than restating it, so that a rule added to
+	// the dispatch below cannot arrive without it and start refusing what a
+	// person typed at a shell.
+	if env.ClaudeCode == "" {
+		return nil
+	}
 	// gh api is judged apart, before the table: it has no verb — argv[1] is the
 	// endpoint — so it can be no row of one, and the read fast path below would
 	// let every one of them through.
 	if argv[0] == "api" {
-		return decideAPI(argv, env)
+		return decideAPI(argv)
 	}
 	c := command{noun: argv[0], verb: argv[1]}
 	if !writes(c) {
@@ -55,20 +62,7 @@ func Decide(argv []string, env Env) *Block {
 	vf := valueFlagsFor(c)
 	bf := bodyFlagsFor(c)
 
-	// -h is only help where the verb does not take a value for it — under
-	// gh repo edit it is --homepage.
-	if len(argv) > 2 {
-		switch argv[2] {
-		case "--help":
-			return nil
-		case "-h":
-			if !strings.ContainsRune(vf.short, 'h') {
-				return nil
-			}
-		}
-	}
-
-	if env.ClaudeCode == "" {
+	if len(argv) > 2 && isHelp(argv[2], vf) {
 		return nil
 	}
 
@@ -77,6 +71,22 @@ func Decide(argv []string, env Env) *Block {
 		return &Block{Message: notExplicitMessage(c, argv, env.Dir(), env.OriginRemote())}
 	}
 	return bodyBlock(c, bf, argv, s)
+}
+
+// isHelp reports whether tok asks the command to describe itself rather than
+// to do anything.
+//
+// -h is help only where the command takes no value for it — under gh repo edit
+// it is --homepage — so the answer comes from the same table the walk reads,
+// and a flag added there cannot leave this behind.
+func isHelp(tok string, vf valueFlags) bool {
+	switch tok {
+	case "--help":
+		return true
+	case "-h":
+		return !strings.ContainsRune(vf.short, 'h')
+	}
+	return false
 }
 
 // decideAPI is the fifth rule: a review-thread reply or resolve may not be
@@ -89,17 +99,12 @@ func Decide(argv []string, env Env) *Block {
 // a way of leaving the target open.
 //
 // The order the checks run in is part of the contract, as it is in Decide.
-// Help and the environment come first, as they do for the other four. Then a
-// query that could be read and asks for a mutation answers before a file that
-// could not be read: naming the mutation is the more useful of the two
-// refusals, and the second is the one that fires when nothing is known.
-func decideAPI(argv []string, env Env) *Block {
-	// gh api declares no -h of its own, so both spellings are help.
-	switch argv[1] {
-	case "--help", "-h":
-		return nil
-	}
-	if env.ClaudeCode == "" {
+// Help comes first, as it does for the other four. Then a query that could be
+// read and asks for a mutation answers before a file that could not be read:
+// naming the mutation is the more useful of the two refusals, and the second
+// is the one that fires when nothing is known.
+func decideAPI(argv []string) *Block {
+	if isHelp(argv[1], apiValueFlags) {
 		return nil
 	}
 
@@ -109,7 +114,7 @@ func decideAPI(argv []string, env Env) *Block {
 	if endpoint == "graphql" {
 		query, source, reason := s.queryText()
 		if name := threadMutationName(query); name != "" {
-			return &Block{Message: apiThreadMutationMessage(argv, "mutation: "+name)}
+			return &Block{Message: apiThreadMutationMessage(argv, "mutation:", name)}
 		}
 		if source != "" {
 			return &Block{Message: apiQueryFileMessage(argv, source, reason)}
@@ -117,7 +122,7 @@ func decideAPI(argv []string, env Env) *Block {
 		return nil
 	}
 	if replyEndpoint.MatchString(endpoint) && s.isPOST() {
-		return &Block{Message: apiThreadMutationMessage(argv, "endpoint: POST "+endpoint)}
+		return &Block{Message: apiThreadMutationMessage(argv, "endpoint:", "POST "+endpoint)}
 	}
 	return nil
 }

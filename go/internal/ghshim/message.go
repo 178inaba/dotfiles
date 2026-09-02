@@ -146,11 +146,19 @@ keyword cannot run. gh itself exits before touching the API when it cannot read
 the file, so blocking here loses no command that would otherwise have
 succeeded.
 
-Fix: write the body to the file if it is not written yet, or check the path
+%s
+`, attemptedCommand(argv), bf.fileLong, path, reason, unreadableFileFix("the body", bf.fileLong))
+}
+
+// unreadableFileFix is the way through wherever the shim refuses a file it
+// could not read: write it, or hand it over on standard input, which the shim
+// leaves alone. what names the content, since one such file carries a body and
+// the other a GraphQL query.
+func unreadableFileFix(what, flag string) string {
+	return fmt.Sprintf(`Fix: write %s to the file if it is not written yet, or check the path
 and run again — a relative one resolves against the working directory. To
-pass the body on standard input use --%s -; the shim leaves that alone,
-because reading stdin here would consume what gh is meant to read.
-`, attemptedCommand(argv), bf.fileLong, path, reason, bf.fileLong)
+pass %s on standard input use --%s -; the shim leaves that alone,
+because reading stdin here would consume what gh is meant to read.`, what, what, flag)
 }
 
 // bareHashRefsMessage is the third rule: numbering an argument list with #N.
@@ -185,14 +193,14 @@ the rest the routes are the GitHub UI and an interactive shell.
 ccx is not affected by this guard. It talks to GitHub in process, through
 go-gh's client and gh's own credentials, and never execs gh.`
 
-// apiThreadMutationMessage is the fifth rule. found names what was recognised,
-// already spelled as a label line, since the two halves of the rule recognise
-// different things.
-func apiThreadMutationMessage(argv []string, found string) string {
+// apiThreadMutationMessage is the fifth rule. The two halves of the rule
+// recognise different things, so what was found arrives as its own label and
+// value; the width holds the column the command above it sets.
+func apiThreadMutationMessage(argv []string, label, found string) string {
 	return fmt.Sprintf(`Blocked: this gh api call replies to or resolves a review thread.
 
   command:  %s
-  %s
+  %-9s %s
 
 A reply and a resolve are the two irreversible things done to a review thread,
 and both address it by an opaque id that nothing on this command line checks.
@@ -201,7 +209,7 @@ wrong thread; another, typed outside any skill, left two threads open for a day
 because nothing resolved them afterwards.
 
 %s
-`, attemptedCommand(argv), found, replyThreadsRecovery)
+`, attemptedCommand(argv), label, found, replyThreadsRecovery)
 }
 
 // apiQueryFileMessage is the fifth rule's other refusal: the query could not be
@@ -223,11 +231,8 @@ resolve, and those go through ccx pr reply-threads rather than gh api. gh
 itself exits before touching the API when it cannot read the file, so blocking
 here loses no command that would otherwise have succeeded.
 
-Fix: write the file if it is not written yet, or check the path and run again —
-a relative one resolves against the working directory. To pass the request on
-standard input use --input -; the shim leaves that alone, because reading stdin
-here would consume what gh is meant to read.
-`, attemptedCommand(argv), source, reason)
+%s
+`, attemptedCommand(argv), source, reason, unreadableFileFix("the query", "input"))
 }
 
 // quotedClosingKeywordMessage is the fourth rule. It is written as an
