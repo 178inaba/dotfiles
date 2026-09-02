@@ -1,14 +1,11 @@
-PR 本文中に、バッククォート（コードスパン/コードブロック）で囲まれた
-GitHub closing keyword（Closes/Fixes/Resolves #N）を検出しました。
+Blocked: the pull request body holds a closing keyword inside backticks.
 
-検出元: --body の本文
+  source: the --body value
 
-理由:
-  バッククォートで囲むと GitHub が closing keyword として解釈せず、
-  PR をマージしても対象 Issue が自動 close されません（open のまま残る事故）。
+GitHub does not read Closes/Fixes/Resolves #N as a closing keyword inside a
+code span or a code block, so merging the pull request leaves the issue open.
 
-対処:
-  1. Issue を自動 close する意図の場合: バッククォートを外して生のまま書く
-       例: Closes #656
-  2. closing keyword を引用・文書化する意図の場合: 実番号を避けて
-     プレースホルダに置き換える（例: `Closes #N`。番号がなければ検出されません）
+Fix: if the issue is meant to close on the merge, write the keyword bare:
+  Closes #656
+To quote or document the keyword instead, replace the real number with a
+placeholder (`Closes #N` — without a number it is not detected).

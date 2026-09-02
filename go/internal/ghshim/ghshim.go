@@ -134,7 +134,7 @@ func NewEnv(ctx context.Context, r runner.Runner) Env {
 		OriginRemote: func() string {
 			out, err := runner.Git(ctx, r, dir(), "remote", "get-url", "origin")
 			if err != nil || out == "" {
-				return "(取得不可: git リポジトリ外、または origin が未設定)"
+				return "(unavailable: outside a git repository, or no origin set)"
 			}
 			return out
 		},

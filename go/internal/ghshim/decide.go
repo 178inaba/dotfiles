@@ -96,7 +96,7 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 		source = fmt.Sprintf("--%s %s", bf.fileLong, s.bodyFile)
 	case s.inlineBody != "":
 		body = s.inlineBody
-		source = fmt.Sprintf("--%s の本文", bf.inlineLong)
+		source = fmt.Sprintf("the --%s value", bf.inlineLong)
 	default:
 		return nil
 	}
@@ -114,9 +114,9 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 // fix differs. They are guidance rather than a failure of this program, which
 // is why they are returned as text and not as an error.
 const (
-	reasonMissing    = "ファイルが存在しません（本文をまだ書き出していない可能性があります）"
-	reasonNotRegular = "通常ファイルではありません（ディレクトリ・プロセス置換・パイプ等）"
-	reasonUnreadable = "読み取り権限がありません"
+	reasonMissing    = "the file does not exist (the body may not be written out yet)"
+	reasonNotRegular = "not a regular file (a directory, a process substitution, a pipe)"
+	reasonUnreadable = "no read permission"
 )
 
 // readBody reads a named body file, or says why it could not.

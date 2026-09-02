@@ -1,14 +1,11 @@
-gh の書き込み系サブコマンドで複数行の本文を --notes/-n で渡すことは禁止しています。
+Blocked: a multi-line body may not be passed inline with --notes/-n.
 
-実行しようとしたコマンド:
-  gh release create v1 -R foo/bar --title v1 --notes $'line1\nline2'
+  command: gh release create v1 -R foo/bar --title v1 --notes $'line1\nline2'
 
-理由:
-  --notes "$(...)" と HEREDOC を組み合わせると引用符レイヤが重なり、
-  誤ったエスケープ（バッククォート前の不要なバックスラッシュ等）が
-  そのまま本文に残る事故が起きます。
+Combining --notes "$(...)" with a heredoc stacks two layers of quoting, and a
+mis-escape — a stray backslash before a backtick — ends up in the published
+text.
 
-対処:
-  1. 本文を一時ファイル（scratchpad 等）に Write で書き出す
-  2. --notes の代わりに --notes-file <path> を指定して再実行する
-       例: gh release create -R owner/repo ... --notes-file /path/to/body.md
+Fix: write the body to a file (a scratchpad, say) and pass --notes-file
+instead of --notes:
+  gh release create -R owner/repo ... --notes-file /path/to/body.md
