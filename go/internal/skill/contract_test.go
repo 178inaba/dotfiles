@@ -6,10 +6,8 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/skill"
 )
 
-// published stands in for what the commands actually publish. The real set is
-// assembled by internal/cmd, which is the only place that knows which command
-// renders which type; here it is written out so the check can be exercised
-// without one.
+// published stands in for what the commands publish. internal/cmd assembles
+// the real set; written out here so the check can be exercised without it.
 var published = skill.Contract{
 	Commands:    []string{"worktree collect", "issue tree"},
 	Identifiers: []string{"head_oid", "in_use_by_process", "all_sub_issues_closed", "release_manual_steps"},
@@ -28,27 +26,24 @@ func TestCheckRefsContractFields(t *testing.T) {
 			body: "Run `ccx worktree collect` and keep `head_oid` when you thin the list.\n",
 		},
 		{
-			// The point of the whole check: rename the tag and the skill still
-			// says the old name, with nothing else to notice it.
+			// The point of the whole check.
 			name: "a field that no longer exists",
 			body: "Run `ccx worktree collect` and keep `head_sha` when you thin the list.\n",
 			want: []string{"head_sha"},
 		},
 		{
-			// A skill may name a field of a command it does not run itself:
 			// issue-handle names the section keys while delegating the lookup
 			// to another skill's procedure.
 			name: "a field of a command this skill does not run",
 			body: "Run `ccx worktree collect`, then read the `release_manual_steps` section.\n",
 		},
 		{
-			// Values are branched on as much as fields are.
 			name: "a value of a set",
 			body: "Run `ccx issue tree`; a reason of `in_use_by_process` is left alone.\n",
 		},
 		{
-			// Without a gate every skill about somebody else's schema would
-			// fail on its own vocabulary.
+			// Without the gate, a skill about somebody else's schema would fail
+			// on its own vocabulary.
 			name: "a skill that runs no command at all",
 			body: "A history table needs a `valid_from` and a `valid_to`.\n",
 		},
@@ -57,8 +52,7 @@ func TestCheckRefsContractFields(t *testing.T) {
 			body: "Run `ccx issue tree`, then start it with `run_in_background`.\n",
 		},
 		{
-			// A value written with the field beside it is the usual form, and
-			// matching the whole span would let every one of them through.
+			// The usual form; matching a span whole would let it through.
 			name: "a field written with its value",
 			body: "Run `ccx issue tree`; stop when `all_sub_issues_closed: false`.\n",
 		},

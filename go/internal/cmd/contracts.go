@@ -18,13 +18,10 @@ import (
 // contracts is the one place a command is bound to the types it reads and
 // writes.
 //
-// It is one table rather than a field on each command because two things read
-// it: the help each command prints, and the set of identifiers `ccx skill refs`
-// checks a SKILL.md against. A second command-to-type mapping for the latter
-// would be the very inventory this arrangement exists to delete.
-//
-// A command missing from here prints its Short and its flags and nothing else,
-// which is visible, rather than a stale contract, which is not.
+// One table rather than a field on each command because two things read it:
+// the help, and the identifiers `ccx skill refs` checks a SKILL.md against. A
+// second command-to-type mapping for the latter would be the very inventory
+// this arrangement exists to delete.
 var contracts = map[string]help{
 	"issue tree": {
 		intro: `Resolve where an issue sits among its parent, its children and its blockers.
@@ -358,12 +355,11 @@ configuration is stowed from.`,
 	},
 }
 
-// published is what the ccx commands publish, as `ccx skill refs` needs to see
-// it: the command paths, and every identifier any contract carries.
+// published is what `ccx skill refs` checks a SKILL.md against.
 //
-// Built from the same table the help is rendered from, so a field that is gone
-// from the contract is gone from here in the same commit. It is handed to the
-// check rather than imported by it, because internal/cmd already imports
+// Built from the same table the help is rendered from, so a field gone from
+// the contract is gone from here in the same commit. Handed to the check
+// rather than imported by it, because internal/cmd already imports
 // internal/skill.
 func published() skill.Contract {
 	out := skill.Contract{
@@ -376,9 +372,9 @@ func published() skill.Contract {
 		for _, blk := range h.blocks {
 			ids, err := contract.Identifiers(blk.typ)
 			if err != nil {
-				// A type that cannot be walked is reported by the help tests;
-				// leaving its names out here would only turn that into a
-				// second, more confusing failure in the skills.
+				// The help tests report a type that cannot be walked; failing
+				// here too would only turn that into a second, stranger
+				// failure over in the skills.
 				continue
 			}
 			out.Identifiers = append(out.Identifiers, ids...)
@@ -394,8 +390,7 @@ func published() skill.Contract {
 	return out
 }
 
-// limitSentence names the environment variables that raise the fetch limits,
-// read from the list the command itself uses.
+// limitSentence is read from the list the command itself uses.
 func limitSentence() string {
 	return contract.Wrap(strings.Join(limitVars[:2], ", ") + " and " + limitVars[2] +
 		" raise the fetch limits; each takes a plain non-negative integer, and the " +
@@ -404,16 +399,15 @@ func limitSentence() string {
 
 // sectionKeys is the schema's key column, wrapped into a sentence.
 //
-// Read from the schema rather than written out, so that a key added to it
-// appears here without anyone remembering to. The keys are the one part of
-// this contract that is data rather than a type, which is why they cannot come
-// from the rendering.
+// The keys are the one part of this contract that is data rather than a type,
+// so they cannot come from the rendering. Read from the schema so that a key
+// added to it appears here without anyone remembering to.
 func sectionKeys() string {
 	keys := issue.Keys()
 	return contract.Wrap("The keys are " + strings.Join(keys[:len(keys)-1], ", ") + " and " + keys[len(keys)-1] + ".")
 }
 
-// longFor is a command's help text, or empty where none is registered.
+// longFor is a command's help text, empty where none is registered.
 func longFor(path string) string {
 	h, ok := contracts[path]
 	if !ok {

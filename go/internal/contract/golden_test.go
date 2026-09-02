@@ -13,14 +13,13 @@ import (
 
 var update = flag.Bool("update", false, "rewrite the golden files")
 
-// TestGolden renders three real contracts, chosen for the three things the
-// walk has to get right: a flat type with pointers, a type whose fields reach
-// into another package, and a type carrying enums and an omitzero.
+// TestGolden renders three real contracts, for the three things the walk has
+// to get right: pointers, a field reaching into another package, and enums
+// with an omitzero.
 //
-// These characterise rather than specify — the format itself is pinned by the
-// hand-written expectations in render_test.go. What they catch is a change in
-// a doc comment or a json tag arriving without anyone noticing it changed the
-// published contract.
+// These characterise rather than specify — render_test.go pins the format.
+// What they catch is a doc comment or a json tag changing the published
+// contract without anyone noticing.
 func TestGolden(t *testing.T) {
 	tests := []struct {
 		name string

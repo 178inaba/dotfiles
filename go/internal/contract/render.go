@@ -1,16 +1,10 @@
 // Package contract renders what a ccx command prints and accepts, from the
 // types that define it.
 //
-// A skill's only relationship with ccx is that it runs a command, so the
-// contract has to be obtainable from the command itself. Writing it into each
-// command's help by hand would put a transcription of a struct's json tags in
-// a different file from the struct, which is the arrangement 178inaba/dotfiles#131
-// exists to end: nothing fails when the two disagree. Everything a contract
-// consists of is already declared — the tags give the names and their order,
-// pointer-ness gives nullability, omitzero gives absence, a named string type
-// with constants gives a value set, and the field's doc comment gives the
-// meaning — so the contract is rendered from the type rather than written
-// about it.
+// Written into each command's help by hand it would be a transcription of a
+// struct's json tags kept in another file, which is the arrangement
+// 178inaba/dotfiles#131 exists to end: nothing fails when the two disagree.
+// Everything a contract consists of is already declared, so it is rendered.
 //
 // Reflection cannot see doc comments or the constants of a named type. Those
 // come from Table, which gen/ extracts from source into docs_gen.go.
@@ -28,18 +22,17 @@ import (
 
 // marshalerInterfaces are the two ways a type takes its own serialisation over.
 //
-// Both versions, not just the one this module writes in: jsontext.Value is a
-// defined []byte that implements only the v1 interface, so a v2-only guard
-// would walk into it and describe raw JSON as an array of numbers.
+// Both versions, not just the one this module writes in: jsontext.Value
+// implements only the v1 one, and a v2-only guard would walk into it and
+// describe raw JSON as an array of numbers.
 var marshalerInterfaces = []reflect.Type{
 	reflect.TypeFor[json.MarshalerTo](),
 	reflect.TypeFor[encodingjson.Marshaler](),
 }
 
-// Mode is which side of a command a type sits on, which decides how a pointer
-// reads. On the way out a pointer means the value may be null; on the way in
-// it means the field may be left out, and whether it has to be there is said
-// by a contract:"required" tag instead.
+// Mode is which side of a command a type sits on, which is what decides how a
+// pointer reads: null on the way out, omitted on the way in, where a
+// contract:"required" tag carries the requirement instead.
 type Mode int
 
 const (
@@ -51,24 +44,17 @@ const (
 
 // Table is what the types cannot say about themselves at run time.
 type Table struct {
-	// Fields is keyed "<import path>.<Type>.<Field>" and holds the field's doc
-	// comment, flattened to one line.
+	// The four tables are keyed "<import path>.<Type>" and, for a field or a
+	// value, that with ".<name>" after it.
 	Fields map[string]string
-	// Types is keyed "<import path>.<Type>" and holds a type's own doc
-	// comment, which is where a sentence about the document as a whole lives.
-	Types map[string]string
-	// Enums is keyed "<import path>.<Type>" and holds a named string type's
-	// declared constants, in declaration order.
-	Enums map[string][]string
-	// EnumDocs is keyed "<import path>.<Type>.<value>" and holds what one
-	// constant means, which is as much a part of a contract as the value.
+	Types  map[string]string
+	// In declaration order.
+	Enums    map[string][]string
 	EnumDocs map[string]string
-	// Packages is every import path the table was read from. A type from
-	// anywhere else stops the render rather than describing every one of its
-	// fields as having no explanation.
+	// Every import path the table was read from. A type from anywhere else
+	// stops the render rather than describing all of its fields as unexplained.
 	Packages []string
-	// Marshalers is how a type that serialises itself says what it serialises
-	// as. A type with a custom marshaler that is not in here stops the render:
+	// A type with a custom marshaler and no entry here stops the render:
 	// walking its Go fields would describe a shape that never reaches the wire,
 	// which is worse than saying nothing.
 	Marshalers map[reflect.Type]Marshaled
@@ -76,22 +62,16 @@ type Table struct {
 
 // Marshaled is what a type with a custom marshaler puts on the wire.
 type Marshaled struct {
-	// Kind is the one-line description, standing in for what the Go fields
-	// would have said.
 	Kind string
-	// Elem is the type the value is made of, where the wire form is a list or
-	// a wrapper around one. Without it a reader is told "array of object" and
-	// has to go looking for what is in the object.
+	// The type the value is made of, where the wire form wraps a list. Without
+	// it a reader is told "array of object" and has to go looking.
 	Elem reflect.Type
 }
 
-// The layout. Names sit in a column wide enough for the longest of them, and
-// anything that does not fit beside a name wraps under the description column.
 const (
 	minNameColumn = 12
 	// LineWidth is what a rendered contract is laid out to. Exported so that a
-	// caller checking its own hand-written text against the same column does
-	// not restate the number.
+	// caller checking its own text against the same column does not restate it.
 	LineWidth = 88
 )
 
@@ -102,8 +82,8 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 		return "", err
 	}
 
-	// Counted in runes: three of the assessment values are Japanese, and a
-	// column measured in bytes puts their rows out of line with the rest.
+	// In runes: three of the assessment values are Japanese, and a column
+	// measured in bytes puts their rows out of line with the rest.
 	width := minNameColumn
 	for _, r := range rows {
 		if end := len(r.indent()) + utf8.RuneCountInString(r.name) + 2; end > width {
@@ -112,9 +92,6 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 	}
 
 	var b strings.Builder
-	// The type's own doc comment first: a sentence like "most of the fields
-	// are null on a stopping status" is about the document rather than about
-	// any one field, and there is nowhere else for it to go.
 	for _, line := range wrap(tb.Types[typeKey(deref(t))], LineWidth-2) {
 		b.WriteString("  " + line + "\n")
 	}
@@ -125,8 +102,6 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 	pad := strings.Repeat(" ", width)
 	for _, r := range rows {
 		head := r.indent() + r.name
-		// The kind wraps like the doc does: a value set with six members runs
-		// well past a terminal, and a name column is no reason to let it.
 		for i, line := range wrap(r.kind, LineWidth-width) {
 			if i == 0 {
 				b.WriteString(head + pad[:width-utf8.RuneCountInString(head)] + line + "\n")
@@ -144,10 +119,9 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 // Identifiers is every name a contract publishes: the JSON keys, the members
 // of every value set, and the keys of any nested document.
 //
-// A skill may name one of these where it acts on it, and naming anything else
-// that looks like one is a reference to something that no longer exists. The
-// walk is the same one the help is rendered from, so the two cannot disagree
-// about what the contract contains.
+// A skill may name one of these where it acts on it, and anything else that
+// looks like one is a reference to something gone. Rendered from the same walk
+// as the help, so the two cannot disagree about what the contract contains.
 func (tb Table) Identifiers(t reflect.Type) ([]string, error) {
 	rows, err := tb.walk(t, Output, 0, map[reflect.Type]bool{})
 	if err != nil {
@@ -156,34 +130,26 @@ func (tb Table) Identifiers(t reflect.Type) ([]string, error) {
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, r.name)
-		// The members of a value set are named by a skill branching on them,
-		// so they are identifiers too — including the sets the help lists
-		// inline because nobody wrote down what their members mean.
 		out = append(out, r.enum...)
 	}
 	return out, nil
 }
 
-// row is one field, flattened out of the nesting so that every name in the
-// block shares one column.
 type row struct {
 	depth int
 	name  string
 	kind  string
 	doc   string
-	// enum is the field's value set, whether or not the members were
-	// explained. The rendering shows it only where they were; Identifiers
-	// wants it either way.
+	// The field's value set, explained members or not: the rendering shows it
+	// only where they were, and Identifiers wants it either way.
 	enum []string
 }
 
 func (r row) indent() string { return strings.Repeat("  ", r.depth+1) }
 
-// walk turns a struct into rows, descending into the structs its fields hold.
-//
-// seen breaks a cycle rather than reporting one: no contract type is
-// self-referential today, and a renderer that recurses for ever is a worse
-// answer to one appearing than a name printed without its fields.
+// walk turns a struct into rows. seen breaks a cycle rather than reporting one: no contract type is
+// self-referential today, and recursing for ever is a worse answer to one
+// appearing than a name printed without its fields.
 func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type]bool) ([]row, error) {
 	t = deref(t)
 	if t.Kind() != reflect.Struct {
@@ -216,14 +182,8 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 			enum: tb.Enums[typeKey(enumOf(f.Type))],
 		})
 
-		// A value set whose members are explained is listed one to a line
-		// rather than run together, since the meaning is the half a caller
-		// branching on the value actually needs.
 		rows = append(rows, tb.values(f.Type, depth+1)...)
 
-		// The fields of a struct the command nests are part of the same
-		// contract, and a reader given "object" and nothing else has to go
-		// looking for what is in it.
 		if inner, ok := tb.nested(f.Type); ok {
 			nested, err := tb.walk(inner, mode, depth+1, seen)
 			if err != nil {
@@ -235,8 +195,6 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 	return rows, nil
 }
 
-// describe is the one-line type of a field: what it is, then how it may be
-// absent.
 func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts string) (string, error) {
 	base, err := tb.kindOf(t)
 	if err != nil {
@@ -257,7 +215,7 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 		return qualify(base, "absent when empty"), nil
 	case t.Kind() == reflect.Pointer && !tb.marshals(t):
 		// A type that serialises itself has already said whether it can be
-		// null, and the pointer here is Go's business rather than the wire's.
+		// null; the pointer is Go's business rather than the wire's.
 		return qualify(base, "may be null"), nil
 	}
 	return base, nil
@@ -265,9 +223,8 @@ func (tb Table) describe(t reflect.Type, mode Mode, f reflect.StructField, opts 
 
 // qualify attaches how a field may be absent to what it is.
 //
-// In brackets rather than after a comma, because a value set is itself a
-// comma-separated list and "one of: a, b, required" reads as three values. And
-// before the list rather than after it, because a qualifier sitting past the
+// In brackets and before the list: a value set is itself comma-separated, so
+// "one of: a, b, required" reads as three values and a qualifier past the
 // colon reads as one more member.
 func qualify(base, q string) string {
 	if kind, values, found := strings.Cut(base, ", one of"); found {
@@ -286,9 +243,6 @@ func enumOf(t reflect.Type) reflect.Type {
 	return t
 }
 
-// values lists an enum's members with what each of them means, for the value
-// sets that say. One whose members carry no explanation stays as the inline
-// list in the kind.
 func (tb Table) values(t reflect.Type, depth int) []row {
 	t = enumOf(t)
 	if t.Kind() != reflect.String || !tb.documented(t) {
@@ -301,7 +255,6 @@ func (tb Table) values(t reflect.Type, depth int) []row {
 	return rows
 }
 
-// documented is whether any of a value set's members carries a meaning.
 func (tb Table) documented(t reflect.Type) bool {
 	for _, v := range tb.Enums[typeKey(t)] {
 		if tb.EnumDocs[typeKey(t)+"."+v] != "" {
@@ -311,13 +264,11 @@ func (tb Table) documented(t reflect.Type) bool {
 	return false
 }
 
-// marshals is whether the type behind t takes its own serialisation over.
 func (tb Table) marshals(t reflect.Type) bool {
 	_, ok := tb.Marshalers[deref(t)]
 	return ok
 }
 
-// kindOf names a type the way a JSON document would.
 func (tb Table) kindOf(t reflect.Type) (string, error) {
 	// The override is looked up through a pointer, since a marshaler declared
 	// on the value is reached by the pointer too and the wire form is the same.
@@ -355,9 +306,9 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 	return "", fmt.Errorf("contract: no rendering for %s (kind %s)", t, t.Kind())
 }
 
-// checkMarshaler is the guard. A type that serialises itself and has not said
-// what it serialises as would otherwise be described by its Go fields, which
-// is a confident lie rather than a gap.
+// checkMarshaler is the guard: a type that serialises itself and has not said
+// what it serialises as would be described by its Go fields, which is a
+// confident lie rather than a gap.
 func (tb Table) checkMarshaler(t reflect.Type) error {
 	for _, iface := range marshalerInterfaces {
 		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
@@ -367,7 +318,6 @@ func (tb Table) checkMarshaler(t reflect.Type) error {
 	return nil
 }
 
-// jsonName reads a field's tag: the wire name and the options after it.
 func jsonName(f reflect.StructField) (name, opts string, ok bool) {
 	tag, ok := f.Tag.Lookup("json")
 	if !ok || tag == "-" {
@@ -401,13 +351,12 @@ func typeKey(t reflect.Type) string { return t.PkgPath() + "." + t.Name() }
 
 // Wrap breaks text to the width a help is laid out at.
 //
-// Exported because a hand-written intro that is built rather than typed — the
-// schema's key list, say — has the same column to stay inside, and the layout
-// is this package's to decide.
+// Exported because an intro that is built rather than typed — the schema's key
+// list, say — has the same column to stay inside.
 func Wrap(text string) string { return strings.Join(wrap(text, LineWidth), "\n") }
 
-// wrap breaks text to width, counting runes, since a doc comment may hold an
-// em dash and a column is measured in what a terminal shows.
+// wrap breaks text to width in runes: a doc comment may hold an em dash, and
+// a column is measured in what a terminal shows.
 func wrap(text string, width int) []string {
 	if text == "" {
 		return nil

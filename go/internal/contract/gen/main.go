@@ -1,9 +1,7 @@
 // Command gen writes the part of a contract that reflection cannot see.
 //
-// Doc comments and the constants of a named string type are purely syntactic,
-// so they are read from source here into docs_gen.go and looked up by name at
-// render time. Keeping the parser out of the contract package keeps it out of
-// the ccx binary too.
+// Keeping the parser here rather than in the contract package keeps it out of
+// the ccx binary.
 package main
 
 import (
@@ -17,14 +15,12 @@ import (
 	"strconv"
 )
 
-// modulePath is the prefix of every import path read here, and the prefix the
-// renderer looks fields up by.
+// modulePath is the prefix the renderer looks fields up by.
 const modulePath = "github.com/178inaba/dotfiles/go"
 
-// sources are the packages whose types reach a contract.
-//
-// ghapi is here for one thing: issue.PR.State is a ghapi.PRState, so leaving
-// it out renders the state of a sub-issue's pull request with no value set.
+// sources are the packages whose types reach a contract. ghapi is here for
+// one thing: issue.PR.State is a ghapi.PRState, and leaving it out renders the
+// state of a sub-issue's pull request with no value set.
 var sources = []string{
 	"internal/issue",
 	"internal/worktree",
@@ -34,8 +30,8 @@ var sources = []string{
 	"internal/ghapi",
 }
 
-// outputFile is written beside the contract package, whose directory is where
-// go generate runs this.
+// outputFile is written beside the contract package, which is where go
+// generate runs this.
 const outputFile = "docs_gen.go"
 
 func main() {
@@ -45,7 +41,6 @@ func main() {
 	}
 }
 
-// run generates from contractDir, the directory of the contract package.
 func run(contractDir string) error {
 	out, err := generate(contractDir)
 	if err != nil {
@@ -54,8 +49,8 @@ func run(contractDir string) error {
 	return os.WriteFile(filepath.Join(contractDir, outputFile), out, 0o644)
 }
 
-// generate is run without the write, so that a test can ask whether the file
-// on disk is what this would produce.
+// generate is run without the write, so a test can ask whether the file on
+// disk is what this would produce.
 func generate(contractDir string) ([]byte, error) {
 	// internal/contract is two levels below the module root.
 	moduleRoot := filepath.Join(contractDir, "..", "..")
@@ -112,7 +107,6 @@ func render(d docs) ([]byte, error) {
 	}
 	b.WriteString("}\n")
 
-	// Through go/format so the result needs no gofmt pass of its own, which
-	// the lint step would otherwise fail on.
+	// Through go/format, or the lint step fails on the result.
 	return format.Source(b.Bytes())
 }

@@ -80,9 +80,8 @@ func ParseThreadActions(b []byte, file string) ([]ThreadAction, error) {
 
 	var wire ThreadsFile
 	if err := json.Unmarshal(b, &wire); err != nil {
-		// The fields carry their real types so that the contract can be
-		// rendered from them; mapping the decoder's pointer back is what keeps
-		// the field's own message rather than the decoder's.
+		// Mapping the decoder's pointer back is what keeps the field's own
+		// message rather than the decoder's.
 		var se *json.SemanticError
 		if errors.As(err, &se) && firstToken(se.JSONPointer) == "threads" {
 			if se.JSONPointer == "/threads" {
@@ -92,8 +91,7 @@ func ParseThreadActions(b []byte, file string) ([]ThreadAction, error) {
 		}
 		return nil, fmt.Errorf("invalid JSON in %s (%v)", file, err)
 	}
-	// Absent and null both arrive as nil, and neither says there are no
-	// threads: an empty array does.
+	// Absent and null both arrive as nil; an empty array is what says none.
 	if wire.Threads == nil {
 		return nil, notArray
 	}

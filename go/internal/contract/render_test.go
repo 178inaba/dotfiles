@@ -8,10 +8,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// The types below stand in for the shapes the real contracts take, so that the
-// format is pinned by something written out by hand rather than by whatever
-// the renderer happened to produce. The golden tests over the real types are
-// in golden_test.go and characterise; this one specifies.
+// The types below stand in for the shapes the real contracts take, so the
+// format is pinned by hand rather than by whatever the renderer produced.
+// golden_test.go characterises the real types; this one specifies.
 
 type sampleKind string
 
@@ -82,9 +81,8 @@ func TestRenderOutput(t *testing.T) {
 	}
 }
 
-// TestRenderInput covers the one place the two modes differ: a pointer means
-// "may be null" in an output and "may be omitted" in an input, where
-// required-ness is carried by the tag instead.
+// TestRenderInput covers the one place the modes differ: a pointer reads as
+// null on the way out and as omitted on the way in.
 func TestRenderInput(t *testing.T) {
 	got, err := sampleTable().Render(reflect.TypeFor[sampleIn](), Input)
 	if err != nil {
@@ -104,17 +102,15 @@ type sampleMarshaler struct {
 	Hidden bool
 }
 
-// MarshalJSON makes sampleMarshaler serialise as something the field walk
-// cannot see, which is the case the guard below exists for.
+// MarshalJSON serialises as something the field walk cannot see.
 func (sampleMarshaler) MarshalJSON() ([]byte, error) { return []byte("null"), nil }
 
 type sampleWithMarshaler struct {
 	Odd sampleMarshaler `json:"odd"`
 }
 
-// TestRenderRefusesUnlistedMarshaler is the guard that keeps a custom
-// marshaler from being documented as its Go fields. Rendering the struct's
-// fields would describe a shape that never reaches the wire.
+// TestRenderRefusesUnlistedMarshaler keeps a custom marshaler from being
+// documented as its Go fields, which never reach the wire.
 func TestRenderRefusesUnlistedMarshaler(t *testing.T) {
 	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleWithMarshaler](), Output)
 	if err == nil {
@@ -125,8 +121,7 @@ func TestRenderRefusesUnlistedMarshaler(t *testing.T) {
 	}
 }
 
-// TestRenderUsesMarshalerOverride shows the way out of the guard: a type that
-// serialises for itself says what it serialises as.
+// TestRenderUsesMarshalerOverride is the way out of the guard.
 func TestRenderUsesMarshalerOverride(t *testing.T) {
 	tbl := Table{
 		Fields:     map[string]string{},

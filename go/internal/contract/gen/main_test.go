@@ -7,11 +7,8 @@ import (
 )
 
 // TestGeneratedFileIsCurrent is what makes the contract a rendering rather
-// than a copy: change a doc comment or a constant and the file on disk stops
-// matching what the extractor now produces.
-//
-// It is a test rather than a generate step in CI so that the failure arrives
-// where the change was made, with the command to fix it.
+// than a copy. A test rather than a generate step in CI, so the failure
+// arrives where the change was made, with the command to fix it.
 func TestGeneratedFileIsCurrent(t *testing.T) {
 	contractDir := filepath.Join("..")
 

@@ -10,11 +10,9 @@ import (
 
 // marshalers is the exception list the renderer's guard is checked against.
 //
-// Only two types serialise themselves, and both do it for the same reason: a
-// list GitHub declined to supply is null rather than empty, because "nothing
-// is blocking this" and "what is blocking this could not be read" are
-// different answers. Their Go fields are the wrapper rather than the wire
-// form, so each says what it puts out and which type the elements are.
+// Two types serialise themselves, both so that a list GitHub declined to
+// supply is null rather than empty. Their Go fields are the wrapper rather
+// than the wire form, so each says what it puts out.
 var marshalers = map[reflect.Type]Marshaled{
 	reflect.TypeFor[issue.RefList](): {
 		Kind: "array of object, or null when the list could not be read",

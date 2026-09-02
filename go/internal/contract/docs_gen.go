@@ -132,7 +132,7 @@ var genTypes = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/reviewprs.Result":              "Whether one pull request carries a review by this user.",
 	"github.com/178inaba/dotfiles/go/internal/reviewprs.Spec":                "Spec names one pull request on the command line.",
 	"github.com/178inaba/dotfiles/go/internal/reviewprs.Verification":        "The answer to \"did the reviews I was told about get posted\".",
-	"github.com/178inaba/dotfiles/go/internal/skill.Contract":                "What the ccx commands publish, as this check needs to see it. It is passed in rather than read from the packages that define it: internal/ cmd already imports this one, so importing the contract here would be a cycle, and injecting it keeps this check ignorant of which command renders which type.",
+	"github.com/178inaba/dotfiles/go/internal/skill.Contract":                "What the ccx commands publish, as this check needs to see it. Passed in rather than read from the packages that define it: internal/cmd is the only place that knows which command renders which type, and this check stays ignorant of it.",
 	"github.com/178inaba/dotfiles/go/internal/skill.Frontmatter":             "The outcome of one check.",
 	"github.com/178inaba/dotfiles/go/internal/skill.RefFinding":              "One violation. Every path is relative to the skills directory.",
 	"github.com/178inaba/dotfiles/go/internal/skill.Refs":                    "The outcome of one check.",

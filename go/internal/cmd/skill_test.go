@@ -9,17 +9,15 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/skill"
 )
 
-// TestPublishedNamesTheContract keeps the set the skills are checked against
-// from quietly emptying: a change that made it so would turn `ccx skill refs`
-// into a check that passes on anything.
+// TestPublishedNamesTheContract keeps the set from quietly emptying, which
+// would turn `ccx skill refs` into a check that passes on anything.
 func TestPublishedNamesTheContract(t *testing.T) {
 	got := published()
 
 	if len(got.Commands) != len(contracts) {
 		t.Errorf("published names %d commands, want %d", len(got.Commands), len(contracts))
 	}
-	// One from each of the places an identifier comes from: a field, a value
-	// of a set, a section key, and an exit status's symbol.
+	// One from each place an identifier comes from.
 	for _, want := range []string{"head_oid", "in_use_by_process", "release_manual_steps", "missing_section"} {
 		if !slices.Contains(got.Identifiers, want) {
 			t.Errorf("published does not name %q", want)
@@ -27,13 +25,9 @@ func TestPublishedNamesTheContract(t *testing.T) {
 	}
 }
 
-// TestSkillRefsOnThisRepository is the case a fixture cannot make: the
-// references and the contract identifiers actually written in this
-// repository's skills hold together.
-//
-// It lives here rather than beside CheckRefs because the contract it checks
-// against is assembled here — internal/cmd is the only place that knows which
-// command publishes which type.
+// TestSkillRefsOnThisRepository is the case a fixture cannot make: what this
+// repository's skills actually say holds together. Here rather than beside
+// CheckRefs because the contract it checks against is assembled here.
 func TestSkillRefsOnThisRepository(t *testing.T) {
 	skills := filepath.Join("..", "..", "..", "claude", ".claude", "skills")
 	if _, err := os.Stat(skills); err != nil {

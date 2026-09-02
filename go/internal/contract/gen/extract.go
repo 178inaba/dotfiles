@@ -11,43 +11,28 @@ import (
 	"strings"
 )
 
-// pkg is one package to read: its import path, which is how the renderer will
-// ask for it, and where its source sits.
 type pkg struct {
 	path string
 	dir  string
 }
 
-// docs is everything the types cannot say about themselves at run time.
+// docs is everything the types cannot say about themselves at run time:
+// reflection sees a field's json tag but not the sentence above it, nor a
+// named type's constants. Both are syntactic, so they are read from source.
 //
-// Reflection sees a field's json tag and its type but not the sentence above
-// it, and it sees a named string type but not which constants were declared
-// for it. Both are purely syntactic, so they are read from source here and
-// looked up by name at render time.
+// A field or a type with nothing to say is absent rather than empty — the
+// empties were two thirds of the table, and the renderer asks Enums whether a
+// type is an enum at all.
 type docs struct {
-	// Fields is keyed "<import path>.<Type>.<Field>". A field with no doc
-	// comment is absent: the renderer prints nothing for it either way, and
-	// keeping the empties made two thirds of the generated table noise.
-	Fields map[string]string
-	// Types is keyed "<import path>.<Type>" and holds the type's own doc
-	// comment, for the sentences that are about the document as a whole rather
-	// than about any one field.
-	Types map[string]string
-	// Enums is keyed "<import path>.<Type>" and holds the values in
-	// declaration order. A named string type with no constants is absent
-	// rather than empty: the renderer asks whether a type is an enum.
-	Enums map[string][]string
-	// EnumDocs is keyed "<import path>.<Type>.<value>" and holds the
-	// constant's doc comment. What a value means is as much a part of the
-	// contract as the value itself.
+	Fields   map[string]string
+	Types    map[string]string
+	Enums    map[string][]string
 	EnumDocs map[string]string
-	// Packages is every import path that was read. Without it a type from a
-	// package nobody added to the source list would render with every
-	// description blank and nothing would say why.
+	// Every import path that was read. Without it a type from a package
+	// nobody added to the source list would render blank and say nothing.
 	Packages []string
 }
 
-// extract reads every package and merges the result.
 func extract(pkgs []pkg) (docs, error) {
 	out := docs{Fields: map[string]string{}, Types: map[string]string{}, Enums: map[string][]string{}, EnumDocs: map[string]string{}}
 	for _, p := range pkgs {
@@ -65,8 +50,7 @@ func extractPkg(p pkg, out docs) error {
 		return err
 	}
 
-	// The string types have to be known before the const blocks are read,
-	// because a constant may be declared above the type it belongs to.
+	// Before the const blocks: a constant may be declared above its type.
 	stringTypes := map[string]bool{}
 	for _, f := range files {
 		forEachDecl(f, token.TYPE, func(gd *ast.GenDecl) {
@@ -85,13 +69,12 @@ func extractPkg(p pkg, out docs) error {
 	return nil
 }
 
-// parseDir reads a package's non-test Go files, sorted by name so that the
-// generated table does not move when a filesystem changes its mind about order.
+// parseDir reads a package's non-test Go files, sorted by name so the table
+// does not move with the filesystem.
 //
-// go/parser has a ParseDir for this, but it is deprecated for not honouring
-// build tags, and reading the directory here also makes the test-file
-// exclusion explicit — a fixture struct in one would otherwise join a contract
-// it has nothing to do with.
+// go/parser's own ParseDir is deprecated for not honouring build tags, and
+// reading the directory here makes the test-file exclusion explicit — a
+// fixture struct would otherwise join a contract it has nothing to do with.
 func parseDir(dir string) ([]*ast.File, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -133,8 +116,8 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 		if !ok {
 			continue
 		}
-		// A single-spec declaration keeps its doc comment on the declaration;
-		// one inside a parenthesised block keeps it on the spec.
+		// A single-spec declaration keeps its comment on the declaration; one
+		// in a parenthesised block keeps it on the spec.
 		if doc := docText(ts.Doc, ts.Name.Name, ""); doc != "" {
 			out.Types[path+"."+ts.Name.Name] = doc
 		} else if doc := docText(gd.Doc, ts.Name.Name, ""); doc != "" && len(gd.Specs) == 1 {
@@ -142,8 +125,7 @@ func collectFields(path string, gd *ast.GenDecl, out docs) {
 		}
 
 		for _, field := range st.Fields.List {
-			// A field with no json tag is not on the wire, whatever else it
-			// is, so nothing about it belongs in a contract.
+			// Not on the wire, so not in a contract.
 			if field.Tag == nil || !strings.Contains(field.Tag.Value, "json:") {
 				continue
 			}
@@ -162,10 +144,9 @@ func collectEnums(path string, gd *ast.GenDecl, stringTypes map[string]bool, out
 		if !ok {
 			continue
 		}
-		// Only a specification that names its own type. A constant declared
-		// without one is untyped, whatever the specification above it said, so
-		// carrying the type down would collect an unrelated string as a member
-		// of the value set.
+		// Only a specification naming its own type: without one a constant is
+		// untyped, whatever the one above it said, and carrying the type down
+		// would collect an unrelated string into the value set.
 		id, ok := vs.Type.(*ast.Ident)
 		if !ok || !stringTypes[id.Name] {
 			continue
@@ -193,8 +174,8 @@ func isStringIdent(e ast.Expr) bool {
 	return ok && id.Name == "string"
 }
 
-// jsonName is the wire name in a struct tag, empty where the tag carries
-// none. Read from the tag's source text, since this side has no reflection.
+// jsonName is read from the tag's source text, since this side has no
+// reflection.
 func jsonName(tag string) string {
 	_, rest, found := strings.Cut(tag, `json:"`)
 	if !found {
@@ -205,8 +186,7 @@ func jsonName(tag string) string {
 	return key
 }
 
-// name is a value specification's first declared name, which is what its doc
-// comment opens with.
+// name is what a value specification's doc comment opens with.
 func name(vs *ast.ValueSpec) string {
 	if len(vs.Names) == 0 {
 		return ""
@@ -218,19 +198,12 @@ func name(vs *ast.ValueSpec) string {
 // into the words the reader has.
 //
 // Two readers, one comment. Go convention — and revive, which the lint step
-// enables for exactly this — is to open with the declaration's own name, so
-// the source keeps it. The reader of a --help has never seen that name: what
-// they have is the JSON key, or the value of the constant.
+// enables for exactly this — is to open with the declaration's own name, which
+// the reader of a --help has never seen; what they have is the JSON key, or
+// the constant's value. So the name is replaced rather than removed, since
+// dropping the subject alone would leave "Are the degradations that…".
 //
-// So a field's comment gets its JSON name substituted, which leaves a sentence
-// that still has a subject; "HeadOID is set only when" becomes "head_oid is set
-// only when". A type has no wire name — it is the block's preamble rather than
-// a row — so its name comes off along with the verb after it. Dropping the name
-// alone would leave "Are the degradations that…", a fragment.
-//
-// Help is rendered into a column whose width is decided at render time, so the
-// comment's own line breaks would fight it; they are joined here and the
-// renderer wraps.
+// The line breaks go because the render decides the column width, not this.
 func docText(g *ast.CommentGroup, decl, wire string) string {
 	if g == nil {
 		return ""
@@ -240,15 +213,14 @@ func docText(g *ast.CommentGroup, decl, wire string) string {
 	if !found || rest == "" {
 		return text
 	}
-	// The row already carries the name, so the plain "X is a thing" form reads
-	// best with both the subject and its verb gone.
+	// The row already carries the name, so "X is a thing" reads best with the
+	// subject and its verb both gone.
 	for _, verb := range []string{"is ", "are "} {
 		if tail, ok := strings.CutPrefix(rest, verb); ok && tail != "" {
 			return strings.ToUpper(tail[:1]) + tail[1:]
 		}
 	}
-	// Any other verb, and dropping the subject would leave a fragment, so the
-	// name is replaced instead of removed.
+	// Any other verb would leave a fragment, so replace rather than remove.
 	if wire != "" {
 		return wire + " " + rest
 	}

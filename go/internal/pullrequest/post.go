@@ -109,8 +109,8 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	if err != nil {
 		return Submission{}, err
 	}
-	// Absent and null both arrive as nil, and neither is an empty list of
-	// comments: a review file that forgot the key has not said there are none.
+	// Absent and null both arrive as nil, and a file that forgot the key has
+	// not said there are no comments.
 	if wire.Comments == nil {
 		return Submission{}, commentsError(file)
 	}
@@ -132,11 +132,8 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 // submissionError turns the decoder's complaint back into the message the
 // offending field has of its own.
 //
-// The fields carry their real types so that the contract can be rendered from
-// them rather than written out beside them. What that costs is this: a review
-// whose comments are an object still has to be told what the field should have
-// held, not what a decoder made of it, so the pointer the decoder reports is
-// mapped back to the field's own message.
+// The price of typed fields: a review whose comments are an object still has
+// to be told what the field should have held, not what a decoder made of it.
 func submissionError(err error, file string) error {
 	var se *json.SemanticError
 	if errors.As(err, &se) {
@@ -152,8 +149,7 @@ func submissionError(err error, file string) error {
 	return fmt.Errorf("invalid JSON in %s (%v)", file, err)
 }
 
-// firstToken is the top-level field a pointer reaches into, which is as deep
-// as any of these messages distinguishes.
+// firstToken is as deep as any of these messages distinguishes.
 func firstToken(p jsontext.Pointer) string {
 	for tok := range p.Tokens() {
 		return tok

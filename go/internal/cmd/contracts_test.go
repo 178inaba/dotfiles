@@ -14,9 +14,8 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
-// TestContractsRender is the guard behind the degradation in help.String: a
-// type that cannot be rendered produces a help saying so rather than a panic,
-// and this is what stops one shipping.
+// TestContractsRender is what stops the degradation in help.String shipping:
+// a type that cannot be rendered says so instead of panicking.
 func TestContractsRender(t *testing.T) {
 	for path, h := range contracts {
 		text := h.String()
@@ -31,25 +30,20 @@ func TestContractsRender(t *testing.T) {
 	}
 }
 
-// goIdentifier is a word only a Go reader could resolve: two or more
-// capital-led parts run together, which is how this module spells a
-// declaration and never how it spells English.
+// goIdentifier is a word only a Go reader could resolve: capital-led parts run
+// together, which is how this module spells a declaration and not English.
 var goIdentifier = regexp.MustCompile(`\b[A-Z][a-z0-9]+([A-Z][A-Za-z0-9]*)+\b`)
 
-// notAnIdentifier are the words that look like one and are names of things
-// outside this module, so a help is right to print them.
 var notAnIdentifier = map[string]bool{
 	"GitHub": true, "GraphQL": true, "SemanticError": true,
 }
 
 // TestNoGoNamesInTheRenderedContract is the guard behind the rule that a doc
-// comment now has two readers.
+// comment now has two readers. Three Go names had reached a published help
+// before it existed.
 //
-// The extractor drops the name a comment opens with, but only for the verbs it
-// knows, and nothing stopped a comment from naming a Go declaration in the
-// middle of a sentence. Three had reached a published help before this existed.
-// Only the rendered blocks are checked: an intro is hand-written English and
-// may legitimately name a Go type it is telling the reader about.
+// Only the rendered blocks: an intro is hand-written English and may
+// legitimately name a Go type it is telling the reader about.
 func TestNoGoNamesInTheRenderedContract(t *testing.T) {
 	for path, h := range contracts {
 		for _, blk := range h.blocks {
@@ -67,12 +61,9 @@ func TestNoGoNamesInTheRenderedContract(t *testing.T) {
 	}
 }
 
-// TestContractsNameRealCommands keeps the table honest in the direction the
-// help cannot show: a key that matches no command is a contract nobody prints.
-//
-// The binding is the key itself, since the help hook looks a command up by its
-// path when help is asked for. A key that matches nothing is therefore the
-// only way a contract can go unprinted.
+// TestContractsNameRealCommands catches the one way a contract goes unprinted:
+// the help hook looks a command up by its path, so a key matching no command
+// is a contract nobody reaches.
 func TestContractsNameRealCommands(t *testing.T) {
 	root := newRootCmd(selfbuild.State{})
 
@@ -93,8 +84,8 @@ func TestContractsNameRealCommands(t *testing.T) {
 	}
 }
 
-// TestHelpRendersTheContract is the other half: asking a command for help has
-// to reach the table, which is what the hook on the root is for.
+// TestHelpRendersTheContract is the other half: asking for help has to reach
+// the table, which is what the hook on the root is for.
 func TestHelpRendersTheContract(t *testing.T) {
 	var out bytes.Buffer
 	if code := run(t.Context(), []string{"worktree", "collect", "--help"}, nil, &out, io.Discard, selfbuild.State{}); code != 0 {
@@ -107,12 +98,9 @@ func TestHelpRendersTheContract(t *testing.T) {
 	}
 }
 
-// TestEverySkillFacingCommandHasAContract is the list itself, written out.
-//
-// These are the commands a skill reads the output of, so these are the ones
-// whose contract has to be obtainable from the command. The statusline, the
-// hooks and the refresh commands are not here: a hook answers Claude Code with
-// an exit status and no skill reads any of them.
+// TestEverySkillFacingCommandHasAContract is the list itself, written out: the
+// commands a skill reads the output of. The statusline, the hooks and the
+// refresh commands are not among them.
 func TestEverySkillFacingCommandHasAContract(t *testing.T) {
 	want := []string{
 		"issue tree",

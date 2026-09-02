@@ -221,7 +221,7 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 			return silent(renderJSON(c.OutOrStdout(), prepared))
 		},
 	}
-	c.Flags().IntVar(&issue, "issue", 0, "issue the review is about, instead of the ones the pull request body names")
+	c.Flags().IntVar(&issue, "issue", 0, "issue the review is about, instead of the ones the body names")
 	c.Flags().BoolVar(&worktreeFlag, "worktree", false, "the checkout is a worktree already resolved for this pull request")
 	c.Flags().BoolVar(&localOnly, "local-only", false, "do not post the findings as a review")
 	c.Flags().BoolVar(&noAutofix, "no-autofix", false, "do not act on the findings")

@@ -8,10 +8,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// The fixture is written to disk rather than kept as a testdata package,
-// because the extractor's whole job is to read a directory of Go source and
-// two of the cases below — a doc comment spanning lines, and a const block that
-// states its type once — are about source layout rather than about the AST.
+// Written to disk rather than kept as a testdata package: the extractor's job
+// is to read a directory of Go source, and two of the cases below are about
+// source layout rather than about the AST.
 const fixture = `package sample
 
 // Kind is what sort of thing this is.
@@ -67,10 +66,8 @@ func TestExtract(t *testing.T) {
 		t.Fatalf("extract: %v", err)
 	}
 
-	// The Go name each comment opens with is dropped: the reader of a --help
-	// has no such name in front of them. A field with no comment is absent
-	// rather than present and empty, since the renderer prints nothing either
-	// way and the empties were two thirds of the real table.
+	// The Go name each comment opens with is replaced by the JSON one, and a
+	// field with no comment is absent rather than present and empty.
 	wantFields := map[string]string{
 		"example.com/sample.Thing.Name":   "What it is called.",
 		"example.com/sample.Thing.Parent": "Null when there is none, and also when it could not be read — the warning tells those apart.",
@@ -79,9 +76,8 @@ func TestExtract(t *testing.T) {
 		t.Errorf("fields (-want +got):\n%s", diff)
 	}
 
-	// Loose has no constants, so it is absent rather than present and empty:
-	// the renderer asks whether a type is an enum, and an empty entry would
-	// answer yes with nothing to show.
+	// Loose has no constants, so it is absent: an empty entry would answer
+	// "is this an enum" with yes and nothing to show.
 	wantEnums := map[string][]string{"example.com/sample.Kind": {"alpha", "beta"}}
 	if diff := cmp.Diff(wantEnums, got.Enums); diff != "" {
 		t.Errorf("enums (-want +got):\n%s", diff)
@@ -96,8 +92,8 @@ func TestExtract(t *testing.T) {
 }
 
 // TestExtractUntypedConstIsNotAMember covers the shape that looks like a value
-// set and is not: a constant declared without a type of its own is untyped,
-// whatever the specification above it said.
+// set and is not: without a type of its own a constant is untyped, whatever
+// the specification above it said.
 func TestExtractUntypedConstIsNotAMember(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "sample.go"), "package sample\n\ntype Verdict string\n\nconst (\n\tA Verdict = \"a\"\n\tB          = \"b\"\n)\n")
