@@ -102,7 +102,9 @@ func serve(t *testing.T, p pages) *ghapi.Client {
 // The fixture below is, thread by thread: one
 // remark of a reviewer's, one resolved, one we answered, one resolved after we
 // answered, one of ours that was answered, one of ours we already confirmed,
-// one of ours resolved, and one of ours the author never replied to.
+// one of ours resolved, one of ours the author never replied to, one a bot
+// opened that only the bot and we are in, and one a bot opened that a person
+// joined.
 const fixtureBody = `{"data":{
   "viewer": {"login": "testuser"},
   "repository": {
@@ -121,51 +123,62 @@ const fixtureBody = `{"data":{
       "reviews": {
         "totalCount": 1,
         "nodes": [
-          {"author": {"login": "reviewer1"}, "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submittedAt": "2026-01-01T00:00:00Z"}
+          {"author": {"login": "reviewer1", "__typename": "User"}, "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submittedAt": "2026-01-01T00:00:00Z"}
         ]
       },
       "reviewThreads": {
-        "totalCount": 8,
+        "totalCount": 10,
         "pageInfo": {"hasNextPage": false, "endCursor": "tc-1"},
         "nodes": [
-          {"id": "PRRT_1", "isResolved": false, "isOutdated": false, "path": "src/main.go", "line": 30, "resolvedBy": null,
+          {"id": "PRRT_1", "isResolved": false, "isOutdated": false, "path": "src/main.go", "line": 30, "originalLine": 30, "resolvedBy": null,
            "comments": {"totalCount": 1, "pageInfo": {"hasNextPage": false, "endCursor": "t1"},
-             "nodes": [{"author": {"login": "reviewer1"}, "body": "ここ直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t1"}]},
-           "tail": {"nodes": [{"author": {"login": "reviewer1"}, "body": "ここ直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t1"}]}},
-          {"id": "PRRT_2", "isResolved": true, "isOutdated": true, "path": "src/util.go", "line": 10, "resolvedBy": {"login": "testuser"},
+             "nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "ここ直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t1"}]},
+           "tail": {"nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "ここ直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t1"}]}},
+          {"id": "PRRT_2", "isResolved": true, "isOutdated": true, "path": "src/util.go", "line": 10, "originalLine": 10, "resolvedBy": {"login": "testuser"},
            "comments": {"totalCount": 1, "pageInfo": {"hasNextPage": false, "endCursor": "t2"},
-             "nodes": [{"author": {"login": "reviewer2"}, "body": "解決済み", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t2"}]},
-           "tail": {"nodes": [{"author": {"login": "reviewer2"}, "body": "解決済み", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t2"}]}},
-          {"id": "PRRT_3", "isResolved": false, "isOutdated": false, "path": "src/api.go", "line": 7, "resolvedBy": null,
+             "nodes": [{"author": {"login": "reviewer2", "__typename": "User"}, "body": "解決済み", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t2"}]},
+           "tail": {"nodes": [{"author": {"login": "reviewer2", "__typename": "User"}, "body": "解決済み", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t2"}]}},
+          {"id": "PRRT_3", "isResolved": false, "isOutdated": false, "path": "src/api.go", "line": 7, "originalLine": 7, "resolvedBy": null,
            "comments": {"totalCount": 2, "pageInfo": {"hasNextPage": false, "endCursor": "t3"},
-             "nodes": [{"author": {"login": "reviewer1"}, "body": "ここも直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t3a"},
-                       {"author": {"login": "testuser"}, "body": "修正しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t3b"}]},
-           "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "修正しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t3b"}]}},
-          {"id": "PRRT_4", "isResolved": true, "isOutdated": false, "path": "src/db.go", "line": 42, "resolvedBy": {"login": "testuser"},
+             "nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "ここも直して", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t3a"},
+                       {"author": {"login": "testuser", "__typename": "User"}, "body": "修正しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t3b"}]},
+           "tail": {"nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "修正しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t3b"}]}},
+          {"id": "PRRT_4", "isResolved": true, "isOutdated": false, "path": "src/db.go", "line": 42, "originalLine": 42, "resolvedBy": {"login": "testuser"},
            "comments": {"totalCount": 2, "pageInfo": {"hasNextPage": false, "endCursor": "t4"},
-             "nodes": [{"author": {"login": "reviewer2"}, "body": "ここ確認", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t4a"},
-                       {"author": {"login": "testuser"}, "body": "対応済みです", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t4b"}]},
-           "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "対応済みです", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t4b"}]}},
-          {"id": "PRRT_5", "isResolved": false, "isOutdated": false, "path": "src/cache.go", "line": 12, "resolvedBy": null,
+             "nodes": [{"author": {"login": "reviewer2", "__typename": "User"}, "body": "ここ確認", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t4a"},
+                       {"author": {"login": "testuser", "__typename": "User"}, "body": "対応済みです", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t4b"}]},
+           "tail": {"nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "対応済みです", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t4b"}]}},
+          {"id": "PRRT_5", "isResolved": false, "isOutdated": false, "path": "src/cache.go", "line": 12, "originalLine": 12, "resolvedBy": null,
            "comments": {"totalCount": 2, "pageInfo": {"hasNextPage": false, "endCursor": "t5"},
-             "nodes": [{"author": {"login": "testuser"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t5a"},
-                       {"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t5b"}]},
-           "tail": {"nodes": [{"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t5b"}]}},
-          {"id": "PRRT_6", "isResolved": false, "isOutdated": false, "path": "src/cache.go", "line": 20, "resolvedBy": null,
+             "nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t5a"},
+                       {"author": {"login": "othercoder", "__typename": "User"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t5b"}]},
+           "tail": {"nodes": [{"author": {"login": "othercoder", "__typename": "User"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t5b"}]}},
+          {"id": "PRRT_6", "isResolved": false, "isOutdated": false, "path": "src/cache.go", "line": 20, "originalLine": 20, "resolvedBy": null,
            "comments": {"totalCount": 3, "pageInfo": {"hasNextPage": false, "endCursor": "t6"},
-             "nodes": [{"author": {"login": "testuser"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t6a"},
-                       {"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t6b"},
-                       {"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-02-01T00:00:00Z", "url": "https://example.com/t6c"}]},
-           "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "確認しました", "createdAt": "2026-02-01T00:00:00Z", "url": "https://example.com/t6c"}]}},
-          {"id": "PRRT_7", "isResolved": true, "isOutdated": false, "path": "src/cache.go", "line": 31, "resolvedBy": {"login": "testuser"},
+             "nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t6a"},
+                       {"author": {"login": "othercoder", "__typename": "User"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t6b"},
+                       {"author": {"login": "testuser", "__typename": "User"}, "body": "確認しました", "createdAt": "2026-02-01T00:00:00Z", "url": "https://example.com/t6c"}]},
+           "tail": {"nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "確認しました", "createdAt": "2026-02-01T00:00:00Z", "url": "https://example.com/t6c"}]}},
+          {"id": "PRRT_7", "isResolved": true, "isOutdated": false, "path": "src/cache.go", "line": 31, "originalLine": 31, "resolvedBy": {"login": "testuser"},
            "comments": {"totalCount": 2, "pageInfo": {"hasNextPage": false, "endCursor": "t7"},
-             "nodes": [{"author": {"login": "testuser"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t7a"},
-                       {"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t7b"}]},
-           "tail": {"nodes": [{"author": {"login": "othercoder"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t7b"}]}},
-          {"id": "PRRT_8", "isResolved": false, "isOutdated": true, "path": "src/cache.go", "line": null, "resolvedBy": null,
+             "nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "自分が出した指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t7a"},
+                       {"author": {"login": "othercoder", "__typename": "User"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t7b"}]},
+           "tail": {"nodes": [{"author": {"login": "othercoder", "__typename": "User"}, "body": "直しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t7b"}]}},
+          {"id": "PRRT_8", "isResolved": false, "isOutdated": true, "path": "src/cache.go", "line": null, "originalLine": 55, "resolvedBy": null,
            "comments": {"totalCount": 1, "pageInfo": {"hasNextPage": false, "endCursor": "t8"},
-             "nodes": [{"author": {"login": "testuser"}, "body": "自分が出した指摘（作者は返信せず修正だけ push）", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t8a"}]},
-           "tail": {"nodes": [{"author": {"login": "testuser"}, "body": "自分が出した指摘（作者は返信せず修正だけ push）", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t8a"}]}}
+             "nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "自分が出した指摘（作者は返信せず修正だけ push）", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t8a"}]},
+           "tail": {"nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "自分が出した指摘（作者は返信せず修正だけ push）", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t8a"}]}},
+          {"id": "PRRT_9", "isResolved": false, "isOutdated": false, "path": "src/bot.go", "line": 3, "originalLine": 3, "resolvedBy": null,
+           "comments": {"totalCount": 2, "pageInfo": {"hasNextPage": false, "endCursor": "t9"},
+             "nodes": [{"author": {"login": "copilot-pull-request-reviewer", "__typename": "Bot"}, "body": "誤検知の指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t9a"},
+                       {"author": {"login": "testuser", "__typename": "User"}, "body": "誤検知なのでこのままにします", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t9b"}]},
+           "tail": {"nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "誤検知なのでこのままにします", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t9b"}]}},
+          {"id": "PRRT_10", "isResolved": false, "isOutdated": false, "path": "src/bot.go", "line": 9, "originalLine": 9, "resolvedBy": null,
+           "comments": {"totalCount": 3, "pageInfo": {"hasNextPage": false, "endCursor": "t10"},
+             "nodes": [{"author": {"login": "copilot-pull-request-reviewer", "__typename": "Bot"}, "body": "誤検知の指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/t10a"},
+                       {"author": {"login": "testuser", "__typename": "User"}, "body": "誤検知なのでこのままにします", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/t10b"},
+                       {"author": {"login": "reviewer1", "__typename": "User"}, "body": "いや、これは本当のバグでは", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/t10c"}]},
+           "tail": {"nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "いや、これは本当のバグでは", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/t10c"}]}}
         ]
       }
     }
@@ -235,7 +248,7 @@ func TestFetch(t *testing.T) {
 
 	t.Run("reviews", func(t *testing.T) {
 		want := []pullrequest.Review{{
-			Author: new("reviewer1"), State: "CHANGES_REQUESTED", Body: "優先度1: テスト不足",
+			Author: new("reviewer1"), AuthorType: new("User"), State: "CHANGES_REQUESTED", Body: "優先度1: テスト不足",
 			URL: "https://example.com/r1", SubmittedAt: "2026-01-01T00:00:00Z",
 		}}
 		if diff := cmp.Diff(want, got.Reviews); diff != "" {
@@ -247,8 +260,8 @@ func TestFetch(t *testing.T) {
 	})
 
 	t.Run("threads", func(t *testing.T) {
-		if got.ThreadsTotalCount != 8 || got.ThreadsTruncated || len(got.ReviewThreads) != 8 {
-			t.Fatalf("threads = %d of %d, truncated %v; want all 8", len(got.ReviewThreads), got.ThreadsTotalCount, got.ThreadsTruncated)
+		if got.ThreadsTotalCount != 10 || got.ThreadsTruncated || len(got.ReviewThreads) != 10 {
+			t.Fatalf("threads = %d of %d, truncated %v; want all 10", len(got.ReviewThreads), got.ThreadsTotalCount, got.ThreadsTruncated)
 		}
 		first := got.ReviewThreads[0]
 		if first.ID != "PRRT_1" || first.Path != "src/main.go" || first.Line == nil || *first.Line != 30 {
@@ -257,12 +270,56 @@ func TestFetch(t *testing.T) {
 		if second := got.ReviewThreads[1]; !second.IsResolved || !second.IsOutdated || second.ResolvedBy == nil {
 			t.Errorf("the second thread = %+v, want it resolved and outdated by somebody", second)
 		}
-		// A thread whose lines are gone from the diff has no line at all.
-		if last := got.ReviewThreads[7]; last.Line != nil {
-			t.Errorf("line = %v, want null", last.Line)
+		// A thread whose lines are gone from the diff has no line at all, and
+		// original_line is what a selector still reaches it by.
+		outdated := got.ReviewThreads[7]
+		if outdated.Line != nil {
+			t.Errorf("line = %v, want null", outdated.Line)
 		}
-		if last := got.ReviewThreads[7].LastComment; last == nil || last.URL != "https://example.com/t8a" {
+		if outdated.OriginalLine == nil || *outdated.OriginalLine != 55 {
+			t.Errorf("original_line = %v, want 55 even though line is null", outdated.OriginalLine)
+		}
+		if last := outdated.LastComment; last == nil || last.URL != "https://example.com/t8a" {
 			t.Errorf("last_comment = %+v, want the newest comment of the thread", last)
+		}
+	})
+
+	t.Run("who opened each thread, and of what kind", func(t *testing.T) {
+		tests := []struct {
+			index    int
+			login    string
+			typename string
+		}{
+			{index: 0, login: "reviewer1", typename: "User"},
+			{index: 4, login: "testuser", typename: "User"},
+			{index: 8, login: "copilot-pull-request-reviewer", typename: "Bot"},
+		}
+		for _, tc := range tests {
+			thread := got.ReviewThreads[tc.index]
+			if thread.OpenedBy == nil || *thread.OpenedBy != tc.login {
+				t.Errorf("thread %d opened_by = %v, want %q", tc.index, thread.OpenedBy, tc.login)
+			}
+			if thread.OpenedByType == nil || *thread.OpenedByType != tc.typename {
+				t.Errorf("thread %d opened_by_type = %v, want %q", tc.index, thread.OpenedByType, tc.typename)
+			}
+		}
+	})
+
+	t.Run("the type of each comment's author", func(t *testing.T) {
+		// The same field the conversation's comments already carry, so that a
+		// bot is told from a person inside a thread too.
+		bot := got.ReviewThreads[8]
+		if len(bot.Comments) != 2 {
+			t.Fatalf("the bot thread has %d comments, want 2", len(bot.Comments))
+		}
+		if bot.Comments[0].AuthorType == nil || *bot.Comments[0].AuthorType != "Bot" {
+			t.Errorf("comments[0].author_type = %v, want Bot", bot.Comments[0].AuthorType)
+		}
+		if bot.LastComment == nil || bot.LastComment.AuthorType == nil || *bot.LastComment.AuthorType != "User" {
+			t.Errorf("last_comment.author_type = %+v, want User", bot.LastComment)
+		}
+		if got.Reviews[0].AuthorType == nil || *got.Reviews[0].AuthorType != "User" {
+			t.Errorf("reviews[0].author_type = %v, want User", got.Reviews[0].AuthorType)
 		}
 	})
 
@@ -301,7 +358,90 @@ func TestFetch(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("whose move it is, and who may close it", func(t *testing.T) {
+		tests := []struct {
+			name           string
+			index          int
+			wantBall       pullrequest.Ball
+			wantResolvable bool
+		}{
+			// Somebody else's remark on our own work: ours to answer, theirs
+			// to close.
+			{name: "a reviewer's remark nobody answered", index: 0, wantBall: pullrequest.BallMine},
+			{name: "a resolved thread", index: 1, wantBall: pullrequest.BallNone},
+			{name: "we answered a reviewer", index: 2, wantBall: pullrequest.BallTheirs},
+			{name: "resolved after we answered", index: 3, wantBall: pullrequest.BallNone},
+			// Our own remarks: we close them, whoever owns the pull request.
+			{name: "our remark was answered", index: 4, wantBall: pullrequest.BallMine, wantResolvable: true},
+			{name: "our remark we already confirmed", index: 5, wantBall: pullrequest.BallTheirs, wantResolvable: true},
+			{name: "our remark, resolved", index: 6, wantBall: pullrequest.BallNone},
+			{name: "our remark overtaken by a commit", index: 7, wantBall: pullrequest.BallMine, wantResolvable: true},
+			// A bot never comes back to confirm, so a thread only it and we are
+			// in stays ours to act on even after our own reply — the state that
+			// left two threads open for a day.
+			{name: "a bot's remark we already answered", index: 8, wantBall: pullrequest.BallMine, wantResolvable: true},
+			// One person in the thread and it is a person's remark again.
+			{name: "a bot's remark a person joined", index: 9, wantBall: pullrequest.BallMine},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				thread := got.ReviewThreads[tc.index]
+				if thread.Ball != tc.wantBall {
+					t.Errorf("ball = %q, want %q", thread.Ball, tc.wantBall)
+				}
+				if thread.ResolvableByMe != tc.wantResolvable {
+					t.Errorf("resolvable_by_me = %v, want %v", thread.ResolvableByMe, tc.wantResolvable)
+				}
+			})
+		}
+	})
 }
+
+// TestFetchBotThreadWithTruncatedComments is the undecidable case: a
+// participant may sit outside the window that was fetched, so the thread is not
+// treated as one only a bot and we are in — which would otherwise let a run
+// close a person's remark.
+func TestFetchBotThreadWithTruncatedComments(t *testing.T) {
+	t.Parallel()
+
+	got := fetch(t, pages{body: truncatedBotBody}, meta, pullrequest.Limits{Comments: 500, Threads: 300, ThreadComments: 1})
+
+	thread := got.ReviewThreads[0]
+	if !thread.CommentsTruncated {
+		t.Fatalf("the fixture's thread is not truncated: %+v", thread)
+	}
+	if thread.Ball != pullrequest.BallTheirs {
+		t.Errorf("ball = %q, want %q: our reply is last and the thread is not known to be a bot's alone", thread.Ball, pullrequest.BallTheirs)
+	}
+	if thread.ResolvableByMe {
+		t.Error("resolvable_by_me = true on a thread whose participants are not all known")
+	}
+}
+
+// truncatedBotBody is one bot-opened thread whose comments do not all fit in
+// the window.
+const truncatedBotBody = `{"data":{
+  "viewer": {"login": "testuser"},
+  "repository": {
+    "headCommit": {"committedDate": "2026-01-15T00:00:00Z"},
+    "pullRequest": {
+      "comments": {"totalCount": 0, "pageInfo": {"hasNextPage": false, "endCursor": ""}, "nodes": []},
+      "reviews": {"totalCount": 0, "nodes": []},
+      "reviewThreads": {
+        "totalCount": 1,
+        "pageInfo": {"hasNextPage": false, "endCursor": "tc-1"},
+        "nodes": [
+          {"id": "PRRT_bot", "isResolved": false, "isOutdated": false, "path": "src/bot.go", "line": 3, "originalLine": 3, "resolvedBy": null,
+           "comments": {"totalCount": 3, "pageInfo": {"hasNextPage": true, "endCursor": "bc1"},
+             "nodes": [{"author": {"login": "copilot-pull-request-reviewer", "__typename": "Bot"}, "body": "誤検知の指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/tb1"}]},
+           "tail": {"nodes": [{"author": {"login": "testuser", "__typename": "User"}, "body": "誤検知なのでこのままにします", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/tb3"}]}}
+        ]
+      }
+    }
+  }
+}}`
 
 // TestFetchWithoutAHeadDate is the null guard: with no date to compare against,
 // the time clause simply never holds, rather than holding for every thread and
@@ -322,6 +462,12 @@ func TestFetchWithoutAHeadDate(t *testing.T) {
 	}
 	if !got.ReviewThreads[4].AwaitingMyConfirmation {
 		t.Error("a thread somebody answered stopped awaiting confirmation without a head date")
+	}
+	if ball := got.ReviewThreads[7].Ball; ball != pullrequest.BallTheirs {
+		t.Errorf("ball = %q, want %q: with no head date the time clause never holds", ball, pullrequest.BallTheirs)
+	}
+	if ball := got.ReviewThreads[4].Ball; ball != pullrequest.BallMine {
+		t.Errorf("ball = %q, want %q: somebody answered, which needs no head date", ball, pullrequest.BallMine)
 	}
 }
 
@@ -346,6 +492,25 @@ func TestFetchOnAnotherAuthorsPR(t *testing.T) {
 	}
 	if !got.ReviewThreads[4].AwaitingMyConfirmation {
 		t.Error("our own remark stopped awaiting confirmation on somebody else's pull request")
+	}
+
+	// Nothing we did not open is ours to move on, the bot thread included:
+	// closing somebody else's remark on their own pull request is not ours to
+	// do.
+	for i, thread := range got.ReviewThreads {
+		opened := thread.OpenedBy != nil && *thread.OpenedBy == "testuser"
+		if !opened && thread.Ball != pullrequest.BallNone {
+			t.Errorf("thread %d ball = %q, want %q: we did not open it and the pull request is not ours",
+				i, thread.Ball, pullrequest.BallNone)
+		}
+		if !opened && thread.ResolvableByMe {
+			t.Errorf("thread %d resolvable_by_me = true on somebody else's pull request", i)
+		}
+	}
+	// Our own remark that the author answered is still ours to judge and to
+	// close.
+	if ours := got.ReviewThreads[4]; ours.Ball != pullrequest.BallMine || !ours.ResolvableByMe {
+		t.Errorf("our own remark = ball %q resolvable %v, want mine and true", ours.Ball, ours.ResolvableByMe)
 	}
 }
 
@@ -385,7 +550,7 @@ func threadCommentPage(hasNext bool, cursor string, bodies ...string) string {
 	nodes := make([]string, 0, len(bodies))
 	for _, body := range bodies {
 		nodes = append(nodes, fmt.Sprintf(
-			`{"author":{"login":"reviewer1"},"body":%q,"createdAt":"2026-01-01T00:00:00Z","url":"https://example.com/%s"}`, body, body))
+			`{"author":{"login":"reviewer1","__typename":"User"},"body":%q,"createdAt":"2026-01-01T00:00:00Z","url":"https://example.com/%s"}`, body, body))
 	}
 	return fmt.Sprintf(`{"data":{"node":{"comments":{
 		"pageInfo":{"hasNextPage":%v,"endCursor":%q},"nodes":[%s]}}}}`,
@@ -409,14 +574,14 @@ const pagedBody = `{"data":{
         "totalCount": 3,
         "pageInfo": {"hasNextPage": true, "endCursor": "t1"},
         "nodes": [
-          {"id": "A", "isResolved": false, "isOutdated": false, "path": "a.go", "line": 1, "resolvedBy": null,
+          {"id": "A", "isResolved": false, "isOutdated": false, "path": "a.go", "line": 1, "originalLine": 1, "resolvedBy": null,
            "comments": {"totalCount": 3, "pageInfo": {"hasNextPage": true, "endCursor": "ac1"},
-             "nodes": [{"author": {"login": "reviewer1"}, "body": "a1", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/a1"}]},
-           "tail": {"nodes": [{"author": {"login": "reviewer1"}, "body": "a3", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/a3"}]}},
-          {"id": "B", "isResolved": false, "isOutdated": false, "path": "b.go", "line": 1, "resolvedBy": null,
+             "nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "a1", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/a1"}]},
+           "tail": {"nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "a3", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/a3"}]}},
+          {"id": "B", "isResolved": false, "isOutdated": false, "path": "b.go", "line": 1, "originalLine": 1, "resolvedBy": null,
            "comments": {"totalCount": 2, "pageInfo": {"hasNextPage": true, "endCursor": "bc1"},
-             "nodes": [{"author": {"login": "reviewer1"}, "body": "b1", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/b1"}]},
-           "tail": {"nodes": [{"author": {"login": "reviewer1"}, "body": "b2", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/b2"}]}}
+             "nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "b1", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/b1"}]},
+           "tail": {"nodes": [{"author": {"login": "reviewer1", "__typename": "User"}, "body": "b2", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/b2"}]}}
         ]
       }
     }
@@ -427,7 +592,7 @@ const pagedBody = `{"data":{
 const threadsPage2 = `{"data":{"repository":{"pullRequest":{"reviewThreads":{
   "pageInfo": {"hasNextPage": false, "endCursor": "t2"},
   "nodes": [
-    {"id": "C", "isResolved": false, "isOutdated": false, "path": "c.go", "line": 1, "resolvedBy": null,
+    {"id": "C", "isResolved": false, "isOutdated": false, "path": "c.go", "line": 1, "originalLine": 1, "resolvedBy": null,
      "comments": {"totalCount": 0, "pageInfo": {"hasNextPage": false, "endCursor": ""}, "nodes": []},
      "tail": {"nodes": []}}
   ]}}}}}`

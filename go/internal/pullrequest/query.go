@@ -19,13 +19,14 @@ const threadNodeFields = `
         isOutdated
         path
         line
+        originalLine
         resolvedBy { login }
         comments(first: 100) {
           totalCount
           pageInfo { hasNextPage endCursor }
-          nodes { author { login } body createdAt url }
+          nodes { author { login __typename } body createdAt url }
         }
-        tail: comments(last: 1) { nodes { author { login } body createdAt url } }
+        tail: comments(last: 1) { nodes { author { login __typename } body createdAt url } }
 `
 
 // bodyQuery reads everything the first round trip can carry.
@@ -50,7 +51,7 @@ query($owner: String!, $name: String!, $number: Int!, $headOid: GitObjectID!) {
       }
       reviews(last: 50) {
         totalCount
-        nodes { author { login } state body url submittedAt }
+        nodes { author { login __typename } state body url submittedAt }
       }
       reviewThreads(first: 100) {
         totalCount
@@ -94,7 +95,7 @@ query($threadId: ID!, $cursor: String!) {
     ... on PullRequestReviewThread {
       comments(first: 100, after: $cursor) {
         pageInfo { hasNextPage endCursor }
-        nodes { author { login } body createdAt url }
+        nodes { author { login __typename } body createdAt url }
       }
     }
   }

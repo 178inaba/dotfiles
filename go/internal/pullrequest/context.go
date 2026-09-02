@@ -64,7 +64,10 @@ type Comment struct {
 
 // Review is one submitted review.
 type Review struct {
-	Author      *string `json:"author"`
+	Author *string `json:"author"`
+	// The GraphQL type of the author, as the conversation's comments carry: a
+	// bot's review is told from a person's without a list of bot names.
+	AuthorType  *string `json:"author_type"`
 	State       string  `json:"state"`
 	Body        string  `json:"body"`
 	URL         string  `json:"url"`
@@ -73,20 +76,46 @@ type Review struct {
 
 // ThreadComment is one comment inside a review thread.
 type ThreadComment struct {
-	Author    *string `json:"author"`
-	Body      string  `json:"body"`
-	CreatedAt string  `json:"created_at"`
-	URL       string  `json:"url"`
+	Author *string `json:"author"`
+	// The GraphQL type of the author, as the conversation's comments carry.
+	AuthorType *string `json:"author_type"`
+	Body       string  `json:"body"`
+	CreatedAt  string  `json:"created_at"`
+	URL        string  `json:"url"`
 }
+
+// Ball is whose move it is on a review thread.
+type Ball string
+
+const (
+	// BallMine is a thread waiting on us: a remark to answer on our own pull
+	// request, or one of ours that has been answered or overtaken by a commit.
+	BallMine Ball = "mine"
+	// BallTheirs is a thread waiting on somebody else, who has been given
+	// everything they need to come back to it.
+	BallTheirs Ball = "theirs"
+	// BallNone is a thread nobody owes anything on: resolved, or somebody
+	// else's remark on somebody else's pull request.
+	BallNone Ball = "none"
+)
 
 // Thread is one conversation on the diff.
 type Thread struct {
-	ID         string  `json:"id"`
-	IsResolved bool    `json:"is_resolved"`
-	IsOutdated bool    `json:"is_outdated"`
-	Path       string  `json:"path"`
-	Line       *int    `json:"line"`
-	ResolvedBy *string `json:"resolved_by"`
+	ID         string `json:"id"`
+	IsResolved bool   `json:"is_resolved"`
+	IsOutdated bool   `json:"is_outdated"`
+	Path       string `json:"path"`
+	Line       *int   `json:"line"`
+	// The line the thread was opened on, which stays put where line
+	// goes null the moment the commented lines leave the diff — for the author
+	// that is right after the fixing push, which is when the reply is written.
+	OriginalLine *int    `json:"original_line"`
+	ResolvedBy   *string `json:"resolved_by"`
+	// opened_by and opened_by_type are the first comment's author, who
+	// is the one the thread belongs to. The first comment is what survives
+	// truncation, since the comments are paginated forwards.
+	OpenedBy     *string `json:"opened_by"`
+	OpenedByType *string `json:"opened_by_type"`
 	// comments_total_count and comments_truncated are what a caller raises the
 	// limit against when a thread was cut short.
 	CommentsTotalCount int             `json:"comments_total_count"`
@@ -104,6 +133,15 @@ type Thread struct {
 	// been answered or been overtaken by a commit. Resolving is the remarker's
 	// act, so this is about our own threads whoever owns the pull request.
 	AwaitingMyConfirmation bool `json:"awaiting_my_confirmation"`
+	// Whose move it is. A thread with no comments at all — which
+	// GitHub does not produce, and which leaves the opener unknown — falls to
+	// none rather than being guessed at.
+	Ball Ball `json:"ball"`
+	// Whether the thread is ours to mark resolved: we opened
+	// it, or it is on our own pull request and nobody but a bot and us is in
+	// it. A person's remark is closed by that person, which is the other half
+	// of the protocol the reviewing side runs.
+	ResolvableByMe bool `json:"resolvable_by_me"`
 }
 
 // Context is everything one review needs, in the order the contract publishes
@@ -234,7 +272,8 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 	}
 	for _, n := range prq.Reviews.Nodes {
 		out.Reviews = append(out.Reviews, Review{
-			Author: n.Author.login(), State: n.State, Body: n.Body, URL: n.URL, SubmittedAt: n.SubmittedAt,
+			Author: n.Author.login(), AuthorType: n.Author.typename(),
+			State: n.State, Body: n.Body, URL: n.URL, SubmittedAt: n.SubmittedAt,
 		})
 	}
 	for _, n := range threads {
@@ -271,6 +310,7 @@ func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwn
 
 	t := Thread{
 		ID: n.ID, IsResolved: n.IsResolved, IsOutdated: n.IsOutdated, Path: n.Path, Line: n.Line,
+		OriginalLine:       n.OriginalLine,
 		ResolvedBy:         n.ResolvedBy.login(),
 		CommentsTotalCount: n.Comments.TotalCount,
 		CommentsTruncated:  n.Comments.TotalCount > len(comments),
@@ -278,23 +318,85 @@ func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwn
 	}
 	for _, comment := range comments {
 		t.Comments = append(t.Comments, ThreadComment{
-			Author: comment.Author.login(), Body: comment.Body, CreatedAt: comment.CreatedAt, URL: comment.URL,
+			Author: comment.Author.login(), AuthorType: comment.Author.typename(),
+			Body: comment.Body, CreatedAt: comment.CreatedAt, URL: comment.URL,
 		})
 	}
 	if len(n.Tail.Nodes) > 0 {
 		tail := n.Tail.Nodes[0]
 		t.LastComment = &ThreadComment{
-			Author: tail.Author.login(), Body: tail.Body, CreatedAt: tail.CreatedAt, URL: tail.URL,
+			Author: tail.Author.login(), AuthorType: tail.Author.typename(),
+			Body: tail.Body, CreatedAt: tail.CreatedAt, URL: tail.URL,
 		}
+	}
+	// The opener is comments[0]: the comments are paginated forwards, so the
+	// first one survives any truncation.
+	if len(comments) > 0 {
+		t.OpenedBy, t.OpenedByType = comments[0].Author.login(), comments[0].Author.typename()
 	}
 
 	t.WaitingForResponse = isOwnPR && !n.IsResolved && t.LastComment != nil && isLogin(t.LastComment.Author, me)
-	// The opener is comments[0]: the comments are paginated forwards, so the
-	// first one survives any truncation.
 	opened := len(comments) > 0 && isLogin(comments[0].Author.login(), me)
 	t.AwaitingMyConfirmation = !n.IsResolved && opened && t.LastComment != nil &&
 		(!isLogin(t.LastComment.Author, me) || movedSince(headCommittedAt, t.LastComment.CreatedAt))
+
+	botAlone := botOnly(comments, t.CommentsTruncated, me)
+	t.Ball = ball(t, isOwnPR, opened, botAlone, me, headCommittedAt)
+	t.ResolvableByMe = !n.IsResolved && (opened || (isOwnPR && botAlone))
 	return t, nil
+}
+
+// ball works out whose move a thread is, from who opened it, who spoke last and
+// whose pull request it is.
+//
+// A thread with no comments has no opener and no last comment, so there is
+// nobody to hand it to; it falls to none rather than to the branch a missing
+// opener would otherwise land in. GitHub does not produce one.
+func ball(t Thread, isOwnPR, openedByMe, botAlone bool, me string, headCommittedAt *string) Ball {
+	if t.IsResolved || t.LastComment == nil {
+		return BallNone
+	}
+	spokeLast := isLogin(t.LastComment.Author, me)
+
+	if openedByMe {
+		// Ours to judge once somebody has answered — or once a commit has
+		// overtaken our remark, which is how an author who pushes a fix without
+		// replying hands it back.
+		if !spokeLast || movedSince(headCommittedAt, t.LastComment.CreatedAt) {
+			return BallMine
+		}
+		return BallTheirs
+	}
+	if !isOwnPR {
+		// Somebody else's remark on somebody else's work: not ours to answer
+		// and not ours to close.
+		return BallNone
+	}
+	// A bot never comes back to confirm, so a thread only it and we are in is
+	// always ours — including after our own reply, which is the "replied, still
+	// to resolve" state that leaves threads open for days.
+	if botAlone || !spokeLast {
+		return BallMine
+	}
+	return BallTheirs
+}
+
+// botOnly reports whether a bot opened the thread and nobody but that kind of
+// author and ourselves has spoken in it.
+//
+// Truncation makes the question unanswerable — a person may sit outside the
+// window that was fetched — so a cut-short thread is not one, which is the side
+// that keeps a run from closing somebody's remark.
+func botOnly(comments []commentNode, truncated bool, me string) bool {
+	if truncated || len(comments) == 0 || !comments[0].Author.isBot() {
+		return false
+	}
+	for _, c := range comments {
+		if !c.Author.isBot() && !isLogin(c.Author.login(), me) {
+			return false
+		}
+	}
+	return true
 }
 
 // movedSince reports whether the head commit is newer than a comment.

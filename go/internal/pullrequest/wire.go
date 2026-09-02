@@ -33,6 +33,13 @@ func (a *actor) typename() *string {
 	return &a.Typename
 }
 
+// isBot is the one place the rule is written: a bot is the GraphQL type Bot,
+// and everything else — a person, a mannequin, an account that no longer
+// exists — is a person. Deciding it from a list of logins is what left a
+// reviewer name in a skill; deciding it in two places is what would let the
+// thread that may be closed and the thread that may be replied to disagree.
+func (a *actor) isBot() bool { return a != nil && a.Typename == "Bot" }
+
 type commentNode struct {
 	Author    *actor `json:"author"`
 	Body      string `json:"body"`
@@ -54,9 +61,12 @@ type threadNode struct {
 	IsOutdated bool   `json:"isOutdated"`
 	Path       string `json:"path"`
 	// Line is null on a thread whose lines no longer exist in the diff.
-	Line       *int   `json:"line"`
-	ResolvedBy *actor `json:"resolvedBy"`
-	Comments   struct {
+	Line *int `json:"line"`
+	// OriginalLine survives that, being the line as it was when the thread was
+	// opened.
+	OriginalLine *int   `json:"originalLine"`
+	ResolvedBy   *actor `json:"resolvedBy"`
+	Comments     struct {
 		TotalCount int           `json:"totalCount"`
 		PageInfo   pageInfo      `json:"pageInfo"`
 		Nodes      []commentNode `json:"nodes"`
