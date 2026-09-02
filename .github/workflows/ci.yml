@@ -32,13 +32,12 @@ jobs:
       - name: Vet the Go module
         run: go -C go vet ./...
 
-      # ローカル lint を docker で持たないので、cflio 等の compose.yaml 方式ではなく
-      # ここを単一の正としてピン留めする。golangci-lint は自身のビルドに使われた Go より
-      # 新しい go ディレクティブを拒否するため、go 1.27 には 1.27 でビルドされた
-      # v2.13.0 以降が要る（v2.12.x は 1.26 ビルドで "can't load config" で落ちる）
+      # golangci-lint は自身のビルドに使われた Go より新しい go ディレクティブを拒否する
+      # ので、go 1.27 のモジュールには 1.27 でビルドされたリリースが要る（1.26 ビルドは
+      # "can't load config" で落ちる）
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.2
+          version-file: .tool-versions
           working-directory: go
 
       - name: Run Go tests

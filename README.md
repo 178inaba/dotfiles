@@ -13,9 +13,10 @@ This is my dotfiles.
 $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
 $ eval "$(/opt/homebrew/bin/brew shellenv)"
-$ brew install tmux git vim go ccat diff-so-fancy direnv nodenv stow gh jq 178inaba/tap/cflio 178inaba/tap/rdsh 178inaba/tap/slio
+$ brew install tmux git vim go ccat diff-so-fancy direnv nodenv mise stow gh jq 178inaba/tap/cflio 178inaba/tap/rdsh 178inaba/tap/slio
 $ stow tmux git vim zsh claude ghostty
 $ zsh -l
+$ mise -C go install
 $ go -C go install ./cmd/ccx
 $ mkdir -p ~/.local/shims
 $ GOBIN=~/.local/shims go -C go install ./cmd/gh
@@ -87,7 +88,9 @@ source is newer than the binary and reinstalls both.
 
 `go/` is not a stow package. It is the Go module the Claude Code tooling lives
 in — `ccx` for the status line, the hooks and the skill plumbing, and `gh` for
-the shim — and the binaries it produces are never committed.
+the shim — and the binaries it produces are never committed. `go/.tool-versions`
+pins golangci-lint for that module, and both mise locally and the lint job in CI
+read the version from it.
 
 ## License
 
