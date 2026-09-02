@@ -39,7 +39,7 @@ var genFields = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Review.AuthorType":           "The GraphQL type of the author, as the conversation's comments carry: a bot's review is told from a person's without a list of bot names.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFile.Assessment":       "The verdict, which decides whether the review is posted as an approval, a request for changes or a comment.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFile.Body":             "The review body, written inline.",
-	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFile.BodyFile":         "The name of a markdown file in the review work dir holding the body. A bare file name: a path would let a review reach round the directory binding that keeps parallel reviews of different pull requests apart.",
+	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFile.BodyFile":         "The name of a markdown file in the work dir holding the body. A bare file name: a path would let a review reach round the directory binding that keeps parallel runs on different pull requests apart.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFile.Comments":         "The remarks anchored to lines of the diff, empty for a review that is all body.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFileComment.Body":      "The remark, inline or named, exactly as the review body is.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFileComment.Line":      "The line number on the new side of the diff.",

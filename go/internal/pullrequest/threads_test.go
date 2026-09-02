@@ -212,6 +212,13 @@ func TestReplyRefuses(t *testing.T) {
 			wantErr: []string{"PRRT_dup1", "PRRT_dup2", `"id"`},
 		},
 		{
+			// The same, with the line left out: a path with several threads is
+			// never resolved by taking the first.
+			name:    "two threads at the path and no line",
+			actions: []pullrequest.ThreadAction{{Path: "src/dup.go", Body: new("fixed"), Resolve: true}},
+			wantErr: []string{"PRRT_dup1", "PRRT_dup2", `"id"`},
+		},
+		{
 			name:    "a path with nothing we may act on",
 			actions: []pullrequest.ThreadAction{{Path: "src/settled.go", Body: new("fixed"), Resolve: true}},
 			wantErr: []string{"src/settled.go", "no thread"},

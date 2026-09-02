@@ -56,7 +56,7 @@ func TestParseSubmission(t *testing.T) {
 		{name: "an empty body_file", in: `{"assessment":"要議論","body_file":"","comments":[]}`, wantErr: "exactly one of body"},
 		// Allowing a path would reach round the directory binding.
 		{name: "a body_file with a path", in: `{"assessment":"要議論","body_file":"sub/x.md","comments":[]}`, wantErr: "bare filename"},
-		{name: "a body_file that is not there", in: `{"assessment":"要議論","body_file":"nope.md","comments":[]}`, wantErr: "not found in the review work dir"},
+		{name: "a body_file that is not there", in: `{"assessment":"要議論","body_file":"nope.md","comments":[]}`, wantErr: "not found in the work dir"},
 		{name: "comments missing", in: `{"assessment":"要議論","body":"x"}`, wantErr: "comments must be an array"},
 		{name: "comments not an array", in: `{"assessment":"要議論","body":"x","comments":{}}`, wantErr: "comments must be an array"},
 		{name: "a comment without a line", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","body":"y"}]}`, wantErr: "comments must be an array"},
