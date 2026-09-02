@@ -43,7 +43,7 @@ type PR struct {
 
 // LinkedIssue is an issue the pull request closes.
 type LinkedIssue struct {
-	// Repo is null for an issue in this repository, which is how the body
+	// Null for an issue in this repository, which is how the body
 	// wrote it.
 	Repo   *string `json:"repo"`
 	Number int     `json:"number"`
@@ -52,7 +52,7 @@ type LinkedIssue struct {
 // Comment is one comment in the pull request's conversation.
 type Comment struct {
 	Author *string `json:"author"`
-	// AuthorType is the GraphQL type of the author — User, Bot and so on —
+	// The GraphQL type of the author — User, Bot and so on —
 	// which is how a CI comment is told from a person's without a list of bot
 	// names to keep up to date.
 	AuthorType     *string `json:"author_type"`
@@ -87,20 +87,20 @@ type Thread struct {
 	Path       string  `json:"path"`
 	Line       *int    `json:"line"`
 	ResolvedBy *string `json:"resolved_by"`
-	// CommentsTotalCount and CommentsTruncated are what a caller raises the
+	// comments_total_count and comments_truncated are what a caller raises the
 	// limit against when a thread was cut short.
 	CommentsTotalCount int             `json:"comments_total_count"`
 	CommentsTruncated  bool            `json:"comments_truncated"`
 	Comments           []ThreadComment `json:"comments"`
-	// LastComment comes from the other end of the connection, so it is right
+	// Comes from the other end of the connection, so it is right
 	// even where Comments was truncated — which means it is not always the
 	// last element of Comments, and must not be treated as one.
 	LastComment *ThreadComment `json:"last_comment"`
-	// WaitingForResponse is our own pull request, unresolved, with our reply
+	// Our own pull request, unresolved, with our reply
 	// last: the reviewer has the ball. On somebody else's pull request the
 	// same shape means the opposite, which is why it is limited to ours.
 	WaitingForResponse bool `json:"waiting_for_response"`
-	// AwaitingMyConfirmation is a remark of ours, unresolved, that has either
+	// A remark of ours, unresolved, that has either
 	// been answered or been overtaken by a commit. Resolving is the remarker's
 	// act, so this is about our own threads whoever owns the pull request.
 	AwaitingMyConfirmation bool `json:"awaiting_my_confirmation"`
@@ -113,10 +113,10 @@ type Context struct {
 	CurrentUser string `json:"current_user"`
 	IsOwnPR     bool   `json:"is_own_pr"`
 	PR          PR     `json:"pr"`
-	// LinkedIssues are what the body's closing keywords name, which is what
+	// What the body's closing keywords name, which is what
 	// GitHub itself would close on merge.
 	LinkedIssues []LinkedIssue `json:"linked_issues"`
-	// HeadCommittedAt dates the head commit, and is null where it could not be
+	// The date of the head commit, null where it could not be
 	// read — in which case the time condition below simply never holds.
 	HeadCommittedAt    *string   `json:"head_committed_at"`
 	CommentsTotalCount int       `json:"comments_total_count"`

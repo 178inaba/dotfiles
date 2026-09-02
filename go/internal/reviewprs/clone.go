@@ -12,11 +12,13 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// workspace is the directory the review clones live under.
+// Workspace is the directory the review clones live under.
 //
 // Away from wherever the user keeps their own checkout, so that a worktree
 // created for a review never appears in the repository they are working in.
-const workspace = "claude-review-prs"
+// Exported so that the help saying where they go reads the same value the
+// clone is put at, rather than a copy of it.
+const Workspace = "claude-review-prs"
 
 // OwnerRepo is a repository named as exactly owner/repo.
 //
@@ -64,6 +66,8 @@ type CloneOptions struct {
 
 // Clone is where a repository has been made available for review.
 type Clone struct {
+	// The absolute path of the clone. Use this rather than composing the path
+	// from the workspace layout, which is this command's to decide.
 	Path string `json:"path"`
 }
 
@@ -78,7 +82,7 @@ type Clone struct {
 // than replacing it. macOS has no flock(1), and a lock built out of mkdir plus
 // stale detection would cost more than the one wasted clone it saves.
 func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo OwnerRepo) (Clone, error) {
-	parent := filepath.Join(o.DataHome, workspace, repo.Owner)
+	parent := filepath.Join(o.DataHome, Workspace, repo.Owner)
 	path := filepath.Join(parent, repo.Name)
 
 	if isRepo(path) {

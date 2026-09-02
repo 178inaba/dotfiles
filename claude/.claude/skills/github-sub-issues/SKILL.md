@@ -66,7 +66,7 @@ link_blocked_by() {
 
 ## 親子関係の読み取り
 
-親の有無・Sub 一覧・完了状態・依存を読むときは `ccx issue tree <issue-number> [-R owner/repo] [--with-prs] [--with-deps]` を使う（親は専用エンドポイントの 404 が「親なし」、Sub 一覧と blocker 一覧はページネーション付きで、都度組み立てると扱いがぶれるため。`--with-prs` は各 Sub を閉じた PR の状態・マージ先を、`--with-deps` は各 Sub の blocker を付ける。出力契約は `go/internal/issue/` のパッケージドキュメント）。
+親の有無・Sub 一覧・完了状態・依存を読むときは `ccx issue tree <issue-number> [-R owner/repo] [--with-prs] [--with-deps]` を使う（親は専用エンドポイントの 404 が「親なし」、Sub 一覧と blocker 一覧はページネーション付きで、都度組み立てると扱いがぶれるため。`--with-prs` は各 Sub を閉じた PR の状態・マージ先を、`--with-deps` は各 Sub の blocker を付ける）。出力の読み方は `ccx issue tree --help` にある。
 
 ## 本文の節の読み取り
 
@@ -76,7 +76,7 @@ Issue 本文の節は**意味キー**で識別する。キー ↔ 見出しの�
 - **節が見つからないときの扱いは消費側が決める**（キーごとに違う — `release_manual_steps` は推定した上でユーザーに確認、`composition` は順序の制約なしとして扱う）。ja / en どちらの見出しでもない本文もここに落ちる。取得に失敗した入力は「節なし」ではなく前提不成立として弾かれるので、この分岐には入らない
 - 「なし」マーカーは `ccx issue sections schema <key>` の `none_markers` から取り、**ja / en 両方を受け付ける**。照合は緩く見る — 節本文がマーカーと同じ「なし」を述べていればよく、後続の句読点・補足文はそれを覆さない。作業項目が 1 つでも挙がっていれば「なし」ではない
 
-出力フィールドと exit code の契約の正は `go/internal/issue/` のパッケージドキュメント。
+出力と exit status の読み方は `ccx issue sections find --help` と `ccx issue sections schema --help` にある。
 
 ## 運用規約（親子 Issue と PR の対応）
 

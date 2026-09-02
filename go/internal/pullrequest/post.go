@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,69 +62,103 @@ type Submission struct {
 	Comments   []SubmissionComment
 }
 
-// ParseSubmission reads a review file and resolves the bodies it names.
+// ReviewFile is the document `ccx pr post-review` reads.
 //
-// Each body may be given inline or as the name of a file beside it. Long prose
-// hand-written as a JSON string loses its whole meaning to one missed escape,
-// so writing plain markdown and naming it is the supported way round. A named
-// body has to be a bare file name in the work dir: allowing a path would let a
-// review reach round the directory binding that keeps parallel reviews of
-// different pull requests apart.
+// Each body is given inline or as the name of a file beside it, exactly one of
+// the two. Long prose hand-written as a JSON string loses its whole meaning to
+// one missed escape, so writing plain markdown and naming it is the supported
+// way round.
+type ReviewFile struct {
+	// The verdict, which decides whether the review is posted as an approval,
+	// a request for changes or a comment.
+	Assessment *Assessment `json:"assessment" contract:"required"`
+	// The review body, written inline.
+	Body *string `json:"body"`
+	// The name of a markdown file in the review work dir holding the body. A
+	// bare file name: a path would let a review reach round the directory
+	// binding that keeps parallel reviews of different pull requests apart.
+	BodyFile *string `json:"body_file"`
+	// The remarks anchored to lines of the diff, empty for a review that is
+	// all body.
+	Comments []ReviewFileComment `json:"comments" contract:"required"`
+}
+
+// ReviewFileComment is one remark anchored to a line of the diff.
+type ReviewFileComment struct {
+	Path *string `json:"path" contract:"required"`
+	// The line number on the new side of the diff.
+	Line *int `json:"line" contract:"required"`
+	// The remark, inline or named, exactly as the review body is.
+	Body     *string `json:"body"`
+	BodyFile *string `json:"body_file"`
+}
+
+// ParseSubmission reads a review file and resolves the bodies it names.
 func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
-	// The fields are read as raw JSON and checked by hand, because the shapes
-	// this rejects have their own messages: a review whose resolve is a string
-	// or whose comments are an object needs to be told what the field should
-	// have been, not what a decoder made of it.
-	var wire struct {
-		Assessment jsontext.Value `json:"assessment"`
-		Body       jsontext.Value `json:"body"`
-		BodyFile   jsontext.Value `json:"body_file"`
-		Comments   jsontext.Value `json:"comments"`
-	}
+	var wire ReviewFile
 	if err := json.Unmarshal(b, &wire); err != nil {
-		return Submission{}, fmt.Errorf("invalid JSON in %s (%v)", file, err)
+		return Submission{}, submissionError(err, file)
 	}
-	if len(wire.Assessment) == 0 || wire.Assessment.Kind() == 'n' {
+	if wire.Assessment == nil {
 		return Submission{}, fmt.Errorf("assessment missing in %s", file)
 	}
-
 	if !bodyShapeOK(wire.Body, wire.BodyFile) {
-		return Submission{}, fmt.Errorf("exactly one of body (string) / body_file (non-empty string) is required in %s", file)
+		return Submission{}, bodyShapeError(file)
 	}
 	body, err := resolveBody(wire.Body, wire.BodyFile, workDir)
 	if err != nil {
 		return Submission{}, err
 	}
-
-	if wire.Comments.Kind() != '[' {
-		return Submission{}, commentsError(file)
-	}
-	var comments []struct {
-		Path     jsontext.Value `json:"path"`
-		Line     jsontext.Value `json:"line"`
-		Body     jsontext.Value `json:"body"`
-		BodyFile jsontext.Value `json:"body_file"`
-	}
-	if err := json.Unmarshal(wire.Comments, &comments); err != nil {
+	// Absent and null both arrive as nil, and a file that forgot the key has
+	// not said there are no comments.
+	if wire.Comments == nil {
 		return Submission{}, commentsError(file)
 	}
 
-	out := Submission{Assessment: Assessment(text(wire.Assessment)), Body: body, Comments: []SubmissionComment{}}
-	for _, c := range comments {
-		if c.Path.Kind() != '"' || c.Line.Kind() != '0' || !bodyShapeOK(c.Body, c.BodyFile) {
-			return Submission{}, commentsError(file)
-		}
-		line, err := strconv.Atoi(string(c.Line))
-		if err != nil {
+	out := Submission{Assessment: *wire.Assessment, Body: body, Comments: []SubmissionComment{}}
+	for _, c := range wire.Comments {
+		if c.Path == nil || c.Line == nil || !bodyShapeOK(c.Body, c.BodyFile) {
 			return Submission{}, commentsError(file)
 		}
 		commentBody, err := resolveBody(c.Body, c.BodyFile, workDir)
 		if err != nil {
 			return Submission{}, err
 		}
-		out.Comments = append(out.Comments, SubmissionComment{Path: text(c.Path), Line: line, Body: commentBody})
+		out.Comments = append(out.Comments, SubmissionComment{Path: *c.Path, Line: *c.Line, Body: commentBody})
 	}
 	return out, nil
+}
+
+// submissionError turns the decoder's complaint back into the message the
+// offending field has of its own.
+//
+// The price of typed fields: a review whose comments are an object still has
+// to be told what the field should have held, not what a decoder made of it.
+func submissionError(err error, file string) error {
+	var se *json.SemanticError
+	if errors.As(err, &se) {
+		switch firstToken(se.JSONPointer) {
+		case "comments":
+			return commentsError(file)
+		case "assessment":
+			return fmt.Errorf("assessment must be a string in %s", file)
+		case "body", "body_file":
+			return bodyShapeError(file)
+		}
+	}
+	return fmt.Errorf("invalid JSON in %s (%v)", file, err)
+}
+
+// firstToken is as deep as any of these messages distinguishes.
+func firstToken(p jsontext.Pointer) string {
+	for tok := range p.Tokens() {
+		return tok
+	}
+	return ""
+}
+
+func bodyShapeError(file string) error {
+	return fmt.Errorf("exactly one of body (string) / body_file (non-empty string) is required in %s", file)
 }
 
 func commentsError(file string) error {
@@ -132,43 +167,32 @@ func commentsError(file string) error {
 
 // bodyShapeOK reports whether exactly one of the two forms is present and is a
 // usable string.
-func bodyShapeOK(body, file jsontext.Value) bool {
+func bodyShapeOK(body, file *string) bool {
 	switch {
-	case len(body) > 0 && len(file) > 0:
+	case body != nil && file != nil:
 		return false
-	case len(body) > 0:
-		return body.Kind() == '"'
-	case len(file) > 0:
-		return file.Kind() == '"' && text(file) != ""
+	case body != nil:
+		return true
+	case file != nil:
+		return *file != ""
 	default:
 		return false
 	}
 }
 
 // resolveBody turns whichever form was used into the text.
-func resolveBody(body, file jsontext.Value, workDir string) (string, error) {
-	if len(body) > 0 {
-		return text(body), nil
+func resolveBody(body, file *string, workDir string) (string, error) {
+	if body != nil {
+		return *body, nil
 	}
-	name := text(file)
-	if strings.ContainsRune(name, filepath.Separator) {
-		return "", fmt.Errorf("body_file must be a bare filename in the review work dir (no path separators): %s", name)
+	if strings.ContainsRune(*file, filepath.Separator) {
+		return "", fmt.Errorf("body_file must be a bare filename in the review work dir (no path separators): %s", *file)
 	}
-	content, err := os.ReadFile(filepath.Join(workDir, name))
+	content, err := os.ReadFile(filepath.Join(workDir, *file))
 	if err != nil {
-		return "", fmt.Errorf("body_file not found in the review work dir: %s", filepath.Join(workDir, name))
+		return "", fmt.Errorf("body_file not found in the review work dir: %s", filepath.Join(workDir, *file))
 	}
 	return string(content), nil
-}
-
-// text unquotes a JSON string, and hands back anything else as it was written
-// so that an error naming it says what the file actually holds.
-func text(v jsontext.Value) string {
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return string(v)
-	}
-	return s
 }
 
 // Posted is where the review ended up.

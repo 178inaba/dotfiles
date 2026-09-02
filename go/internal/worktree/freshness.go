@@ -52,7 +52,7 @@ type FreshnessReport struct {
 	Status  Freshness `json:"status"`
 	HeadRef string    `json:"head_ref"`
 	HeadOID string    `json:"head_oid"`
-	// LocalHead is read after any synchronisation, so it is where the checkout
+	// Read after any synchronisation, so it is where the checkout
 	// ended up rather than where it started.
 	LocalHead string `json:"local_head"`
 }

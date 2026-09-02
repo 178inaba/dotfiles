@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,11 @@ const (
 	// RefInCode is a reference inside backticks or a fence, which suggests the
 	// `@` was meant as a mention rather than as an attachment.
 	RefInCode RefViolation = "ref_in_code"
+	// UnknownContractField is a name that reads like a field or a value of a
+	// ccx command's contract and is not one any more. A skill naming a field
+	// where it acts on it is the arrangement; a rename that leaves the old
+	// name behind in a skill is what this catches.
+	UnknownContractField RefViolation = "unknown_contract_field"
 )
 
 // RefFinding is one violation. Every path is relative to the skills directory.
@@ -70,8 +76,9 @@ type reference struct {
 	exists bool
 }
 
-// CheckRefs inspects the references between the skills under skillsDir.
-func CheckRefs(skillsDir string) (Refs, error) {
+// CheckRefs inspects the references between the skills under skillsDir, and
+// the contract identifiers they name.
+func CheckRefs(skillsDir string, published Contract) (Refs, error) {
 	info, err := os.Stat(skillsDir)
 	if err != nil || !info.IsDir() {
 		return Refs{}, fmt.Errorf("skills directory not found: %s", skillsDir)
@@ -114,7 +121,17 @@ func CheckRefs(skillsDir string) (Refs, error) {
 		queue = next
 	}
 
-	return Refs{SkillsDir: root, Violations: refViolations(refs), Warnings: []string{}}, nil
+	violations := refViolations(refs)
+	// Every file that was read, in a settled order, so that two runs report
+	// the same findings in the same sequence.
+	for _, rel := range slices.Sorted(maps.Keys(scanned)) {
+		content, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			continue
+		}
+		violations = append(violations, contractFindings(rel, string(content), published)...)
+	}
+	return Refs{SkillsDir: root, Violations: violations, Warnings: []string{}}, nil
 }
 
 func refsIn(root, rel string) ([]reference, error) {

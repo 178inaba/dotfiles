@@ -110,9 +110,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			return silent(renderJSON(c.OutOrStdout(), struct {
-				Path string `json:"path"`
-			}{path}))
+			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{Path: path}))
 		},
 	}
 }
@@ -223,7 +221,7 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 			return silent(renderJSON(c.OutOrStdout(), prepared))
 		},
 	}
-	c.Flags().IntVar(&issue, "issue", 0, "issue the review is about, instead of the ones the pull request body names")
+	c.Flags().IntVar(&issue, "issue", 0, "issue the review is about, instead of the ones the body names")
 	c.Flags().BoolVar(&worktreeFlag, "worktree", false, "the checkout is a worktree already resolved for this pull request")
 	c.Flags().BoolVar(&localOnly, "local-only", false, "do not post the findings as a review")
 	c.Flags().BoolVar(&noAutofix, "no-autofix", false, "do not act on the findings")
@@ -233,18 +231,24 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 // contextLimits reads the three caps a caller raises when a pull request was
 // cut short.
 //
+// limitVars are the environment variables that raise the fetch limits, in the
+// order the limits are read.
+//
+// Named here so that the help lists the same three rather than a copy of them.
 // They stay environment variables rather than becoming flags: the only time
 // anybody sets one is to run the same command again with more room, and the
 // command line belongs to the skill.
+var limitVars = [3]string{"MAX_COMMENTS", "MAX_THREADS", "MAX_THREAD_COMMENTS"}
+
 func contextLimits() (pullrequest.Limits, error) {
 	limits := pullrequest.DefaultLimits
 	for _, l := range []struct {
 		name string
 		out  *int
 	}{
-		{"MAX_COMMENTS", &limits.Comments},
-		{"MAX_THREADS", &limits.Threads},
-		{"MAX_THREAD_COMMENTS", &limits.ThreadComments},
+		{limitVars[0], &limits.Comments},
+		{limitVars[1], &limits.Threads},
+		{limitVars[2], &limits.ThreadComments},
 	} {
 		value := os.Getenv(l.name)
 		if value == "" {

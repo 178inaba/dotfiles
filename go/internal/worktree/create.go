@@ -17,8 +17,8 @@ const worktreesUnder = ".claude/worktrees"
 // tells starting from resuming.
 type Detection struct {
 	Found bool `json:"found"`
-	// Path and Branch are null when nothing was found, rather than empty
-	// strings: the caller branches on found and reads these only after.
+	// worktree_path and branch are null when nothing was found, rather than
+	// empty strings: the caller branches on found and reads these only after.
 	Path   *string `json:"worktree_path"`
 	Branch *string `json:"branch"`
 }
@@ -72,7 +72,7 @@ type Created struct {
 	Status CreateStatus `json:"status"`
 	Path   *string      `json:"worktree_path"`
 	Branch string       `json:"branch"`
-	// StartRef is the ref the worktree was branched from, null unless one was.
+	// The ref the worktree was branched from, null unless one was.
 	StartRef    *string  `json:"start_ref"`
 	CopiedFiles int      `json:"copied_files"`
 	Warnings    []string `json:"warnings"`

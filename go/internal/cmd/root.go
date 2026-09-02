@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -83,7 +84,23 @@ func newRootCmd(build selfbuild.State) *cobra.Command {
 	root.AddCommand(newWorktreeCmd(build))
 	root.AddCommand(newSkillCmd(build))
 	root.AddCommand(newRefreshCmds()...)
+
+	// Rendered when help is asked for, not when the tree is built: all
+	// twenty-one at construction was 77% of the time and 96% of the
+	// allocations of building it, paid by every ccx process — the hooks run on
+	// every tool call — for text almost never printed. Cobra reads Long only
+	// on the help path.
+	def := root.HelpFunc()
+	root.SetHelpFunc(func(c *cobra.Command, args []string) {
+		c.Long = longFor(commandPath(c))
+		def(c, args)
+	})
 	return root
+}
+
+// commandPath is a command's key in the contract table.
+func commandPath(c *cobra.Command) string {
+	return strings.TrimPrefix(c.CommandPath(), "ccx ")
 }
 
 // newParentCmd builds a command that only groups others.

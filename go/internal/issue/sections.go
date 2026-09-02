@@ -81,15 +81,15 @@ func (h Headings) locale(heading string) (Locale, bool) {
 type Section struct {
 	Key      string   `json:"key"`
 	Headings Headings `json:"headings"`
-	// RequiredOn is the table's "required on" column verbatim. Empty means
+	// The table's "required on" column verbatim. Empty means
 	// optional everywhere, which is not the same as "optional for this kind":
 	// consumers need both, and deriving one from the other would put a copy of
 	// the table on their side.
 	RequiredOn []Kind `json:"required_on"`
-	// TemplateMappable is whether a repository issue template may rename this
+	// Whether a repository issue template may rename this
 	// section's heading. A machine-consumed section may not.
 	TemplateMappable bool `json:"template_mappable"`
-	// NoneMarkers is the fixed text that says the section has nothing in it,
+	// The fixed text that says the section has nothing in it,
 	// null for a section that has no such marker.
 	NoneMarkers *Headings `json:"none_markers"`
 }
@@ -138,15 +138,37 @@ func Schema(key string) (Section, error) {
 	return s, nil
 }
 
+// Keys is every section key, in the order the schema declares them.
+//
+// The keys are as much a part of the contract as any field name: `ccx issue
+// sections schema` takes one, and the skills that read an issue body name them.
+func Keys() []string {
+	out := make([]string, 0, len(table))
+	for _, s := range table {
+		out = append(out, s.Key)
+	}
+	return out
+}
+
 // ListedSection is one row as the drafting side needs it, with the heading
 // already chosen and the requirement already decided.
 type ListedSection struct {
-	Key              string    `json:"key"`
-	Heading          string    `json:"heading"`
-	Required         bool      `json:"required"`
-	RequiredOn       []Kind    `json:"required_on"`
-	TemplateMappable bool      `json:"template_mappable"`
-	NoneMarkers      *Headings `json:"none_markers"`
+	Key string `json:"key"`
+	// The heading for the locale asked for, so that the drafting side does not
+	// choose between the two itself.
+	Heading string `json:"heading"`
+	// Whether the kind asked for requires this section. Every section is
+	// listed, required or not, because one that is optional may still appear.
+	Required bool `json:"required"`
+	// The kinds that require the section, which is what a caller checking a
+	// kind other than the one asked for needs.
+	RequiredOn []Kind `json:"required_on"`
+	// Whether a repository issue template may rename this section's heading.
+	// A machine-consumed section may not.
+	TemplateMappable bool `json:"template_mappable"`
+	// The fixed text that says the section has nothing in it, null for a
+	// section that has no such marker.
+	NoneMarkers *Headings `json:"none_markers"`
 }
 
 // Listing is the whole table rendered for one locale and kind.
@@ -184,11 +206,11 @@ func List(l Locale, k Kind) (Listing, error) {
 // Found is a section located in a body.
 type Found struct {
 	Key string `json:"key"`
-	// Locale is the language of the heading that matched, which tells the
+	// The language of the heading that matched, which tells the
 	// caller nothing it asked for and everything about what it is reading.
 	Locale  Locale `json:"locale"`
 	Heading string `json:"heading"`
-	// Body excludes the heading line, ends before the next `## `, and has its
+	// Excludes the heading line, ends before the next `## `, and has its
 	// surrounding blank lines and any carriage returns removed — the last
 	// because a body written in GitHub's web editor arrives over the API with
 	// CRLF, and consumers compare it against fixed markers.

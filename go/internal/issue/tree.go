@@ -89,18 +89,19 @@ func (l PRList) MarshalJSONTo(enc *jsontext.Encoder) error {
 }
 
 // SubIssue is one child of the issue being resolved.
-//
-// The three annotated fields are absent unless the flag that fetches them was
-// given, because each costs a round trip per sub-issue and most callers want
-// neither.
 type SubIssue struct {
-	Number         int      `json:"number"`
-	Title          string   `json:"title"`
-	State          string   `json:"state"`
-	URL            string   `json:"url"`
-	PRs            *PRList  `json:"prs,omitzero"`
-	BlockedBy      *RefList `json:"blocked_by,omitzero"`
-	BlockersClosed *bool    `json:"blockers_closed,omitzero"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	URL    string `json:"url"`
+	// Absent unless --with-prs, which costs a round trip per sub-issue.
+	PRs *PRList `json:"prs,omitzero"`
+	// Absent unless --with-deps, which costs a round trip per sub-issue that
+	// has blockers.
+	BlockedBy *RefList `json:"blocked_by,omitzero"`
+	// Absent unless --with-deps. False whenever the answer is not known, the
+	// same safe direction the other closed flags take.
+	BlockersClosed *bool `json:"blockers_closed,omitzero"`
 }
 
 // Summary is GitHub's own count of an issue's children, which arrives with the
@@ -111,9 +112,7 @@ type Summary struct {
 }
 
 // Hierarchy is where one issue sits among its parent, children and blockers.
-//
-// The field order is the output contract: it is the order the keys are
-// printed in.
+// The keys are printed in the order below, which is part of the contract.
 type Hierarchy struct {
 	Repo   string   `json:"repo"`
 	Number int      `json:"number"`
@@ -121,13 +120,13 @@ type Hierarchy struct {
 	State  string   `json:"state"`
 	URL    string   `json:"url"`
 	Kind   TreeKind `json:"kind"`
-	// Parent is null for an issue that is nobody's child, and also for one
-	// whose parent could not be read — the warning tells those apart.
+	// Null for an issue that is nobody's child, and also for one whose parent
+	// could not be read — the warning tells those apart.
 	Parent    *Ref    `json:"parent"`
 	BlockedBy RefList `json:"blocked_by"`
-	// BlockersClosed is false whenever the answer is not known, which is the
-	// same safe direction AllSubIssuesClosed and AllSiblingsClosed take: these
-	// gate closing an issue.
+	// False whenever the answer is not known, the same safe direction
+	// all_sub_issues_closed and all_siblings_closed take: all three gate
+	// closing an issue.
 	BlockersClosed     bool       `json:"blockers_closed"`
 	SubIssues          []SubIssue `json:"sub_issues"`
 	SubIssuesSummary   Summary    `json:"sub_issues_summary"`

@@ -44,21 +44,15 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 フラグ検証・PR 存在プローブ・branch 一致確認・PR コンテキスト一括取得（`ccx pr context` と同じ機構、打ち切り時の自動再取得込み）・3モード判定・PR head との鮮度確認・ベースブランチ判定を1回で行う。未定義フラグ（旧名・typo）は定義済み一覧を添えた非ゼロ exit で止まる — 黙って無視され意図しないモードで実行される事故を防ぐため。
 
-#### `ccx pr prepare-review` の出力 JSON の契約
+出力の読み方は `ccx pr prepare-review --help` にある。本スキルがそれに対して行うこと:
 
-- `status`:
-  - `"ok"` → 続行
-  - `"branch_mismatch"` → **停止**（`<pr-number>` 指定かつ `--worktree` なしでカレント branch が PR の head branch（出力の `head_ref`）と不一致 — 別 branch の差分を誤レビューしない安全策）。ユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する
-  - 鮮度確認の停止 status（`behind_dirty` / `diverged` / `fetch_failed`）→ **停止**し、@~/.claude/skills/worktree-resolution/SKILL.md の「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
-  - 停止 status では `context_path` 以降のフィールドは null になりうる
-- `pr_exists`: `false` は「PR なし」のローカルレビューへの正常縮退（コメント投稿なし）。**PR があるのに取得系が失敗した場合はスクリプトが非ゼロ exit で止まる**ため、stderr を提示して停止する（縮退と混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
-- `modes`: `{comment, personal_rules, autofix}` — 3モードの判定結果（決定表: PR なし/自分の PR は comment OFF・personal ON・autofix ON、他人の PR は comment ON・personal OFF・autofix OFF。`--local-only` は comment を、`--no-autofix` は autofix を個別に強制OFF）。コメントと自動対応が同時ONになる組み合わせは存在しない
-- `context_path`: PR コンテキスト JSON のパス（読み方はセクション2）
-- `work_dir`: このレビューの作業ディレクトリ（作成済み）。**レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる
-- `review_path` / `threads_path`: セクション8・9でモデルが Write する入力ファイルのパス（`work_dir` 配下）。**このパスをそのまま使う**（自分で命名しない。両スクリプトは受け取ったパスが対象 PR の `work_dir` 直下にあることを検証して非ゼロ exit する）
-- `base_branch`: `origin/<ベースブランチ>` — セクション3の差分取得に使う
-- `issues`: セクション4で読む Issue の一覧 `[{repo, number}]`（`--issue` 明示時はそれのみ、未指定時は PR 本文の closing keyword から検出された関連 Issue。`repo: null` は同リポ）
-- `warnings[]`: 空でなければユーザーへの報告に併記する（打ち切りが解消しなかった場合等 — その場合は記載の指示に従い再取得してからセクション2へ進む）
+- `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は @~/.claude/skills/worktree-resolution/SKILL.md の「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
+- `pr_exists: false` は縮退なので続行する。**PR があるのに取得系が失敗した場合はコマンドが非ゼロ exit で止まる**ので、そちらは stderr を提示して停止する（両者を混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
+- `context_path` の読み方はセクション2
+- `work_dir`: **レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる
+- `review_path` / `threads_path`: セクション8・9で Write するとき**このパスをそのまま使う**（自分で命名しない）
+- `base_branch` はセクション3の差分取得に、`issues` はセクション4に使う
+- `warnings[]` が空でなければユーザーへの報告に併記する（打ち切りが解消しなかった場合は、記載の指示に従い再取得してからセクション2へ進む）
 
 モードの効き先（ONのとき追加で読む箇所）:
 - コメントモード → セクション5「コメントモードON時の追加要件」、セクション6「言語」、セクション8、セクション9
@@ -67,7 +61,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 ### 2. PR コンテキストの読了（`context_path`。PR なし縮退（`pr_exists: false`）時はスキップ）
 
-コンテキストの内容は `pr` / `repo` / `is_own_pr` / `comments[]` / `reviews[]` / `review_threads[]` 等（契約の正は `go/internal/pullrequest/` のパッケージドキュメント）。
+コンテキストの読み方は `ccx pr context --help` にある。
 
 - **出力の扱い**: **`context_path` のファイルを jq で必要部分を段階的に参照する**。`cat` での全文表示や `| head` での部分読みはしない（CI bot が多い PR では数百 KB に達し、部分読みは「見えた範囲だけで判断」を誘発して comments[] の読み落としにつながるため）
 - 通常コメント・レビュー本文・レビュースレッドは GitHub 上で別物として管理されており、3つすべてを見ないと議論経緯を取りこぼす。特に「質問 → 回答 → 合意」「AIレビュー → 対応報告」の流れは PR本体の通常コメントで完結することが多く、見落とすと解決済み議題の再提起が発生する
@@ -96,7 +90,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 `issues` の各要素について Issue 内容を取得し、要件・仕様を確認する（空ならスキップ）。同リポ（`repo: null`）は `gh issue view <N>`、クロスリポは `gh issue view -R <owner>/<repo> <N>`。
 
-あわせて各 Issue の親子関係を `ccx issue tree <N> [-R <owner>/<repo>]` で確認し（出力 `parent`。契約の正は `go/internal/issue/` のパッケージドキュメント）、**親があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。
+あわせて各 Issue の親子関係を `ccx issue tree <N> [-R <owner>/<repo>]` で確認し、**`parent` があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。
 
 ### 5. レビュー実行
 
@@ -274,21 +268,14 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 ccx pr post-review <context_path> <review_path>
 ```
 
-#### review_path に書く JSON の入力契約
+#### review_path に何を書くか
 
-```json
-{
-  "assessment": "Approve可能" | "修正が必要" | "要議論",
-  "body_file": "body.md",
-  "comments": [{"path": "src/main.go", "line": 30, "body_file": "c1.md"}]
-}
-```
+書式は `ccx pr post-review --help` にある。本スキルが決めるのは中身:
 
-- `assessment`: セクション7の総合評価をそのまま書く（event への変換決定表はスクリプトが所有）
-- `body_file` / `comments[].body_file`: `work_dir` 直下に Write した Markdown のファイル名（ベース名のみ・パス区切り不可）。スクリプトが投稿前に本文へ解決する
-- インラインの `body` / `comments[].body`（`body_file` と各エントリで排他・どちらか一方が必須）も受け付けるが、**短い一段落までに限る**。レビュー本文はコードスパン・表・`"` を含む長文になり、JSON 文字列への手書きエスケープは1文字の欠落で JSON 全体が無効になるため、原則 `body_file` を使う（Write した `.md` にはエスケープが発生しない）
+- `assessment` にはセクション7の総合評価をそのまま書く（event への変換はコマンドが所有する）
+- **本文は原則 `body_file` で渡す**。レビュー本文はコードスパン・表・`"` を含む長文になり、JSON 文字列への手書きエスケープは1文字の欠落で JSON 全体が無効になる。Write した `.md` にはエスケープが発生しない。インラインの `body` は短い一段落までに限る
 - 本文の内容（`body_file` の参照先・インラインとも）: セクション6の原則・口調・言語（対象 PR の言語）で書く
-- `comments[]`: 行に紐づく指摘のみ（`line` は新ファイル側の行番号）。無ければ空配列で body のみのレビューになる
+- `comments[]` に入れるのは行に紐づく指摘のみ。無ければ空配列で body だけのレビューになる
 - **折りたたみの原則**: 作者のアクションが不要な内容（コメント内の長い根拠・検証記録・前回指摘の対応状況・nit）は `<details>` で折りたたみ、アクションを要求する内容は折りたたまない。`<details>` は PR への投稿（body・行コメント）専用 — セクション7のローカル出力には入れない（HTML タグは端末表示では単なるノイズ）。`<summary>` 行の直後の空行は必須（無いと中身の Markdown がレンダリングされない）
 - **行コメント本文（`comments[].body_file` の参照先・インラインとも）は冒頭に重要度ラベルを付ける**。ラベルは `**必須修正**:` / `**推奨修正**:` / `**質問**:`（対象 PR の言語の相当表現）— 無いと作者は行コメント単体でブロッキング性を判別できない
 - **行コメントの折りたたみ外に置くのは要求と根拠の要点（目安 3〜5 文）まで**。機序の段階的解説・前例の列挙・代替案の得失比較・実測値・コードスニペットは、分量によらず `<details><summary>検証詳細</summary>` に折りたたむ — 「長いか」の程度判断は適用漏れを起こすため、内容種別で機械的に振り分ける。修正案の提示そのものは作者のアクションに直結するため折りたたまない
@@ -307,11 +294,12 @@ ccx pr post-review <context_path> <review_path>
 
   - 折りたたみ内は行コメントと違いコード位置にリンクされないため、作者が該当箇所へ飛べるよう `path:line` を明記する
 
-#### `ccx pr post-review` の挙動と出力 JSON の契約
+#### 投稿が拒否されたとき
 
-- 投稿前検証をスクリプトが実行する: ローカル HEAD == PR head の再確認と、`comments[]` の path/line が最新 diff に存在することの突き合わせ（行番号ずれによる 422 を投稿前に検出）
-- 検証違反で非ゼロ exit した場合: stderr に列挙された違反エントリの行番号を差分と突き合わせて付け直し、再実行する。**指摘自体の削除・格下げはしない** — 行を特定できない指摘は body へ移す
-- 成功時の出力は `{url}` → 投稿完了として PR のレビュー URL をユーザーに表示する
+投稿前の検証（ローカル HEAD の再確認、行アンカーの突き合わせ）が何をするかは
+`ccx pr post-review --help` にある。拒否されたら、stderr に列挙された違反エントリの行番号を差分と
+突き合わせて付け直し、再実行する。**指摘自体の削除・格下げはしない** — 行を特定できない指摘は body へ
+移す。成功したら投稿完了として PR のレビュー URL をユーザーに表示する。
 
 ### 9. コメントモードON時: 前回指摘スレッドへの返信・解決
 
@@ -349,32 +337,32 @@ jq '[.review_threads[] | select(.awaiting_my_confirmation) | {id, path, line, la
 ccx pr reply-threads <context_path> <threads_path>
 ```
 
-#### threads_path に書く JSON の入力契約
+#### threads_path に何を書くか
 
-```json
-{
-  "threads": [
-    {"id": "PRRT_kwDO...", "body": "返信内容", "resolve": true},
-    {"id": "PRRT_kwDO...", "resolve": true}
-  ]
-}
-```
+書式は `ccx pr reply-threads --help` にある。本スキルが決めるのは中身:
 
-- `id`: `review_threads[].id`。`awaiting_my_confirmation: true` 以外を含めるとスクリプトが1件も投稿せず非ゼロ exit する（他レビュアーのスレッドの解消判定の代行・解決済みへの再投稿を構造的に防ぐため）
-- `body`: セクション6の原則・口調・言語（対象 PR の言語）で書く。**省略すると返信せず resolve のみ実行する**（2件目の例）。用途は2つ — 前回の自分の返信から判定が変わっていない場合と、下記の resolve 権限不足からの回復
-- 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープはセクション8と同じ理由で避ける。セクション8の `body_file` 機構を threads に持たせないのは意図的な省略 — 返信は通常短く機構が過剰なため。長文返信が常態化したら `ccx pr reply-threads` への `body_file` 対応を検討する）:
+- `id` は `review_threads[]` から取る
+- `resolve` は上記の決定表に従う
+- `body` はセクション6の原則・口調・言語（対象 PR の言語）で書く。省略して resolve だけを実行する
+  用途は2つ — 前回の自分の返信から判定が変わっていない場合と、下記の resolve 権限不足からの回復
+- 返信は通常短くインラインで足りるが、コードスパン・`"` を多く含む長い返信は素の Markdown を
+  `work_dir` 配下に Write し、`jq -n --rawfile` で組み立てる（JSON 文字列への手書きエスケープは
+  セクション8と同じ理由で避ける。セクション8の `body_file` 機構を threads に持たせないのは意図的な
+  省略 — 返信は通常短く機構が過剰なため。長文返信が常態化したら `ccx pr reply-threads` への
+  `body_file` 対応を検討する）:
 
   ```bash
   jq -n --rawfile r1 <work_dir>/t1.md \
     '{threads: [{id: "PRRT_...", body: $r1, resolve: true}]}' > <threads_path>
   ```
-- `resolve`: 上記の決定表に従う。`body` 省略時は `true` でなければならない（返信も resolve もしないエントリは無意味なため非ゼロ exit）
 
-#### `ccx pr reply-threads` の出力・失敗時の契約
+#### 実行後の扱い
 
-- 成功時の出力は `{replied[], resolved[], resolve_failed[], warnings[]}` → 返信・解決したスレッド数をユーザーに報告する
-- `resolve_failed[]` / `warnings[]` が空でない場合: 権限不足（fork PR、write 権限なし）で resolve だけ失敗した縮退。**返信済みなので同じ本文で再実行しない**。write 権限がないリポジトリではこれは恒久的な状態なので、次回以降のレビューでは `body` を省略した resolve のみのエントリで再試行する（返信を重ねずに済む）。warning をユーザーへの報告に併記する
-- 返信失敗時は非ゼロ exit で停止し、stderr に投稿済み・未処理スレッドを列挙する。未処理分だけで `threads_path` を書き直して再実行する（投稿済み id はスクリプトが sidecar に記録しており、再送しようとすると非ゼロ exit で拒否される）
+- 返信・解決したスレッド数をユーザーに報告する
+- `resolve_failed[]` が空でない場合: **返信済みなので同じ本文で再実行しない**。write 権限がない
+  リポジトリではこれは恒久的な状態なので、次回以降のレビューでは `body` を省略した resolve のみの
+  エントリで再試行する（返信を重ねずに済む）。warning はユーザーへの報告に併記する
+- 途中で失敗して停止した場合: stderr に列挙された未処理分だけで `threads_path` を書き直して再実行する
 
 ### 10. 自動対応モードON時: レビュー指摘の反映
 

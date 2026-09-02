@@ -183,7 +183,11 @@ func sectionsCheckCmd(build selfbuild.State) *cobra.Command {
 				fmt.Fprintln(c.ErrOrStderr(), v.Message)
 			}
 			if class, found := issue.Worst(violations); found {
-				return exitCode(checkStatus[class])
+				code, ok := sectionsCheckStatus(class)
+				if !ok {
+					return silent(fmt.Errorf("no exit status is published for violation class %d", class))
+				}
+				return exitCode(code)
 			}
 			return nil
 		},
@@ -216,7 +220,7 @@ func sectionsFindCmd(build selfbuild.State) *cobra.Command {
 			// so that it stays distinct from the failures above, which mean the
 			// body itself could not be trusted.
 			if errors.Is(err, issue.ErrSectionNotFound) {
-				return exitCode(6)
+				return exitCode(sectionNotFound.code)
 			}
 			if err != nil {
 				return silent(err)
@@ -224,19 +228,6 @@ func sectionsFindCmd(build selfbuild.State) *cobra.Command {
 			return silent(renderJSON(c.OutOrStdout(), found))
 		},
 	}
-}
-
-// checkStatus is where the violation classes become process exit statuses.
-//
-// The numbers are the contract `ccx issue sections check` publishes and the
-// package deliberately does not know them: a library function that returned 4
-// would be carrying a process boundary around with it. 6 belongs to find, and
-// is not in this table for that reason.
-var checkStatus = map[issue.Class]int{
-	issue.MissingSection:        2,
-	issue.UnknownHeading:        3,
-	issue.MappedMachineKey:      4,
-	issue.HeadingLocaleMismatch: 5,
 }
 
 // localeAndKind adds the two flags that say which schema a draft is written

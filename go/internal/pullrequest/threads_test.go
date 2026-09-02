@@ -45,6 +45,23 @@ func TestParseThreadActions(t *testing.T) {
 		{name: "resolve is a string", in: `{"threads":[{"id":"a","resolve":"yes"}]}`, wantErr: "{id: string, resolve: boolean"},
 		{name: "body is a number", in: `{"threads":[{"id":"a","resolve":true,"body":3}]}`, wantErr: "{id: string, resolve: boolean"},
 		{name: "not json at all", in: "nope", wantErr: "invalid JSON"},
+
+		// Two distinctions the raw-JSON reading left uncovered, pinned so that
+		// giving the fields their real Go types cannot change them unnoticed.
+		{name: "resolve missing", in: `{"threads":[{"id":"a","body":"x"}]}`, wantErr: "{id: string, resolve: boolean"},
+		{
+			// An explicit null says "not this one", which is what leaving the
+			// field out says: resolve without replying.
+			name: "a null body",
+			in:   `{"threads":[{"id":"a","resolve":true,"body":null}]}`,
+			want: []pullrequest.ThreadAction{{ID: "a", Resolve: true}},
+		},
+		{
+			// An empty id is a value, and validate is what rejects it later.
+			name: "an empty id",
+			in:   `{"threads":[{"id":"","resolve":true}]}`,
+			want: []pullrequest.ThreadAction{{ID: "", Resolve: true}},
+		},
 	}
 
 	for _, tc := range tests {

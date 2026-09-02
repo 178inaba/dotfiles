@@ -116,7 +116,7 @@ func TestCheckRefs(t *testing.T) {
 			t.Parallel()
 
 			root := tree(t, tc.files)
-			got, err := skill.CheckRefs(root)
+			got, err := skill.CheckRefs(root, skill.Contract{})
 			if err != nil {
 				t.Fatalf("CheckRefs: %v", err)
 			}
@@ -147,7 +147,7 @@ func TestCheckRefsReadsBeyondSkillFiles(t *testing.T) {
 		"c/SKILL.md":     skillFile("c", "nothing\n"),
 	})
 
-	got, err := skill.CheckRefs(root)
+	got, err := skill.CheckRefs(root, skill.Contract{})
 	if err != nil {
 		t.Fatalf("CheckRefs: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestCheckRefsFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := skill.CheckRefs(tc.target)
+			got, err := skill.CheckRefs(tc.target, skill.Contract{})
 			if err == nil {
 				t.Fatalf("CheckRefs = %+v, want an error mentioning %q", got, tc.wantErr)
 			}
@@ -189,24 +189,5 @@ func TestCheckRefsFails(t *testing.T) {
 				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
 			}
 		})
-	}
-}
-
-// TestCheckRefsOnThisRepository is the case the fixtures cannot make: the
-// references actually written between this repository's skills hold together.
-func TestCheckRefsOnThisRepository(t *testing.T) {
-	t.Parallel()
-
-	skills := filepath.Join("..", "..", "..", "claude", ".claude", "skills")
-	if _, err := os.Stat(skills); err != nil {
-		t.Skipf("the repository's skills are not there: %v", err)
-	}
-
-	got, err := skill.CheckRefs(skills)
-	if err != nil {
-		t.Fatalf("CheckRefs: %v", err)
-	}
-	if len(got.Violations) != 0 {
-		t.Errorf("this repository's own skills have reference violations: %+v", got.Violations)
 	}
 }

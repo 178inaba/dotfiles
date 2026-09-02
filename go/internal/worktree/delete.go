@@ -29,17 +29,22 @@ type Deletion struct {
 	Failures []Failure `json:"failures"`
 }
 
-// ParseCandidates reads the approved candidates.
+// DeleteInput is the document `ccx worktree delete` reads from standard input.
 //
-// What Collect wrote, minus whatever the person or the model took out of it.
-// The two commands are separate so that a person sees the list before anything
-// is deleted, and this is the boundary that approval passes through.
+// What `ccx worktree collect` wrote, minus whatever the person or the model
+// took out of it. The two commands are separate so that a person sees the list
+// before anything is deleted, and this document is the boundary approval
+// passes through.
+type DeleteInput struct {
+	// The approved lists, in the shape collect printed them. A document
+	// without the field is a failure rather than an empty list quietly
+	// deleting nothing; an empty object is an approved list of nothing.
+	Candidates *Candidates `json:"candidates" contract:"required"`
+}
+
+// ParseCandidates reads the approved candidates.
 func ParseCandidates(b []byte) (Candidates, error) {
-	var wire struct {
-		// A pointer, so that a document without the field is a failure rather
-		// than an empty list quietly deleting nothing.
-		Candidates *Candidates `json:"candidates"`
-	}
+	var wire DeleteInput
 	if err := json.Unmarshal(b, &wire); err != nil {
 		return Candidates{}, errors.New("invalid JSON on stdin")
 	}

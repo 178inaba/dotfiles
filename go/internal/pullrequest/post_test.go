@@ -98,6 +98,38 @@ func TestParseSubmission(t *testing.T) {
 		{name: "a comment without a line", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","body":"y"}]}`, wantErr: "comments must be an array"},
 		{name: "a comment whose line is not a number", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":"3","body":"y"}]}`, wantErr: "comments must be an array"},
 		{name: "not json at all", in: `not json`, wantErr: "invalid JSON"},
+
+		// The distinctions below were not covered when the fields were read as
+		// raw JSON and checked by hand. They are here so that giving them
+		// their real Go types cannot change any of them by accident.
+		{
+			name: "a zero line and an empty path",
+			in:   `{"assessment":"要議論","body":"x","comments":[{"path":"","line":0,"body":"y"}]}`,
+			want: pullrequest.Submission{
+				Assessment: pullrequest.AssessmentDiscuss, Body: "x",
+				Comments: []pullrequest.SubmissionComment{{Path: "", Line: 0, Body: "y"}},
+			},
+		},
+		{
+			// A zero value is a value: what the parser rejects is a field that
+			// is not there, and the anchors are checked against the diff later.
+			name: "an empty assessment",
+			in:   `{"assessment":"","body":"x","comments":[]}`,
+			want: pullrequest.Submission{
+				Assessment: "", Body: "x", Comments: []pullrequest.SubmissionComment{},
+			},
+		},
+		{
+			// An explicit null is the writer saying "not this one", which is
+			// what omitting the field says too.
+			name: "a null body beside a named one",
+			in:   `{"assessment":"要議論","body":null,"body_file":"body.md","comments":[]}`,
+			want: pullrequest.Submission{
+				Assessment: pullrequest.AssessmentDiscuss, Body: "# From a file\n",
+				Comments: []pullrequest.SubmissionComment{},
+			},
+		},
+		{name: "an assessment that is not a string", in: `{"assessment":5,"body":"x","comments":[]}`, wantErr: "assessment must be a string"},
 	}
 
 	for _, tc := range tests {

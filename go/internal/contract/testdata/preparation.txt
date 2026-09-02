@@ -1,0 +1,69 @@
+  Everything a review needs settled before it starts. Most of the fields are null on a
+  stopping status, because each is only established as the step that produces it
+  succeeds.
+
+  status               string
+                       ok, branch_mismatch, or whichever freshness status stopped the
+                       preparation. Everything below is null on a stopping status.
+  flags                object
+    pr_number          integer (may be null)
+    issue              integer (may be null)
+    worktree           boolean
+    local_only         boolean
+    no_autofix         boolean
+  pr_exists            boolean
+                       False is the ordinary degradation to a local review rather than a
+                       failure. Everything else that goes wrong stops instead: confusing
+                       the two would let a review of somebody else's work run with this
+                       repository's own conventions and automatic fixing switched on.
+  head_ref             string (may be null)
+  context_path         string (may be null)
+  work_dir             string (may be null)
+                       work_dir, review_path and threads_path are handed out rather than
+                       left to the caller to name, which is what binds a review's
+                       working files to one pull request.
+  review_path          string (may be null)
+  threads_path         string (may be null)
+  base_branch          string (may be null)
+                       The branch to diff against, already prefixed with origin/.
+  modes                object (may be null)
+    comment            boolean
+                       The findings are posted as a review rather than acted on, which
+                       is what reviewing somebody else's work means.
+    personal_rules     boolean
+                       This repository's own conventions apply, which they do to our own
+                       work and not to a stranger's.
+    autofix            boolean
+                       The findings are acted on here rather than posted. Never true at
+                       the same time as comment: a review either tells somebody else
+                       what it found or fixes it, and doing both would post remarks
+                       about code that has already changed.
+  freshness            object (may be null)
+                       The whole freshness report, so that a caller stopping on one can
+                       say what it compared.
+    status             string, one of:
+      ok               A checkout already at the pull request's head.
+      synced           The same checkout after this command moved it there.
+      ahead_own        The author's own checkout with commits not pushed yet, which is
+                       ordinary rather than stale.
+      behind_dirty     A stale checkout with uncommitted changes in it, which is for a
+                       person to resolve rather than for this command.
+      diverged         The same, with commits the remote has never seen.
+      branch_mismatch  A checkout of something else entirely, a detached head included.
+      fetch_failed     fetch_failed most often means the head branch is not on origin at
+                       all, which is what a pull request from a fork looks like from
+                       here.
+    head_ref           string
+    head_oid           string
+    local_head         string
+                       Read after any synchronisation, so it is where the checkout ended
+                       up rather than where it started.
+  issues               array of object
+                       The issues the review checks the work against: the one --issue
+                       named, or else the ones the pull request body's closing keywords
+                       point at.
+    repo               string (may be null)
+                       Null for an issue in this repository, which is how the body wrote
+                       it.
+    number             integer
+  warnings             array of string

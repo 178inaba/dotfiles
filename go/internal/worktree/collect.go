@@ -52,13 +52,19 @@ const (
 	// upstream to compare against.
 	SkipNoUpstreamWithCommits SkipReason = "no_upstream_with_commits"
 	// SkipCommitsBeyondMergedPR is a branch pushed to after its pull request
-	// merged. Nothing else catches it: the commits are on the remote, so every
-	// unpushed check passes and `git branch -d` agrees to delete.
+	// merged, or diverged from it, or whose merged head is not here at all.
+	// Nothing else catches it: the commits are on the remote, so every
+	// unpushed check passes and `git branch -d` agrees to delete. detail
+	// lists the commits beyond the merge, or says the merged head is missing
+	// locally where that is why.
 	SkipCommitsBeyondMergedPR SkipReason = "commits_beyond_merged_pr"
-	// SkipLocalCommitsBeyondPR is the same as SkipCommitsBeyondMergedPR for
-	// commits that were never pushed at all.
+	// SkipLocalCommitsBeyondPR is a branch whose pull request closed unmerged
+	// and which carries commits the pull request never had.
 	SkipLocalCommitsBeyondPR SkipReason = "local_commits_beyond_pr"
-	// SkipInUseByProcess is a worktree some process is still standing in.
+	// SkipInUseByProcess is a worktree some process is still standing in —
+	// another Claude Code session, a shell. detail names the process and its
+	// pid. The worktree the caller is standing in is exempt from the check and
+	// becomes an is_current candidate instead.
 	SkipInUseByProcess SkipReason = "in_use_by_process"
 )
 
@@ -68,13 +74,13 @@ type Candidate struct {
 	Path    string  `json:"path"`
 	Branch  string  `json:"branch"`
 	Verdict Verdict `json:"verdict"`
-	// Detail is for a person reading the list, and is written in the language
+	// For a person reading the list, and written in the language
 	// the rest of this skill speaks.
 	Detail string `json:"detail"`
-	// IsCurrent marks the worktree the caller is standing in, which has to be
+	// Marks the worktree the caller is standing in, which has to be
 	// left before it can be removed.
 	IsCurrent bool `json:"is_current"`
-	// HeadOID is set only for VerdictPRClosed, and is the head the deletion
+	// Set only when the verdict is pr_closed, and is the head the deletion
 	// checks again before it uses the flag that skips git's own safety net.
 	HeadOID string `json:"head_oid"`
 }
@@ -107,14 +113,14 @@ type Candidates struct {
 
 // Collection is the whole answer to "what is finished with here".
 type Collection struct {
-	// Degraded says GitHub could not be reached, so the judgement fell back to
+	// GitHub could not be reached, so the judgement fell back to
 	// what git alone knows and no pull request was consulted.
 	Degraded        bool       `json:"degraded"`
 	DefaultBranch   string     `json:"default_branch"`
 	CurrentWorktree string     `json:"current_worktree"`
 	Candidates      Candidates `json:"candidates"`
 	Skipped         []Skipped  `json:"skipped"`
-	// Detached worktrees are reported rather than judged: with no branch there
+	// Worktrees on no branch, reported rather than judged: with no branch there
 	// is nothing to compare against a pull request.
 	Detached []string `json:"detached"`
 	Warnings []string `json:"warnings"`

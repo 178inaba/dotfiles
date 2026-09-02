@@ -36,7 +36,7 @@ const (
 type Action string
 
 const (
-	// ActionEnterExisting names a worktree that is already there.
+	// ActionEnterExisting is a worktree that is already there.
 	ActionEnterExisting Action = "enter_existing"
 	// ActionCreate says one has to be made first.
 	ActionCreate Action = "create"
@@ -47,11 +47,11 @@ const (
 type Resolution struct {
 	Status ResolveStatus `json:"status"`
 	Action Action        `json:"action"`
-	// PRNumber and HeadRef are the pull request as resolved, so that a caller
+	// pr_number and head_ref are the pull request as resolved, so that a caller
 	// that left the number out learns which one it got.
 	PRNumber int    `json:"pr_number"`
 	HeadRef  string `json:"head_ref"`
-	// WorktreeName is the head branch with its slashes flattened, since one
+	// The head branch with its slashes flattened, since one
 	// directory name has to stand for a branch that may be nested.
 	WorktreeName string `json:"worktree_name"`
 	// Path is null unless an existing worktree was found; there is nowhere to
@@ -200,8 +200,8 @@ type CheckedOut struct {
 	Status ResolveStatus `json:"status"`
 	Path   string        `json:"worktree_path"`
 	Synced bool          `json:"synced"`
-	// CopiedFiles counts what .worktreeinclude brought in, the same way
-	// EnterWorktree would have.
+	// How many files .worktreeinclude brought in, the same way the harness
+	// would have.
 	CopiedFiles int      `json:"copied_files"`
 	Warnings    []string `json:"warnings"`
 }
