@@ -174,13 +174,18 @@ func readCommits(ctx context.Context, r runner.Runner, dir, span string) ([]Comm
 // because --output keeps the patch out of the captured standard output, which
 // matters once it is unbounded.
 //
-// -M asks for rename detection and --no-ext-diff --no-color shut out a
-// configured external differ and a colour setting, because all three are
-// things a local configuration could otherwise change about what the contract
-// publishes.
+// The flags are all pinned rather than left to the configuration, because each
+// of them is something a local setting could otherwise change about what the
+// contract publishes: -M and -C ask for the rename and copy detection the two
+// statuses of that name depend on, --no-relative keeps a run started in a
+// subdirectory from silently reporting only that subdirectory, and
+// --no-ext-diff --no-color shut out a configured external differ and a colour
+// setting, either of which would corrupt the patch file itself.
 func readDiff(ctx context.Context, r runner.Runner, dir, span, patch string) (Diff, error) {
 	git := func(args ...string) (string, error) {
-		full := append([]string{"-C", dir, "diff", "-M", "--no-ext-diff", "--no-color"}, args...)
+		full := append([]string{
+			"-C", dir, "diff", "-M", "-C", "--no-relative", "--no-ext-diff", "--no-color",
+		}, args...)
 		out, err := r.Run(ctx, runner.Command{Name: "git", Args: full})
 		if err != nil {
 			return "", fmt.Errorf("git diff %s failed in %s: %v", span, dir, err)

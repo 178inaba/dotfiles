@@ -64,8 +64,12 @@ type Preparation struct {
 	Freshness *worktree.FreshnessReport `json:"freshness"`
 	// The issues the review checks the work against: the one --issue named, or
 	// else the ones the pull request body's closing keywords point at.
-	Issues   []LinkedIssue `json:"issues"`
-	Warnings []string      `json:"warnings"`
+	Issues []LinkedIssue `json:"issues"`
+	// The degradations that did not stop the preparation: an issue
+	// that could not be read, named as owner/repo#N, and anything that was
+	// still cut short after the limits were raised. Empty rather than null
+	// when there was nothing to report.
+	Warnings []string `json:"warnings"`
 }
 
 // Options are what the command line asked for.

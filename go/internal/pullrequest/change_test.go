@@ -185,6 +185,49 @@ func TestReadChange(t *testing.T) {
 	})
 }
 
+// TestReadChangeReportsCopiesAndTypechanges covers the two statuses the main
+// fixture cannot produce.
+//
+// A copy is only found where its source was itself touched in the range, and
+// only when copy detection is asked for — which is why the command asks for it
+// rather than leaving the two statuses the contract publishes unreachable. A
+// typechange has no name of its own among the five, and is a modification.
+func TestReadChangeReportsCopiesAndTypechanges(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, func(author string) {
+		// A copy of a file that is modified in the same range, which is what
+		// git matches one against.
+		gittest.Write(t, filepath.Join(author, "copy.txt"), "a\nb\nc\n")
+		gittest.Write(t, filepath.Join(author, "old.txt"), "a\nb\nc\nd\n")
+		// A regular file replaced by a symlink: same path, different kind.
+		link := filepath.Join(author, "base.txt")
+		if err := os.Remove(link); err != nil {
+			t.Fatalf("remove %s: %v", link, err)
+		}
+		if err := os.Symlink("old.txt", link); err != nil {
+			t.Fatalf("symlink %s: %v", link, err)
+		}
+		gittest.Run(t, author, "add", "-A")
+		gittest.Run(t, author, "commit", "-qm", "Copy a file and turn another into a link")
+	})
+
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), filepath.Join(t.TempDir(), "diff.patch"))
+	if err != nil {
+		t.Fatalf("ReadChange: %v", err)
+	}
+
+	source := "old.txt"
+	want := []pullrequest.DiffFile{
+		{Path: "base.txt", Status: pullrequest.StatusModified, Additions: new(1), Deletions: new(1)},
+		{Path: "copy.txt", PreviousPath: &source, Status: pullrequest.StatusCopied, Additions: new(0), Deletions: new(0)},
+		{Path: "old.txt", Status: pullrequest.StatusModified, Additions: new(1), Deletions: new(0)},
+	}
+	if diff := cmp.Diff(want, got.Diff.Files); diff != "" {
+		t.Errorf("diff.files (-want +got):\n%s", diff)
+	}
+}
+
 // TestReadChangeWritesALargeDiffWhole is requirement 7 in one test: no line,
 // file or byte limit is applied, so a diff far past any of the context's own
 // limits arrives entire.

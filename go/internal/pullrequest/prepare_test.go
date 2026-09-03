@@ -5,7 +5,9 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,6 +50,14 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.Client {
 	t.Helper()
 
+	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues)
+}
+
+// prepareGitHubKnowing is prepareGitHub with the issues it knows about named,
+// so that a test can leave one out and see what the run makes of that.
+func prepareGitHubKnowing(t *testing.T, headOID, author, threads string, issues map[string]string) *ghapi.Client {
+	t.Helper()
+
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// The REST endpoints are routed apart before anything reads the body:
@@ -55,7 +65,7 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 		// pull request into an issue and passes, which is how a fake reports a
 		// parent that does not exist.
 		if r.URL.Path != "/graphql" {
-			serveIssue(w, r, pages{issues: prepareIssues})
+			serveIssue(w, r, pages{issues: issues})
 			return
 		}
 		if author == "" {
@@ -67,9 +77,7 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 			t.Errorf("read the request body: %v", err)
 			return
 		}
-		node := fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
-			"state":"OPEN","author":{"login":%q},"headRefName":"feature/x","baseRefName":"main",
-			"headRefOid":%q,"headRepositoryOwner":{"login":"owner"}}`, author, headOID)
+		node := prNode(author, headOID)
 
 		switch {
 		case strings.Contains(string(body), "viewer"):
@@ -84,6 +92,38 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 		default:
 			fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, node)
 		}
+	}))
+}
+
+// prNode is the fixture pull request as both lookups answer with it.
+func prNode(author, headOID string) string {
+	return fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
+		"state":"OPEN","author":{"login":%q},"headRefName":"feature/x","baseRefName":"main",
+		"headRefOid":%q,"headRepositoryOwner":{"login":"owner"}}`, author, headOID)
+}
+
+// prepareGitHubLosingTheConversation answers the probe and then fails the query
+// that fetches the conversation, which is what a run that gets as far as
+// reading the change and no further looks like.
+func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Client {
+	t.Helper()
+
+	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/graphql" {
+			serveIssue(w, r, pages{issues: prepareIssues})
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+			return
+		}
+		if strings.Contains(string(body), "viewer") {
+			fmt.Fprint(w, `{"errors":[{"message":"conversation unavailable"}]}`)
+			return
+		}
+		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, prNode("me", headOID))
 	}))
 }
 
@@ -317,6 +357,82 @@ func TestPrepareRefusesAMovedHead(t *testing.T) {
 	}
 	if len(seen) != 0 {
 		t.Errorf("%d contexts were stored for a head that could not be resolved", len(seen))
+	}
+}
+
+// TestPrepareRemovesTheDocumentItReplaces is the other half of that guard.
+//
+// The patch is overwritten before the conversation is fetched, so a run that
+// stops after it would leave this run's patch under the previous run's
+// document — which points at it by path and says nothing about the head it was
+// taken at, exactly the disagreement the head check exists to prevent.
+func TestPrepareRemovesTheDocumentItReplaces(t *testing.T) {
+	t.Parallel()
+
+	repo, head := prepareRepo(t)
+	scratch := t.TempDir()
+	stale := filepath.Join(scratch, "pr-context-owner@repo-5.json")
+	gittest.Write(t, stale, `{"pr":{"head_oid":"older"}}`)
+
+	var seen []pullrequest.Context
+	var paths []string
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubLosingTheConversation(t, head),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: scratch, Number: 5}, store(&seen, &paths))
+	if err == nil {
+		t.Fatal("Prepare succeeded, want the failed conversation fetch to stop it")
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("the previous document is still there (%v); it now points at this run's patch", err)
+	}
+}
+
+// TestPrepareCarriesTheIssueWarnings pins the channel: prepare-review's caller
+// reads standard output and never opens the document, so a title that came
+// back null with no word of why would be unexplainable from what it has.
+func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		o    pullrequest.Options
+		want string
+	}{
+		// The body's own issue, read while the document is built.
+		{name: "an issue the body closes", want: "owner/repo#10: the issue could not be read (HTTP 404)"},
+		// And the one --issue names instead, read separately.
+		{
+			name: "the issue --issue names", o: pullrequest.Options{Issue: 43},
+			want: "owner/repo#43: the issue could not be read (HTTP 404)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, head := prepareRepo(t)
+			o := tc.o
+			o.OutDir = t.TempDir()
+			var seen []pullrequest.Context
+			var paths []string
+			// #43 is in no fixture, so the endpoint answers 404 for it; for
+			// the other case #10 is taken out of the ones it knows.
+			known := prepareIssues
+			if tc.o.Issue == 0 {
+				known = maps.Clone(prepareIssues)
+				delete(known, issuePath("owner/repo", 10))
+			}
+			gh := prepareGitHubKnowing(t, head, "me", noThreads, known)
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+			if !slices.Contains(got.Warnings, tc.want) {
+				t.Errorf("warnings = %v, want one saying %q", got.Warnings, tc.want)
+			}
+		})
 	}
 }
 

@@ -120,6 +120,13 @@ func OpenDocument(ctx context.Context, r runner.Runner, dir, outDir string, repo
 	if err != nil {
 		return Document{}, err
 	}
+	// Whatever an earlier run left goes now, before the patch beside it is
+	// overwritten. A run that stops partway would otherwise leave that run's
+	// patch under the previous run's document, which points at it by path and
+	// says nothing about which head it was taken at.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return Document{}, fmt.Errorf("failed to remove the previous context file: %s", path)
+	}
 	change, err := ReadChange(ctx, r, dir, pr, work.DiffPath)
 	if err != nil {
 		return Document{}, err

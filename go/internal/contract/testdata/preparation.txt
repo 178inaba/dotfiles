@@ -83,3 +83,7 @@
       title            string
       body             string
   warnings             array of string
+                       The degradations that did not stop the preparation: an issue that
+                       could not be read, named as owner/repo#N, and anything that was
+                       still cut short after the limits were raised. Empty rather than
+                       null when there was nothing to report.
