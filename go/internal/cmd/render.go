@@ -4,6 +4,9 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"io"
+	"reflect"
+
+	"github.com/178inaba/dotfiles/go/internal/contract"
 )
 
 // The script subcommands answer in JSON on standard output, and this is the
@@ -39,11 +42,27 @@ func renderCompactJSON(w io.Writer, v any) error {
 	return render(w, v)
 }
 
+// render is also where a document the module produces meets its own
+// declaration, this being the way out of the two boundaries one crosses.
+//
+// Against the bytes rather than the value, for the reason the way in checks
+// them: a field left out by omitzero is indistinguishable from an empty one
+// until it has been encoded. A violation here is a bug in this module's own
+// producing code rather than bad input, so it fails the command and nothing is
+// written.
 func render(w io.Writer, v any, opts ...json.Options) error {
 	b, err := json.Marshal(v, opts...)
 	if err != nil {
 		return err
 	}
+	if err := contract.Validate(b, reflect.TypeOf(v), outputDocument); err != nil {
+		return err
+	}
 	_, err = w.Write(append(b, '\n'))
 	return err
 }
+
+// outputDocument is what a refusal on this side names. The input side names
+// the file it was given; there is no file here, and what a reader would be
+// looking at is the command's output.
+const outputDocument = "the output"

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -52,6 +53,41 @@ func fixture() sample {
 		Closed:   false,
 		Warnings: nil,
 		Note:     "",
+	}
+}
+
+// declared is an output type that says a field is always present and then has
+// a way of leaving it out, which is the one shape render's enforcement catches.
+// No real output type carries a contract tag yet — 178inaba/dotfiles#161 is
+// where the first one does.
+type declared struct {
+	Name string `json:"name,omitzero" contract:"required"`
+}
+
+// TestRenderRefusesADocumentItsOwnDeclarationForbids is the way out of the two
+// boundaries a contract document crosses.
+//
+// A tag on an output type used to render as a promise and be held to by
+// nothing. It is this module's own producing code on this side rather than
+// somebody's input, so the command fails rather than reporting a bad document.
+func TestRenderRefusesADocumentItsOwnDeclarationForbids(t *testing.T) {
+	t.Parallel()
+
+	var refused bytes.Buffer
+	err := renderJSON(&refused, declared{})
+	if err == nil {
+		t.Fatalf("render wrote a document without its required field: %s", refused.String())
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Errorf("error %q does not name the missing field", err)
+	}
+	if refused.Len() > 0 {
+		t.Errorf("render wrote %q before refusing; a caller reading stdout would see half a document", refused.String())
+	}
+
+	var written bytes.Buffer
+	if err := renderJSON(&written, declared{Name: "n"}); err != nil {
+		t.Fatalf("render refused a document that satisfies its declaration: %v", err)
 	}
 }
 
