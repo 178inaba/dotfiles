@@ -10,6 +10,7 @@ package pullrequest
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -47,6 +48,29 @@ type LinkedIssue struct {
 	// wrote it.
 	Repo   *string `json:"repo"`
 	Number int     `json:"number"`
+	// title and body are null where the issue could not be read —
+	// deleted, or not ours to see — and warnings says which. An issue with
+	// nothing written in it has an empty body rather than a null one, so the
+	// two are told apart.
+	Title *string `json:"title"`
+	Body  *string `json:"body"`
+	// The issue this one is a sub-issue of, null where it has none
+	// or where the parent could not be read. A Sub is bound by the rules its
+	// parent states and cannot be judged without them.
+	Parent *IssueParent `json:"parent"`
+}
+
+// IssueParent is the issue a linked issue is a sub-issue of.
+//
+// Its title and body are never null: an unreadable parent is reported as no
+// parent at all, since there would be nothing left of it to carry.
+type IssueParent struct {
+	// Null for a parent in this repository, as the linked issue's own
+	// repository is.
+	Repo   *string `json:"repo"`
+	Number int     `json:"number"`
+	Title  string  `json:"title"`
+	Body   string  `json:"body"`
 }
 
 // Comment is one comment in the pull request's conversation.
@@ -148,7 +172,13 @@ type Context struct {
 	LinkedIssues []LinkedIssue `json:"linked_issues"`
 	// The date of the head commit, null where it could not be
 	// read — in which case the time condition below simply never holds.
-	HeadCommittedAt    *string   `json:"head_committed_at"`
+	HeadCommittedAt *string `json:"head_committed_at"`
+	// The pull request's commits, oldest first: every commit of
+	// the range GitHub shows on the Commits tab, merge commits included.
+	Commits []Commit `json:"commits"`
+	// The whole diff at head_oid, as a file and the statistics
+	// over it. No limit is applied to either.
+	Diff               Diff      `json:"diff"`
 	CommentsTotalCount int       `json:"comments_total_count"`
 	CommentsTruncated  bool      `json:"comments_truncated"`
 	Comments           []Comment `json:"comments"`
@@ -158,6 +188,13 @@ type Context struct {
 	ThreadsTotalCount  int       `json:"threads_total_count"`
 	ThreadsTruncated   bool      `json:"threads_truncated"`
 	ReviewThreads      []Thread  `json:"review_threads"`
+	// The degradations that did not stop the document being
+	// useful: one line per issue that could not be read, as owner/repo#N
+	// followed by why. Empty rather than null when everything was read. What
+	// was cut short by a limit is not among them — the truncation flags say
+	// that, and a caller answers it by raising the limit rather than by
+	// reading prose.
+	Warnings []string `json:"warnings"`
 }
 
 // Limits stop an unusually large pull request from costing an unbounded number
@@ -184,7 +221,11 @@ var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200}
 // pr is its metadata, already resolved by the caller — by number or from the
 // branch — because the two ways of getting it fail differently and the caller
 // is where those messages belong.
-func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, limits Limits) (Context, error) {
+//
+// change is what ReadChange already read out of git, handed in rather than
+// read here: a caller that runs this twice with the limits raised runs git
+// once, and the document is assembled in one place either way.
+func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, limits Limits, change Change) (Context, error) {
 	vars := map[string]any{
 		"owner": repo.Owner, "name": repo.Name, "number": pr.Number, "headOid": pr.HeadRefOid,
 	}
@@ -227,6 +268,11 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		headCommittedAt = &b.Repository.HeadCommit.CommittedDate
 	}
 
+	issues, warnings, err := readIssues(ctx, c, repo, linkedIssues(pr.Body))
+	if err != nil {
+		return Context{}, err
+	}
+
 	out := Context{
 		Repo:        repo.String(),
 		CurrentUser: me,
@@ -235,8 +281,10 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			Number: pr.Number, Title: pr.Title, Body: pr.Body, URL: pr.URL, State: pr.State,
 			Author: pr.Author, HeadRef: pr.HeadRefName, BaseRef: pr.BaseRefName, HeadOID: pr.HeadRefOid,
 		},
-		LinkedIssues:       linkedIssues(pr.Body),
+		LinkedIssues:       issues,
 		HeadCommittedAt:    headCommittedAt,
+		Commits:            change.Commits,
+		Diff:               change.Diff,
 		CommentsTotalCount: prq.Comments.TotalCount,
 		CommentsTruncated:  prq.Comments.TotalCount > len(comments),
 		Comments:           make([]Comment, 0, len(comments)),
@@ -248,6 +296,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		ThreadsTotalCount: prq.ReviewThreads.TotalCount,
 		ThreadsTruncated:  prq.ReviewThreads.TotalCount > len(threads),
 		ReviewThreads:     make([]Thread, 0, len(threads)),
+		Warnings:          warnings,
 	}
 
 	for _, n := range comments {
@@ -442,6 +491,89 @@ func linkedIssues(body string) []LinkedIssue {
 	return slices.CompactFunc(out, func(a, b LinkedIssue) bool {
 		return a.Number == b.Number && repoOf(a) == repoOf(b)
 	})
+}
+
+// readIssues fills in what the body only named: each issue's title and body,
+// and the parent whose rules a sub-issue is bound by.
+//
+// The warnings it returns are the issues it could not read. Reading one is not
+// what the document is for, so a deleted or invisible issue leaves its fields
+// null and is reported rather than stopping the fetch — a review of a pull
+// request whose closed issue was since deleted would otherwise be impossible.
+// Everything else that goes wrong is returned, because a server error or an
+// expired token says nothing about the issue, and a null title would report it
+// as gone.
+func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []LinkedIssue) ([]LinkedIssue, []string, error) {
+	warnings := []string{}
+	for i, linked := range issues {
+		in := repo
+		if linked.Repo != nil {
+			var err error
+			// The pattern that matched it is owner/name and nothing else, so
+			// a failure here is a programmer's rather than an author's.
+			if in, err = ghapi.ParseRepo(*linked.Repo); err != nil {
+				return nil, nil, fmt.Errorf("failed to read the repository of %s#%d: %v", *linked.Repo, linked.Number, err)
+			}
+		}
+
+		read, err := c.Issue(ctx, in, linked.Number)
+		if err != nil {
+			status, gone := unreadable(err)
+			if !gone {
+				return nil, nil, fmt.Errorf("failed to read %s#%d: %v", in, linked.Number, err)
+			}
+			warnings = append(warnings, fmt.Sprintf("%s#%d: the issue could not be read (HTTP %d)", in, linked.Number, status))
+			continue
+		}
+		issues[i].Title, issues[i].Body = &read.Title, &read.Body
+
+		parent, err := c.IssueParent(ctx, in, linked.Number)
+		if err != nil {
+			status, gone := unreadable(err)
+			if !gone {
+				return nil, nil, fmt.Errorf("failed to read the parent of %s#%d: %v", in, linked.Number, err)
+			}
+			warnings = append(warnings, fmt.Sprintf("%s#%d: the parent issue could not be read (HTTP %d)", in, linked.Number, status))
+			continue
+		}
+		if parent == nil {
+			continue
+		}
+		issues[i].Parent = &IssueParent{
+			Repo: elsewhere(parent.Repo, repo), Number: parent.Number,
+			Title: parent.Title, Body: parent.Body,
+		}
+	}
+	return issues, warnings, nil
+}
+
+// unreadable reports whether GitHub declined to show something in a way that
+// says it may no longer be there at all, and with which status.
+//
+// Not found, forbidden and gone are the three: an issue that was deleted, or
+// that this token may not see, is one the document simply cannot carry. Every
+// other failure — a server error, an expired token, a network error, which
+// carries no status — is about the run rather than about the issue.
+func unreadable(err error) (int, bool) {
+	status, ok := ghapi.HTTPStatus(err)
+	if !ok {
+		return 0, false
+	}
+	switch status {
+	case http.StatusNotFound, http.StatusForbidden, http.StatusGone:
+		return status, true
+	}
+	return status, false
+}
+
+// elsewhere names a repository only when it is not the one being read, which
+// is the same rule the body's own owner/repo#N follows.
+func elsewhere(in, repo ghapi.Repo) *string {
+	if in == repo || in == (ghapi.Repo{}) {
+		return nil
+	}
+	name := in.String()
+	return &name
 }
 
 // repoOf flattens the optional repository for comparison. An absent one sorts

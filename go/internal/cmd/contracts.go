@@ -87,12 +87,21 @@ argument would put a whole issue on a command line.`,
 	},
 
 	"pr context": {
-		intro: `Fetch a pull request's comments, reviews and threads into one file.
+		intro: `Fetch what a pull request is and what it changes into one file.
 
-GitHub keeps the three apart — the conversation, the submitted reviews, and the
-threads on the diff — and asking for one of them is how a review misses what
-was already said. All three are fetched at once and normalised into one
-document.
+GitHub keeps the conversation apart from the submitted reviews and from the
+threads on the diff, and asking for one of them is how a review misses what was
+already said. All three are fetched at once, along with the issues the body
+closes and their parents, the commit log and the whole diff, and normalised
+into one document — so that a skill judging the work reconstructs it from the
+document rather than running git and gh itself.
+
+git runs here too: the base branch and ` + "`refs/pull/<n>/head`" + ` are fetched from
+origin, and the diff is written beside the document. **Once the document has
+been written, the commit it names as ` + "`pr.head_oid`" + ` is present in this
+repository**, which is what lets the skills that follow read the surrounding
+code. A pull request that moved while it was being read stops the command
+instead, rather than leaving a document whose head and diff disagree.
 
 <out-dir> has to exist. <pr-number> may be left out, in which case the pull
 request is inferred from the branch checked out here. The work directory
@@ -134,7 +143,13 @@ runs them separately can proceed with one of them skipped.
 An undefined flag stops the command with the defined ones listed, rather than
 being ignored and letting the review run in a mode nobody asked for.
 <scratchpad-dir> has to exist; the context file and the review work directory
-are made under it.`,
+are made under it.
+
+The document is the one ` + "`ccx pr context`" + ` writes, and git runs the same way for
+it: **wherever context_path is set, the commit that document names as
+` + "`pr.head_oid`" + ` is present in this repository**. Where the preparation stops
+before that — no pull request at all, or a checkout on another branch — nothing
+was fetched and the promise does not apply.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.Preparation]())},
 		statuses: with(),
 	},

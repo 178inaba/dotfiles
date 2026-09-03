@@ -67,7 +67,7 @@ func TestRender(t *testing.T) {
 			name: "every segment at once",
 			data: full(),
 			want: "\x1b[0;34m/w\x1b[0m\n" +
-				"\x1b[0;32m(main +1 ~1 ↑1)\x1b[0m \x1b[0;90mb257201c\x1b[0m\n" +
+				"\x1b[0;32m(main +1 ~1 ↑1)\x1b[0m \x1b[0;90mdeadbeef\x1b[0m\n" +
 				"\x1b[0;35m[Opus]\x1b[0m \x1b[0;32m▓▓▓▓░░░░░░ 42%\x1b[0m " +
 				"\x1b[0;32m5h:35%\x1b[0m \x1b[0;31m7d:95%\x1b[0m\x1b[0;36m ¥197\x1b[0m \x1b[0;36m1h30m\x1b[0m\n",
 		},
@@ -75,9 +75,9 @@ func TestRender(t *testing.T) {
 			// A session outside a repository still shows its id, so a
 			// transcript can be found while the session is running.
 			name: "the session id stands alone without a repository",
-			data: withSession(Data{Current: "/tmp", Home: "/Users/x"}, "b257201c"),
+			data: withSession(Data{Current: "/tmp", Home: "/Users/x"}, "deadbeef"),
 			want: "\x1b[0;34m/tmp\x1b[0m\n" +
-				"\x1b[0;90mb257201c\x1b[0m\n" +
+				"\x1b[0;90mdeadbeef\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{
@@ -116,11 +116,11 @@ func TestRender(t *testing.T) {
 				Current: "/w", Home: "/Users/x",
 				Git: &gitstate.Status{Branch: "feat"},
 				PR:  &prinfo.Info{Number: 123, State: prinfo.StateNoReviewRequested, URL: "https://example.test/pull/123"},
-			}, "b257201c"),
+			}, "deadbeef"),
 			want: "\x1b[0;34m/w\x1b[0m\n" +
 				"\x1b[0;32m(feat ↑∅)\x1b[0m PR \x1b[38;5;220m" +
 				"\x1b]8;;https://example.test/pull/123\a\x1b[4m#123\x1b[24m\x1b]8;;\a\x1b[0m" +
-				" \x1b[0;90mb257201c\x1b[0m\n" +
+				" \x1b[0;90mdeadbeef\x1b[0m\n" +
 				"\x1b[0;35m\x1b[0m\x1b[0;36m\x1b[0m\n",
 		},
 		{
@@ -194,7 +194,7 @@ func full() Data {
 		Git:  &gitstate.Status{Branch: "main", HasUpstream: true, Ahead: 1, Staged: 1, Modified: 1},
 		Rate: 160,
 	}
-	d.Fields.SessionID = "b257201c"
+	d.Fields.SessionID = "deadbeef"
 	d.Fields.Workspace.ProjectDir = "/w"
 	d.Fields.Model.DisplayName = "Opus"
 	d.Fields.Cost.TotalUSD, d.Fields.Cost.DurationMS = 1.23, 5400000

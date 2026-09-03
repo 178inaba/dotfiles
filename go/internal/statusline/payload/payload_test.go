@@ -16,13 +16,13 @@ func TestParse(t *testing.T) {
 	}{
 		{
 			name: "every field",
-			stdin: `{"session_id":"b257201c","workspace":{"current_dir":"/w","project_dir":"/p"},` +
+			stdin: `{"session_id":"deadbeef","workspace":{"current_dir":"/w","project_dir":"/p"},` +
 				`"model":{"display_name":"Opus"},"cost":{"total_cost_usd":1.23,"total_duration_ms":5400000},` +
 				`"context_window":{"used_percentage":42.5},` +
 				`"rate_limits":{"five_hour":{"used_percentage":35,"resets_at":9999999999},` +
 				`"seven_day":{"used_percentage":73,"resets_at":9999999998}}}`,
 			want: Fields{
-				SessionID:     "b257201c",
+				SessionID:     "deadbeef",
 				Workspace:     Workspace{CurrentDir: "/w", ProjectDir: "/p"},
 				Model:         Model{DisplayName: "Opus"},
 				Cost:          Cost{TotalUSD: 1.23, DurationMS: 5400000},
@@ -59,7 +59,7 @@ func TestParse(t *testing.T) {
 			// a change of contract, and a display that empties says so where a
 			// silently truncated timestamp would not.
 			name:  "a fractional duration is rejected",
-			stdin: `{"session_id":"b257201c","cost":{"total_duration_ms":5400000.5}}`,
+			stdin: `{"session_id":"deadbeef","cost":{"total_duration_ms":5400000.5}}`,
 		},
 		{name: "no input", stdin: ""},
 		{name: "only newlines", stdin: "\n\n\n"},

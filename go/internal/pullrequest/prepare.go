@@ -64,12 +64,18 @@ type Preparation struct {
 	Freshness *worktree.FreshnessReport `json:"freshness"`
 	// The issues the review checks the work against: the one --issue named, or
 	// else the ones the pull request body's closing keywords point at.
-	Issues   []LinkedIssue `json:"issues"`
-	Warnings []string      `json:"warnings"`
+	Issues []LinkedIssue `json:"issues"`
+	// The degradations that did not stop the preparation: an issue
+	// that could not be read, named as owner/repo#N, and anything that was
+	// still cut short after the limits were raised. Empty rather than null
+	// when there was nothing to report.
+	Warnings []string `json:"warnings"`
 }
 
 // Options are what the command line asked for.
 type Options struct {
+	// OutDir is where the document and the directory paired with it go.
+	OutDir string
 	// Number is the pull request, zero to infer it from the branch.
 	Number int
 	// Issue overrides the issues the pull request body names.
@@ -79,12 +85,14 @@ type Options struct {
 	NoAutofix bool
 }
 
-// Store writes a fetched context and returns the path it took.
+// Store writes a fetched context to the path it is given.
 //
 // Supplied by the caller, because turning a value into the bytes of the
 // contract belongs to the command layer while the decision to fetch a second
-// time with the limits raised belongs here.
-type Store func(Context) (string, error)
+// time with the limits raised belongs here. Where the file goes is settled by
+// OpenDocument before either of them, since the document carries the path of
+// the diff file that sits beside it.
+type Store func(path string, c Context) error
 
 // Prepare settles everything a review needs before it starts: which pull
 // request, whether the checkout matches it, its context, its freshness, and
@@ -130,18 +138,23 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		}
 	}
 
-	fetched, path, err := p.fetch(ctx, c, repo, pr, store)
+	doc, err := OpenDocument(ctx, r, dir, o.OutDir, repo, pr)
 	if err != nil {
 		return Preparation{}, err
 	}
-	p.ContextPath = &path
 
-	work, err := EnsureWorkFiles(path)
+	fetched, err := p.fetch(ctx, c, repo, pr, store, doc)
 	if err != nil {
 		return Preparation{}, err
 	}
-	p.WorkDir, p.ReviewPath, p.ThreadsPath = &work.Dir, &work.ReviewPath, &work.ThreadsPath
+	p.ContextPath = &doc.Path
+	p.WorkDir, p.ReviewPath, p.ThreadsPath = &doc.Work.Dir, &doc.Work.ReviewPath, &doc.Work.ThreadsPath
 
+	// This fetches the base branch a second time, since the check fetches for
+	// itself and `ccx pr freshness` calls it alone. Left as it is: the two
+	// answer differently to a fetch that fails — reading the change stops the
+	// run, the check reports fetch_failed — and giving the check a way to skip
+	// its own fetch would put that decision in the caller of both.
 	freshness, err := worktree.CheckFreshness(ctx, r, dir, worktree.PullRequest{
 		HeadRef: fetched.PR.HeadRef, HeadOID: fetched.PR.HeadOID,
 		BaseRef: fetched.PR.BaseRef, IsOwnPR: fetched.IsOwnPR,
@@ -153,10 +166,22 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 
 	base := "origin/" + fetched.PR.BaseRef
 	p.BaseBranch = &base
+	// The reasons an issue could not be read belong here as well: this is the
+	// only output the caller of prepare-review reads, and a title that came
+	// back null with no word of why is unexplainable from it alone.
+	p.Warnings = append(p.Warnings, fetched.Warnings...)
+	p.Issues = fetched.LinkedIssues
 	if o.Issue != 0 {
-		p.Issues = []LinkedIssue{{Number: o.Issue}}
-	} else if fetched.LinkedIssues != nil {
-		p.Issues = fetched.LinkedIssues
+		// Read the way the body's own issues are, and only into what the
+		// review checks against: the document keeps what the pull request
+		// says it closes, which the flag does not change. Where the body
+		// closes that very issue the document already has it, and reading it
+		// again would be two round trips for a value in hand.
+		named, warnings, err := namedIssue(ctx, c, repo, o.Issue, fetched.LinkedIssues)
+		if err != nil {
+			return Preparation{}, err
+		}
+		p.Issues, p.Warnings = named, append(p.Warnings, warnings...)
 	}
 	p.Modes = modesFor(true, fetched.IsOwnPR, o)
 
@@ -169,6 +194,20 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		p.Status = string(freshness.Status)
 	}
 	return p, nil
+}
+
+// namedIssue is the one --issue asked for, taken from what the pull request
+// body already named where that is the same issue and read from GitHub where
+// it is not.
+func namedIssue(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number int, linked []LinkedIssue) ([]LinkedIssue, []string, error) {
+	for _, i := range linked {
+		// Only an issue in this repository: the flag is a bare number, so an
+		// entry the body wrote as owner/repo#N is a different issue.
+		if i.Repo == nil && i.Number == number {
+			return []LinkedIssue{i}, nil, nil
+		}
+	}
+	return readIssues(ctx, c, repo, []LinkedIssue{{Number: number}})
 }
 
 // probe settles which pull request is meant without fetching anything.
@@ -212,10 +251,10 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string,
 // total the first attempt reported. Once, not in a loop: the totals came from
 // that same answer, so a second truncation means something else is wrong and
 // the caller is told rather than kept waiting.
-func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store) (Context, string, error) {
-	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits)
+func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store, doc Document) (Context, error) {
+	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits, doc.Change)
 	if err != nil {
-		return Context{}, "", fmt.Errorf(
+		return Context{}, fmt.Errorf(
 			"failed to fetch the pull request context while the PR exists; fix the environment issue instead of falling back to a no-PR review")
 	}
 
@@ -224,16 +263,17 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 	// hundreds of kilobytes on disk only to replace them.
 	limits, raised := raisedLimits(fetched)
 	if raised {
-		if fetched, err = Fetch(ctx, c, repo, pr, limits); err != nil {
-			return Context{}, "", fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun: %v", err)
+		// The same change: what git already answered cannot have changed, and
+		// rerunning it would be several fetches and a diff for nothing.
+		if fetched, err = Fetch(ctx, c, repo, pr, limits, doc.Change); err != nil {
+			return Context{}, fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun: %v", err)
 		}
 	}
-	path, err := store(fetched)
-	if err != nil {
-		return Context{}, "", err
+	if err := store(doc.Path, fetched); err != nil {
+		return Context{}, err
 	}
 	if !raised {
-		return fetched, path, nil
+		return fetched, nil
 	}
 
 	if fetched.CommentsTruncated {
@@ -251,7 +291,7 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 			break
 		}
 	}
-	return fetched, path, nil
+	return fetched, nil
 }
 
 // raisedLimits are the limits to try again with, and whether anything was cut

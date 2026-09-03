@@ -102,21 +102,21 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits)
+			// The working directory is the checkout the caller means, as the
+			// freshness check reads it.
+			doc, err := pullrequest.OpenDocument(c.Context(), runner.Exec{}, ".", outDir, repo, meta)
 			if err != nil {
 				return silent(err)
 			}
-
-			path, err := storeContext(outDir, repo)(fetched)
+			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, doc.Change)
 			if err != nil {
 				return silent(err)
 			}
-			work, err := pullrequest.EnsureWorkFiles(path)
-			if err != nil {
+			if err := storeContext(doc.Path, fetched); err != nil {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{
-				Path: path, WorkDir: work.Dir, ThreadsPath: work.ThreadsPath,
+				Path: doc.Path, WorkDir: doc.Work.Dir, ThreadsPath: doc.Work.ThreadsPath,
 			}))
 		},
 	}
@@ -155,33 +155,26 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 	return pr, nil
 }
 
-// storeContext writes a fetched context into outDir and answers with its path.
+// storeContext writes a fetched context to the path it is given.
 //
 // Through a temporary file in the same directory, so that a run interrupted
-// halfway leaves no partial document where a complete one is expected. What the
-// file is called is pullrequest's, since that is what takes the name apart
-// again to find the review's work directory.
-func storeContext(outDir string, repo ghapi.Repo) pullrequest.Store {
-	return func(c pullrequest.Context) (string, error) {
-		tmp, err := os.CreateTemp(outDir, ".pr-context.*")
-		if err != nil {
-			return "", err
-		}
-		defer os.Remove(tmp.Name())
-
-		if err := renderJSON(tmp, c); err != nil {
-			tmp.Close()
-			return "", err
-		}
-		if err := tmp.Close(); err != nil {
-			return "", err
-		}
-		path := filepath.Join(outDir, pullrequest.ContextFileName(repo, c.PR.Number))
-		if err := os.Rename(tmp.Name(), path); err != nil {
-			return "", err
-		}
-		return path, nil
+// halfway leaves no partial document where a complete one is expected.
+func storeContext(path string, c pullrequest.Context) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".pr-context.*")
+	if err != nil {
+		return err
 	}
+	defer os.Remove(tmp.Name())
+
+	if err := renderJSON(tmp, c); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
@@ -218,10 +211,10 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 			}
 
 			options := pullrequest.Options{
-				Number: number, Issue: issue,
+				OutDir: scratch, Number: number, Issue: issue,
 				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
 			}
-			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext(scratch, repo))
+			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext)
 			if err != nil {
 				return silent(err)
 			}

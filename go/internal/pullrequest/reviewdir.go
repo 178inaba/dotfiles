@@ -47,6 +47,15 @@ func ContextFileName(repo ghapi.Repo, number int) string {
 	return fmt.Sprintf("pr-context-%s@%s-%d.json", repo.Owner, repo.Name, number)
 }
 
+// ContextPath is where one pull request's context file goes under outDir.
+//
+// Composed here rather than by whoever writes the file, because the document
+// carries the path of the diff file beside it: where it will be written has to
+// be known before it is built, and by more than one caller.
+func ContextPath(outDir string, repo ghapi.Repo, number int) string {
+	return filepath.Join(outDir, ContextFileName(repo, number))
+}
+
 // WorkDir is the directory paired with a pull request context file.
 //
 // The identifier comes from the context file's own name rather than being
@@ -58,12 +67,16 @@ func WorkDir(contextFile string) string {
 	return filepath.Join(filepath.Dir(contextFile), "pr-"+token)
 }
 
-// WorkFiles is the directory a run works in and the two documents handed out
+// WorkFiles is the directory a run works in and the three files handed out
 // with it.
 type WorkFiles struct {
 	Dir         string
 	ReviewPath  string
 	ThreadsPath string
+	// DiffPath is where the patch goes. Named here with the rest rather than
+	// by whoever writes it, for the reason above: a name composed at the point
+	// of use is one two runs on two pull requests can share.
+	DiffPath string
 }
 
 // EnsureWorkFiles creates the directory paired with a context file and names
@@ -82,7 +95,43 @@ func EnsureWorkFiles(contextFile string) (WorkFiles, error) {
 		Dir:         dir,
 		ReviewPath:  filepath.Join(dir, "review.json"),
 		ThreadsPath: filepath.Join(dir, "threads.json"),
+		DiffPath:    filepath.Join(dir, "diff.patch"),
 	}, nil
+}
+
+// Document is where one pull request's context file and working files go, and
+// the change already read into the directory beside it.
+type Document struct {
+	Path   string
+	Work   WorkFiles
+	Change Change
+}
+
+// OpenDocument settles where a pull request's document goes and reads its
+// change into the directory paired with it.
+//
+// Both writers of the document open it this way, and in this order: a head
+// that moved has to stop the run while there is still no document, since one
+// whose head_oid and diff disagree is something no reader could detect. dir is
+// the checkout git runs against; outDir is where the document goes.
+func OpenDocument(ctx context.Context, r runner.Runner, dir, outDir string, repo ghapi.Repo, pr ghapi.PullRequest) (Document, error) {
+	path := ContextPath(outDir, repo, pr.Number)
+	work, err := EnsureWorkFiles(path)
+	if err != nil {
+		return Document{}, err
+	}
+	// Whatever an earlier run left goes now, before the patch beside it is
+	// overwritten. A run that stops partway would otherwise leave that run's
+	// patch under the previous run's document, which points at it by path and
+	// says nothing about which head it was taken at.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return Document{}, fmt.Errorf("failed to remove the previous context file: %s", path)
+	}
+	change, err := ReadChange(ctx, r, dir, pr, work.DiffPath)
+	if err != nil {
+		return Document{}, err
+	}
+	return Document{Path: path, Work: work, Change: change}, nil
 }
 
 // RequireInWorkDir checks that an input file sits directly in the work dir the

@@ -142,13 +142,27 @@ func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any,
 // answers 404 for an issue that simply has no parent, which is an ordinary
 // result, while any other failure is a degradation it records in warnings[].
 func IsNotFound(err error) bool {
-	if e, ok := errors.AsType[*api.HTTPError](err); ok {
-		return e.StatusCode == http.StatusNotFound
+	if status, ok := HTTPStatus(err); ok {
+		return status == http.StatusNotFound
 	}
 	if e, ok := errors.AsType[*api.GraphQLError](err); ok {
 		return e.Match("NOT_FOUND", "")
 	}
 	return false
+}
+
+// HTTPStatus is the status code GitHub answered a request with.
+//
+// False where the failure never reached a response — a network error, or a
+// GraphQL one, which carries no status of its own. The number rather than a
+// predicate, because which statuses are an ordinary answer depends on what was
+// asked for: reading an issue that may have been deleted degrades on three of
+// them, while the parent endpoint's 404 means something else entirely.
+func HTTPStatus(err error) (int, bool) {
+	if e, ok := errors.AsType[*api.HTTPError](err); ok {
+		return e.StatusCode, true
+	}
+	return 0, false
 }
 
 // bodyOf reads a response body, which the paginating path needs because it

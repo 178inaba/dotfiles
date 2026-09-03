@@ -180,7 +180,7 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 		return Hierarchy{}, fmt.Errorf("fetch issue #%d in %s: %w", number, r.repo, err)
 	}
 
-	parent := r.parent(ctx, base, number)
+	parent := r.parent(ctx, number)
 	subs, subsFetched := r.subIssues(ctx, base, number, self.SubIssuesSummary.Total)
 	blockers := r.blockers(ctx, base, self.Dependencies.TotalBlockedBy, fmt.Sprintf("#%d", number))
 	siblings, siblingsFetched := r.siblings(ctx, number, parent)
@@ -238,20 +238,19 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 	}, nil
 }
 
-// parent reads the parent through its own endpoint, where a 404 is the ordinary
-// answer for an issue that has none. Any other failure degrades to no parent,
-// which is why the two have to be told apart rather than both treated as "none".
-func (r *resolver) parent(ctx context.Context, base string, number int) *Ref {
-	var w issueWire
-	err := r.c.Get(ctx, base+"/parent", &w)
-	if ghapi.IsNotFound(err) {
-		return nil
-	}
+// parent reads the parent, degrading to none where the lookup fails: an issue
+// whose parent could not be read is better answered without one than not at
+// all, and the warning is what keeps that from passing as "has none".
+func (r *resolver) parent(ctx context.Context, number int) *Ref {
+	parent, err := r.c.IssueParent(ctx, r.repo, number)
 	if err != nil {
 		r.warn("parent lookup failed for #%d: %v", number, err)
 		return nil
 	}
-	ref := w.ref(r.repo)
+	if parent == nil {
+		return nil
+	}
+	ref := refOf(*parent, r.repo)
 	return &ref
 }
 
@@ -440,20 +439,30 @@ type issueWire struct {
 	} `json:"issue_dependencies_summary"`
 }
 
-func (w issueWire) ref(repo ghapi.Repo) Ref {
-	// An unparseable url leaves the repository empty, which reads as "not this
-	// one" — the safe direction, since a caller that cannot name the
-	// repository writes owner/repo#N rather than a bare #N.
+func (w issueWire) issue() ghapi.Issue {
+	// An unparseable url leaves the repository at its zero value; refOf below
+	// says what this command makes of that.
 	from, _ := ghapi.RepoFromAPIURL(w.RepositoryURL)
-	r := from.String()
-	if from == (ghapi.Repo{}) {
+	return ghapi.Issue{Number: w.Number, Title: w.Title, State: w.State, URL: w.HTMLURL, Repo: from}
+}
+
+func (w issueWire) ref(repo ghapi.Repo) Ref { return refOf(w.issue(), repo) }
+
+// refOf projects an issue into a reference of it.
+//
+// A repository that could not be read leaves the name empty, which reads as
+// "not this one" — the safe direction, since a caller that cannot name the
+// repository writes owner/repo#N rather than a bare #N.
+func refOf(i ghapi.Issue, repo ghapi.Repo) Ref {
+	r := i.Repo.String()
+	if i.Repo == (ghapi.Repo{}) {
 		r = ""
 	}
 	return Ref{
-		Number:   w.Number,
-		Title:    w.Title,
-		State:    w.State,
-		URL:      w.HTMLURL,
+		Number:   i.Number,
+		Title:    i.Title,
+		State:    i.State,
+		URL:      i.URL,
 		Repo:     r,
 		SameRepo: r == repo.String(),
 	}

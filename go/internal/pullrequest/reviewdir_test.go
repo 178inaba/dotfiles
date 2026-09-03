@@ -54,6 +54,7 @@ func TestEnsureWorkFiles(t *testing.T) {
 		Dir:         filepath.Join(scratch, "pr-owner@repo-5"),
 		ReviewPath:  filepath.Join(scratch, "pr-owner@repo-5", "review.json"),
 		ThreadsPath: filepath.Join(scratch, "pr-owner@repo-5", "threads.json"),
+		DiffPath:    filepath.Join(scratch, "pr-owner@repo-5", "diff.patch"),
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("EnsureWorkFiles (-want +got):\n%s", diff)
