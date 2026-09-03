@@ -231,6 +231,17 @@ var groupConstrained = []string{
 	"pullrequest.ReplyBody.body_file",
 }
 
+// contractValues is a field's declared constraints, which are comma-separated
+// in the one tag. Read as a list rather than compared whole, since a field
+// carries as many as are true of it.
+func contractValues(f reflect.StructField) []string {
+	tag, ok := f.Tag.Lookup("contract")
+	if !ok {
+		return nil
+	}
+	return strings.Split(tag, ",")
+}
+
 // fieldCase is one json field to omit, and where it sits in its sample.
 type fieldCase struct {
 	// name is "<package>.<Type>.<json field>", the way the exclusion list
@@ -275,13 +286,13 @@ func (w *sampleWalk) walk(typ reflect.Type, doc any, path []any) {
 			// An embedded group's members are inlined on the wire, so they are
 			// walked against this same object and named for the group type
 			// that holds them, which is where their tags are.
-			if inner, isList := embeddedGroup(f); inner != nil && !isList {
+			if inner := embeddedGroup(f); inner != nil {
 				w.walk(inner, doc, path)
 			}
 			continue
 		}
 		full := typ.String() + "." + name
-		required := f.Tag.Get("contract") == "required"
+		required := slices.Contains(contractValues(f), "required")
 		excluded := slices.Contains(groupConstrained, full)
 		w.names[full] = true
 		here := append(slices.Clone(path), name)
@@ -331,15 +342,18 @@ func (w *sampleWalk) walk(typ reflect.Type, doc any, path []any) {
 
 // embeddedGroup is the struct an unnamed field inlines into the document, or
 // nil where the field is not one. json:"-" is not inlined and reaches here
-// unnamed like the rest.
-func embeddedGroup(f reflect.StructField) (elem reflect.Type, isList bool) {
-	if !f.Anonymous {
-		return nil, false
+// unnamed like the rest; a list is not inlined either.
+//
+// A copy of the renderer's rule rather than a call to it, for the reason
+// jsonFieldName below is one.
+func embeddedGroup(f reflect.StructField) reflect.Type {
+	if !f.Anonymous || f.Tag.Get("json") == "-" {
+		return nil
 	}
-	if tag, ok := f.Tag.Lookup("json"); ok && strings.HasPrefix(tag, "-") {
-		return nil, false
+	if inner, isList := structUnder(f.Type); !isList {
+		return inner
 	}
-	return structUnder(f.Type)
+	return nil
 }
 
 // TestRequiredTagsMatchTheParsers binds contract:"required" to the check that
@@ -404,8 +418,8 @@ func TestNoRequiredTagOnAnOutputOnlyType(t *testing.T) {
 			continue
 		}
 		for i := range typ.NumField() {
-			if f := typ.Field(i); f.Tag.Get("contract") == "required" {
-				t.Errorf("%s.%s is tagged required, but %s is reached only from an output contract, where the tag is never read",
+			if f := typ.Field(i); slices.Contains(contractValues(f), "required") {
+				t.Errorf("%s.%s is tagged required, but %s is reached only from an output contract, where nothing holds it to the promise",
 					typ, f.Name, typ)
 			}
 		}

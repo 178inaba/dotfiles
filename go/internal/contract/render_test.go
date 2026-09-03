@@ -173,6 +173,65 @@ func TestIdentifiersOmitsGroupHeadings(t *testing.T) {
 	}
 }
 
+type samplePartial struct {
+	Kind sampleKind `json:"kind"`
+}
+
+// TestRenderPartlyDocumentedEnum pins the row a value with no explanation of
+// its own still gets. Its second column is empty, which used to take the whole
+// row out of the help while Identifiers went on publishing the name.
+func TestRenderPartlyDocumentedEnum(t *testing.T) {
+	p := reflect.TypeFor[samplePartial]().PkgPath()
+	tbl := Table{
+		Fields:   map[string]string{},
+		Enums:    map[string][]string{p + ".sampleKind": {string(sampleAlpha), string(sampleBeta)}},
+		EnumDocs: map[string]string{p + ".sampleKind." + string(sampleAlpha): "The first."},
+	}
+	got, err := tbl.Render(reflect.TypeFor[samplePartial](), Output)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `  kind      string, one of:
+    alpha   The first.
+    beta
+`
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Render (-want +got):\n%s", diff)
+	}
+}
+
+type sampleMisplacedExclusive struct {
+	Thing string `json:"thing" contract:"exclusive"`
+}
+
+type sampleMisplacedRequired struct {
+	sampleGroup `contract:"required"`
+}
+
+// TestRenderRefusesAMisplacedContractValue is the other half of the guard: a
+// value written where nothing reads it is dropped on the floor exactly as a
+// misspelt one would be.
+func TestRenderRefusesAMisplacedContractValue(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		typ  reflect.Type
+		want string
+	}{
+		{"exclusive on a named field", reflect.TypeFor[sampleMisplacedExclusive](), "exclusive"},
+		{"required on a plain group", reflect.TypeFor[sampleMisplacedRequired](), "required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Table{Fields: map[string]string{}}.Render(tc.typ, Input)
+			if err == nil {
+				t.Fatal("Render succeeded on a contract value with nothing to bind to")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not name the offending value %q", err, tc.want)
+			}
+		})
+	}
+}
+
 type sampleBadTag struct {
 	Thing string `json:"thing" contract:"requried"`
 }

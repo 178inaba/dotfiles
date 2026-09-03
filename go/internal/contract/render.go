@@ -102,8 +102,9 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 	pad := strings.Repeat(" ", width)
 	for _, r := range rows {
 		head := r.indent() + r.name
-		// A heading has nothing in the second column, and the loop below runs
-		// once per line of it, so the head line is written here or not at all.
+		// A row with nothing in its second column — a group's heading, or a
+		// value nobody explained — still has a name to print, and the loop
+		// below runs once per line of that column.
 		if r.kind == "" {
 			b.WriteString(head + "\n")
 		}
@@ -180,16 +181,16 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 	var rows []row
 	for i := range t.NumField() {
 		f := t.Field(i)
-		// Before the json name is looked at, so that a typo on an embedded
-		// group — which has no json name at all — is caught like any other.
-		values, err := contractValues(t, f)
+		name, opts, named := jsonName(f)
+		// Whether or not the field has a json name, so that a declaration on
+		// an embedded group — which never has one — is checked like any other.
+		values, err := contractValues(t, f, named)
 		if err != nil {
 			return nil, err
 		}
 
-		name, opts, ok := jsonName(f)
-		if !ok {
-			group, err := tb.group(f, values, mode, depth, seen)
+		if !named {
+			group, err := tb.group(t, f, values, mode, depth, seen)
 			if err != nil {
 				return nil, err
 			}
@@ -227,12 +228,21 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 // With it the group has a cardinality of its own, which is a statement about
 // the fields together rather than about any one of them, so it goes on a
 // heading they sit under.
-func (tb Table) group(f reflect.StructField, values []string, mode Mode, depth int, seen map[reflect.Type]bool) ([]row, error) {
+func (tb Table) group(t reflect.Type, f reflect.StructField, values []string, mode Mode, depth int, seen map[reflect.Type]bool) ([]row, error) {
 	// A field the wire never sees, embedded or not, has nothing to describe.
 	// json:"-" reaches here as an unnamed field too, and is not inlined.
-	tag, tagged := f.Tag.Lookup("json")
-	if !f.Anonymous || (tagged && strings.HasPrefix(tag, "-")) || deref(f.Type).Kind() != reflect.Struct {
+	inner := deref(f.Type)
+	if !f.Anonymous || f.Tag.Get("json") == "-" || inner.Kind() != reflect.Struct {
 		return nil, nil
+	}
+	// A group is nothing but its fields, so a type that puts something else on
+	// the wire has none to inline. Refused for the reason checkMarshaler
+	// refuses: describing fields nobody sends is worse than saying nothing.
+	if tb.marshals(inner) {
+		return nil, fmt.Errorf("contract: %s is embedded in %s and serialises itself, so its fields are not what would be inlined", inner, t)
+	}
+	if err := tb.checkMarshaler(inner); err != nil {
+		return nil, err
 	}
 
 	var rows []row
@@ -244,7 +254,7 @@ func (tb Table) group(f reflect.StructField, values []string, mode Mode, depth i
 		rows = append(rows, row{depth: depth, name: heading, heading: true})
 		depth++
 	}
-	members, err := tb.walk(f.Type, mode, depth, seen)
+	members, err := tb.walk(inner, mode, depth, seen)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +271,7 @@ var knownValues = []string{"required", "exclusive"}
 // contractValues reads a field's declared constraints. Several are written
 // comma-separated in the one tag, since a field carries as many as are true of
 // it.
-func contractValues(t reflect.Type, f reflect.StructField) ([]string, error) {
+func contractValues(t reflect.Type, f reflect.StructField, named bool) ([]string, error) {
 	tag, ok := f.Tag.Lookup("contract")
 	if !ok {
 		return nil, nil
@@ -272,6 +282,18 @@ func contractValues(t reflect.Type, f reflect.StructField) ([]string, error) {
 			return nil, fmt.Errorf("contract: %s.%s declares %q, which is not one of %s",
 				t, f.Name, v, strings.Join(knownValues, ", "))
 		}
+	}
+
+	// Where a value has nothing to bind to it is read by nobody, which is the
+	// same silent no-op a misspelling would be. exclusive marks a group, and a
+	// field with a key of its own is not one; required is that key's presence,
+	// or, beside exclusive, the group's cardinality.
+	exclusive := slices.Contains(values, "exclusive")
+	switch {
+	case exclusive && named:
+		return nil, fmt.Errorf("contract: %s.%s declares exclusive, which marks an embedded group rather than a field with a key of its own", t, f.Name)
+	case slices.Contains(values, "required") && !named && !exclusive:
+		return nil, fmt.Errorf("contract: %s.%s declares required with no key of its own and no exclusive group to be the cardinality of", t, f.Name)
 	}
 	return values, nil
 }
