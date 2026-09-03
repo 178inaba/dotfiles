@@ -54,9 +54,6 @@ func (tb Table) Unmarshal(b []byte, v any, document string) error {
 //
 // The same call serves the way out, where the bytes are what render produced.
 func (tb Table) Validate(b []byte, t reflect.Type, document string) error {
-	if t == nil {
-		return nil
-	}
 	var doc any
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return err

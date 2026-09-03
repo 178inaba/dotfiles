@@ -58,10 +58,12 @@ func render(w io.Writer, v any, opts ...json.Options) error {
 	// The producing type is what a refusal names, since there is no file here
 	// to name and every exit is wrapped in silentError — a message saying only
 	// "the output" would reach a developer with nothing to look under, and
-	// several commands print more than one document.
-	t := reflect.TypeOf(v)
-	if err := contract.Validate(b, t, t.String()); err != nil {
-		return err
+	// several commands print more than one document. A nil interface has no
+	// type to name and nothing declared on it, which is where that stops.
+	if t := reflect.TypeOf(v); t != nil {
+		if err := contract.Validate(b, t, t.String()); err != nil {
+			return err
+		}
 	}
 	_, err = w.Write(append(b, '\n'))
 	return err
