@@ -58,12 +58,16 @@ func WorkDir(contextFile string) string {
 	return filepath.Join(filepath.Dir(contextFile), "pr-"+token)
 }
 
-// WorkFiles is the directory a run works in and the two documents handed out
+// WorkFiles is the directory a run works in and the three files handed out
 // with it.
 type WorkFiles struct {
 	Dir         string
 	ReviewPath  string
 	ThreadsPath string
+	// DiffPath is where the patch goes. Named here with the rest rather than
+	// by whoever writes it, for the reason above: a name composed at the point
+	// of use is one two runs on two pull requests can share.
+	DiffPath string
 }
 
 // EnsureWorkFiles creates the directory paired with a context file and names
@@ -82,6 +86,7 @@ func EnsureWorkFiles(contextFile string) (WorkFiles, error) {
 		Dir:         dir,
 		ReviewPath:  filepath.Join(dir, "review.json"),
 		ThreadsPath: filepath.Join(dir, "threads.json"),
+		DiffPath:    filepath.Join(dir, "diff.patch"),
 	}, nil
 }
 
