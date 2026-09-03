@@ -180,7 +180,7 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 		return Hierarchy{}, fmt.Errorf("fetch issue #%d in %s: %w", number, r.repo, err)
 	}
 
-	parent := r.parent(ctx, base, number)
+	parent := r.parent(ctx, number)
 	subs, subsFetched := r.subIssues(ctx, base, number, self.SubIssuesSummary.Total)
 	blockers := r.blockers(ctx, base, self.Dependencies.TotalBlockedBy, fmt.Sprintf("#%d", number))
 	siblings, siblingsFetched := r.siblings(ctx, number, parent)
@@ -238,21 +238,58 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 	}, nil
 }
 
-// parent reads the parent through its own endpoint, where a 404 is the ordinary
-// answer for an issue that has none. Any other failure degrades to no parent,
-// which is why the two have to be told apart rather than both treated as "none".
-func (r *resolver) parent(ctx context.Context, base string, number int) *Ref {
-	var w issueWire
-	err := r.c.Get(ctx, base+"/parent", &w)
-	if ghapi.IsNotFound(err) {
-		return nil
-	}
+// parent reads the parent, degrading to none where the lookup fails: an issue
+// whose parent could not be read is better answered without one than not at
+// all, and the warning is what keeps that from passing as "has none".
+func (r *resolver) parent(ctx context.Context, number int) *Ref {
+	d, err := ParentOf(ctx, r.c, r.repo, number)
 	if err != nil {
 		r.warn("parent lookup failed for #%d: %v", number, err)
 		return nil
 	}
-	ref := w.ref(r.repo)
+	if d == nil {
+		return nil
+	}
+	ref := d.ref(r.repo)
 	return &ref
+}
+
+// Detail is one issue as the API returns it, with the body Ref does not carry.
+//
+// Exported alongside ParentOf because the pull request context needs the same
+// lookup and needs the body with it. The body stays off Ref so that it does
+// not appear in this command's own output, where nothing reads it.
+type Detail struct {
+	Number int
+	Title  string
+	Body   string
+	State  string
+	URL    string
+	// The repository the issue lives in, which need not be the one it was
+	// asked about: a sub-issue may cross repositories within an owner. The
+	// zero value is a repository url that could not be read, which reads as
+	// "not this one" — the safe direction, since a caller that cannot name the
+	// repository writes owner/repo#N rather than a bare #N.
+	Repo ghapi.Repo
+}
+
+// ParentOf reads an issue's parent through the sub-issue parent endpoint.
+//
+// (nil, nil) is an issue that is nobody's child, which the endpoint reports as
+// a 404. Every other failure comes back as an error rather than as "has none",
+// because the two callers degrade differently: this package records a warning
+// and carries on, while the pull request context decides from the status.
+func ParentOf(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number int) (*Detail, error) {
+	var w issueWire
+	err := c.Get(ctx, fmt.Sprintf("repos/%s/issues/%d/parent", repo, number), &w)
+	if ghapi.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d := w.detail()
+	return &d, nil
 }
 
 // subIssues reads the children, reporting whether the list is complete.
@@ -426,6 +463,7 @@ query($url: URI!) {
 type issueWire struct {
 	Number  int    `json:"number"`
 	Title   string `json:"title"`
+	Body    string `json:"body"`
 	State   string `json:"state"`
 	HTMLURL string `json:"html_url"`
 	// RepositoryURL rather than the repository object, because only this one is
@@ -440,20 +478,28 @@ type issueWire struct {
 	} `json:"issue_dependencies_summary"`
 }
 
-func (w issueWire) ref(repo ghapi.Repo) Ref {
-	// An unparseable url leaves the repository empty, which reads as "not this
-	// one" — the safe direction, since a caller that cannot name the
-	// repository writes owner/repo#N rather than a bare #N.
+func (w issueWire) detail() Detail {
+	// An unparseable url leaves the repository at its zero value; see
+	// Detail.Repo for why that is the safe direction.
 	from, _ := ghapi.RepoFromAPIURL(w.RepositoryURL)
-	r := from.String()
-	if from == (ghapi.Repo{}) {
+	return Detail{
+		Number: w.Number, Title: w.Title, Body: w.Body,
+		State: w.State, URL: w.HTMLURL, Repo: from,
+	}
+}
+
+func (w issueWire) ref(repo ghapi.Repo) Ref { return w.detail().ref(repo) }
+
+func (d Detail) ref(repo ghapi.Repo) Ref {
+	r := d.Repo.String()
+	if d.Repo == (ghapi.Repo{}) {
 		r = ""
 	}
 	return Ref{
-		Number:   w.Number,
-		Title:    w.Title,
-		State:    w.State,
-		URL:      w.HTMLURL,
+		Number:   d.Number,
+		Title:    d.Title,
+		State:    d.State,
+		URL:      d.URL,
 		Repo:     r,
 		SameRepo: r == repo.String(),
 	}

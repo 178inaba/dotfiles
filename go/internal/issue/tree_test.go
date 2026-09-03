@@ -142,6 +142,7 @@ func (f *fake) asked(substr string) bool {
 type fixtureIssue struct {
 	Number       int
 	Title        string
+	Body         string
 	State        string
 	Repo         string
 	SubTotal     int
@@ -154,12 +155,12 @@ func (f fixtureIssue) json() string {
 	if r == "" {
 		r = repoName
 	}
-	return fmt.Sprintf(`{"number":%d,"title":%q,"state":%q,
+	return fmt.Sprintf(`{"number":%d,"title":%q,"body":%q,"state":%q,
 		"html_url":"https://github.com/%s/issues/%d",
 		"repository_url":"https://api.github.com/repos/%s",
 		"sub_issues_summary":{"total":%d,"completed":%d,"percent_completed":0},
 		"issue_dependencies_summary":{"blocked_by":0,"blocking":0,"total_blocked_by":%d,"total_blocking":0}}`,
-		f.Number, f.Title, f.State, r, f.Number, r, f.SubTotal, f.SubCompleted, f.BlockedBy)
+		f.Number, f.Title, f.Body, f.State, r, f.Number, r, f.SubTotal, f.SubCompleted, f.BlockedBy)
 }
 
 // list renders issue objects as one page of a list endpoint.
@@ -898,6 +899,72 @@ func TestTreeFailsOnlyForTheIssueItself(t *testing.T) {
 	c := ghapitest.New(t, &fake{})
 	if _, err := issue.Tree(t.Context(), c, repo, 99, issue.TreeOptions{}); err == nil {
 		t.Fatal("Tree succeeded, want a failure")
+	}
+}
+
+// TestParent covers the lookup on its own, since the pull request context
+// calls it directly and needs the body and the repository the tree's own
+// output does not carry.
+func TestParent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		server fixtures
+		want   *issue.Detail
+		fails  bool
+	}{
+		{
+			name: "a parent, with its body",
+			server: fixtures{rest: map[string]string{
+				at("21/parent"): fixtureIssue{Number: 20, Title: "Issue 20", Body: "The whole body", State: "open"}.json(),
+			}},
+			want: &issue.Detail{
+				Number: 20, Title: "Issue 20", Body: "The whole body", State: "open",
+				URL: "https://github.com/owner/repo/issues/20", Repo: repo,
+			},
+		},
+		{
+			name: "a parent in another repository",
+			server: fixtures{rest: map[string]string{
+				at("21/parent"): fixtureIssue{Number: 7, Title: "Issue 7", State: "open", Repo: "owner/other"}.json(),
+			}},
+			want: &issue.Detail{
+				Number: 7, Title: "Issue 7", State: "open",
+				URL: "https://github.com/owner/other/issues/7", Repo: ghapi.Repo{Owner: "owner", Name: "other"},
+			},
+		},
+		{
+			// The endpoint's own answer for an issue that is nobody's child,
+			// which is not a failure and must not read as one.
+			name:   "no parent",
+			server: fixtures{status: map[string]int{at("21/parent"): http.StatusNotFound}},
+		},
+		{
+			name:   "the lookup fails for another reason",
+			server: fixtures{status: map[string]int{at("21/parent"): http.StatusInternalServerError}},
+			fails:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := issue.ParentOf(t.Context(), ghapitest.New(t, &fake{fixtures: tc.server}), repo, 21)
+			if tc.fails {
+				if err == nil {
+					t.Fatal("ParentOf succeeded, want a failure")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParentOf: %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("ParentOf mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

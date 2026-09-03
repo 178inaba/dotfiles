@@ -1,6 +1,7 @@
 package ghapi_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -208,6 +209,31 @@ func TestIsNotFound(t *testing.T) {
 				t.Errorf("IsNotFound(%v) = %v, want %v", err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHTTPStatus(t *testing.T) {
+	t.Parallel()
+
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"message":"Forbidden"}`)
+	}))
+
+	var out struct{}
+	err := c.Get(t.Context(), "repos/o/r/issues/1", &out)
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	if got, ok := ghapi.HTTPStatus(err); !ok || got != http.StatusForbidden {
+		t.Errorf("HTTPStatus(%v) = %d, %v, want %d, true", err, got, ok, http.StatusForbidden)
+	}
+
+	// A failure that never reached a response carries no status, and answering
+	// zero without saying so would read as one.
+	if got, ok := ghapi.HTTPStatus(errors.New("dial tcp: connection refused")); ok || got != 0 {
+		t.Errorf("HTTPStatus of a network error = %d, %v, want 0, false", got, ok)
 	}
 }
 
