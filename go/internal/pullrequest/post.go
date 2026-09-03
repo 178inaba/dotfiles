@@ -64,30 +64,43 @@ type Submission struct {
 
 // ReviewFile is the document `ccx pr post-review` reads.
 //
-// Each body is given inline or as the name of a file beside it, exactly one of
-// the two. Long prose hand-written as a JSON string loses its whole meaning to
-// one missed escape, so writing plain markdown and naming it is the supported
-// way round.
+// Long prose hand-written as a JSON string loses its whole meaning to one
+// missed escape, so writing plain markdown and naming it is the supported way
+// round.
 type ReviewFile struct {
 	// The verdict, which decides whether the review is posted as an approval,
 	// a request for changes or a comment.
 	Assessment *Assessment `json:"assessment" contract:"required"`
+	ReviewBody `contract:"exclusive,required"`
+	// The remarks anchored to lines of the diff, empty for a review that is
+	// all body.
+	Comments []ReviewFileComment `json:"comments" contract:"required"`
+}
+
+// ReviewBody is the review's own prose, the two ways of giving it declared
+// together so that their adjacency is the type rather than a rule about it.
+//
+// Not shared with CommentBody below: the wire shape is the same, and what each
+// key means to the reader of a --help is not.
+type ReviewBody struct {
 	// The review body, written inline.
 	Body *string `json:"body"`
 	// The name of a markdown file in the work dir holding the body. A bare
 	// file name: a path would let a review reach round the directory binding
 	// that keeps parallel runs on different pull requests apart.
 	BodyFile *string `json:"body_file"`
-	// The remarks anchored to lines of the diff, empty for a review that is
-	// all body.
-	Comments []ReviewFileComment `json:"comments" contract:"required"`
 }
 
 // ReviewFileComment is one remark anchored to a line of the diff.
 type ReviewFileComment struct {
 	Path *string `json:"path" contract:"required"`
 	// The line number on the new side of the diff.
-	Line *int `json:"line" contract:"required"`
+	Line        *int `json:"line" contract:"required"`
+	CommentBody `contract:"exclusive,required"`
+}
+
+// CommentBody is one remark's prose, given the same two ways the review body is.
+type CommentBody struct {
 	// The remark, inline or named, exactly as the review body is.
 	Body     *string `json:"body"`
 	BodyFile *string `json:"body_file"`

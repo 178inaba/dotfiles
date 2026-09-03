@@ -72,9 +72,12 @@ func TestGenerated(t *testing.T) {
 		Marshalers: marshalers,
 	}
 
-	// Three real contracts, for the three things the walk has to get right:
-	// pointers, a field reaching into another package, and enums with an
-	// omitzero.
+	// Five real contracts. Three output ones, for what the walk has to get
+	// right about a document a command prints: pointers, a field reaching into
+	// another package, and enums with an omitzero. Two input ones, which are
+	// the first pinned here, for the exclusive groups: a review carries one at
+	// the top and another nested under its comments, and a threads entry
+	// carries the optional form of it a level down.
 	//
 	// These characterise rather than specify — render_test.go pins the format.
 	// What they catch is a doc comment or a json tag changing the published
@@ -87,6 +90,8 @@ func TestGenerated(t *testing.T) {
 		{"detection", reflect.TypeFor[worktree.Detection](), Output},
 		{"preparation", reflect.TypeFor[pullrequest.Preparation](), Output},
 		{"skipped", reflect.TypeFor[worktree.Skipped](), Output},
+		{"review_file", reflect.TypeFor[pullrequest.ReviewFile](), Input},
+		{"threads_file", reflect.TypeFor[pullrequest.ThreadsFile](), Input},
 	}
 
 	for _, tc := range goldens {
