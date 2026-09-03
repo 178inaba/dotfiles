@@ -105,10 +105,12 @@ func TestParseThreadActions(t *testing.T) {
 			want: []pullrequest.ThreadAction{{Path: "src/a.go", Body: new("a long reply"), Resolve: true}},
 		},
 
-		{name: "no threads at all", in: `{}`, wantErr: "threads must be an array"},
+		{name: "no threads at all", in: `{}`, wantErr: "threads.json is missing threads"},
+		// An explicit null is not an empty array: only the array says none.
+		{name: "threads null", in: `{"threads":null}`, wantErr: "threads.json is missing threads"},
 		{name: "threads not an array", in: `{"threads":{}}`, wantErr: "threads must be an array"},
-		{name: "no path", in: `{"threads":[{"resolve":true}]}`, wantErr: "{path: string"},
-		{name: "resolve missing", in: `{"threads":[{"path":"a","body":"x"}]}`, wantErr: "{path: string"},
+		{name: "no path", in: `{"threads":[{"resolve":true}]}`, wantErr: "threads[0] is missing path in threads.json"},
+		{name: "resolve missing", in: `{"threads":[{"path":"a","body":"x"}]}`, wantErr: "threads[0] is missing resolve in threads.json"},
 		{name: "resolve is a string", in: `{"threads":[{"path":"a","resolve":"yes"}]}`, wantErr: "{path: string"},
 		{name: "line is a string", in: `{"threads":[{"path":"a","line":"7","resolve":true}]}`, wantErr: "{path: string"},
 		{name: "body is a number", in: `{"threads":[{"path":"a","resolve":true,"body":3}]}`, wantErr: "{path: string"},
@@ -116,7 +118,7 @@ func TestParseThreadActions(t *testing.T) {
 		{
 			name:    "both a body and a file",
 			in:      `{"threads":[{"path":"a","resolve":true,"body":"x","body_file":"r1.md"}]}`,
-			wantErr: "exactly one of body",
+			wantErr: "threads[0] sets both body and body_file in threads.json",
 		},
 		{
 			// A path would let an entry reach round the directory binding that

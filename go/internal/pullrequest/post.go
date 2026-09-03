@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -109,28 +110,22 @@ type CommentBody struct {
 // ParseSubmission reads a review file and resolves the bodies it names.
 func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	var wire ReviewFile
-	if err := json.Unmarshal(b, &wire); err != nil {
+	if err := contract.Unmarshal(b, &wire, file); err != nil {
 		return Submission{}, submissionError(err, file)
 	}
-	if wire.Assessment == nil {
-		return Submission{}, fmt.Errorf("assessment missing in %s", file)
-	}
-	if !bodyShapeOK(wire.Body, wire.BodyFile) {
+	if !bodyShapeOK(wire.BodyFile) {
 		return Submission{}, bodyShapeError(file)
 	}
 	body, err := resolveBody(wire.Body, wire.BodyFile, workDir)
 	if err != nil {
 		return Submission{}, err
 	}
-	// Absent and null both arrive as nil, and a file that forgot the key has
-	// not said there are no comments.
-	if wire.Comments == nil {
-		return Submission{}, commentsError(file)
-	}
 
+	// Every field the loop below dereferences is one the declaration required,
+	// which is what Unmarshal has just held the document to.
 	out := Submission{Assessment: *wire.Assessment, Body: body, Comments: []SubmissionComment{}}
 	for _, c := range wire.Comments {
-		if c.Path == nil || c.Line == nil || !bodyShapeOK(c.Body, c.BodyFile) {
+		if !bodyShapeOK(c.BodyFile) {
 			return Submission{}, commentsError(file)
 		}
 		commentBody, err := resolveBody(c.Body, c.BodyFile, workDir)
@@ -148,6 +143,13 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 // The price of typed fields: a review whose comments are an object still has
 // to be told what the field should have held, not what a decoder made of it.
 func submissionError(err error, file string) error {
+	// A field-level refusal has already named its field, and wrapping it in a
+	// sentence about the whole document takes that back — as well as the type
+	// a caller tells a violation from a decode failure by.
+	var ve *contract.ViolationError
+	if errors.As(err, &ve) {
+		return err
+	}
 	var se *json.SemanticError
 	if errors.As(err, &se) {
 		switch firstToken(se.JSONPointer) {
@@ -178,20 +180,12 @@ func commentsError(file string) error {
 	return fmt.Errorf("comments must be an array of {path: string, line: number, body xor body_file: string} in %s", file)
 }
 
-// bodyShapeOK reports whether exactly one of the two forms is present and is a
-// usable string.
-func bodyShapeOK(body, file *string) bool {
-	switch {
-	case body != nil && file != nil:
-		return false
-	case body != nil:
-		return true
-	case file != nil:
-		return *file != ""
-	default:
-		return false
-	}
-}
+// bodyShapeOK reports whether a named body file is one a work dir could hold.
+//
+// All that is left of the shape check: which of the two forms a document may
+// give is the exclusive group's now, and 178inaba/dotfiles#160 takes this last
+// case as well, once nonempty is something a field can declare.
+func bodyShapeOK(file *string) bool { return file == nil || *file != "" }
 
 // resolveBody turns whichever form was used into the text.
 func resolveBody(body, file *string, workDir string) (string, error) {

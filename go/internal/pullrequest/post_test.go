@@ -50,16 +50,21 @@ func TestParseSubmission(t *testing.T) {
 				Comments: []pullrequest.SubmissionComment{},
 			},
 		},
-		{name: "no assessment", in: `{"body":"x","comments":[]}`, wantErr: "assessment missing"},
-		{name: "both forms of body", in: `{"assessment":"要議論","body":"x","body_file":"body.md","comments":[]}`, wantErr: "exactly one of body"},
-		{name: "neither form of body", in: `{"assessment":"要議論","comments":[]}`, wantErr: "exactly one of body"},
+		{name: "no assessment", in: `{"body":"x","comments":[]}`, wantErr: "review.json is missing assessment"},
+		{name: "both forms of body", in: `{"assessment":"要議論","body":"x","body_file":"body.md","comments":[]}`, wantErr: "review.json sets both body and body_file"},
+		{name: "neither form of body", in: `{"assessment":"要議論","comments":[]}`, wantErr: "review.json sets neither body nor body_file"},
 		{name: "an empty body_file", in: `{"assessment":"要議論","body_file":"","comments":[]}`, wantErr: "exactly one of body"},
 		// Allowing a path would reach round the directory binding.
 		{name: "a body_file with a path", in: `{"assessment":"要議論","body_file":"sub/x.md","comments":[]}`, wantErr: "bare filename"},
 		{name: "a body_file that is not there", in: `{"assessment":"要議論","body_file":"nope.md","comments":[]}`, wantErr: "not found in the work dir"},
-		{name: "comments missing", in: `{"assessment":"要議論","body":"x"}`, wantErr: "comments must be an array"},
+		{name: "comments missing", in: `{"assessment":"要議論","body":"x"}`, wantErr: "review.json is missing comments"},
+		// A null key is the writer saying "not this one", and a file that
+		// forgot the key has not said there are no comments either.
+		{name: "comments null", in: `{"assessment":"要議論","body":"x","comments":null}`, wantErr: "review.json is missing comments"},
 		{name: "comments not an array", in: `{"assessment":"要議論","body":"x","comments":{}}`, wantErr: "comments must be an array"},
-		{name: "a comment without a line", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","body":"y"}]}`, wantErr: "comments must be an array"},
+		{name: "a comment without a line", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","body":"y"}]}`, wantErr: "comments[0] is missing line in review.json"},
+		{name: "a comment with both forms of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body":"y","body_file":"body.md"}]}`, wantErr: "comments[0] sets both body and body_file in review.json"},
+		{name: "a comment with neither form of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3}]}`, wantErr: "comments[0] sets neither body nor body_file in review.json"},
 		{name: "a comment whose line is not a number", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":"3","body":"y"}]}`, wantErr: "comments must be an array"},
 		{name: "not json at all", in: `not json`, wantErr: "invalid JSON"},
 
