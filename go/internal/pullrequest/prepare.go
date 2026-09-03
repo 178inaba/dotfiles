@@ -79,12 +79,22 @@ type Options struct {
 	NoAutofix bool
 }
 
-// Store writes a fetched context and returns the path it took.
+// Store writes a fetched context, and says beforehand where it will go.
 //
 // Supplied by the caller, because turning a value into the bytes of the
 // contract belongs to the command layer while the decision to fetch a second
 // time with the limits raised belongs here.
-type Store func(Context) (string, error)
+//
+// Path is separate from Write because the document carries the path of the
+// diff file, which sits in the directory paired with the document: where it
+// will be written has to be known before it is built, and asking rather than
+// composing the path here keeps one owner of it.
+type Store interface {
+	// Path is where the document for one pull request will be written.
+	Path(number int) string
+	// Write writes it there and answers with that same path.
+	Write(Context) (string, error)
+}
 
 // Prepare settles everything a review needs before it starts: which pull
 // request, whether the checkout matches it, its context, its freshness, and
@@ -130,16 +140,23 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		}
 	}
 
-	fetched, path, err := p.fetch(ctx, c, repo, pr, store)
+	// The work dir and the change come before the fetch, and the fetch before
+	// the store: a head that moved has to stop the run while there is still no
+	// document, since one whose head_oid and diff disagree is undetectable.
+	work, err := EnsureWorkFiles(store.Path(pr.Number))
+	if err != nil {
+		return Preparation{}, err
+	}
+	change, err := ReadChange(ctx, r, dir, pr, work.DiffPath)
+	if err != nil {
+		return Preparation{}, err
+	}
+
+	fetched, path, err := p.fetch(ctx, c, repo, pr, store, change)
 	if err != nil {
 		return Preparation{}, err
 	}
 	p.ContextPath = &path
-
-	work, err := EnsureWorkFiles(path)
-	if err != nil {
-		return Preparation{}, err
-	}
 	p.WorkDir, p.ReviewPath, p.ThreadsPath = &work.Dir, &work.ReviewPath, &work.ThreadsPath
 
 	freshness, err := worktree.CheckFreshness(ctx, r, dir, worktree.PullRequest{
@@ -154,7 +171,14 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	base := "origin/" + fetched.PR.BaseRef
 	p.BaseBranch = &base
 	if o.Issue != 0 {
-		p.Issues = []LinkedIssue{{Number: o.Issue}}
+		// Read the way the body's own issues are, and only into what the
+		// review checks against: the document keeps what the pull request
+		// says it closes, which the flag does not change.
+		named, warnings, err := readIssues(ctx, c, repo, []LinkedIssue{{Number: o.Issue}})
+		if err != nil {
+			return Preparation{}, err
+		}
+		p.Issues, p.Warnings = named, append(p.Warnings, warnings...)
 	} else if fetched.LinkedIssues != nil {
 		p.Issues = fetched.LinkedIssues
 	}
@@ -212,8 +236,8 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string,
 // total the first attempt reported. Once, not in a loop: the totals came from
 // that same answer, so a second truncation means something else is wrong and
 // the caller is told rather than kept waiting.
-func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store) (Context, string, error) {
-	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits)
+func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store, change Change) (Context, string, error) {
+	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits, change)
 	if err != nil {
 		return Context{}, "", fmt.Errorf(
 			"failed to fetch the pull request context while the PR exists; fix the environment issue instead of falling back to a no-PR review")
@@ -224,11 +248,13 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 	// hundreds of kilobytes on disk only to replace them.
 	limits, raised := raisedLimits(fetched)
 	if raised {
-		if fetched, err = Fetch(ctx, c, repo, pr, limits); err != nil {
+		// The same change: what git already answered cannot have changed, and
+		// rerunning it would be several fetches and a diff for nothing.
+		if fetched, err = Fetch(ctx, c, repo, pr, limits, change); err != nil {
 			return Context{}, "", fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun: %v", err)
 		}
 	}
-	path, err := store(fetched)
+	path, err := store.Write(fetched)
 	if err != nil {
 		return Context{}, "", err
 	}

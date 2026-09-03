@@ -102,16 +102,26 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits)
+			// The work dir and the change before the fetch, and the fetch
+			// before the write: a head that moved has to stop the run while
+			// there is still no document to disagree with it.
+			store := contextStore{outDir: outDir, repo: repo}
+			work, err := pullrequest.EnsureWorkFiles(store.Path(meta.Number))
+			if err != nil {
+				return silent(err)
+			}
+			// The working directory, which is the checkout the caller means,
+			// as the freshness check reads it.
+			change, err := pullrequest.ReadChange(c.Context(), runner.Exec{}, ".", meta, work.DiffPath)
 			if err != nil {
 				return silent(err)
 			}
 
-			path, err := storeContext(outDir, repo)(fetched)
+			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, change)
 			if err != nil {
 				return silent(err)
 			}
-			work, err := pullrequest.EnsureWorkFiles(path)
+			path, err := store.Write(fetched)
 			if err != nil {
 				return silent(err)
 			}
@@ -155,33 +165,45 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 	return pr, nil
 }
 
-// storeContext writes a fetched context into outDir and answers with its path.
+// contextStore writes a fetched context into outDir.
+//
+// What the file is called is pullrequest's, since that is what takes the name
+// apart again to find the review's work directory; where the directory is, is
+// this layer's, which is why the two halves meet here.
+type contextStore struct {
+	outDir string
+	repo   ghapi.Repo
+}
+
+// Path implements pullrequest.Store. Answered before the document exists,
+// because the document carries the path of the diff file beside it.
+func (s contextStore) Path(number int) string {
+	return filepath.Join(s.outDir, pullrequest.ContextFileName(s.repo, number))
+}
+
+// Write implements pullrequest.Store.
 //
 // Through a temporary file in the same directory, so that a run interrupted
-// halfway leaves no partial document where a complete one is expected. What the
-// file is called is pullrequest's, since that is what takes the name apart
-// again to find the review's work directory.
-func storeContext(outDir string, repo ghapi.Repo) pullrequest.Store {
-	return func(c pullrequest.Context) (string, error) {
-		tmp, err := os.CreateTemp(outDir, ".pr-context.*")
-		if err != nil {
-			return "", err
-		}
-		defer os.Remove(tmp.Name())
-
-		if err := renderJSON(tmp, c); err != nil {
-			tmp.Close()
-			return "", err
-		}
-		if err := tmp.Close(); err != nil {
-			return "", err
-		}
-		path := filepath.Join(outDir, pullrequest.ContextFileName(repo, c.PR.Number))
-		if err := os.Rename(tmp.Name(), path); err != nil {
-			return "", err
-		}
-		return path, nil
+// halfway leaves no partial document where a complete one is expected.
+func (s contextStore) Write(c pullrequest.Context) (string, error) {
+	tmp, err := os.CreateTemp(s.outDir, ".pr-context.*")
+	if err != nil {
+		return "", err
 	}
+	defer os.Remove(tmp.Name())
+
+	if err := renderJSON(tmp, c); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	path := s.Path(c.PR.Number)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
@@ -221,7 +243,8 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 				Number: number, Issue: issue,
 				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
 			}
-			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext(scratch, repo))
+			store := contextStore{outDir: scratch, repo: repo}
+			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, store)
 			if err != nil {
 				return silent(err)
 			}

@@ -3,6 +3,7 @@ package pullrequest_test
 import (
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,9 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 	gittest.Run(t, repo, "switch", "-qc", "feature/x")
 	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
 	gittest.Run(t, repo, "push", "-q", "-u", "origin", "feature/x")
+	// The ref the change is read through, which the base repository carries
+	// for every pull request and this fixture has to as well.
+	gittest.Run(t, repo, "push", "-q", "origin", "HEAD:refs/pull/5/head")
 	return repo, gittest.Rev(t, repo, "HEAD")
 }
 
@@ -51,7 +55,7 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 		// pull request into an issue and passes, which is how a fake reports a
 		// parent that does not exist.
 		if r.URL.Path != "/graphql" {
-			serveIssue(w, r, pages{issues: linkedIssues})
+			serveIssue(w, r, pages{issues: prepareIssues})
 			return
 		}
 		if author == "" {
@@ -86,16 +90,28 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 // noThreads is a pull request with nothing on its diff.
 const noThreads = `{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}`
 
+// prepareIssues is what the pull request's body closes, plus the unrelated
+// issue --issue names instead of it.
+var prepareIssues = func() map[string]string {
+	m := maps.Clone(linkedIssues)
+	m[issuePath("owner/repo", 42)] = issueJSON("owner/repo", 42, "Issue 42", "The overriding body")
+	return m
+}()
+
 // store records the contexts it is given and writes nothing, since where the
 // bytes go is the command layer's business.
-func store(t *testing.T, dir string, seen *[]pullrequest.Context) pullrequest.Store {
-	t.Helper()
+type store struct {
+	dir  string
+	seen *[]pullrequest.Context
+}
 
-	return func(c pullrequest.Context) (string, error) {
-		*seen = append(*seen, c)
-		owner, name, _ := strings.Cut(c.Repo, "/")
-		return filepath.Join(dir, fmt.Sprintf("pr-context-%s@%s-%d.json", owner, name, c.PR.Number)), nil
-	}
+func (s store) Path(number int) string {
+	return filepath.Join(s.dir, fmt.Sprintf("pr-context-owner@repo-%d.json", number))
+}
+
+func (s store) Write(c pullrequest.Context) (string, error) {
+	*s.seen = append(*s.seen, c)
+	return s.Path(c.PR.Number), nil
 }
 
 func TestPrepareWithoutAPullRequest(t *testing.T) {
@@ -120,7 +136,7 @@ func TestPrepareWithoutAPullRequest(t *testing.T) {
 			repo, _ := prepareRepo(t)
 			var seen []pullrequest.Context
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
-				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, tc.o, store(t, t.TempDir(), &seen))
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, tc.o, store{dir: t.TempDir(), seen: &seen})
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
@@ -178,7 +194,7 @@ func TestPrepare(t *testing.T) {
 			scratch := t.TempDir()
 			var seen []pullrequest.Context
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, tc.author, noThreads),
-				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, tc.o, store(t, scratch, &seen))
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, tc.o, store{dir: scratch, seen: &seen})
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
@@ -203,6 +219,17 @@ func TestPrepare(t *testing.T) {
 			}
 			if got.ThreadsPath == nil || *got.ThreadsPath != filepath.Join(want, "threads.json") {
 				t.Errorf("threads_path = %v, want it inside the work dir", got.ThreadsPath)
+			}
+			// This command writes the same document the other one does, and
+			// the patch goes in the same work dir the three paths are in.
+			if len(seen) != 1 {
+				t.Fatalf("%d contexts were stored, want 1", len(seen))
+			}
+			if len(seen[0].Commits) != 1 {
+				t.Errorf("commits = %+v, want the one commit of the branch", seen[0].Commits)
+			}
+			if seen[0].Diff.Path != filepath.Join(want, "diff.patch") {
+				t.Errorf("diff.path = %q, want it inside the work dir", seen[0].Diff.Path)
 			}
 			if got.Freshness == nil || got.Freshness.Status != "ok" {
 				t.Errorf("freshness = %+v, want an ok report", got.Freshness)
@@ -230,15 +257,53 @@ func TestPrepareWithAnIssue(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Issue: 42}, store(t, t.TempDir(), &seen))
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Issue: 42}, store{dir: t.TempDir(), seen: &seen})
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	if diff := cmp.Diff([]pullrequest.LinkedIssue{{Number: 42}}, got.Issues); diff != "" {
+	// Read the way the body's own issues are: a bare number would leave the
+	// review with nothing to check the work against.
+	want := []pullrequest.LinkedIssue{{Number: 42, Title: new("Issue 42"), Body: new("The overriding body")}}
+	if diff := cmp.Diff(want, got.Issues); diff != "" {
 		t.Errorf("issues (-want +got):\n%s", diff)
 	}
 	if got.Flags.Issue == nil || *got.Flags.Issue != 42 {
 		t.Errorf("flags.issue = %v, want 42", got.Flags.Issue)
+	}
+	// The override applies to what the review checks against, not to the
+	// document, which goes on saying what the pull request closes.
+	if len(seen) != 1 {
+		t.Fatalf("%d contexts were stored, want 1", len(seen))
+	}
+	if diff := cmp.Diff([]pullrequest.LinkedIssue{{
+		Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
+		Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+	}}, seen[0].LinkedIssues); diff != "" {
+		t.Errorf("the document's linked_issues (-want +got):\n%s", diff)
+	}
+}
+
+// TestPrepareRefusesAMovedHead is what keeps a document whose head_oid and
+// diff disagree from ever being written: nothing downstream could tell one
+// from a sound document, so the run stops before there is one.
+func TestPrepareRefusesAMovedHead(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	moved := "0000000000000000000000000000000000000001"
+
+	scratch := t.TempDir()
+	var seen []pullrequest.Context
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, moved, "me", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{}, store{dir: scratch, seen: &seen})
+	if err == nil {
+		t.Fatal("Prepare succeeded, want it to refuse a head that is not there")
+	}
+	if !strings.Contains(err.Error(), "run this again") {
+		t.Errorf("Prepare error = %v, want it to say to run the command again", err)
+	}
+	if len(seen) != 0 {
+		t.Errorf("%d contexts were stored for a head that could not be resolved", len(seen))
 	}
 }
 
@@ -252,7 +317,7 @@ func TestPrepareStopsOnAMismatchedBranch(t *testing.T) {
 
 	var seen []pullrequest.Context
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Number: 5}, store(t, t.TempDir(), &seen))
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Number: 5}, store{dir: t.TempDir(), seen: &seen})
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -279,7 +344,7 @@ func TestPrepareStopsOnAMissingPullRequest(t *testing.T) {
 	repo, _ := prepareRepo(t)
 	var seen []pullrequest.Context
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Number: 999}, store(t, t.TempDir(), &seen))
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Number: 999}, store{dir: t.TempDir(), seen: &seen})
 	if err == nil {
 		t.Fatalf("Prepare = %+v, want a failure", got)
 	}
@@ -300,7 +365,7 @@ func TestPrepareRaisesTheLimits(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", truncated),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{}, store(t, t.TempDir(), &seen))
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{}, store{dir: t.TempDir(), seen: &seen})
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}

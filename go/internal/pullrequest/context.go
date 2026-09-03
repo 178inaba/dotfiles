@@ -173,7 +173,13 @@ type Context struct {
 	LinkedIssues []LinkedIssue `json:"linked_issues"`
 	// The date of the head commit, null where it could not be
 	// read — in which case the time condition below simply never holds.
-	HeadCommittedAt    *string   `json:"head_committed_at"`
+	HeadCommittedAt *string `json:"head_committed_at"`
+	// The pull request's commits, oldest first: every commit of
+	// the range GitHub shows on the Commits tab, merge commits included.
+	Commits []Commit `json:"commits"`
+	// The whole diff at head_oid, as a file and the statistics
+	// over it. No limit is applied to either.
+	Diff               Diff      `json:"diff"`
 	CommentsTotalCount int       `json:"comments_total_count"`
 	CommentsTruncated  bool      `json:"comments_truncated"`
 	Comments           []Comment `json:"comments"`
@@ -216,7 +222,11 @@ var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200}
 // pr is its metadata, already resolved by the caller — by number or from the
 // branch — because the two ways of getting it fail differently and the caller
 // is where those messages belong.
-func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, limits Limits) (Context, error) {
+//
+// change is what ReadChange already read out of git, handed in rather than
+// read here: a caller that runs this twice with the limits raised runs git
+// once, and the document is assembled in one place either way.
+func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, limits Limits, change Change) (Context, error) {
 	vars := map[string]any{
 		"owner": repo.Owner, "name": repo.Name, "number": pr.Number, "headOid": pr.HeadRefOid,
 	}
@@ -264,6 +274,15 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		return Context{}, err
 	}
 
+	// Empty rather than null where there is nothing, so that a reader walks
+	// the same shape whatever the pull request holds.
+	if change.Commits == nil {
+		change.Commits = []Commit{}
+	}
+	if change.Diff.Files == nil {
+		change.Diff.Files = []DiffFile{}
+	}
+
 	out := Context{
 		Repo:        repo.String(),
 		CurrentUser: me,
@@ -274,6 +293,8 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		},
 		LinkedIssues:       issues,
 		HeadCommittedAt:    headCommittedAt,
+		Commits:            change.Commits,
+		Diff:               change.Diff,
 		CommentsTotalCount: prq.Comments.TotalCount,
 		CommentsTruncated:  prq.Comments.TotalCount > len(comments),
 		Comments:           make([]Comment, 0, len(comments)),

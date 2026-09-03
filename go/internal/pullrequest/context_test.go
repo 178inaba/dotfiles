@@ -241,7 +241,7 @@ const fixtureBody = `{"data":{
 func fetch(t *testing.T, p pages, pr ghapi.PullRequest, limits pullrequest.Limits) pullrequest.Context {
 	t.Helper()
 
-	got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, pr, limits)
+	got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, pr, limits, pullrequest.Change{})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -596,7 +596,7 @@ func TestFetchFailsOnAnUnreadableIssueForAnotherReason(t *testing.T) {
 		body: fixtureBody, issues: linkedIssues,
 		issueStatus: map[string]int{issuePath("owner/repo", 10): http.StatusInternalServerError},
 	})
-	if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits); err == nil {
+	if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, pullrequest.Change{}); err == nil {
 		t.Fatal("Fetch succeeded, want the server error to stop it")
 	}
 }
@@ -810,7 +810,7 @@ func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 
 			p := pagedFixture()
 			p.failAfter = query
-			if got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, meta, pullrequest.DefaultLimits); err == nil {
+			if got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, meta, pullrequest.DefaultLimits, pullrequest.Change{}); err == nil {
 				t.Fatalf("Fetch = %+v, want a failure when the %s query fails", got, query)
 			}
 		})
