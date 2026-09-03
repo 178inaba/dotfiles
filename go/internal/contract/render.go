@@ -233,6 +233,13 @@ func (tb Table) group(t reflect.Type, f reflect.StructField, values []string, mo
 	// json:"-" reaches here as an unnamed field too, and is not inlined.
 	inner := deref(f.Type)
 	if !f.Anonymous || f.Tag.Get("json") == "-" || inner.Kind() != reflect.Struct {
+		// Nothing of the field reaches the document, so a declaration on it is
+		// read by nobody — the same silent no-op contractValues refuses where
+		// a value has the wrong sort of field to bind to.
+		if len(values) > 0 {
+			return nil, fmt.Errorf("contract: %s.%s declares %s, but nothing of the field reaches the document",
+				t, f.Name, strings.Join(values, ", "))
+		}
 		return nil, nil
 	}
 	// A group is nothing but its fields, so a type that puts something else on

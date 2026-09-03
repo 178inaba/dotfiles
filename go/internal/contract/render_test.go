@@ -208,6 +208,14 @@ type sampleMisplacedRequired struct {
 	sampleGroup `contract:"required"`
 }
 
+type sampleUnwiredGroup struct {
+	Thing sampleGroup `contract:"exclusive"`
+}
+
+type sampleHiddenGroup struct {
+	sampleGroup `json:"-" contract:"exclusive,required"`
+}
+
 // TestRenderRefusesAMisplacedContractValue is the other half of the guard: a
 // value written where nothing reads it is dropped on the floor exactly as a
 // misspelt one would be.
@@ -219,6 +227,8 @@ func TestRenderRefusesAMisplacedContractValue(t *testing.T) {
 	}{
 		{"exclusive on a named field", reflect.TypeFor[sampleMisplacedExclusive](), "exclusive"},
 		{"required on a plain group", reflect.TypeFor[sampleMisplacedRequired](), "required"},
+		{"exclusive on a field json does not inline", reflect.TypeFor[sampleUnwiredGroup](), "exclusive"},
+		{"exclusive on a group json is told to skip", reflect.TypeFor[sampleHiddenGroup](), "exclusive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Table{Fields: map[string]string{}}.Render(tc.typ, Input)
@@ -266,6 +276,40 @@ func TestRenderRefusesUnlistedMarshaler(t *testing.T) {
 	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleWithMarshaler](), Output)
 	if err == nil {
 		t.Fatal("Render succeeded on a type with an unlisted custom marshaler")
+	}
+	if want := "sampleMarshaler"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not name the offending type %q", err, want)
+	}
+}
+
+type sampleEmbeddedMarshaler struct {
+	sampleMarshaler
+}
+
+// TestRenderRefusesAnEmbeddedMarshaler covers the guard on the other route
+// into a struct: a group is nothing but its fields, so a type putting
+// something else on the wire has none to inline.
+func TestRenderRefusesAnEmbeddedMarshaler(t *testing.T) {
+	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleEmbeddedMarshaler](), Output)
+	if err == nil {
+		t.Fatal("Render succeeded on an embedded type that serialises itself")
+	}
+	if want := "sampleMarshaler"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not name the offending type %q", err, want)
+	}
+}
+
+// TestRenderRefusesAListedEmbeddedMarshaler is the same refusal for a type the
+// table does describe: the override says what the type puts out on its own,
+// which is not a set of keys to inline into the document around it.
+func TestRenderRefusesAListedEmbeddedMarshaler(t *testing.T) {
+	tbl := Table{
+		Fields:     map[string]string{},
+		Marshalers: map[reflect.Type]Marshaled{reflect.TypeFor[sampleMarshaler](): {Kind: "null, or an array of numbers"}},
+	}
+	_, err := tbl.Render(reflect.TypeFor[sampleEmbeddedMarshaler](), Output)
+	if err == nil {
+		t.Fatal("Render succeeded on an embedded type that serialises itself")
 	}
 	if want := "sampleMarshaler"; !strings.Contains(err.Error(), want) {
 		t.Errorf("error %q does not name the offending type %q", err, want)
