@@ -10,6 +10,7 @@ package pullrequest
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/issue"
 )
 
 // SkillMarker is what /review-response puts at the front of every comment it
@@ -47,6 +49,29 @@ type LinkedIssue struct {
 	// wrote it.
 	Repo   *string `json:"repo"`
 	Number int     `json:"number"`
+	// title and body are null where the issue could not be read —
+	// deleted, or not ours to see — and warnings says which. An issue with
+	// nothing written in it has an empty body rather than a null one, so the
+	// two are told apart.
+	Title *string `json:"title"`
+	Body  *string `json:"body"`
+	// The issue this one is a sub-issue of, null where it has none
+	// or where the parent could not be read. A Sub is bound by the rules its
+	// parent states and cannot be judged without them.
+	Parent *IssueParent `json:"parent"`
+}
+
+// IssueParent is the issue a linked issue is a sub-issue of.
+//
+// Its title and body are never null: an unreadable parent is reported as no
+// parent at all, since there would be nothing left of it to carry.
+type IssueParent struct {
+	// Null for a parent in this repository, as the linked issue's own
+	// repository is.
+	Repo   *string `json:"repo"`
+	Number int     `json:"number"`
+	Title  string  `json:"title"`
+	Body   string  `json:"body"`
 }
 
 // Comment is one comment in the pull request's conversation.
@@ -158,6 +183,13 @@ type Context struct {
 	ThreadsTotalCount  int       `json:"threads_total_count"`
 	ThreadsTruncated   bool      `json:"threads_truncated"`
 	ReviewThreads      []Thread  `json:"review_threads"`
+	// The degradations that did not stop the document being
+	// useful: one line per issue that could not be read, as owner/repo#N
+	// followed by why. Empty rather than null when everything was read. What
+	// was cut short by a limit is not among them — the truncation flags say
+	// that, and a caller answers it by raising the limit rather than by
+	// reading prose.
+	Warnings []string `json:"warnings"`
 }
 
 // Limits stop an unusually large pull request from costing an unbounded number
@@ -227,6 +259,11 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		headCommittedAt = &b.Repository.HeadCommit.CommittedDate
 	}
 
+	issues, warnings, err := readIssues(ctx, c, repo, linkedIssues(pr.Body))
+	if err != nil {
+		return Context{}, err
+	}
+
 	out := Context{
 		Repo:        repo.String(),
 		CurrentUser: me,
@@ -235,7 +272,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			Number: pr.Number, Title: pr.Title, Body: pr.Body, URL: pr.URL, State: pr.State,
 			Author: pr.Author, HeadRef: pr.HeadRefName, BaseRef: pr.BaseRefName, HeadOID: pr.HeadRefOid,
 		},
-		LinkedIssues:       linkedIssues(pr.Body),
+		LinkedIssues:       issues,
 		HeadCommittedAt:    headCommittedAt,
 		CommentsTotalCount: prq.Comments.TotalCount,
 		CommentsTruncated:  prq.Comments.TotalCount > len(comments),
@@ -248,6 +285,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		ThreadsTotalCount: prq.ReviewThreads.TotalCount,
 		ThreadsTruncated:  prq.ReviewThreads.TotalCount > len(threads),
 		ReviewThreads:     make([]Thread, 0, len(threads)),
+		Warnings:          warnings,
 	}
 
 	for _, n := range comments {
@@ -442,6 +480,94 @@ func linkedIssues(body string) []LinkedIssue {
 	return slices.CompactFunc(out, func(a, b LinkedIssue) bool {
 		return a.Number == b.Number && repoOf(a) == repoOf(b)
 	})
+}
+
+// readIssues fills in what the body only named: each issue's title and body,
+// and the parent whose rules a sub-issue is bound by.
+//
+// The warnings it returns are the issues it could not read. Reading one is not
+// what the document is for, so a deleted or invisible issue leaves its fields
+// null and is reported rather than stopping the fetch — a review of a pull
+// request whose closed issue was since deleted would otherwise be impossible.
+// Everything else that goes wrong is returned, because a server error or an
+// expired token says nothing about the issue, and a null title would report it
+// as gone.
+func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []LinkedIssue) ([]LinkedIssue, []string, error) {
+	warnings := []string{}
+	for i, linked := range issues {
+		in := repo
+		if linked.Repo != nil {
+			var err error
+			if in, err = ghapi.ParseRepo(*linked.Repo); err != nil {
+				warnings = append(warnings, fmt.Sprintf("%s#%d: the repository could not be read", *linked.Repo, linked.Number))
+				continue
+			}
+		}
+
+		var w issueWire
+		if err := c.Get(ctx, fmt.Sprintf("repos/%s/issues/%d", in, linked.Number), &w); err != nil {
+			status, gone := unreadable(err)
+			if !gone {
+				return nil, nil, fmt.Errorf("failed to read %s#%d: %v", in, linked.Number, err)
+			}
+			warnings = append(warnings, fmt.Sprintf("%s#%d: the issue could not be read (HTTP %d)", in, linked.Number, status))
+			continue
+		}
+		issues[i].Title, issues[i].Body = &w.Title, &w.Body
+
+		parent, err := issue.ParentOf(ctx, c, in, linked.Number)
+		if err != nil {
+			status, gone := unreadable(err)
+			if !gone {
+				return nil, nil, fmt.Errorf("failed to read the parent of %s#%d: %v", in, linked.Number, err)
+			}
+			warnings = append(warnings, fmt.Sprintf("%s#%d: the parent issue could not be read (HTTP %d)", in, linked.Number, status))
+			continue
+		}
+		if parent == nil {
+			continue
+		}
+		issues[i].Parent = &IssueParent{
+			Repo: elsewhere(parent.Repo, repo), Number: parent.Number,
+			Title: parent.Title, Body: parent.Body,
+		}
+	}
+	return issues, warnings, nil
+}
+
+// issueWire is as much of a GitHub issue object as the document carries.
+type issueWire struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// unreadable reports whether GitHub declined to show something in a way that
+// says it may no longer be there at all, and with which status.
+//
+// Not found, forbidden and gone are the three: an issue that was deleted, or
+// that this token may not see, is one the document simply cannot carry. Every
+// other failure — a server error, an expired token, a network error, which
+// carries no status — is about the run rather than about the issue.
+func unreadable(err error) (int, bool) {
+	status, ok := ghapi.HTTPStatus(err)
+	if !ok {
+		return 0, false
+	}
+	switch status {
+	case http.StatusNotFound, http.StatusForbidden, http.StatusGone:
+		return status, true
+	}
+	return status, false
+}
+
+// elsewhere names a repository only when it is not the one being read, which
+// is the same rule the body's own owner/repo#N follows.
+func elsewhere(in, repo ghapi.Repo) *string {
+	if in == repo || in == (ghapi.Repo{}) {
+		return nil
+	}
+	name := in.String()
+	return &name
 }
 
 // repoOf flattens the optional repository for comparison. An absent one sorts

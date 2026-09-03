@@ -47,12 +47,24 @@ type pages struct {
 	threadComments map[string]string
 	// failAfter names a query whose continuation fails.
 	failAfter string
+	// issues answers the REST issue and parent endpoints by api path, and
+	// issueStatus fails one of them; a path in neither answers 404, which is
+	// how the parent endpoint says an issue is nobody's child.
+	issues      map[string]string
+	issueStatus map[string]int
 }
 
 func serve(t *testing.T, p pages) *ghapi.Client {
 	t.Helper()
 
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Routed before the body is touched: the REST calls carry none, and
+		// decoding one as a GraphQL query is how a fake answers an issue
+		// lookup with a pull request and passes.
+		if r.URL.Path != "/graphql" {
+			serveIssue(w, r, p)
+			return
+		}
 		var req struct {
 			Query     string `json:"query"`
 			Variables struct {
@@ -97,6 +109,47 @@ func serve(t *testing.T, p pages) *ghapi.Client {
 		}
 		fmt.Fprint(w, answer)
 	}))
+}
+
+// serveIssue answers the two REST endpoints the linked issues are read from.
+func serveIssue(w http.ResponseWriter, r *http.Request, p pages) {
+	w.Header().Set("Content-Type", "application/json")
+	if s, ok := p.issueStatus[r.URL.Path]; ok {
+		w.WriteHeader(s)
+		fmt.Fprint(w, `{"message":"unavailable"}`)
+		return
+	}
+	body, ok := p.issues[r.URL.Path]
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"message":"Not Found"}`)
+		return
+	}
+	fmt.Fprint(w, body)
+}
+
+// issuePath and parentPath name the endpoints one issue is read through.
+func issuePath(repo string, number int) string {
+	return fmt.Sprintf("/repos/%s/issues/%d", repo, number)
+}
+
+func parentPath(repo string, number int) string { return issuePath(repo, number) + "/parent" }
+
+// issueJSON is a GitHub issue object, as much of it as the context reads.
+func issueJSON(repo string, number int, title, body string) string {
+	return fmt.Sprintf(`{"number":%d,"title":%q,"body":%q,"state":"open",
+		"html_url":"https://github.com/%s/issues/%d",
+		"repository_url":"https://api.github.com/repos/%s"}`,
+		number, title, body, repo, number, repo)
+}
+
+// linkedIssues answers every endpoint the fixture pull request's body reaches:
+// #10 with a parent, #11 with none, and other/repo#12 with none.
+var linkedIssues = map[string]string{
+	issuePath("owner/repo", 10):  issueJSON("owner/repo", 10, "Issue 10", "The tenth body"),
+	parentPath("owner/repo", 10): issueJSON("owner/repo", 9, "Issue 9", "The parent body"),
+	issuePath("owner/repo", 11):  issueJSON("owner/repo", 11, "Issue 11", ""),
+	issuePath("other/repo", 12):  issueJSON("other/repo", 12, "Issue 12", "Elsewhere"),
 }
 
 // The fixture below is, thread by thread: one
@@ -198,7 +251,7 @@ func fetch(t *testing.T, p pages, pr ghapi.PullRequest, limits pullrequest.Limit
 func TestFetch(t *testing.T) {
 	t.Parallel()
 
-	got := fetch(t, pages{body: fixtureBody}, meta, pullrequest.DefaultLimits)
+	got := fetch(t, pages{body: fixtureBody, issues: linkedIssues}, meta, pullrequest.DefaultLimits)
 
 	t.Run("the pull request and who is reading it", func(t *testing.T) {
 		want := pullrequest.PR{
@@ -220,9 +273,23 @@ func TestFetch(t *testing.T) {
 		// A bare #99 and a url are not among them, because GitHub does not
 		// close on those either; #10 appears twice and once.
 		other := "other/repo"
-		want := []pullrequest.LinkedIssue{{Number: 10}, {Number: 11}, {Repo: &other, Number: 12}}
+		want := []pullrequest.LinkedIssue{
+			{
+				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
+				// A parent in this repository writes no repository, the way
+				// the linked issue itself does.
+				Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+			},
+			// An empty body is empty rather than null: null is reserved for an
+			// issue that could not be read at all.
+			{Number: 11, Title: new("Issue 11"), Body: new("")},
+			{Repo: &other, Number: 12, Title: new("Issue 12"), Body: new("Elsewhere")},
+		}
 		if diff := cmp.Diff(want, got.LinkedIssues); diff != "" {
 			t.Errorf("linked_issues (-want +got):\n%s", diff)
+		}
+		if len(got.Warnings) != 0 {
+			t.Errorf("warnings = %v, want none", got.Warnings)
 		}
 	})
 
@@ -370,7 +437,7 @@ func TestFetch(t *testing.T) {
 func TestFetchBotThreadWithTruncatedComments(t *testing.T) {
 	t.Parallel()
 
-	got := fetch(t, pages{body: truncatedBotBody}, meta, pullrequest.Limits{Comments: 500, Threads: 300, ThreadComments: 1})
+	got := fetch(t, pages{body: truncatedBotBody, issues: linkedIssues}, meta, pullrequest.Limits{Comments: 500, Threads: 300, ThreadComments: 1})
 
 	thread := got.ReviewThreads[0]
 	if !thread.CommentsTruncated {
@@ -414,7 +481,7 @@ func TestFetchWithoutAHeadDate(t *testing.T) {
 	t.Parallel()
 
 	body := strings.Replace(fixtureBody, `"headCommit": {"committedDate": "2026-01-15T00:00:00Z"}`, `"headCommit": null`, 1)
-	got := fetch(t, pages{body: body}, meta, pullrequest.DefaultLimits)
+	got := fetch(t, pages{body: body, issues: linkedIssues}, meta, pullrequest.DefaultLimits)
 
 	if got.HeadCommittedAt != nil {
 		t.Errorf("head_committed_at = %v, want null", got.HeadCommittedAt)
@@ -437,7 +504,7 @@ func TestFetchOnAnotherAuthorsPR(t *testing.T) {
 
 	others := meta
 	others.Author = "othercoder"
-	got := fetch(t, pages{body: fixtureBody}, others, pullrequest.DefaultLimits)
+	got := fetch(t, pages{body: fixtureBody, issues: linkedIssues}, others, pullrequest.DefaultLimits)
 
 	if got.IsOwnPR {
 		t.Error("is_own_pr = true on somebody else's pull request")
@@ -459,6 +526,78 @@ func TestFetchOnAnotherAuthorsPR(t *testing.T) {
 	// close.
 	if ours := got.ReviewThreads[4]; ours.Ball != pullrequest.BallMine || !ours.ResolvableByMe {
 		t.Errorf("our own remark = ball %q resolvable %v, want mine and true", ours.Ball, ours.ResolvableByMe)
+	}
+}
+
+// TestFetchDegradesOnAnUnreadableIssue covers the three answers that mean the
+// issue may no longer be there. The run goes on with what it has: a review
+// that stopped because a closed issue was deleted would be stopped for good.
+func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Closes #10"
+
+	tests := []struct {
+		name        string
+		status      map[string]int
+		want        pullrequest.LinkedIssue
+		wantWarning string
+	}{
+		{
+			name:        "the issue was deleted",
+			status:      map[string]int{issuePath("owner/repo", 10): http.StatusNotFound},
+			want:        pullrequest.LinkedIssue{Number: 10},
+			wantWarning: "owner/repo#10: the issue could not be read (HTTP 404)",
+		},
+		{
+			name:        "the issue is not ours to see",
+			status:      map[string]int{issuePath("owner/repo", 10): http.StatusForbidden},
+			want:        pullrequest.LinkedIssue{Number: 10},
+			wantWarning: "owner/repo#10: the issue could not be read (HTTP 403)",
+		},
+		{
+			// Only the parent is lost here, and the body that was read is
+			// kept: dropping it would throw away what the run came for.
+			name:   "only the parent is unreadable",
+			status: map[string]int{parentPath("owner/repo", 10): http.StatusGone},
+			want: pullrequest.LinkedIssue{
+				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
+			},
+			wantWarning: "owner/repo#10: the parent issue could not be read (HTTP 410)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := fetch(t, pages{body: fixtureBody, issues: linkedIssues, issueStatus: tc.status}, one, pullrequest.DefaultLimits)
+
+			if diff := cmp.Diff([]pullrequest.LinkedIssue{tc.want}, got.LinkedIssues); diff != "" {
+				t.Errorf("linked_issues (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff([]string{tc.wantWarning}, got.Warnings); diff != "" {
+				t.Errorf("warnings (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestFetchFailsOnAnUnreadableIssueForAnotherReason is the other side of the
+// degradation: a server error or an expired token says nothing about the
+// issue, and answering with a null title would report it as gone.
+func TestFetchFailsOnAnUnreadableIssueForAnotherReason(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Closes #10"
+	c := serve(t, pages{
+		body: fixtureBody, issues: linkedIssues,
+		issueStatus: map[string]int{issuePath("owner/repo", 10): http.StatusInternalServerError},
+	})
+	if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits); err == nil {
+		t.Fatal("Fetch succeeded, want the server error to stop it")
 	}
 }
 

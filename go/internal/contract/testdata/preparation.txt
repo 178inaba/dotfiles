@@ -66,4 +66,20 @@
                        Null for an issue in this repository, which is how the body wrote
                        it.
     number             integer
+    title              string (may be null)
+                       title and body are null where the issue could not be read —
+                       deleted, or not ours to see — and warnings says which. An issue
+                       with nothing written in it has an empty body rather than a null
+                       one, so the two are told apart.
+    body               string (may be null)
+    parent             object (may be null)
+                       The issue this one is a sub-issue of, null where it has none or
+                       where the parent could not be read. A Sub is bound by the rules
+                       its parent states and cannot be judged without them.
+      repo             string (may be null)
+                       Null for a parent in this repository, as the linked issue's own
+                       repository is.
+      number           integer
+      title            string
+      body             string
   warnings             array of string

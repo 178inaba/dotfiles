@@ -46,6 +46,14 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// The REST endpoints are routed apart before anything reads the body:
+		// answering an issue lookup out of the GraphQL branch below decodes a
+		// pull request into an issue and passes, which is how a fake reports a
+		// parent that does not exist.
+		if r.URL.Path != "/graphql" {
+			serveIssue(w, r, pages{issues: linkedIssues})
+			return
+		}
 		if author == "" {
 			fmt.Fprint(w, `{"errors":[{"type":"NOT_FOUND","message":"no pull request"}]}`)
 			return
@@ -202,8 +210,12 @@ func TestPrepare(t *testing.T) {
 			if got.BaseBranch == nil || *got.BaseBranch != "origin/main" {
 				t.Errorf("base_branch = %v, want origin/main", got.BaseBranch)
 			}
-			// The issues come from the body's closing keywords.
-			if diff := cmp.Diff([]pullrequest.LinkedIssue{{Number: 10}}, got.Issues); diff != "" {
+			// The issues come from the body's closing keywords, read rather
+			// than merely numbered.
+			if diff := cmp.Diff([]pullrequest.LinkedIssue{{
+				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
+				Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+			}}, got.Issues); diff != "" {
 				t.Errorf("issues (-want +got):\n%s", diff)
 			}
 		})
