@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 )
 
@@ -167,7 +168,13 @@ func ParseThreadActions(b []byte, workDir, file string) ([]ThreadAction, error) 
 		"threads must be an array of {path: string, line?: number, id?: string, resolve: boolean, body xor body_file?: string} in %s", file)
 
 	var wire ThreadsFile
-	if err := json.Unmarshal(b, &wire); err != nil {
+	if err := contract.Unmarshal(b, &wire, file); err != nil {
+		// A field-level refusal names its field and travels as its own type;
+		// the wrapping below would take both away.
+		var ve *contract.ViolationError
+		if errors.As(err, &ve) {
+			return nil, err
+		}
 		// Mapping the decoder's pointer back is what keeps the field's own
 		// message rather than the decoder's.
 		var se *json.SemanticError
@@ -179,21 +186,14 @@ func ParseThreadActions(b []byte, workDir, file string) ([]ThreadAction, error) 
 		}
 		return nil, fmt.Errorf("invalid JSON in %s (%v)", file, err)
 	}
-	// Absent and null both arrive as nil; an empty array is what says none.
-	if wire.Threads == nil {
-		return nil, notArray
-	}
 
 	out := make([]ThreadAction, 0, len(wire.Threads))
 	for _, e := range wire.Threads {
-		if e.Path == nil || e.Resolve == nil {
-			return nil, shape
-		}
-		// Both absent is the resolve-only form rather than a shape error, so
-		// the review file's exactly-one rule does not apply unchanged.
+		// Both absent is the resolve-only form rather than a violation, which
+		// is why this group is declared without required.
 		var body *string
 		if e.Body != nil || e.BodyFile != nil {
-			if !bodyShapeOK(e.Body, e.BodyFile) {
+			if !bodyShapeOK(e.BodyFile) {
 				return nil, bodyShapeError(file)
 			}
 			text, err := resolveBody(e.Body, e.BodyFile, workDir)

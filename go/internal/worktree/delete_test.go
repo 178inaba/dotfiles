@@ -193,7 +193,9 @@ func TestParseCandidates(t *testing.T) {
 		{name: "not json at all", in: "not json", wantErr: "invalid JSON on stdin"},
 		// An empty object would otherwise read as an approved list of nothing,
 		// and the command would report a successful deletion of none.
-		{name: "no candidates", in: `{}`, wantErr: "stdin JSON missing .candidates"},
+		{name: "no candidates", in: `{}`, wantErr: "stdin JSON is missing candidates"},
+		// An explicit null is the same statement as leaving the key out.
+		{name: "null candidates", in: `{"candidates":null}`, wantErr: "stdin JSON is missing candidates"},
 		// An approved list that is empty is different from a missing one: it
 		// is what a person leaves after taking everything out, and deleting
 		// nothing is the right answer to it.

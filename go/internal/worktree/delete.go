@@ -2,11 +2,11 @@ package worktree
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -45,11 +45,15 @@ type DeleteInput struct {
 // ParseCandidates reads the approved candidates.
 func ParseCandidates(b []byte) (Candidates, error) {
 	var wire DeleteInput
-	if err := json.Unmarshal(b, &wire); err != nil {
+	if err := contract.Unmarshal(b, &wire, "stdin JSON"); err != nil {
+		// The blanket message below says only that the bytes were not usable,
+		// which is all a decoder failure amounts to here; a refusal that names
+		// a field is thrown away by it.
+		var ve *contract.ViolationError
+		if errors.As(err, &ve) {
+			return Candidates{}, err
+		}
 		return Candidates{}, errors.New("invalid JSON on stdin")
-	}
-	if wire.Candidates == nil {
-		return Candidates{}, errors.New("stdin JSON missing .candidates")
 	}
 	return *wire.Candidates, nil
 }

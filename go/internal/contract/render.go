@@ -1,10 +1,14 @@
-// Package contract renders what a ccx command prints and accepts, from the
-// types that define it.
+// Package contract declares what a ccx command prints and accepts, renders it
+// and enforces it, all from the types that define it.
 //
 // Written into each command's help by hand it would be a transcription of a
 // struct's json tags kept in another file, which is the arrangement
 // 178inaba/dotfiles#131 exists to end: nothing fails when the two disagree.
 // Everything a contract consists of is already declared, so it is rendered.
+//
+// The same declaration is what refuses a document, at both boundaries one
+// crosses: Unmarshal on the way in and render on the way out. A hand-written
+// check beside the tag would be the same arrangement again, one layer down.
 //
 // Reflection cannot see doc comments or the constants of a named type. Those
 // come from Table, which gen/ extracts from source into docs_gen.go.
@@ -231,8 +235,8 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 func (tb Table) group(t reflect.Type, f reflect.StructField, values []string, mode Mode, depth int, seen map[reflect.Type]bool) ([]row, error) {
 	// A field the wire never sees, embedded or not, has nothing to describe.
 	// json:"-" reaches here as an unnamed field too, and is not inlined.
-	inner := deref(f.Type)
-	if !f.Anonymous || f.Tag.Get("json") == "-" || inner.Kind() != reflect.Struct {
+	inner := groupType(f)
+	if inner == nil {
 		// Nothing of the field reaches the document, so a declaration on it is
 		// read by nobody — the same silent no-op contractValues refuses where
 		// a value has the wrong sort of field to bind to.
@@ -266,6 +270,20 @@ func (tb Table) group(t reflect.Type, f reflect.StructField, values []string, mo
 		return nil, err
 	}
 	return append(rows, members...), nil
+}
+
+// groupType is the struct an embedded field inlines into the document its
+// parent describes, or nil where the field is not one.
+//
+// Shared with the validator rather than restated there, so that what a --help
+// renders as a group and what a refusal reads as one cannot come apart.
+// json:"-" arrives here as an unnamed field like any other and is not inlined.
+func groupType(f reflect.StructField) reflect.Type {
+	inner := deref(f.Type)
+	if !f.Anonymous || f.Tag.Get("json") == "-" || inner.Kind() != reflect.Struct {
+		return nil
+	}
+	return inner
 }
 
 // knownValues is every constraint this renderer can state.
@@ -422,9 +440,22 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 // what it serialises as would be described by its Go fields, which is a
 // confident lie rather than a gap.
 func (tb Table) checkMarshaler(t reflect.Type) error {
+	if iface := marshaler(t); iface != nil {
+		return fmt.Errorf("contract: %s implements %s and is not in the marshaler table, so its JSON shape is not its fields", t, iface)
+	}
+	return nil
+}
+
+// marshaler is the interface a type takes its own serialisation over, or nil
+// where its Go fields are what reach the wire.
+//
+// Separate from checkMarshaler so that the validator, which passes over such a
+// type rather than refusing it, can ask without building a message it throws
+// away.
+func marshaler(t reflect.Type) reflect.Type {
 	for _, iface := range marshalerInterfaces {
 		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
-			return fmt.Errorf("contract: %s implements %s and is not in the marshaler table, so its JSON shape is not its fields", t, iface)
+			return iface
 		}
 	}
 	return nil
