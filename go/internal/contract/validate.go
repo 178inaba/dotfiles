@@ -19,27 +19,25 @@ type ViolationError struct{ msg string }
 
 func (e *ViolationError) Error() string { return e.msg }
 
-// Unmarshal decodes b into v and checks it against v's declaration, so that a
-// caller cannot obtain a decoded value the declaration was not applied to.
-//
-// document is what a refusal names, which is the file a parser was given, or
-// whatever a command reading standard input calls that input.
+// Unmarshal decodes b into v and holds it to v's declaration.
 func Unmarshal(b []byte, v any, document string) error {
 	return std.Unmarshal(b, v, document)
 }
 
-// Validate checks bytes against the declaration on t. The same call serves the
-// way out, where the bytes are what render produced rather than what a caller
-// supplied.
+// Validate holds bytes to the declaration on t.
 func Validate(b []byte, t reflect.Type, document string) error {
 	return std.Validate(b, t, document)
 }
 
-// Unmarshal decodes b into v and checks it against v's declaration.
+// Unmarshal decodes b into v and checks it against v's declaration, so that a
+// caller cannot obtain a decoded value the declaration was not applied to.
 //
-// The decode comes first so that a document that is malformed as well as
+// The decode comes first, so a document that is malformed as well as
 // incomplete reports the malformation: the parsers still map the decoder's own
 // errors, and 178inaba/dotfiles#159 is where those join the same translation.
+//
+// document is what a refusal names — the file a parser was given, or whatever
+// a command reading standard input calls that input.
 func (tb Table) Unmarshal(b []byte, v any, document string) error {
 	if err := json.Unmarshal(b, v); err != nil {
 		return err
@@ -53,6 +51,8 @@ func (tb Table) Unmarshal(b []byte, v any, document string) error {
 // place the two halves of presence are both visible: absent and null are the
 // same nil once a document has been decoded into a pointer, and the same zero
 // once it has been decoded into a string.
+//
+// The same call serves the way out, where the bytes are what render produced.
 func (tb Table) Validate(b []byte, t reflect.Type, document string) error {
 	if t == nil {
 		return nil
@@ -61,24 +61,19 @@ func (tb Table) Validate(b []byte, t reflect.Type, document string) error {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return err
 	}
-	return tb.check(t, doc, "", document)
+	obj, _ := doc.(map[string]any)
+	return tb.check(t, obj, "", document)
 }
 
 // check reads one object against the declaration on the struct it decoded into.
 //
-// Driven by the JSON value rather than by the Go one, which is what lets a
-// null be told from an absent key, and what keeps a field this walks past from
-// mattering: a type is descended into only where the document actually holds
-// an object or a list there.
-func (tb Table) check(t reflect.Type, value any, path, document string) error {
+// A nil obj is a document that supplied no key at all, which is what its
+// required fields are then missing.
+func (tb Table) check(t reflect.Type, obj map[string]any, path, document string) error {
 	t = deref(t)
 	if t.Kind() != reflect.Struct {
 		return nil
 	}
-	// A value that is not an object — a null list element is the one that
-	// arrives here — supplies no key at all, which is what its required
-	// fields are then missing.
-	obj, _ := value.(map[string]any)
 
 	for i := range t.NumField() {
 		f := t.Field(i)
@@ -89,7 +84,7 @@ func (tb Table) check(t reflect.Type, value any, path, document string) error {
 		}
 
 		if !named {
-			if err := tb.checkGroup(f, values, obj, value, path, document); err != nil {
+			if err := tb.checkGroup(f, values, obj, path, document); err != nil {
 				return err
 			}
 			continue
@@ -111,9 +106,15 @@ func (tb Table) check(t reflect.Type, value any, path, document string) error {
 
 // checkGroup reads the declaration on an embedded struct, whose fields json
 // inlines into the very object its parent was read from.
-func (tb Table) checkGroup(f reflect.StructField, values []string, obj map[string]any, value any, path, document string) error {
+//
+// The three conditions below are the ones group renders against, asked through
+// the same three helpers: not a group at all, or a group whose fields are not
+// what reaches the wire. It refuses where this passes over, because render
+// checks every document the module prints — types the doc table was never read
+// from included — and saying nothing there beats saying the wrong thing.
+func (tb Table) checkGroup(f reflect.StructField, values []string, obj map[string]any, path, document string) error {
 	inner := groupType(f)
-	if inner == nil || tb.marshals(inner) || tb.checkMarshaler(inner) != nil {
+	if inner == nil || tb.marshals(inner) || marshaler(inner) != nil {
 		return nil
 	}
 	if slices.Contains(values, "exclusive") {
@@ -121,14 +122,12 @@ func (tb Table) checkGroup(f reflect.StructField, values []string, obj map[strin
 			return err
 		}
 	}
-	return tb.check(inner, value, path, document)
+	return tb.check(inner, obj, path, document)
 }
 
 // cardinality reports how many of a group's keys a document may supply, and
-// which it did.
-//
-// Derived from the tag the same way the rendered heading is, so "exactly one
-// of" in a --help and this refusal cannot come to disagree.
+// which it did. Read off the tag the way group reads its heading off it, so
+// that what a --help promises and what a refusal says cannot drift apart.
 func cardinality(inner reflect.Type, obj map[string]any, exactlyOne bool, path, document string) error {
 	var members, set []string
 	for i := range inner.NumField() {
@@ -151,8 +150,8 @@ func cardinality(inner reflect.Type, obj map[string]any, exactlyOne bool, path, 
 }
 
 // tooMany and none spell a group's members the way a sentence about two of
-// them reads, since every group has exactly two today and "more than one of a,
-// b" would be a stilted way to say it.
+// them reads. Every group has exactly two today; the general form is there so
+// that declaring a third changes the wording rather than making it wrong.
 func tooMany(set []string) string {
 	if len(set) == 2 {
 		return "both " + set[0] + " and " + set[1]
@@ -167,38 +166,43 @@ func none(members []string) string {
 	return "none of " + strings.Join(members, ", ")
 }
 
-// walkValue descends into whatever the document holds under a key: an object,
-// or a list of them at any depth.
+// walkValue descends into whatever the document holds under a key.
+//
+// A value that is neither a list nor an object — a null list element is the
+// one that arrives here — reaches check as a nil map, which is every key
+// absent rather than a document nobody looked at.
 func (tb Table) walkValue(inner reflect.Type, value any, path, document string) error {
-	list, ok := value.([]any)
-	if !ok {
-		return tb.check(inner, value, path, document)
-	}
-	for i, e := range list {
-		if err := tb.walkValue(inner, e, path+"["+strconv.Itoa(i)+"]", document); err != nil {
-			return err
+	if list, ok := value.([]any); ok {
+		for i, e := range list {
+			if err := tb.walkValue(inner, e, path+"["+strconv.Itoa(i)+"]", document); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
-	return nil
+	obj, _ := value.(map[string]any)
+	return tb.check(inner, obj, path, document)
 }
 
 // contained is the struct a value's contents are made of, and whether its Go
 // fields are what reach the wire.
 //
-// Unlike the renderer's nested, a type that serialises itself and has not said
-// what it serialises as is skipped rather than refused: render validates every
-// document the module prints, including types the doc table was never read
-// from, and a walk that stops early there says nothing rather than the wrong
-// thing.
+// Shaped like kindOf rather than like nested: a list's element may itself be
+// either of the two cases below, and asking the list is the shallower
+// question. nested can be shallow because walk reaches it only once describe
+// has put the element through kindOf, which is where the renderer refuses.
 func (tb Table) contained(t reflect.Type) (reflect.Type, bool) {
-	if over, ok := tb.Marshalers[deref(t)]; ok {
+	t = deref(t)
+	if over, ok := tb.Marshalers[t]; ok {
 		return over.Elem, over.Elem != nil
 	}
-	if tb.checkMarshaler(deref(t)) != nil {
+	if marshaler(t) != nil {
 		return nil, false
 	}
-	inner := enumOf(t)
-	return inner, inner.Kind() == reflect.Struct
+	if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		return tb.contained(t.Elem())
+	}
+	return t, t.Kind() == reflect.Struct
 }
 
 // supplied reports whether a document gave a key a value. An explicit null is

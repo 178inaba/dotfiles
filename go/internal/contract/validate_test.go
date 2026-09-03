@@ -189,6 +189,38 @@ func TestValidateHasNothingToSayWithoutADeclaration(t *testing.T) {
 	}
 }
 
+// validSelf serialises itself, so what it puts on the wire is not the field
+// below and a declaration on that field describes a key nobody sends.
+type validSelf struct {
+	Need *string `json:"need" contract:"required"`
+}
+
+func (validSelf) MarshalJSON() ([]byte, error) { return []byte(`"self"`), nil }
+
+type validSelfDoc struct {
+	One  *validSelf  `json:"one"`
+	Many []validSelf `json:"many"`
+}
+
+// TestValidateStopsAtATypeThatSerialisesItself is the case a walk keyed off the
+// field's own type gets wrong: deref sees past a pointer but not into a list,
+// so many would be descended into where one is not, and the two would disagree
+// about the same type. Both are silence here — a required key under a type
+// whose fields never reach the wire is not one a document could have supplied.
+func TestValidateStopsAtATypeThatSerialisesItself(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+	}{
+		{"reached through a pointer", `{"one":{}}`},
+		{"reached through a list", `{"many":[{}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertValidate(t, tc.in, reflect.TypeFor[validSelfDoc](), "")
+		})
+	}
+}
+
 // TestUnmarshalRefusesBeforeItAnswers is the guarantee the entry point exists
 // for: a caller cannot hold a decoded value the declaration was not applied to.
 func TestUnmarshalRefusesBeforeItAnswers(t *testing.T) {

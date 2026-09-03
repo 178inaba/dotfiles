@@ -440,9 +440,22 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 // what it serialises as would be described by its Go fields, which is a
 // confident lie rather than a gap.
 func (tb Table) checkMarshaler(t reflect.Type) error {
+	if iface := marshaler(t); iface != nil {
+		return fmt.Errorf("contract: %s implements %s and is not in the marshaler table, so its JSON shape is not its fields", t, iface)
+	}
+	return nil
+}
+
+// marshaler is the interface a type takes its own serialisation over, or nil
+// where its Go fields are what reach the wire.
+//
+// Separate from checkMarshaler so that the validator, which passes over such a
+// type rather than refusing it, can ask without building a message it throws
+// away.
+func marshaler(t reflect.Type) reflect.Type {
 	for _, iface := range marshalerInterfaces {
 		if t.Implements(iface) || reflect.PointerTo(t).Implements(iface) {
-			return fmt.Errorf("contract: %s implements %s and is not in the marshaler table, so its JSON shape is not its fields", t, iface)
+			return iface
 		}
 	}
 	return nil

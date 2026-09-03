@@ -65,6 +65,10 @@ func TestParseSubmission(t *testing.T) {
 		{name: "a comment without a line", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","body":"y"}]}`, wantErr: "comments[0] is missing line in review.json"},
 		{name: "a comment with both forms of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body":"y","body_file":"body.md"}]}`, wantErr: "comments[0] sets both body and body_file in review.json"},
 		{name: "a comment with neither form of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3}]}`, wantErr: "comments[0] sets neither body nor body_file in review.json"},
+		// The group is satisfied — one key was supplied — so what is left is
+		// the empty string, which 178inaba/dotfiles#160 turns into a
+		// declaration of its own.
+		{name: "a comment with an empty body_file", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body_file":""}]}`, wantErr: "exactly one of body"},
 		{name: "a comment whose line is not a number", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":"3","body":"y"}]}`, wantErr: "comments must be an array"},
 		{name: "not json at all", in: `not json`, wantErr: "invalid JSON"},
 

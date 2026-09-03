@@ -126,7 +126,7 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	out := Submission{Assessment: *wire.Assessment, Body: body, Comments: []SubmissionComment{}}
 	for _, c := range wire.Comments {
 		if !bodyShapeOK(c.BodyFile) {
-			return Submission{}, commentsError(file)
+			return Submission{}, bodyShapeError(file)
 		}
 		commentBody, err := resolveBody(c.Body, c.BodyFile, workDir)
 		if err != nil {

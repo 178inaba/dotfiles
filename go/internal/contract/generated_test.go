@@ -70,7 +70,7 @@ func TestGenerated(t *testing.T) {
 		Enums:      d.Enums,
 		EnumDocs:   d.EnumDocs,
 		Packages:   d.Packages,
-		Marshalers: contract.StdMarshalers,
+		Marshalers: contract.StdTable.Marshalers,
 	}
 
 	// Five real contracts. Three output ones, for what the walk has to get
