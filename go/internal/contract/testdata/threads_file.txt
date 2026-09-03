@@ -1,0 +1,30 @@
+  The document `ccx pr reply-threads` reads.
+
+  threads            array of object (required)
+                     The threads to act on, named by where they are rather than by their
+                     ids. Only threads the pull request context flagged as ours to move
+                     on are reachable, so that one run cannot settle somebody else's
+                     remark or reopen a resolved one.
+    path             string (required)
+                     The thread's path, as the context records it.
+    line             integer (optional)
+                     The line, matching either line or original_line. Leave it out where
+                     the path has only one thread we may act on; a path with several and
+                     no line is refused rather than guessed at.
+    id               string (optional)
+                     The thread's id, to break a tie where a path and a line reach more
+                     than one. It has to be one of them: an id from elsewhere is
+                     refused, which is what catches an id copied from the wrong thread.
+    at most one of:
+      body           string (optional)
+                     The reply, written inline. Resolving without replying is how a
+                     repeated run avoids saying the same thing twice, and how a resolve
+                     is retried where the reply already landed.
+      body_file      string (optional)
+                     The name of a markdown file in the work dir holding the reply. A
+                     bare file name: a path would let an entry reach round the directory
+                     binding that keeps parallel runs on different pull requests apart.
+    resolve          boolean (required)
+                     Whether to mark the thread resolved. Required even when it is
+                     false, since an entry that neither replies nor resolves does
+                     nothing.

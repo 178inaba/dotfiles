@@ -1,0 +1,29 @@
+  The document `ccx pr post-review` reads. Long prose hand-written as a JSON string
+  loses its whole meaning to one missed escape, so writing plain markdown and naming it
+  is the supported way round.
+
+  assessment         string (required), one of:
+                     The verdict, which decides whether the review is posted as an
+                     approval, a request for changes or a comment.
+    Approve可能        A review with nothing that has to change. The values are Japanese
+                     because the review file they are read out of is written by a skill
+                     that speaks Japanese, and these are what it writes.
+    修正が必要            A review with something that has to change.
+    要議論              A review that asks rather than tells.
+  exactly one of:
+    body             string (optional)
+                     The review body, written inline.
+    body_file        string (optional)
+                     The name of a markdown file in the work dir holding the body. A
+                     bare file name: a path would let a review reach round the directory
+                     binding that keeps parallel runs on different pull requests apart.
+  comments           array of object (required)
+                     The remarks anchored to lines of the diff, empty for a review that
+                     is all body.
+    path             string (required)
+    line             integer (required)
+                     The line number on the new side of the diff.
+    exactly one of:
+      body           string (optional)
+                     The remark, inline or named, exactly as the review body is.
+      body_file      string (optional)

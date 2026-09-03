@@ -30,6 +30,7 @@ type sampleOut struct {
 	Parent *sampleRef  `json:"parent"`
 	Refs   []sampleRef `json:"refs"`
 	Note   string      `json:"note,omitzero"`
+	Total  int         `json:"total" contract:"required"`
 }
 
 type sampleIn struct {
@@ -47,6 +48,7 @@ func sampleTable() Table {
 			p + ".sampleOut.Parent": "Parent is null when there is none, and also when it could not be read — the warning tells those apart.",
 			p + ".sampleOut.Refs":   "",
 			p + ".sampleOut.Note":   "Note is absent unless the flag that fetches it was given.",
+			p + ".sampleOut.Total":  "",
 			p + ".sampleRef.Number": "",
 			p + ".sampleRef.URL":    "",
 			p + ".sampleIn.ID":      "",
@@ -75,6 +77,7 @@ func TestRenderOutput(t *testing.T) {
     url     string
   note      string (absent when empty)
             Note is absent unless the flag that fetches it was given.
+  total     integer (required)
 `
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Render (-want +got):\n%s", diff)
@@ -98,6 +101,164 @@ func TestRenderInput(t *testing.T) {
 	}
 }
 
+// sampleGroup is a plain embedded struct: json inlines its fields, so the
+// rendering puts them where they are on the wire.
+type sampleGroup struct {
+	Left  string `json:"left"`
+	Right string `json:"right"`
+}
+
+// sampleChoice is a group exactly one of whose members is supplied.
+type sampleChoice struct {
+	Text *string `json:"text"`
+	File *string `json:"file"`
+}
+
+// sampleMaybe is the same with the member optional, which is what a group of
+// two ways to say a thing looks like where saying it at all is optional.
+type sampleMaybe struct {
+	Note *string `json:"note"`
+	Ref  *string `json:"ref"`
+}
+
+type sampleEmbedded struct {
+	Head string `json:"head"`
+	sampleGroup
+	sampleChoice `contract:"exclusive,required"`
+	sampleMaybe  `contract:"exclusive"`
+}
+
+func embeddedTable() Table {
+	p := reflect.TypeFor[sampleEmbedded]().PkgPath()
+	return Table{Fields: map[string]string{p + ".sampleChoice.Text": "The thing itself, written inline."}}
+}
+
+// TestRenderEmbeddedGroups pins the two shapes an embedded struct takes: no
+// tag and it is the parent's own fields, exclusive and it is a heading its
+// members sit under. A member keeps its own qualifier either way — the heading
+// says how many of the group may appear, the qualifier whether that one key
+// may be left out, and both are true.
+func TestRenderEmbeddedGroups(t *testing.T) {
+	got, err := embeddedTable().Render(reflect.TypeFor[sampleEmbedded](), Input)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `  head             string (optional)
+  left             string (optional)
+  right            string (optional)
+  exactly one of:
+    text           string (optional)
+                   The thing itself, written inline.
+    file           string (optional)
+  at most one of:
+    note           string (optional)
+    ref            string (optional)
+`
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Render (-want +got):\n%s", diff)
+	}
+}
+
+// TestIdentifiersOmitsGroupHeadings keeps a heading out of the set a SKILL.md
+// is checked against: it is a sentence about the fields under it rather than a
+// name anything can refer to.
+func TestIdentifiersOmitsGroupHeadings(t *testing.T) {
+	got, err := embeddedTable().Identifiers(reflect.TypeFor[sampleEmbedded]())
+	if err != nil {
+		t.Fatalf("Identifiers: %v", err)
+	}
+	want := []string{"head", "left", "right", "text", "file", "note", "ref"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Identifiers (-want +got):\n%s", diff)
+	}
+}
+
+type samplePartial struct {
+	Kind sampleKind `json:"kind"`
+}
+
+// TestRenderPartlyDocumentedEnum pins the row a value with no explanation of
+// its own still gets. Its second column is empty, which used to take the whole
+// row out of the help while Identifiers went on publishing the name.
+func TestRenderPartlyDocumentedEnum(t *testing.T) {
+	p := reflect.TypeFor[samplePartial]().PkgPath()
+	tbl := Table{
+		Fields:   map[string]string{},
+		Enums:    map[string][]string{p + ".sampleKind": {string(sampleAlpha), string(sampleBeta)}},
+		EnumDocs: map[string]string{p + ".sampleKind." + string(sampleAlpha): "The first."},
+	}
+	got, err := tbl.Render(reflect.TypeFor[samplePartial](), Output)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `  kind      string, one of:
+    alpha   The first.
+    beta
+`
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Render (-want +got):\n%s", diff)
+	}
+}
+
+type sampleMisplacedExclusive struct {
+	Thing string `json:"thing" contract:"exclusive"`
+}
+
+type sampleMisplacedRequired struct {
+	sampleGroup `contract:"required"`
+}
+
+type sampleUnwiredGroup struct {
+	Thing sampleGroup `contract:"exclusive"`
+}
+
+type sampleHiddenGroup struct {
+	sampleGroup `json:"-" contract:"exclusive,required"`
+}
+
+// TestRenderRefusesAMisplacedContractValue is the other half of the guard: a
+// value written where nothing reads it is dropped on the floor exactly as a
+// misspelt one would be.
+func TestRenderRefusesAMisplacedContractValue(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		typ  reflect.Type
+		want string
+	}{
+		{"exclusive on a named field", reflect.TypeFor[sampleMisplacedExclusive](), "exclusive"},
+		{"required on a plain group", reflect.TypeFor[sampleMisplacedRequired](), "required"},
+		{"exclusive on a field json does not inline", reflect.TypeFor[sampleUnwiredGroup](), "exclusive"},
+		{"exclusive on a group json is told to skip", reflect.TypeFor[sampleHiddenGroup](), "exclusive"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Table{Fields: map[string]string{}}.Render(tc.typ, Input)
+			if err == nil {
+				t.Fatal("Render succeeded on a contract value with nothing to bind to")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not name the offending value %q", err, tc.want)
+			}
+		})
+	}
+}
+
+type sampleBadTag struct {
+	Thing string `json:"thing" contract:"requried"`
+}
+
+// TestRenderRefusesUnknownContractValue is the guard on a stringly typed
+// declaration: a misspelt constraint would otherwise render as an ordinary
+// optional field and be enforced by nothing.
+func TestRenderRefusesUnknownContractValue(t *testing.T) {
+	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleBadTag](), Input)
+	if err == nil {
+		t.Fatal("Render succeeded on a contract tag holding an unknown value")
+	}
+	if want := "requried"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not name the offending value %q", err, want)
+	}
+}
+
 type sampleMarshaler struct {
 	Hidden bool
 }
@@ -115,6 +276,40 @@ func TestRenderRefusesUnlistedMarshaler(t *testing.T) {
 	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleWithMarshaler](), Output)
 	if err == nil {
 		t.Fatal("Render succeeded on a type with an unlisted custom marshaler")
+	}
+	if want := "sampleMarshaler"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not name the offending type %q", err, want)
+	}
+}
+
+type sampleEmbeddedMarshaler struct {
+	sampleMarshaler
+}
+
+// TestRenderRefusesAnEmbeddedMarshaler covers the guard on the other route
+// into a struct: a group is nothing but its fields, so a type putting
+// something else on the wire has none to inline.
+func TestRenderRefusesAnEmbeddedMarshaler(t *testing.T) {
+	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleEmbeddedMarshaler](), Output)
+	if err == nil {
+		t.Fatal("Render succeeded on an embedded type that serialises itself")
+	}
+	if want := "sampleMarshaler"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not name the offending type %q", err, want)
+	}
+}
+
+// TestRenderRefusesAListedEmbeddedMarshaler is the same refusal for a type the
+// table does describe: the override says what the type puts out on its own,
+// which is not a set of keys to inline into the document around it.
+func TestRenderRefusesAListedEmbeddedMarshaler(t *testing.T) {
+	tbl := Table{
+		Fields:     map[string]string{},
+		Marshalers: map[reflect.Type]Marshaled{reflect.TypeFor[sampleMarshaler](): {Kind: "null, or an array of numbers"}},
+	}
+	_, err := tbl.Render(reflect.TypeFor[sampleEmbeddedMarshaler](), Output)
+	if err == nil {
+		t.Fatal("Render succeeded on an embedded type that serialises itself")
 	}
 	if want := "sampleMarshaler"; !strings.Contains(err.Error(), want) {
 		t.Errorf("error %q does not name the offending type %q", err, want)

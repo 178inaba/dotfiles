@@ -139,18 +139,24 @@ type ThreadsFileEntry struct {
 	// The thread's id, to break a tie where a path and a line reach more than
 	// one. It has to be one of them: an id from elsewhere is refused, which is
 	// what catches an id copied from the wrong thread.
-	ID *string `json:"id"`
-	// The reply, written inline. Leave both this and body_file out to resolve
-	// without replying, which is how a repeated run avoids saying the same
-	// thing twice and how a resolve is retried where the reply already landed.
+	ID        *string `json:"id"`
+	ReplyBody `contract:"exclusive"`
+	// Whether to mark the thread resolved. Required even when it is false,
+	// since an entry that neither replies nor resolves does nothing.
+	Resolve *bool `json:"resolve" contract:"required"`
+}
+
+// ReplyBody is the reply's prose, or neither of its two keys where the entry
+// only resolves.
+type ReplyBody struct {
+	// The reply, written inline. Resolving without replying is how a repeated
+	// run avoids saying the same thing twice, and how a resolve is retried
+	// where the reply already landed.
 	Body *string `json:"body"`
 	// The name of a markdown file in the work dir holding the reply. A bare
 	// file name: a path would let an entry reach round the directory binding
 	// that keeps parallel runs on different pull requests apart.
 	BodyFile *string `json:"body_file"`
-	// Whether to mark the thread resolved. Required even when it is false,
-	// since an entry that neither replies nor resolves does nothing.
-	Resolve *bool `json:"resolve" contract:"required"`
 }
 
 // ParseThreadActions reads the threads file, resolving the bodies it names

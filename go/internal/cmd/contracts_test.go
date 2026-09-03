@@ -219,16 +219,27 @@ func TestEveryInputContractHasAParser(t *testing.T) {
 //
 // The entries are checked against the fields the walk actually reaches, so a
 // renamed type or json field empties this list loudly rather than silently.
-// The list is provisional: a tag saying "exactly one of these" would put the
-// constraint in the rendered contract and leave nothing here to maintain, and
-// 178inaba/dotfiles#139 defers that to an issue of its own.
+// The list is provisional: the rendered contract now states each group's
+// cardinality, and 178inaba/dotfiles#158 is where the parsers read that
+// declaration instead of their own checks, leaving nothing here to maintain.
 var groupConstrained = []string{
-	"pullrequest.ReviewFile.body",
-	"pullrequest.ReviewFile.body_file",
-	"pullrequest.ReviewFileComment.body",
-	"pullrequest.ReviewFileComment.body_file",
-	"pullrequest.ThreadsFileEntry.body",
-	"pullrequest.ThreadsFileEntry.body_file",
+	"pullrequest.ReviewBody.body",
+	"pullrequest.ReviewBody.body_file",
+	"pullrequest.CommentBody.body",
+	"pullrequest.CommentBody.body_file",
+	"pullrequest.ReplyBody.body",
+	"pullrequest.ReplyBody.body_file",
+}
+
+// contractValues is a field's declared constraints, which are comma-separated
+// in the one tag. Read as a list rather than compared whole, since a field
+// carries as many as are true of it.
+func contractValues(f reflect.StructField) []string {
+	tag, ok := f.Tag.Lookup("contract")
+	if !ok {
+		return nil
+	}
+	return strings.Split(tag, ",")
 }
 
 // fieldCase is one json field to omit, and where it sits in its sample.
@@ -272,10 +283,16 @@ func (w *sampleWalk) walk(typ reflect.Type, doc any, path []any) {
 		f := typ.Field(i)
 		name, ok := jsonFieldName(f)
 		if !ok {
+			// An embedded group's members are inlined on the wire, so they are
+			// walked against this same object and named for the group type
+			// that holds them, which is where their tags are.
+			if inner := embeddedGroup(f); inner != nil {
+				w.walk(inner, doc, path)
+			}
 			continue
 		}
 		full := typ.String() + "." + name
-		required := f.Tag.Get("contract") == "required"
+		required := slices.Contains(contractValues(f), "required")
 		excluded := slices.Contains(groupConstrained, full)
 		w.names[full] = true
 		here := append(slices.Clone(path), name)
@@ -323,6 +340,22 @@ func (w *sampleWalk) walk(typ reflect.Type, doc any, path []any) {
 	}
 }
 
+// embeddedGroup is the struct an unnamed field inlines into the document, or
+// nil where the field is not one. json:"-" is not inlined and reaches here
+// unnamed like the rest; a list is not inlined either.
+//
+// A copy of the renderer's rule rather than a call to it, for the reason
+// jsonFieldName below is one.
+func embeddedGroup(f reflect.StructField) reflect.Type {
+	if !f.Anonymous || f.Tag.Get("json") == "-" {
+		return nil
+	}
+	if inner, isList := structUnder(f.Type); !isList {
+		return inner
+	}
+	return nil
+}
+
 // TestRequiredTagsMatchTheParsers binds contract:"required" to the check that
 // enforces it. The tag decides only how a field prints in a --help; what
 // refuses a document missing it is a hand-written nil check inside the parser,
@@ -361,8 +394,10 @@ func TestRequiredTagsMatchTheParsers(t *testing.T) {
 }
 
 // TestNoRequiredTagOnAnOutputOnlyType catches the tag that reads as a promise
-// and does nothing: it is looked at only in Input mode, so on a type no command
-// reads it is a no-op nobody would notice.
+// nothing stands behind. The tag is read on either side now, so on a type only
+// written it says "this is always present" — a claim about what the command
+// puts out, which nothing in this module checks. Every tagged type today is
+// read rather than written, and its parser is what holds it to its tags.
 //
 // Reachability rather than the registration decides, because worktree.Candidates
 // is reached from an input contract and an output one both.
@@ -383,8 +418,8 @@ func TestNoRequiredTagOnAnOutputOnlyType(t *testing.T) {
 			continue
 		}
 		for i := range typ.NumField() {
-			if f := typ.Field(i); f.Tag.Get("contract") == "required" {
-				t.Errorf("%s.%s is tagged required, but %s is reached only from an output contract, where the tag is never read",
+			if f := typ.Field(i); slices.Contains(contractValues(f), "required") {
+				t.Errorf("%s.%s is tagged required, but %s is reached only from an output contract, where nothing holds it to the promise",
 					typ, f.Name, typ)
 			}
 		}
