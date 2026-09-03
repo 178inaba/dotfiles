@@ -47,6 +47,15 @@ func ContextFileName(repo ghapi.Repo, number int) string {
 	return fmt.Sprintf("pr-context-%s@%s-%d.json", repo.Owner, repo.Name, number)
 }
 
+// ContextPath is where one pull request's context file goes under outDir.
+//
+// Composed here rather than by whoever writes the file, because the document
+// carries the path of the diff file beside it: where it will be written has to
+// be known before it is built, and by more than one caller.
+func ContextPath(outDir string, repo ghapi.Repo, number int) string {
+	return filepath.Join(outDir, ContextFileName(repo, number))
+}
+
 // WorkDir is the directory paired with a pull request context file.
 //
 // The identifier comes from the context file's own name rather than being
@@ -88,6 +97,34 @@ func EnsureWorkFiles(contextFile string) (WorkFiles, error) {
 		ThreadsPath: filepath.Join(dir, "threads.json"),
 		DiffPath:    filepath.Join(dir, "diff.patch"),
 	}, nil
+}
+
+// Document is where one pull request's context file and working files go, and
+// the change already read into the directory beside it.
+type Document struct {
+	Path   string
+	Work   WorkFiles
+	Change Change
+}
+
+// OpenDocument settles where a pull request's document goes and reads its
+// change into the directory paired with it.
+//
+// Both writers of the document open it this way, and in this order: a head
+// that moved has to stop the run while there is still no document, since one
+// whose head_oid and diff disagree is something no reader could detect. dir is
+// the checkout git runs against; outDir is where the document goes.
+func OpenDocument(ctx context.Context, r runner.Runner, dir, outDir string, repo ghapi.Repo, pr ghapi.PullRequest) (Document, error) {
+	path := ContextPath(outDir, repo, pr.Number)
+	work, err := EnsureWorkFiles(path)
+	if err != nil {
+		return Document{}, err
+	}
+	change, err := ReadChange(ctx, r, dir, pr, work.DiffPath)
+	if err != nil {
+		return Document{}, err
+	}
+	return Document{Path: path, Work: work, Change: change}, nil
 }
 
 // RequireInWorkDir checks that an input file sits directly in the work dir the

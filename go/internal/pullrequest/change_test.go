@@ -78,8 +78,9 @@ func history(t *testing.T) func(string) {
 
 		gittest.Run(t, author, "mv", "old.txt", "new.txt")
 		gittest.Write(t, filepath.Join(author, "new.txt"), "a\nb\nc\nd\n")
+		gittest.Run(t, author, "rm", "-q", "base.txt")
 		gittest.Run(t, author, "add", ".")
-		gittest.Run(t, author, "commit", "-qm", "Rename and extend")
+		gittest.Run(t, author, "commit", "-qm", "Rename and extend, and drop the other file")
 
 		gittest.Write(t, filepath.Join(author, "bin.dat"), "\x00\x03\x04\x05")
 		gittest.Run(t, author, "add", ".")
@@ -93,6 +94,13 @@ func history(t *testing.T) func(string) {
 		gittest.Run(t, author, "switch", "-q", "feature/x")
 		gittest.Run(t, author, "merge", "-q", "--no-ff", "-m", "Merge the side branch", "side")
 	}
+}
+
+// noChange is what ReadChange answers with for a pull request that changes
+// nothing: empty rather than nil, which is the shape the document publishes.
+// Used where a test is about the conversation and not about the change.
+func noChange() pullrequest.Change {
+	return pullrequest.Change{Commits: []pullrequest.Commit{}, Diff: pullrequest.Diff{Files: []pullrequest.DiffFile{}}}
 }
 
 // prFor is the metadata ReadChange takes, already resolved by its caller.
@@ -135,8 +143,12 @@ func TestReadChange(t *testing.T) {
 		if len(want) != 5 {
 			t.Errorf("the range holds %d commits, want 5 including the merge", len(want))
 		}
-		if body := got.Commits[0].Message; body != "Add a file\n\nAnd say why, in a paragraph the headline does not carry." {
-			t.Errorf("the first message is %q, want the whole message", body)
+		// Found by its headline rather than by position: commits made in the
+		// same second tie, and which of them git puts first is not what this
+		// is about.
+		const whole = "Add a file\n\nAnd say why, in a paragraph the headline does not carry."
+		if !slices.ContainsFunc(got.Commits, func(c pullrequest.Commit) bool { return c.Message == whole }) {
+			t.Errorf("commits = %+v, want one carrying the whole message %q", got.Commits, whole)
 		}
 	})
 
@@ -157,6 +169,7 @@ func TestReadChange(t *testing.T) {
 		old := "old.txt"
 		want := []pullrequest.DiffFile{
 			{Path: "added.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
+			{Path: "base.txt", Status: pullrequest.StatusDeleted, Additions: new(0), Deletions: new(1)},
 			// A binary file is counted in neither the file's own numbers nor
 			// the totals: git counts no lines in one.
 			{Path: "bin.dat", Status: pullrequest.StatusModified},
@@ -166,8 +179,8 @@ func TestReadChange(t *testing.T) {
 		if diff := cmp.Diff(want, got.Diff.Files); diff != "" {
 			t.Errorf("diff.files (-want +got):\n%s", diff)
 		}
-		if got.Diff.Additions != 3 || got.Diff.Deletions != 0 {
-			t.Errorf("diff totals = +%d -%d, want +3 -0", got.Diff.Additions, got.Diff.Deletions)
+		if got.Diff.Additions != 3 || got.Diff.Deletions != 1 {
+			t.Errorf("diff totals = +%d -%d, want +3 -1", got.Diff.Additions, got.Diff.Deletions)
 		}
 	})
 }

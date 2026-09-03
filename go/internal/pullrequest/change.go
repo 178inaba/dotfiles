@@ -61,9 +61,9 @@ type DiffFile struct {
 // a reader takes it with a tool that reads a path.
 type Diff struct {
 	// The absolute path of the file holding the patch. It sits
-	// directly in the work dir, is named by the command, and is overwritten on
-	// every run — a caller composing the name is how two runs on two pull
-	// requests come to write over each other.
+	// directly in the work dir, is named with the rest of what goes there, and
+	// is overwritten on every run — a caller composing the name is how two
+	// runs on two pull requests come to write over each other.
 	Path  string     `json:"path"`
 	Files []DiffFile `json:"files"`
 	// additions and deletions are the lines across the text
@@ -79,6 +79,9 @@ type Diff struct {
 // Read apart from the conversation because the two fail differently and are
 // retried differently, and because a caller that fetches the conversation
 // twice with the limits raised still reads this once.
+//
+// ReadChange is where one comes from: both lists are empty rather than nil on
+// every path out of it, which is what the document publishes.
 type Change struct {
 	Commits []Commit
 	Diff    Diff
@@ -152,7 +155,7 @@ func readCommits(ctx context.Context, r runner.Runner, dir, span string) ([]Comm
 	}
 
 	commits := []Commit{}
-	for _, record := range nulFields(string(out)) {
+	for _, record := range split(string(out)) {
 		oid, message, ok := strings.Cut(record, "\n")
 		if !ok {
 			return nil, fmt.Errorf("unexpected commit record %q from git log %s", record, span)
@@ -206,18 +209,19 @@ func readDiff(ctx context.Context, r runner.Runner, dir, span, patch string) (Di
 		return Diff{}, err
 	}
 
-	diff := Diff{Path: patch, Files: files}
-	for i, f := range files {
-		c, ok := counts[f.Path]
+	diff := Diff{Path: patch}
+	for i := range files {
+		c, ok := counts[files[i].Path]
 		if !ok {
-			return Diff{}, fmt.Errorf("git counted no lines for %s over %s", f.Path, span)
+			return Diff{}, fmt.Errorf("git counted no lines for %s over %s", files[i].Path, span)
 		}
-		diff.Files[i].Additions, diff.Files[i].Deletions = c.additions, c.deletions
+		files[i].Additions, files[i].Deletions = c.additions, c.deletions
 		if c.additions != nil {
 			diff.Additions += *c.additions
 			diff.Deletions += *c.deletions
 		}
 	}
+	diff.Files = files
 	return diff, nil
 }
 
@@ -227,23 +231,25 @@ type lineCount struct{ additions, deletions *int }
 // parseNumstat reads the counts, by the path on the new side.
 //
 // A record is "<added>\t<deleted>\t<path>", except for a rename or a copy,
-// where the path field is empty and the two paths follow as the next two
-// NUL-terminated fields.
+// where the path field is empty and the old and new paths follow as the next
+// two fields.
 func parseNumstat(out string) (map[string]lineCount, error) {
 	counts := make(map[string]lineCount)
-	fields := nulFields(out)
-	for i := 0; i < len(fields); i++ {
-		record := strings.SplitN(fields[i], "\t", 3)
+	fields := &nulFields{all: split(out)}
+	for fields.more() {
+		record := strings.SplitN(fields.next(), "\t", 3)
 		if len(record) != 3 {
-			return nil, fmt.Errorf("unexpected numstat record %q", fields[i])
+			return nil, fmt.Errorf("unexpected numstat record %q", strings.Join(record, "\t"))
 		}
 		path := record[2]
 		if path == "" {
-			if i+2 >= len(fields) {
-				return nil, fmt.Errorf("numstat record %q names no paths", fields[i])
+			if _, ok := fields.take(); !ok {
+				return nil, fmt.Errorf("numstat record for a rename names no old path")
 			}
-			path = fields[i+2]
-			i += 2
+			var ok bool
+			if path, ok = fields.take(); !ok {
+				return nil, fmt.Errorf("numstat record for a rename names no new path")
+			}
 		}
 		c, err := lineCounts(record[0], record[1])
 		if err != nil {
@@ -277,24 +283,24 @@ func lineCounts(added, deleted string) (lineCount, error) {
 // followed by two: the old path and then the new one.
 func parseNameStatus(out string) ([]DiffFile, error) {
 	files := []DiffFile{}
-	fields := nulFields(out)
-	for i := 0; i < len(fields); i++ {
-		status, err := fileStatus(fields[i])
+	fields := &nulFields{all: split(out)}
+	for fields.more() {
+		code := fields.next()
+		status, err := fileStatus(code)
 		if err != nil {
 			return nil, err
 		}
-		if i+1 >= len(fields) {
-			return nil, fmt.Errorf("name-status entry %q names no path", fields[i])
+		path, ok := fields.take()
+		if !ok {
+			return nil, fmt.Errorf("name-status entry %q names no path", code)
 		}
-		i++
-		file := DiffFile{Path: fields[i], Status: status}
+		file := DiffFile{Path: path, Status: status}
 		if status == StatusRenamed || status == StatusCopied {
-			if i+1 >= len(fields) {
-				return nil, fmt.Errorf("name-status entry %q names only one path", fields[i-1])
-			}
 			previous := file.Path
-			i++
-			file.Path, file.PreviousPath = fields[i], &previous
+			if file.Path, ok = fields.take(); !ok {
+				return nil, fmt.Errorf("name-status entry %q names only one path", code)
+			}
+			file.PreviousPath = &previous
 		}
 		files = append(files, file)
 	}
@@ -322,9 +328,36 @@ func fileStatus(field string) (FileStatus, error) {
 	return "", fmt.Errorf("unexpected name-status entry %q", field)
 }
 
-// nulFields splits git's -z output, which terminates every field rather than
+// nulFields walks the fields of one -z output.
+//
+// A cursor rather than an index, because both formats above are records of
+// however many fields the record before said they had: reading them by hand
+// puts the arithmetic, and four spellings of "ran out", in each parser.
+type nulFields struct {
+	all []string
+	at  int
+}
+
+func (f *nulFields) more() bool { return f.at < len(f.all) }
+
+// next is the field a record starts on, which more has just said is there.
+func (f *nulFields) next() string {
+	field := f.all[f.at]
+	f.at++
+	return field
+}
+
+// take is one further field of the record in hand, false where it is missing.
+func (f *nulFields) take() (string, bool) {
+	if !f.more() {
+		return "", false
+	}
+	return f.next(), true
+}
+
+// split cuts git's -z output, which terminates every field rather than
 // separating them — so the last one is followed by a NUL and not by nothing.
-func nulFields(out string) []string {
+func split(out string) []string {
 	trimmed := strings.TrimSuffix(out, "\x00")
 	if trimmed == "" {
 		return nil

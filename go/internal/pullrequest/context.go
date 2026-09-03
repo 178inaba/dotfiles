@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
-	"github.com/178inaba/dotfiles/go/internal/issue"
 )
 
 // SkillMarker is what /review-response puts at the front of every comment it
@@ -274,15 +273,6 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		return Context{}, err
 	}
 
-	// Empty rather than null where there is nothing, so that a reader walks
-	// the same shape whatever the pull request holds.
-	if change.Commits == nil {
-		change.Commits = []Commit{}
-	}
-	if change.Diff.Files == nil {
-		change.Diff.Files = []DiffFile{}
-	}
-
 	out := Context{
 		Repo:        repo.String(),
 		CurrentUser: me,
@@ -519,14 +509,15 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		in := repo
 		if linked.Repo != nil {
 			var err error
+			// The pattern that matched it is owner/name and nothing else, so
+			// a failure here is a programmer's rather than an author's.
 			if in, err = ghapi.ParseRepo(*linked.Repo); err != nil {
-				warnings = append(warnings, fmt.Sprintf("%s#%d: the repository could not be read", *linked.Repo, linked.Number))
-				continue
+				return nil, nil, fmt.Errorf("failed to read the repository of %s#%d: %v", *linked.Repo, linked.Number, err)
 			}
 		}
 
-		var w issueWire
-		if err := c.Get(ctx, fmt.Sprintf("repos/%s/issues/%d", in, linked.Number), &w); err != nil {
+		read, err := c.Issue(ctx, in, linked.Number)
+		if err != nil {
 			status, gone := unreadable(err)
 			if !gone {
 				return nil, nil, fmt.Errorf("failed to read %s#%d: %v", in, linked.Number, err)
@@ -534,9 +525,9 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 			warnings = append(warnings, fmt.Sprintf("%s#%d: the issue could not be read (HTTP %d)", in, linked.Number, status))
 			continue
 		}
-		issues[i].Title, issues[i].Body = &w.Title, &w.Body
+		issues[i].Title, issues[i].Body = &read.Title, &read.Body
 
-		parent, err := issue.ParentOf(ctx, c, in, linked.Number)
+		parent, err := c.IssueParent(ctx, in, linked.Number)
 		if err != nil {
 			status, gone := unreadable(err)
 			if !gone {
@@ -554,12 +545,6 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		}
 	}
 	return issues, warnings, nil
-}
-
-// issueWire is as much of a GitHub issue object as the document carries.
-type issueWire struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
 }
 
 // unreadable reports whether GitHub declined to show something in a way that

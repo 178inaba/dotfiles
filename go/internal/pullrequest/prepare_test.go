@@ -98,20 +98,14 @@ var prepareIssues = func() map[string]string {
 	return m
 }()
 
-// store records the contexts it is given and writes nothing, since where the
-// bytes go is the command layer's business.
-type store struct {
-	dir  string
-	seen *[]pullrequest.Context
-}
-
-func (s store) Path(number int) string {
-	return filepath.Join(s.dir, fmt.Sprintf("pr-context-owner@repo-%d.json", number))
-}
-
-func (s store) Write(c pullrequest.Context) (string, error) {
-	*s.seen = append(*s.seen, c)
-	return s.Path(c.PR.Number), nil
+// store records the contexts it is given, and the paths, and writes nothing:
+// turning one into bytes is the command layer's business.
+func store(seen *[]pullrequest.Context, paths *[]string) pullrequest.Store {
+	return func(path string, c pullrequest.Context) error {
+		*seen = append(*seen, c)
+		*paths = append(*paths, path)
+		return nil
+	}
 }
 
 func TestPrepareWithoutAPullRequest(t *testing.T) {
@@ -134,9 +128,12 @@ func TestPrepareWithoutAPullRequest(t *testing.T) {
 			t.Parallel()
 
 			repo, _ := prepareRepo(t)
+			o := tc.o
+			o.OutDir = t.TempDir()
 			var seen []pullrequest.Context
+			var paths []string
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
-				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, tc.o, store{dir: t.TempDir(), seen: &seen})
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
@@ -192,9 +189,12 @@ func TestPrepare(t *testing.T) {
 
 			repo, head := prepareRepo(t)
 			scratch := t.TempDir()
+			o := tc.o
+			o.OutDir = scratch
 			var seen []pullrequest.Context
+			var paths []string
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, tc.author, noThreads),
-				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, tc.o, store{dir: scratch, seen: &seen})
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
 			}
@@ -231,6 +231,16 @@ func TestPrepare(t *testing.T) {
 			if seen[0].Diff.Path != filepath.Join(want, "diff.patch") {
 				t.Errorf("diff.path = %q, want it inside the work dir", seen[0].Diff.Path)
 			}
+			// One path, settled once: the document was written where
+			// context_path says it is, and the work dir is the one paired with
+			// that very file.
+			file := filepath.Join(scratch, "pr-context-owner@repo-5.json")
+			if got.ContextPath == nil || *got.ContextPath != file {
+				t.Errorf("context_path = %v, want %q", got.ContextPath, file)
+			}
+			if diff := cmp.Diff([]string{file}, paths); diff != "" {
+				t.Errorf("the document was written to (-want +got):\n%s", diff)
+			}
 			if got.Freshness == nil || got.Freshness.Status != "ok" {
 				t.Errorf("freshness = %+v, want an ok report", got.Freshness)
 			}
@@ -256,8 +266,10 @@ func TestPrepareWithAnIssue(t *testing.T) {
 
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
+	var paths []string
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Issue: 42}, store{dir: t.TempDir(), seen: &seen})
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir(), Issue: 42}, store(&seen, &paths))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -292,10 +304,11 @@ func TestPrepareRefusesAMovedHead(t *testing.T) {
 	repo, _ := prepareRepo(t)
 	moved := "0000000000000000000000000000000000000001"
 
-	scratch := t.TempDir()
 	var seen []pullrequest.Context
+	var paths []string
 	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, moved, "me", noThreads),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{}, store{dir: scratch, seen: &seen})
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err == nil {
 		t.Fatal("Prepare succeeded, want it to refuse a head that is not there")
 	}
@@ -316,8 +329,10 @@ func TestPrepareStopsOnAMismatchedBranch(t *testing.T) {
 	gittest.Run(t, repo, "switch", "-q", "main")
 
 	var seen []pullrequest.Context
+	var paths []string
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Number: 5}, store{dir: t.TempDir(), seen: &seen})
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir(), Number: 5}, store(&seen, &paths))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -343,8 +358,10 @@ func TestPrepareStopsOnAMissingPullRequest(t *testing.T) {
 
 	repo, _ := prepareRepo(t)
 	var seen []pullrequest.Context
+	var paths []string
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{Number: 999}, store{dir: t.TempDir(), seen: &seen})
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir(), Number: 999}, store(&seen, &paths))
 	if err == nil {
 		t.Fatalf("Prepare = %+v, want a failure", got)
 	}
@@ -364,8 +381,10 @@ func TestPrepareRaisesTheLimits(t *testing.T) {
 
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
+	var paths []string
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", truncated),
-		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{}, store{dir: t.TempDir(), seen: &seen})
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}

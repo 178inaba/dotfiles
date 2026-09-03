@@ -102,31 +102,21 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			// The work dir and the change before the fetch, and the fetch
-			// before the write: a head that moved has to stop the run while
-			// there is still no document to disagree with it.
-			store := contextStore{outDir: outDir, repo: repo}
-			work, err := pullrequest.EnsureWorkFiles(store.Path(meta.Number))
+			// The working directory is the checkout the caller means, as the
+			// freshness check reads it.
+			doc, err := pullrequest.OpenDocument(c.Context(), runner.Exec{}, ".", outDir, repo, meta)
 			if err != nil {
 				return silent(err)
 			}
-			// The working directory, which is the checkout the caller means,
-			// as the freshness check reads it.
-			change, err := pullrequest.ReadChange(c.Context(), runner.Exec{}, ".", meta, work.DiffPath)
+			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, doc.Change)
 			if err != nil {
 				return silent(err)
 			}
-
-			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, change)
-			if err != nil {
-				return silent(err)
-			}
-			path, err := store.Write(fetched)
-			if err != nil {
+			if err := storeContext(doc.Path, fetched); err != nil {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), pullrequest.Stored{
-				Path: path, WorkDir: work.Dir, ThreadsPath: work.ThreadsPath,
+				Path: doc.Path, WorkDir: doc.Work.Dir, ThreadsPath: doc.Work.ThreadsPath,
 			}))
 		},
 	}
@@ -165,45 +155,26 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 	return pr, nil
 }
 
-// contextStore writes a fetched context into outDir.
-//
-// What the file is called is pullrequest's, since that is what takes the name
-// apart again to find the review's work directory; where the directory is, is
-// this layer's, which is why the two halves meet here.
-type contextStore struct {
-	outDir string
-	repo   ghapi.Repo
-}
-
-// Path implements pullrequest.Store. Answered before the document exists,
-// because the document carries the path of the diff file beside it.
-func (s contextStore) Path(number int) string {
-	return filepath.Join(s.outDir, pullrequest.ContextFileName(s.repo, number))
-}
-
-// Write implements pullrequest.Store.
+// storeContext writes a fetched context to the path it is given.
 //
 // Through a temporary file in the same directory, so that a run interrupted
 // halfway leaves no partial document where a complete one is expected.
-func (s contextStore) Write(c pullrequest.Context) (string, error) {
-	tmp, err := os.CreateTemp(s.outDir, ".pr-context.*")
+func storeContext(path string, c pullrequest.Context) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".pr-context.*")
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer os.Remove(tmp.Name())
 
 	if err := renderJSON(tmp, c); err != nil {
 		tmp.Close()
-		return "", err
+		return err
 	}
 	if err := tmp.Close(); err != nil {
-		return "", err
+		return err
 	}
-	path := s.Path(c.PR.Number)
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return "", err
-	}
-	return path, nil
+	return os.Rename(tmp.Name(), path)
 }
 
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
@@ -240,11 +211,10 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 			}
 
 			options := pullrequest.Options{
-				Number: number, Issue: issue,
+				OutDir: scratch, Number: number, Issue: issue,
 				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
 			}
-			store := contextStore{outDir: scratch, repo: repo}
-			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, store)
+			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext)
 			if err != nil {
 				return silent(err)
 			}
