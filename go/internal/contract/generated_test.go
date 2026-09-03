@@ -1,4 +1,4 @@
-package contract
+package contract_test
 
 import (
 	"flag"
@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/contract/gen"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
 	"github.com/178inaba/dotfiles/go/internal/worktree"
@@ -50,11 +51,11 @@ func TestGenerated(t *testing.T) {
 			t.Skip("std is the table this run replaced")
 		}
 		wired := gen.Docs{
-			Fields:   std.Fields,
-			Types:    std.Types,
-			Enums:    std.Enums,
-			EnumDocs: std.EnumDocs,
-			Packages: std.Packages,
+			Fields:   contract.StdTable.Fields,
+			Types:    contract.StdTable.Types,
+			Enums:    contract.StdTable.Enums,
+			EnumDocs: contract.StdTable.EnumDocs,
+			Packages: contract.StdTable.Packages,
 		}
 		if diff := cmp.Diff(wired, d); diff != "" {
 			t.Errorf("std does not carry the generated table:\n%s", diff)
@@ -63,13 +64,13 @@ func TestGenerated(t *testing.T) {
 
 	// The table is read from the sources rather than taken from the compiled
 	// docs_gen.go, so that a stale generated file cannot decide what these say.
-	fresh := Table{
+	fresh := contract.Table{
 		Fields:     d.Fields,
 		Types:      d.Types,
 		Enums:      d.Enums,
 		EnumDocs:   d.EnumDocs,
 		Packages:   d.Packages,
-		Marshalers: marshalers,
+		Marshalers: contract.StdMarshalers,
 	}
 
 	// Five real contracts. Three output ones, for what the walk has to get
@@ -85,13 +86,13 @@ func TestGenerated(t *testing.T) {
 	goldens := []struct {
 		name string
 		typ  reflect.Type
-		mode Mode
+		mode contract.Mode
 	}{
-		{"detection", reflect.TypeFor[worktree.Detection](), Output},
-		{"preparation", reflect.TypeFor[pullrequest.Preparation](), Output},
-		{"skipped", reflect.TypeFor[worktree.Skipped](), Output},
-		{"review_file", reflect.TypeFor[pullrequest.ReviewFile](), Input},
-		{"threads_file", reflect.TypeFor[pullrequest.ThreadsFile](), Input},
+		{"detection", reflect.TypeFor[worktree.Detection](), contract.Output},
+		{"preparation", reflect.TypeFor[pullrequest.Preparation](), contract.Output},
+		{"skipped", reflect.TypeFor[worktree.Skipped](), contract.Output},
+		{"review_file", reflect.TypeFor[pullrequest.ReviewFile](), contract.Input},
+		{"threads_file", reflect.TypeFor[pullrequest.ThreadsFile](), contract.Input},
 	}
 
 	for _, tc := range goldens {
