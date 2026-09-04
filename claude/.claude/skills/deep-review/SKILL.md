@@ -48,7 +48,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 - `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は @~/.claude/skills/worktree-resolution/SKILL.md の「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
 - `pr_exists: false` は縮退なので続行する。**PR があるのに取得系が失敗した場合はコマンドが非ゼロ exit で止まる**ので、そちらは stderr を提示して停止する（両者を混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
-- `context_path` の読み方はセクション2。差分とコミットも同じドキュメントから読む（セクション4）
+- `context_path` の読み方はセクション2。差分とコミットも同じコンテキストから読む（セクション4）
 - `work_dir`: **レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる
 - `review_path` / `threads_path`: セクション8・9で Write するとき**このパスをそのまま使う**（自分で命名しない）
 - `base_branch` は差分をローカルで取る2状態（セクション4）でのみ使い、`issues` はセクション3で使う
@@ -76,9 +76,11 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 ### 3. Issue 情報の読了（`issues`。空ならスキップ）
 
-各要素について `ccx issue tree <N> [-R <owner>/<repo>]` を実行し、`kind` と `sub_issues[]` を得る（どちらもコンテキストには無い）。Issue 本文は要素の `body` に、Sub なら親の本文は `parent.body` にあるので、要件・仕様はここから読み、Issue 本文を自分で取得しない。`body` が null の要素は本文を読めなかったもので、その Issue については要件充足の確認（セクション5「Issue 情報が取得されている」項）を行わずにレビューを進め、**読めなかった旨をセクション7の総合評価に1行添える**（3択の評価語は変えない。レビューが何を確認できなかったかは評価の前提になるため）。理由はセクション1で報告する `warnings[]` にある。
+`body` が null の要素は Issue そのものを読めなかったもので、その Issue については要件充足の確認（セクション5「Issue 情報が取得されている」項）を行わずにレビューを進め、**読めなかった旨をセクション7の総合評価に1行添える**（3択の評価語は変えない。レビューが何を確認できなかったかは評価の前提になるため）。理由はセクション1で報告する `warnings[]` にある。読めない Issue は `ccx issue tree` も失敗するので、以下は `body` が読めた要素にだけ適用する。
 
-`parent` があっても**親のコメントはコンテキストが持たないので `gh issue view <parent.number> --comments [-R <owner>/<repo>]` で取得する**。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。
+各要素について `ccx issue tree <N> [-R <owner>/<repo>]` を実行し、`kind` と `sub_issues[]` を得る（どちらもコンテキストには無い）。Issue 本文は要素の `body` に、Sub なら親の本文は `parent.body` にあるので、要件・仕様はここから読み、Issue 本文を自分で取得しない。
+
+`parent` があっても**親のコメントはコンテキストが持たないので `gh issue view <parent.number> --comments [-R <owner>/<repo>]` で取得する**。`parent` が null でも `warnings[]` がその Issue の親を名指していれば「親なし」ではなく親を読めなかったということなので、横断ルールの確認は行わず、上と同じく総合評価に1行添える。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。
 
 `issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。
 
@@ -95,7 +97,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 1. **PR 本文**: `pr.body`
 2. **コミットメッセージ**: `commits[]` を古い順に、メッセージ本文まで読む
-3. **差分**: `diff.path` のファイルを最後まで読む（1回の Read に収まらなければ `offset` で継続する）。`diff.files[]` は読了後に全ファイルを見たかの照合に使い、読む前にどれを飛ばすかの判断には使わない。`diff.path` が存在しない・空ならコンテキストが不整合なので**停止**し、`ccx pr prepare-review` からのやり直しを促す
+3. **差分**: `diff.files[]` で変更ファイルの全体像を掴んでから、`diff.path` のファイルを最後まで読む（1回の Read に収まらなければ `offset` で継続する）。`diff.files[]` は読了後に全ファイルを見たかの照合にも使うが、読む前にどれを飛ばすかの判断には使わない。`diff.path` が存在しない・空ならコンテキストが不整合なので**停止**し、`ccx pr prepare-review` からのやり直しを促す
 
 **重要原則**（出所に依らず適用する）:
 - 全差分確認: 必ず全ての変更内容を確認してから評価する
