@@ -48,7 +48,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 - `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は @~/.claude/skills/worktree-resolution/SKILL.md の「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
 - `pr_exists: false` は縮退なので続行する。**PR があるのに取得系が失敗した場合はコマンドが非ゼロ exit で止まる**ので、そちらは stderr を提示して停止する（両者を混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
-- `context_path` の読み方はセクション2。差分・コミット・Issue 本文も同じドキュメントから読む（セクション3・4）
+- `context_path` の読み方はセクション2。差分とコミットも同じドキュメントから読む（セクション4）
 - `work_dir`: **レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる
 - `review_path` / `threads_path`: セクション8・9で Write するとき**このパスをそのまま使う**（自分で命名しない）
 - `base_branch` は差分をローカルで取る2状態（セクション4）でのみ使い、`issues` はセクション3で使う
@@ -76,32 +76,31 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 ### 3. Issue 情報の読了（`issues`。空ならスキップ）
 
-`issues` の各要素は Issue 本文を `body` に、Sub なら親の本文を `parent.body` に持つ。要件・仕様はここから読み、Issue 本文を自分で取得しない。`body` が null の要素は本文を読めなかったもので、その Issue については要件充足の確認（セクション5「Issue 情報が取得されている」項）を行わずにレビューを進め、**読めなかった旨をセクション7の総合評価に1行で添える**（レビューが何を確認できなかったかは総合評価の前提になるため）。理由はセクション1で報告する `warnings[]` の同じ `owner/repo#N` の行にある。
+各要素について `ccx issue tree <N> [-R <owner>/<repo>]` を実行し、`kind` と `sub_issues[]` を得る（どちらもコンテキストには無い）。Issue 本文は要素の `body` に、Sub なら親の本文は `parent.body` にあるので、要件・仕様はここから読み、Issue 本文を自分で取得しない。`body` が null の要素は本文を読めなかったもので、その Issue については要件充足の確認（セクション5「Issue 情報が取得されている」項）を行わずにレビューを進め、**読めなかった旨をセクション7の総合評価に1行添える**（3択の評価語は変えない。レビューが何を確認できなかったかは評価の前提になるため）。理由はセクション1で報告する `warnings[]` にある。
 
-`parent` があれば親の本文もそこにあるが、**親のコメントはコンテキストが持たないので `gh issue view <parent.number> --comments [-R <owner>/<repo>]` で取得する**。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。
+`parent` があっても**親のコメントはコンテキストが持たないので `gh issue view <parent.number> --comments [-R <owner>/<repo>]` で取得する**。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。
 
-`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。**`kind` と `sub_issues[]` はコンテキストに無いため `ccx issue tree <N> [-R <owner>/<repo>]` で取る**。
+`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。
 
 ### 4. 意図と差分の読了
 
-意図（セクション3の Issue 本文）を読んでから変更を読む。変更を先に見ると、意図の読みが変更の追認になるため。
+意図（Issue 本文 → PR 本文 → コミットメッセージ）を読んでから変更を読む。変更を先に見ると、意図の読みが変更の追認になるため。
 
-1. **PR 本文**: `pr.body`（PR があれば常にコンテキストから読む）
-2. **コミットメッセージ**: `commits[]` を古い順に、メッセージ本文まで読む
-3. **差分**: `diff.path` のファイルを最後まで読む（1回の Read に収まらなければ `offset` で継続する）。変更ファイル一覧は `diff.files[]`
-
-**ローカルで差分を取る2状態**: 先に `pr_exists` を見て、PR があるときだけ `freshness.status` で分岐する（`pr_exists: false` では `freshness` も `context_path` も null）。`ccx pr prepare-review` の top-level `status` は続行できる3状態を `ok` にまとめるため、**`ahead_own` を見分けるには `freshness.status` を読む**（status の語彙は `ccx pr freshness --help`）:
+**差分の出所**: 先に `pr_exists` を見て、PR があるときだけ `freshness.status` で分岐する（PR が無ければコンテキストも鮮度判定も無い）。`ccx pr prepare-review` の top-level `status` は続行できる3状態を `ok` にまとめるため、**`ahead_own` を見分けるには `freshness.status` を読む**（status の語彙は `ccx pr freshness --help`）。以下の2状態ではコミットと差分をローカルで取り、それ以外はコンテキストから読む（`--local-only` はこの2状態に含まれない — 投稿を抑止するだけで、コンテキストは通常どおり書かれ読まれる）:
 
 - `pr_exists: false`: コンテキスト自体が無いため `git log <base_branch>..HEAD` と `git diff <base_branch>...HEAD` を使う
-- `freshness.status: ahead_own`: コンテキストの差分は `pr.head_oid` までで作者の未 push コミットが落ちるため、同じく `git log <base_branch>..HEAD` と `git diff <base_branch>...HEAD` を使う（`pr.body` はコンテキストから読む）。この場合はレビュー結果に、PR の head より先のローカルコミットまでを対象にした旨を書く
-- `--local-only` はこの2状態に含まれない（投稿を抑止するだけで、コンテキストは通常どおり書かれ読まれる）
+- `freshness.status: ahead_own`: コンテキストの差分は `pr.head_oid` 止まりなので、同じく `git log <base_branch>..HEAD` と `git diff <base_branch>...HEAD` を使う（`pr.body` はコンテキストから読む）。この場合はレビュー結果に、PR の head より先のローカルコミットまでを対象にした旨を書く
 
-**重要原則**:
-- 全差分確認: `diff.path` を最後まで読んでから評価する。`diff.files[]` の統計は読了後に全ファイルを見たかの確認に使い、読む前にどれを飛ばすかの判断には使わない
-- 段階的確認: ファイル一覧 → 個別差分 → 全体評価の順で進める
+コンテキストから読む場合は次の順に読む:
+
+1. **PR 本文**: `pr.body`
+2. **コミットメッセージ**: `commits[]` を古い順に、メッセージ本文まで読む
+3. **差分**: `diff.path` のファイルを最後まで読む（1回の Read に収まらなければ `offset` で継続する）。`diff.files[]` は読了後に全ファイルを見たかの照合に使い、読む前にどれを飛ばすかの判断には使わない。`diff.path` が存在しない・空ならコンテキストが不整合なので**停止**し、`ccx pr prepare-review` からのやり直しを促す
+
+**重要原則**（出所に依らず適用する）:
+- 全差分確認: 必ず全ての変更内容を確認してから評価する
 - 部分的判断禁止: 一部の差分や最初の部分だけを見て結論を出さない
-- 見落とし防止: 特に新規追加ファイル（`diff.files[].status: added`）や定数・インターフェース変更は必ず確認する
-- `diff.path` が存在しない・空ならコンテキストが不整合なので**停止**し、`ccx pr prepare-review` からのやり直しを促す
+- 見落とし防止: 特に新規追加ファイル（コンテキストなら `diff.files[].status: added`）や定数・インターフェース変更は必ず確認する
 
 ### 5. レビュー実行
 
@@ -163,7 +162,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 **仕様・説明との整合**:
 - [ ] **PR が存在する** → PR 説明と実際の変更内容が整合しているか確認する
-- [ ] **Issue 情報が取得されている**（`issues` に `body` が null でない要素がある） → Issue の要件・受け入れ条件を箇条書きに展開し、各項目を「充足（対応する差分箇所を特定）／未実装／逸脱」のいずれかに分類する（結果はセクション7「Issue要件の充足状況」に反映する）
+- [ ] **Issue 情報が取得されている**（`issues` の `body` が null でない各要素について） → Issue の要件・受け入れ条件を箇条書きに展開し、各項目を「充足（対応する差分箇所を特定）／未実装／逸脱」のいずれかに分類する（結果はセクション7「Issue要件の充足状況」に反映する）
 - [ ] **親 Issue が取得されている**（セクション3で `parent` あり） → 親の横断ルールを箇条書きに展開し、差分がそれに反していないか確認する（違反は通常の指摘として出す。親の受け入れ条件は充足表に載せない — セクション3の役割分担）
 
 #### 既存レビュー考慮
