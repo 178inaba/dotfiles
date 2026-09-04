@@ -38,14 +38,20 @@ type validUntagged struct {
 }
 
 // validValues carries the value constraints on both kinds of field a document
-// puts a string in. A pointer and a plain string are the same string on the
-// wire, and a check bound to the pointer would pass every case below that is
-// written against File and refuse none of the ones written against Name.
+// puts a string in, and the one it puts a number in. A pointer and a plain
+// string are the same string on the wire, and a check bound to the pointer
+// would pass every case below that is written against File and refuse none of
+// the ones written against Name.
+//
+// Number is optional so that the cases about strings need not carry one: a
+// rule about a value says nothing about presence, which is the very thing the
+// first cases below assert.
 type validValues struct {
-	File  *string     `json:"file" contract:"nonempty,barefilename"`
-	Name  string      `json:"name" contract:"required,nonempty"`
-	Plain *string     `json:"plain"`
-	Items []validItem `json:"items"`
+	File   *string     `json:"file" contract:"nonempty,barefilename"`
+	Name   string      `json:"name" contract:"required,nonempty"`
+	Number int         `json:"number" contract:"positive"`
+	Plain  *string     `json:"plain"`
+	Items  []validItem `json:"items"`
 }
 
 type validItem struct {
@@ -197,6 +203,30 @@ func TestValidateChecksWhatAKeyHolds(t *testing.T) {
 			name: "inside a list, by index",
 			in:   `{"name":"n","items":[{"file":"b.md"},{"file":""}]}`,
 			want: "items[1] sets file to an empty string in doc.json",
+		},
+		{
+			name: "a positive number",
+			in:   `{"name":"n","number":1}`,
+		},
+		{
+			name: "zero where a positive number is refused",
+			in:   `{"name":"n","number":0}`,
+			want: "doc.json sets number to a number that is not positive",
+		},
+		{
+			name: "a negative number where a positive one is refused",
+			in:   `{"name":"n","number":-1}`,
+			want: "doc.json sets number to a number that is not positive",
+		},
+		{
+			// The zero the missing key decodes into is not a value the
+			// document supplied, so the rule about values does not see it.
+			name: "a constrained number left out",
+			in:   `{"name":"n"}`,
+		},
+		{
+			name: "a constrained number written as null",
+			in:   `{"name":"n","number":null}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

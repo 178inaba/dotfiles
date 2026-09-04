@@ -292,10 +292,19 @@ func groupType(f reflect.StructField) reflect.Type {
 type valueConstraint struct {
 	// value is the word a contract tag declares the rule with.
 	value string
-	// kind is what the rule constrains. A rule about a string is enforced by
+	// kinds is what the rule constrains. A rule about a string is enforced by
 	// nothing on a field that is not one, so declaring it there is refused for
 	// the reason a misspelt value is.
-	kind reflect.Kind
+	//
+	// A set rather than one kind, because JSON has one number and Go has five
+	// integers: what a rule about an integer's value can be said of is the
+	// width-independent thing the document holds, not the width the field
+	// happens to have.
+	kinds []reflect.Kind
+	// noun is how a refusal names that set, in the words the decoder's own
+	// messages use — the set is what it describes, so spelling out the Go
+	// kinds would answer a question the reader did not ask.
+	noun string
 	// text is how a rendered row states the rule, and refusal how a violation
 	// does, after "sets <key> ".
 	text    string
@@ -317,7 +326,7 @@ type valueConstraint struct {
 // reads the same way however the tag was written.
 var valueConstraints = []valueConstraint{
 	{
-		value: "barefilename", kind: reflect.String,
+		value: "barefilename", kinds: stringKinds, noun: "a string",
 		text: "a bare file name", refusal: "to a path, not a bare file name",
 		refuses: func(v any) bool {
 			s, ok := v.(string)
@@ -325,14 +334,35 @@ var valueConstraints = []valueConstraint{
 		},
 	},
 	{
-		value: "nonempty", kind: reflect.String,
+		value: "nonempty", kinds: stringKinds, noun: "a string",
 		text: "not empty", refusal: "to an empty string",
 		refuses: func(v any) bool {
 			s, ok := v.(string)
 			return ok && s == ""
 		},
 	},
+	{
+		value: "positive", kinds: integerKinds, noun: "an integer",
+		text: "positive", refusal: "to a number that is not positive",
+		refuses: func(v any) bool {
+			// A float64 because that is what a JSON number decodes into
+			// through an any, whatever the width of the field behind it.
+			n, ok := v.(float64)
+			return ok && n <= 0
+		},
+	},
 }
+
+// integerKinds and stringKinds are the Go kinds behind one JSON kind, which is
+// the granularity a rule about a value binds at.
+//
+// integerKinds is read by kindOf and jsonWord too, so what the renderer calls
+// an integer, what a decode failure asks for, and what a rule about an
+// integer's value may be declared on are one list rather than three.
+var (
+	integerKinds = []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}
+	stringKinds  = []reflect.Kind{reflect.String}
+)
 
 // knownValues is every constraint this renderer can state: the two about where
 // a key is, and the vocabulary above about what it holds.
@@ -380,9 +410,9 @@ func contractValues(t reflect.Type, f reflect.StructField, named bool) ([]string
 	// of another kind is read by nobody — the same silent no-op again.
 	kind := deref(f.Type).Kind()
 	for _, c := range valueConstraints {
-		if slices.Contains(values, c.value) && kind != c.kind {
-			return nil, fmt.Errorf("contract: %s.%s declares %s, which constrains a %s, on a field of kind %s",
-				t, f.Name, c.value, c.kind, kind)
+		if slices.Contains(values, c.value) && !slices.Contains(c.kinds, kind) {
+			return nil, fmt.Errorf("contract: %s.%s declares %s, which constrains %s, on a field of kind %s",
+				t, f.Name, c.value, c.noun, kind)
 		}
 	}
 	return values, nil
@@ -489,6 +519,10 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 		return "", err
 	}
 
+	if slices.Contains(integerKinds, t.Kind()) {
+		return "integer", nil
+	}
+
 	switch t.Kind() {
 	case reflect.Pointer:
 		return tb.kindOf(t.Elem())
@@ -502,8 +536,6 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 		return "object", nil
 	case reflect.Bool:
 		return "boolean", nil
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return "integer", nil
 	case reflect.String:
 		if values := tb.Enums[typeKey(t)]; len(values) > 0 {
 			if tb.documented(t) {

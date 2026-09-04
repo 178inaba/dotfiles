@@ -203,9 +203,10 @@ func TestRenderPartlyDocumentedEnum(t *testing.T) {
 // sampleValues declares its value constraints in the opposite order to the one
 // a row states them in, which is the point: the tag is a set.
 type sampleValues struct {
-	File  *string `json:"file" contract:"nonempty,barefilename"`
-	Name  string  `json:"name" contract:"required,nonempty"`
-	Plain *string `json:"plain"`
+	File   *string `json:"file" contract:"nonempty,barefilename"`
+	Name   string  `json:"name" contract:"required,nonempty"`
+	Number int     `json:"number" contract:"required,positive"`
+	Plain  *string `json:"plain"`
 }
 
 // TestRenderStatesValueConstraints pins how a constraint on what a field holds
@@ -217,6 +218,7 @@ func TestRenderStatesValueConstraints(t *testing.T) {
 	}
 	want := `  file      string (optional, a bare file name, not empty)
   name      string (required, not empty)
+  number    integer (required, positive)
   plain     string (optional)
 `
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -244,6 +246,10 @@ type sampleValueOnAnInteger struct {
 	Count *int `json:"count" contract:"nonempty"`
 }
 
+type samplePositiveOnAString struct {
+	Name string `json:"name" contract:"positive"`
+}
+
 // TestRenderRefusesAMisplacedContractValue is the other half of the guard: a
 // value written where nothing reads it is dropped on the floor exactly as a
 // misspelt one would be.
@@ -261,6 +267,9 @@ func TestRenderRefusesAMisplacedContractValue(t *testing.T) {
 		// nothing to bind to is a field of another kind. The message names the
 		// kind as well, since the value alone does not say what is wrong.
 		{"a value constraint off its kind", reflect.TypeFor[sampleValueOnAnInteger](), []string{"nonempty", "string"}},
+		// The same refusal from the other side, with the noun the decoder's
+		// own messages use for the kinds a rule about numbers binds.
+		{"a rule about numbers on a string", reflect.TypeFor[samplePositiveOnAString](), []string{"positive", "an integer"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Table{Fields: map[string]string{}}.Render(tc.typ, Input)
