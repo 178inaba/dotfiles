@@ -153,10 +153,10 @@ type ReplyBody struct {
 	// run avoids saying the same thing twice, and how a resolve is retried
 	// where the reply already landed.
 	Body *string `json:"body"`
-	// The name of a markdown file in the work dir holding the reply. A bare
-	// file name: a path would let an entry reach round the directory binding
-	// that keeps parallel runs on different pull requests apart.
-	BodyFile *string `json:"body_file"`
+	// The name of a markdown file in the work dir holding the reply. A path
+	// would let an entry reach round the directory binding that keeps
+	// parallel runs on different pull requests apart.
+	BodyFile *string `json:"body_file" contract:"nonempty,barefilename"`
 }
 
 // ParseThreadActions reads the threads file, resolving the bodies it names

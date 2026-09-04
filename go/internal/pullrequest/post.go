@@ -83,10 +83,10 @@ type ReviewFile struct {
 type ReviewBody struct {
 	// The review body, written inline.
 	Body *string `json:"body"`
-	// The name of a markdown file in the work dir holding the body. A bare
-	// file name: a path would let a review reach round the directory binding
-	// that keeps parallel runs on different pull requests apart.
-	BodyFile *string `json:"body_file"`
+	// The name of a markdown file in the work dir holding the body. A path
+	// would let a review reach round the directory binding that keeps
+	// parallel runs on different pull requests apart.
+	BodyFile *string `json:"body_file" contract:"nonempty,barefilename"`
 }
 
 // ReviewFileComment is one remark anchored to a line of the diff.
@@ -101,7 +101,7 @@ type ReviewFileComment struct {
 type CommentBody struct {
 	// The remark, inline or named, exactly as the review body is.
 	Body     *string `json:"body"`
-	BodyFile *string `json:"body_file"`
+	BodyFile *string `json:"body_file" contract:"nonempty,barefilename"`
 }
 
 // ParseSubmission reads a review file and resolves the bodies it names.

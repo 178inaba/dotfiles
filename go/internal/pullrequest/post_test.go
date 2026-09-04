@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
 	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
@@ -53,9 +54,9 @@ func TestParseSubmission(t *testing.T) {
 		{name: "no assessment", in: `{"body":"x","comments":[]}`, wantErr: "review.json is missing assessment"},
 		{name: "both forms of body", in: `{"assessment":"要議論","body":"x","body_file":"body.md","comments":[]}`, wantErr: "review.json sets both body and body_file"},
 		{name: "neither form of body", in: `{"assessment":"要議論","comments":[]}`, wantErr: "review.json sets neither body nor body_file"},
-		{name: "an empty body_file", in: `{"assessment":"要議論","body_file":"","comments":[]}`, wantErr: "exactly one of body"},
+		{name: "an empty body_file", in: `{"assessment":"要議論","body_file":"","comments":[]}`, wantErr: "review.json sets body_file to an empty string"},
 		// Allowing a path would reach round the directory binding.
-		{name: "a body_file with a path", in: `{"assessment":"要議論","body_file":"sub/x.md","comments":[]}`, wantErr: "bare filename"},
+		{name: "a body_file with a path", in: `{"assessment":"要議論","body_file":"sub/x.md","comments":[]}`, wantErr: "review.json sets body_file to a path, not a bare file name"},
 		{name: "a body_file that is not there", in: `{"assessment":"要議論","body_file":"nope.md","comments":[]}`, wantErr: "not found in the work dir"},
 		{name: "comments missing", in: `{"assessment":"要議論","body":"x"}`, wantErr: "review.json is missing comments"},
 		// A null key is the writer saying "not this one", and a file that
@@ -66,9 +67,11 @@ func TestParseSubmission(t *testing.T) {
 		{name: "a comment with both forms of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body":"y","body_file":"body.md"}]}`, wantErr: "comments[0] sets both body and body_file in review.json"},
 		{name: "a comment with neither form of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3}]}`, wantErr: "comments[0] sets neither body nor body_file in review.json"},
 		// The group is satisfied — one key was supplied — so what is left is
-		// the empty string, which 178inaba/dotfiles#160 turns into a
-		// declaration of its own.
-		{name: "a comment with an empty body_file", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body_file":""}]}`, wantErr: "exactly one of body"},
+		// the value itself, which the field declares the rules for. This is
+		// the one of the three body_file fields with no doc comment, and the
+		// declaration reaches it the same way it reaches the other two.
+		{name: "a comment with an empty body_file", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body_file":""}]}`, wantErr: "comments[0] sets body_file to an empty string in review.json"},
+		{name: "a comment with a body_file with a path", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body_file":"sub/x.md"}]}`, wantErr: "comments[0] sets body_file to a path, not a bare file name in review.json"},
 		{name: "a comment whose line is not a number", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":"3","body":"y"}]}`, wantErr: "comments[0].line must be a number in review.json"},
 		{name: "not json at all", in: `not json`, wantErr: "invalid JSON in review.json"},
 		// A root that is the wrong kind is a decode failure like the one above,
@@ -131,6 +134,65 @@ func TestParseSubmission(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("ParseSubmission (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestContractRefusesBodyFileValues is the declaration on its own, with no
+// parser around it: what refuses an empty or path-shaped body_file is the tag
+// on the field, reached through the entry point every contract document
+// crosses. Removing either tag makes the document below acceptable again.
+//
+// Not through ParseSubmission and ParseThreadActions, which go on to
+// resolveBody and would refuse both for a reason of its own — joining an empty
+// name to the work dir names the work dir, and reading a directory errors.
+//
+// All three body_file fields are covered, since each of the three group types
+// carries a declaration of its own.
+func TestContractRefusesBodyFileValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		in       string
+		into     any
+		document string
+		wantErr  string
+	}{
+		{
+			name:     "the review's own body",
+			in:       `{"assessment":"要議論","body_file":"","comments":[]}`,
+			into:     &pullrequest.ReviewFile{},
+			document: "review.json",
+			wantErr:  "review.json sets body_file to an empty string",
+		},
+		{
+			name:     "a comment's body",
+			in:       `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body_file":"sub/x.md"}]}`,
+			into:     &pullrequest.ReviewFile{},
+			document: "review.json",
+			wantErr:  "comments[0] sets body_file to a path, not a bare file name in review.json",
+		},
+		{
+			name:     "a thread's reply",
+			in:       `{"threads":[{"path":"a","resolve":true,"body_file":""}]}`,
+			into:     &pullrequest.ThreadsFile{},
+			document: "threads.json",
+			wantErr:  "threads[0] sets body_file to an empty string in threads.json",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := contract.Unmarshal([]byte(tc.in), tc.into, tc.document)
+			if err == nil {
+				t.Fatalf("Unmarshal accepted a document, want an error mentioning %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
 			}
 		})
 	}
