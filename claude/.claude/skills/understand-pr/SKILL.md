@@ -54,7 +54,7 @@ ccx pr context <scratchpadディレクトリ> [<pr-number>]
 2. `pr.body`
 3. `commits[]` の `message`（古い順。headline だけでなく本文まで — 何のための変更かはそこに書かれる）
 
-`body` が null の要素は、対応する `warnings[]` の1行を添えて「読めなかった」と1行で報告し、残りの材料で目的を組み立てる。
+読めなかった Issue は `warnings[]` の各行がそのまま名指しするので、1行ずつ報告に載せ、残りの材料で目的を組み立てる。`warnings[]` を起点にするのは、Issue 自体が読めなかった場合（`body` が null）と、その親が読めなかった場合（`parent` が null）を1つの条件で覆うため — 後者は `body` を見ても分からず、`parent` が null なだけでは親を持たない Issue と区別できない。
 
 ### 3. 変更内容の把握
 
@@ -112,13 +112,13 @@ gh pr checks <PR番号> -R <owner>/<repo>
 
 レビュー系スキルが共有する鮮度確認サブ手順はここでは使わない（behind のみの checkout を自動で fast-forward してしまい、対象の checkout を変えないという本スキルの契約を破るため）。`--worktree` モードでは worktree 解決が同期を済ませているため、通常は「一致」と出る。
 
-**`<pr-number>` のみの場合**（＝どの checkout も対象 PR のものではない）: 上記は行わず、「現在の状態」に次の1行を書く。
+**`<pr-number>` のみの場合**（＝対象 PR の checkout かどうかを判定しない）: 上記は行わず、「現在の状態」に次の1行を書く。
 
 ```
 - ローカル checkout: 未確認（PR 番号指定で実行したため）
 ```
 
-あわせて、`pr.head_ref` を checkout している既存の worktree があればそのパスを1行添える（読者の次の一手は多くの場合そこへ移ることのため）。探し方は @~/.claude/skills/worktree-resolution/SKILL.md の共通規約「既存 worktree の検索」に従う（メイン worktree は除外する — そこは読者がいま居る場所で、案内にならない）。無ければ何も書かない。
+あわせて、`pr.head_ref` を checkout している worktree があればそのパスを1行添える（読者の次の一手は多くの場合そこへ移ることのため）。突き合わせ方は @~/.claude/skills/worktree-resolution/SKILL.md の共通規約「既存 worktree の検索」と同じ（`branch refs/heads/<pr.head_ref>` を checkout 中のもの）だが、**除外するのは自分がいま居る worktree だけ**でメインリポジトリは案内に含める。同規約が linked worktree に絞るのは worktree を作る側の都合（メインは退避で扱う）で、案内には当てはまらない — 別の worktree で作業中にメインが対象 branch を持っている構図は普通にあり、そこを落とすと行き先が1つも出ない。該当が無ければ何も書かない。
 
 ### 8. 報告
 
