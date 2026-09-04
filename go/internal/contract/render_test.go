@@ -200,6 +200,49 @@ func TestRenderPartlyDocumentedEnum(t *testing.T) {
 	}
 }
 
+// sampleValues declares its value constraints in the opposite order to the one
+// a row states them in, which is the point: the tag is a set.
+type sampleValues struct {
+	File  *string `json:"file" contract:"nonempty,barefilename"`
+	Name  string  `json:"name" contract:"required,nonempty"`
+	Plain *string `json:"plain"`
+}
+
+// TestRenderStatesValueConstraints pins how a constraint on what a field holds
+// joins the one on whether it is there: in the same brackets, after it.
+func TestRenderStatesValueConstraints(t *testing.T) {
+	got, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleValues](), Input)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `  file      string (optional, a bare file name, not empty)
+  name      string (required, not empty)
+  plain     string (optional)
+`
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Render (-want +got):\n%s", diff)
+	}
+}
+
+type sampleValueOnAnInteger struct {
+	Count *int `json:"count" contract:"nonempty"`
+}
+
+// TestRenderRefusesAValueConstraintOffItsKind is the misplacement guard one
+// step in: a constraint names the kind it holds a value to, and one written on
+// a field of another kind is enforced by nothing.
+func TestRenderRefusesAValueConstraintOffItsKind(t *testing.T) {
+	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleValueOnAnInteger](), Input)
+	if err == nil {
+		t.Fatal("Render succeeded on a value constraint written off its kind")
+	}
+	for _, want := range []string{"nonempty", "string"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q", err, want)
+		}
+	}
+}
+
 type sampleMisplacedExclusive struct {
 	Thing string `json:"thing" contract:"exclusive"`
 }
