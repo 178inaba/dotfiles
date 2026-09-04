@@ -16,7 +16,7 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 
 - **worktree 名の計算**: branch 名から `/` を `-` に置換する
   - 例: `feature/99-add-oauth` → `feature-99-add-oauth`
-  - `-` に揃えるのは、ディレクトリ階層を作らずスキル間で検索パターンを共有するため。参考: `EnterWorktree(name:)` に `/` を含む値を渡すと Claude Code 実装により `+` に置換され、この検索パターンから外れる（2026-07-06 実測、公式未文書挙動）。現在は作成をスクリプトに一本化しているため、この quirk に触れる経路は無い
+  - `-` に揃えるのは、ディレクトリ階層を作らずスキル間で検索パターンを共有するため
 - **既存 worktree の検索**: `git worktree list --porcelain` を解析し、`branch refs/heads/<branch>` を checkout 中の linked worktree を探す（メイン worktree は除外 — メインが対象 branch を checkout 中のケースは退避で扱う）。PR worktree 解決では resolve スクリプトが実行する
 - **作成はスクリプト、切替は EnterWorktree**: worktree の新規作成に `EnterWorktree(name:)` は使わない。切替（`path:`）だけを EnterWorktree に任せる
   - **作成が常にスクリプト経由なのは、`name:` が起点 ref を選べないため**。PR worktree は PR head branch、issue-handle はベースブランチが起点で、いずれも `name:` では表現できない（base を渡すパラメータが無く、旧回避策のメインツリー HEAD 移動は Claude Code 2.1.222 の隔離強化で復元不能になった）。起点を合わせるための temp branch 経由の作成→移動は、ハーネスが作った branch を削除することになりオーナーシップが乖離する。加えて**サブエージェント内では `name:` 自体が一律拒否される**（"EnterWorktree cannot create a worktree from a subagent with a cwd override" エラー。明示的な `isolation`・`cwd` 指定がないサブエージェントでも発生する — 2026-07-07 実測。公式仕様上サブエージェントは `path` 形式のみ・対象は `.claude/worktrees/` 配下限定）。実装は PR worktree が `ccx worktree checkout`、issue-handle が `ccx worktree create`
