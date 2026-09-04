@@ -224,14 +224,9 @@ https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシ
 スレッドへの返信にはマーカー不要。
 
 ### 品質確認
-修正後は必ずプロジェクト標準の品質チェックを実行：
-- Node.js: `npm run lint`, `npm run typecheck`
-- Go: `go vet`, `golangci-lint run`
-- Python: `ruff check`, `mypy`
+修正後はプロジェクトのテスト・Lint コマンドを実行する（プロジェクト CLAUDE.md 依拠。明示がなければ推測実行せずスキップする — /deep-review「自動対応モードON時: レビュー指摘の反映」と同じ規則）。数分以上かかる見込みなら `run_in_background: true` で実行する。
 
 ## 注意事項
 - **レビュー本文・通常コメントを見落とさない**: 行コメント（`review_threads[]`）だけを対象にすると、本文に書かれた優先度付きリスト・総評や、通常コメント上の議論経緯・追加依頼を取りこぼす。取得の網羅は `ccx pr context` が保証するが、対応判断でも必ず `reviews[]` と `comments[]` を読み、3種類を突き合わせること
 - **鮮度ガード**: 開始時に「共通サブ手順: PR head との鮮度確認」を実行する（同期・停止条件の正はサブ手順側を参照）。`--dry-run` でも同期は実行される。返信直前にも `ccx pr reply-threads` 自身が確認する（「スレッドへの返信と解決」）
-- **GraphQLレート制限**: 1時間あたり5000ポイント
-- **既存PRの自動更新**: プッシュでPRは自動更新される
 - **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
