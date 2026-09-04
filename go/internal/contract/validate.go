@@ -163,7 +163,7 @@ func none(members []string) string {
 func (tb Table) walkValue(inner reflect.Type, value any, path, document string) error {
 	if list, ok := value.([]any); ok {
 		for i, e := range list {
-			if err := tb.walkValue(inner, e, path+"["+strconv.Itoa(i)+"]", document); err != nil {
+			if err := tb.walkValue(inner, e, index(path, strconv.Itoa(i)), document); err != nil {
 				return err
 			}
 		}
@@ -209,6 +209,11 @@ func violation(path, document, what string) error {
 	}
 	return fmt.Errorf("%s %s in %s", path, what, document)
 }
+
+// join and index spell the two steps a path can take. Shared with the walk
+// that reads a decoder's pointer, so that a missing key and a mistyped one
+// name the same place in the same notation.
+func index(path, i string) string { return path + "[" + i + "]" }
 
 func join(path, name string) string {
 	if path == "" {

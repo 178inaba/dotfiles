@@ -19,6 +19,8 @@ import (
 // The split is three ways rather than two. A root mismatch is a SemanticError
 // too, with an empty pointer, so branching on the error type alone would send
 // it down the field-naming path and produce a message with no field in it.
+// Which of the two a decode failure is, violation decides from the same empty
+// path a missing key at the top level arrives with.
 func (tb Table) decodeError(err error, t reflect.Type, document string) error {
 	var se *json.SemanticError
 	if !errors.As(err, &se) {
@@ -32,10 +34,7 @@ func (tb Table) decodeError(err error, t reflect.Type, document string) error {
 	if !ok {
 		return notJSON(document, err)
 	}
-	if path == "" {
-		return fmt.Errorf("%s must be %s", document, word)
-	}
-	return fmt.Errorf("%s must be %s in %s", path, word, document)
+	return violation(path, document, "must be "+word)
 }
 
 // notJSON is what is left to say where nothing narrower can be: the bytes were
@@ -53,16 +52,18 @@ func notJSON(document string, err error) error {
 //
 // Walking rather than reading the tokens off is what tells an index from a
 // key: a pointer says only that the step was "1", and which of the two it is
-// belongs to the type. The path is spelt with the same join and the same
-// brackets a violation uses, so both halves of a refusal name a place the same
+// belongs to the type. The path is spelt through the same join and index a
+// violation goes through, so both halves of a refusal name a place the same
 // way.
+//
+// The type comes back from the walk rather than from the decoder's own GoType,
+// which carries the same answer: what a message says a field should have been
+// is then what the declaration published, not what the decoder made of it.
 func (tb Table) resolvePointer(t reflect.Type, p jsontext.Pointer) (string, reflect.Type, bool) {
 	var path string
 	for tok := range p.Tokens() {
 		t = deref(t)
-		// A type that serialises itself puts something other than its fields
-		// on the wire, so the rest of the pointer is not about them.
-		if _, over := tb.Marshalers[t]; over || marshaler(t) != nil {
+		if tb.opaque(t) {
 			return "", nil, false
 		}
 
@@ -71,7 +72,7 @@ func (tb Table) resolvePointer(t reflect.Type, p jsontext.Pointer) (string, refl
 			if _, err := strconv.Atoi(tok); err != nil {
 				return "", nil, false
 			}
-			path += "[" + tok + "]"
+			path = index(path, tok)
 			t = t.Elem()
 		case reflect.Struct:
 			f, ok := jsonField(t, tok)
@@ -84,8 +85,22 @@ func (tb Table) resolvePointer(t reflect.Type, p jsontext.Pointer) (string, refl
 			return "", nil, false
 		}
 	}
-	return path, deref(t), true
+
+	// The last type is asked the same question as every one before it: a leaf
+	// that serialises itself would otherwise be described by its Go kind, and
+	// a struct that marshals as an array would be told to be an object.
+	t = deref(t)
+	if tb.opaque(t) {
+		return "", nil, false
+	}
+	return path, t, true
 }
+
+// opaque reports whether a type puts something other than its Go fields on the
+// wire, which is where the walk stops: a pointer into such a type is not about
+// the fields the declaration published, and the table's own word for its shape
+// is a whole phrase rather than something a "must be" can take.
+func (tb Table) opaque(t reflect.Type) bool { return tb.marshals(t) || marshaler(t) != nil }
 
 // jsonField is the field a key reaches, looking inside an embedded group the
 // way json inlines one: a group's members reach the wire as keys of the object

@@ -107,9 +107,8 @@ func TestParseSubmission(t *testing.T) {
 			},
 		},
 		{name: "an assessment that is not a string", in: `{"assessment":5,"body":"x","comments":[]}`, wantErr: "assessment must be a string in review.json"},
-		// A member of the exclusive group is inlined into the object its parent
-		// was read from, so the decoder points at it flatly and the message has
-		// to name it just as flatly.
+		// A member of the exclusive group, whose key sits in the same object
+		// its parent was read from.
 		{name: "a body that is not a string", in: `{"assessment":"要議論","body":3,"comments":[]}`, wantErr: "body must be a string in review.json"},
 	}
 

@@ -1,6 +1,9 @@
 package contract
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // decodeKinds carries one field of each kind a message has a word for, so that
 // the vocabulary is specified by documents rather than by a table read back to
@@ -13,6 +16,7 @@ type decodeKinds struct {
 	Nested *decodeNested   `json:"nested"`
 	Refs   []decodeNested  `json:"refs"`
 	Extra  map[string]bool `json:"extra"`
+	Self   *validSelf      `json:"self"`
 	decodeGroup
 }
 
@@ -20,10 +24,8 @@ type decodeNested struct {
 	Number *int `json:"number"`
 }
 
-// decodeGroup is the embedded form a mutually exclusive group takes, whose
-// members json inlines into the object its parent was read from — so the
-// decoder's pointer at one of them is flat, and the walk has to look inside a
-// field that has no key of its own.
+// decodeGroup is the embedded form a mutually exclusive group takes: its
+// member reaches the wire as a key of the object its parent was read from.
 type decodeGroup struct {
 	Body *string `json:"body"`
 }
@@ -31,14 +33,33 @@ type decodeGroup struct {
 func assertUnmarshal(t *testing.T, in, want string) {
 	t.Helper()
 
-	var got decodeKinds
-	err := Unmarshal([]byte(in), &got, "doc.json")
+	err := unmarshalKinds(in)
 	if err == nil {
 		t.Fatalf("Unmarshal(%s) accepted a document, want %q", in, want)
 	}
 	if err.Error() != want {
 		t.Errorf("Unmarshal(%s) = %q, want %q", in, err, want)
 	}
+}
+
+// assertNotJSON checks only the half of the fallback that is this package's:
+// the decoder's own sentence follows it, and pinning that would pin the
+// standard library's wording rather than ours.
+func assertNotJSON(t *testing.T, in string) {
+	t.Helper()
+
+	err := unmarshalKinds(in)
+	if err == nil {
+		t.Fatalf("Unmarshal(%s) accepted a document, want it refused", in)
+	}
+	if !strings.HasPrefix(err.Error(), "invalid JSON in doc.json (") || !strings.HasSuffix(err.Error(), ")") {
+		t.Errorf("Unmarshal(%s) = %q, want the document named and the decoder quoted after it", in, err)
+	}
+}
+
+func unmarshalKinds(in string) error {
+	var got decodeKinds
+	return Unmarshal([]byte(in), &got, "doc.json")
 }
 
 // TestUnmarshalNamesTheFieldTheDecoderRefused is the half of "error messages
@@ -76,6 +97,11 @@ func TestUnmarshalNamesTheFieldTheDecoderRefused(t *testing.T) {
 			want: "nested must be an object in doc.json",
 		},
 		{
+			name: "an object with free-form keys",
+			in:   `{"extra":"x"}`,
+			want: "extra must be an object in doc.json",
+		},
+		{
 			// The path is written the way a reader of the document reads it,
 			// not as the RFC 6901 pointer the decoder supplies.
 			name: "inside a list, by index",
@@ -109,11 +135,6 @@ func TestUnmarshalNamesTheDocumentWhereNoFieldIsWrong(t *testing.T) {
 			in:   `[]`,
 			want: "doc.json must be an object",
 		},
-		{
-			name: "not valid JSON at all",
-			in:   `not json`,
-			want: `invalid JSON in doc.json (jsontext: invalid character 'o' in literal null (expecting 'u') after offset 1)`,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assertUnmarshal(t, tc.in, tc.want)
@@ -122,10 +143,22 @@ func TestUnmarshalNamesTheDocumentWhereNoFieldIsWrong(t *testing.T) {
 }
 
 // TestUnmarshalSaysNothingItCannotBeSureOf is the validator's posture applied
-// to the translation: a pointer that does not resolve against the declaration
-// says only that the document did not decode, rather than naming a field it
-// worked out lexically.
+// to the translation: where the declaration does not answer what a pointer
+// means, the refusal says only that the bytes did not decode, rather than
+// naming a field it worked out lexically.
 func TestUnmarshalSaysNothingItCannotBeSureOf(t *testing.T) {
-	assertUnmarshal(t, `{"extra":{"a":"yes"}}`,
-		`invalid JSON in doc.json (json: cannot unmarshal JSON string into Go bool within "/extra/a")`)
+	for _, tc := range []struct {
+		name string
+		in   string
+	}{
+		{"not valid JSON at all", `not json`},
+		// validSelf's Go fields are not what it puts on the wire, so neither
+		// the key inside it nor its own kind is something to name.
+		{"inside a type that serialises itself", `{"self":{"need":5}}`},
+		{"a type that serialises itself", `{"self":"x"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertNotJSON(t, tc.in)
+		})
+	}
 }
