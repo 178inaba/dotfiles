@@ -97,9 +97,11 @@ func TestUnmarshalNamesTheFieldTheDecoderRefused(t *testing.T) {
 			want: "nested must be an object in doc.json",
 		},
 		{
-			name: "an object with free-form keys",
-			in:   `{"extra":"x"}`,
-			want: "extra must be an object in doc.json",
+			// The walk ends on an index rather than a key: the element itself
+			// is the wrong kind, not something inside it.
+			name: "a list element, by index",
+			in:   `{"refs":[5]}`,
+			want: "refs[0] must be an object in doc.json",
 		},
 		{
 			// The path is written the way a reader of the document reads it,
@@ -120,10 +122,10 @@ func TestUnmarshalNamesTheFieldTheDecoderRefused(t *testing.T) {
 	}
 }
 
-// TestUnmarshalNamesTheDocumentWhereNoFieldIsWrong covers the two branches that
-// have no field to name. A root mismatch is a SemanticError too, so branching
-// on the error type alone would send it down the field-naming path and produce
-// a message with no field in it.
+// TestUnmarshalNamesTheDocumentWhereNoFieldIsWrong is the branch that has no
+// field to name and is a SemanticError all the same, so branching on the error
+// type alone would send it down the field-naming path and produce a message
+// with no field in it.
 func TestUnmarshalNamesTheDocumentWhereNoFieldIsWrong(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -156,6 +158,10 @@ func TestUnmarshalSaysNothingItCannotBeSureOf(t *testing.T) {
 		// the key inside it nor its own kind is something to name.
 		{"inside a type that serialises itself", `{"self":{"need":5}}`},
 		{"a type that serialises itself", `{"self":"x"}`},
+		// A map is a kind the renderer refuses to describe, so no --help
+		// published a shape for extra and there is none to hold it to.
+		{"a kind no declaration can publish", `{"extra":"x"}`},
+		{"inside a kind no declaration can publish", `{"extra":{"a":"yes"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assertNotJSON(t, tc.in)

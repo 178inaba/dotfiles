@@ -130,6 +130,11 @@ func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
 // --help — integer, array of object, string, one of: — where this names the
 // kind the decoder wanted and JSON has no integer.
 //
+// The kinds are kindOf's all the same, and no wider. A kind the renderer
+// refuses to describe belongs to no published declaration, so a document could
+// not have been held to it: a word for one here would be a second, quieter
+// answer to what a Go type looks like on the wire.
+//
 // Its subject is the kind and not the value: a number too large for an int
 // arrives here as a number that could not be handled, and is told it must be
 // one. Value rules are a declaration of their own (178inaba/dotfiles#160,
@@ -138,15 +143,13 @@ func jsonWord(t reflect.Type) (string, bool) {
 	switch t.Kind() {
 	case reflect.Bool:
 		return "a boolean", true
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return "a number", true
 	case reflect.String:
 		return "a string", true
 	case reflect.Slice, reflect.Array:
 		return "an array", true
-	case reflect.Struct, reflect.Map:
+	case reflect.Struct:
 		return "an object", true
 	}
 	return "", false
