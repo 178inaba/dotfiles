@@ -301,8 +301,8 @@ type valueConstraint struct {
 	text    string
 	refusal string
 	// refuses reports whether the value a document supplied breaks the rule.
-	// It is asked only of a supplied key, so an absent or null one — which
-	// arrives as a nil any — says nothing about the rule either way.
+	// What it receives is what the decoder made of the document rather than
+	// the field's Go type, so a rule about numbers would be handed a float64.
 	refuses func(any) bool
 }
 
@@ -320,8 +320,8 @@ var valueConstraints = []valueConstraint{
 		value: "barefilename", kind: reflect.String,
 		text: "a bare file name", refusal: "to a path, not a bare file name",
 		refuses: func(v any) bool {
-			s, _ := v.(string)
-			return strings.ContainsRune(s, filepath.Separator)
+			s, ok := v.(string)
+			return ok && strings.ContainsRune(s, filepath.Separator)
 		},
 	},
 	{
@@ -378,8 +378,9 @@ func contractValues(t reflect.Type, f reflect.StructField, named bool) ([]string
 
 	// A rule about a value binds the kind it names, so one written on a field
 	// of another kind is read by nobody — the same silent no-op again.
+	kind := deref(f.Type).Kind()
 	for _, c := range valueConstraints {
-		if kind := deref(f.Type).Kind(); slices.Contains(values, c.value) && kind != c.kind {
+		if slices.Contains(values, c.value) && kind != c.kind {
 			return nil, fmt.Errorf("contract: %s.%s declares %s, which constrains a %s, on a field of kind %s",
 				t, f.Name, c.value, c.kind, kind)
 		}

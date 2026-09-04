@@ -224,25 +224,6 @@ func TestRenderStatesValueConstraints(t *testing.T) {
 	}
 }
 
-type sampleValueOnAnInteger struct {
-	Count *int `json:"count" contract:"nonempty"`
-}
-
-// TestRenderRefusesAValueConstraintOffItsKind is the misplacement guard one
-// step in: a constraint names the kind it holds a value to, and one written on
-// a field of another kind is enforced by nothing.
-func TestRenderRefusesAValueConstraintOffItsKind(t *testing.T) {
-	_, err := Table{Fields: map[string]string{}}.Render(reflect.TypeFor[sampleValueOnAnInteger](), Input)
-	if err == nil {
-		t.Fatal("Render succeeded on a value constraint written off its kind")
-	}
-	for _, want := range []string{"nonempty", "string"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not carry %q", err, want)
-		}
-	}
-}
-
 type sampleMisplacedExclusive struct {
 	Thing string `json:"thing" contract:"exclusive"`
 }
@@ -259,6 +240,10 @@ type sampleHiddenGroup struct {
 	sampleGroup `json:"-" contract:"exclusive,required"`
 }
 
+type sampleValueOnAnInteger struct {
+	Count *int `json:"count" contract:"nonempty"`
+}
+
 // TestRenderRefusesAMisplacedContractValue is the other half of the guard: a
 // value written where nothing reads it is dropped on the floor exactly as a
 // misspelt one would be.
@@ -266,20 +251,26 @@ func TestRenderRefusesAMisplacedContractValue(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		typ  reflect.Type
-		want string
+		want []string
 	}{
-		{"exclusive on a named field", reflect.TypeFor[sampleMisplacedExclusive](), "exclusive"},
-		{"required on a plain group", reflect.TypeFor[sampleMisplacedRequired](), "required"},
-		{"exclusive on a field json does not inline", reflect.TypeFor[sampleUnwiredGroup](), "exclusive"},
-		{"exclusive on a group json is told to skip", reflect.TypeFor[sampleHiddenGroup](), "exclusive"},
+		{"exclusive on a named field", reflect.TypeFor[sampleMisplacedExclusive](), []string{"exclusive"}},
+		{"required on a plain group", reflect.TypeFor[sampleMisplacedRequired](), []string{"required"}},
+		{"exclusive on a field json does not inline", reflect.TypeFor[sampleUnwiredGroup](), []string{"exclusive"}},
+		{"exclusive on a group json is told to skip", reflect.TypeFor[sampleHiddenGroup](), []string{"exclusive"}},
+		// A rule about values binds a kind rather than a place, so what it has
+		// nothing to bind to is a field of another kind. The message names the
+		// kind as well, since the value alone does not say what is wrong.
+		{"a value constraint off its kind", reflect.TypeFor[sampleValueOnAnInteger](), []string{"nonempty", "string"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Table{Fields: map[string]string{}}.Render(tc.typ, Input)
 			if err == nil {
 				t.Fatal("Render succeeded on a contract value with nothing to bind to")
 			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("error %q does not name the offending value %q", err, tc.want)
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not carry %q", err, want)
+				}
 			}
 		})
 	}

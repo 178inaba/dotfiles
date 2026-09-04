@@ -82,7 +82,7 @@ func (tb Table) check(t reflect.Type, obj map[string]any, path, document string)
 		if slices.Contains(values, "required") && !supplied(obj, name) {
 			return violation(path, document, "is missing "+name)
 		}
-		if err := checkValue(values, obj[name], name, path, document); err != nil {
+		if err := checkValue(values, obj, name, path, document); err != nil {
 			return err
 		}
 		inner, ok := tb.contained(f.Type)
@@ -101,12 +101,17 @@ func (tb Table) check(t reflect.Type, obj map[string]any, path, document string)
 //
 // Read from the document rather than from the decoded field, which is what
 // binds a rule to the kind it names: an empty body_file is the same empty
-// string whether the field behind it is a string or a *string. A key that is
-// absent or null arrives here as a nil any, which no rule refuses — saying a
-// value may not be empty is not saying a key has to be there.
-func checkValue(values []string, value any, name, path, document string) error {
+// string whether the field behind it is a string or a *string.
+//
+// Only a supplied key has a value to be held to a rule, read through the same
+// predicate the presence check above uses: saying a value may not be empty is
+// not saying a key has to be there.
+func checkValue(values []string, obj map[string]any, name, path, document string) error {
+	if !supplied(obj, name) {
+		return nil
+	}
 	for _, c := range valueConstraints {
-		if slices.Contains(values, c.value) && c.refuses(value) {
+		if slices.Contains(values, c.value) && c.refuses(obj[name]) {
 			return violation(path, document, "sets "+name+" "+c.refusal)
 		}
 	}

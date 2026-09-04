@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
 	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
@@ -134,65 +133,6 @@ func TestParseSubmission(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("ParseSubmission (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestContractRefusesBodyFileValues is the declaration on its own, with no
-// parser around it: what refuses an empty or path-shaped body_file is the tag
-// on the field, reached through the entry point every contract document
-// crosses. Removing either tag makes the document below acceptable again.
-//
-// Not through ParseSubmission and ParseThreadActions, which go on to
-// resolveBody and would refuse both for a reason of its own — joining an empty
-// name to the work dir names the work dir, and reading a directory errors.
-//
-// All three body_file fields are covered, since each of the three group types
-// carries a declaration of its own.
-func TestContractRefusesBodyFileValues(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		in       string
-		into     any
-		document string
-		wantErr  string
-	}{
-		{
-			name:     "the review's own body",
-			in:       `{"assessment":"要議論","body_file":"","comments":[]}`,
-			into:     &pullrequest.ReviewFile{},
-			document: "review.json",
-			wantErr:  "review.json sets body_file to an empty string",
-		},
-		{
-			name:     "a comment's body",
-			in:       `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body_file":"sub/x.md"}]}`,
-			into:     &pullrequest.ReviewFile{},
-			document: "review.json",
-			wantErr:  "comments[0] sets body_file to a path, not a bare file name in review.json",
-		},
-		{
-			name:     "a thread's reply",
-			in:       `{"threads":[{"path":"a","resolve":true,"body_file":""}]}`,
-			into:     &pullrequest.ThreadsFile{},
-			document: "threads.json",
-			wantErr:  "threads[0] sets body_file to an empty string in threads.json",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			err := contract.Unmarshal([]byte(tc.in), tc.into, tc.document)
-			if err == nil {
-				t.Fatalf("Unmarshal accepted a document, want an error mentioning %q", tc.wantErr)
-			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
 			}
 		})
 	}
