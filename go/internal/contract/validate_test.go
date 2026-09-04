@@ -37,6 +37,21 @@ type validUntagged struct {
 	Anything *string `json:"anything"`
 }
 
+// validValues carries the value constraints on both kinds of field a document
+// puts a string in. A pointer and a plain string are the same string on the
+// wire, and a check bound to the pointer would pass every case below that is
+// written against File and refuse none of the ones written against Name.
+type validValues struct {
+	File  *string     `json:"file" contract:"nonempty,barefilename"`
+	Name  string      `json:"name" contract:"required,nonempty"`
+	Plain *string     `json:"plain"`
+	Items []validItem `json:"items"`
+}
+
+type validItem struct {
+	File *string `json:"file" contract:"nonempty,barefilename"`
+}
+
 // TestValidateReadsPresenceFromTheDocument is the rule the whole release rests
 // on: a key is supplied when it is there and not null. All three of the tagged
 // types are pointers today, so a validator walking the decoded value would
@@ -122,6 +137,70 @@ func TestValidateChecksAnExclusiveGroup(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assertValidate(t, tc.in, reflect.TypeFor[validDoc](), tc.want)
+		})
+	}
+}
+
+// TestValidateChecksWhatAKeyHolds covers the constraints on a value rather
+// than on where it is. A value constraint says nothing about presence: a key
+// left out or written as null has no value to constrain, and only a supplied
+// one is held to the rule.
+func TestValidateChecksWhatAKeyHolds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "an optional constrained key left out",
+			in:   `{"name":"n"}`,
+		},
+		{
+			name: "an optional constrained key written as null",
+			in:   `{"name":"n","file":null}`,
+		},
+		{
+			name: "a value both constraints allow",
+			in:   `{"name":"n","file":"b.md"}`,
+		},
+		{
+			name: "an empty string where one is refused",
+			in:   `{"name":"n","file":""}`,
+			want: "doc.json sets file to an empty string",
+		},
+		{
+			name: "a path where a bare file name is refused",
+			in:   `{"name":"n","file":"sub/b.md"}`,
+			want: "doc.json sets file to a path, not a bare file name",
+		},
+		{
+			// The same rule on a plain string, which is what the tag binds to:
+			// the kind, not the pointer body_file happens to be.
+			name: "an empty string in a plain string field",
+			in:   `{"name":""}`,
+			want: "doc.json sets name to an empty string",
+		},
+		{
+			// Absence is the other rule's refusal, and says so rather than
+			// reporting the zero value the missing key would decode into.
+			name: "a required constrained key left out",
+			in:   `{}`,
+			want: "doc.json is missing name",
+		},
+		{
+			// The separation the empty string above rests on: what refuses it
+			// is the declaration, not something about empty strings.
+			name: "an empty string in an unconstrained field",
+			in:   `{"name":"n","plain":""}`,
+		},
+		{
+			name: "inside a list, by index",
+			in:   `{"name":"n","items":[{"file":"b.md"},{"file":""}]}`,
+			want: "items[1] sets file to an empty string in doc.json",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertValidate(t, tc.in, reflect.TypeFor[validValues](), tc.want)
 		})
 	}
 }

@@ -129,7 +129,14 @@ func TestParseThreadActions(t *testing.T) {
 			// keeps parallel runs on different pull requests apart.
 			name:    "a body file outside the work dir",
 			in:      `{"threads":[{"path":"a","resolve":true,"body_file":"../r1.md"}]}`,
-			wantErr: "bare filename",
+			wantErr: "threads[0] sets body_file to a path, not a bare file name in threads.json",
+		},
+		{
+			// The group is satisfied — one key was supplied — so what is left
+			// is the value, which the field declares the rules for.
+			name:    "an empty body file",
+			in:      `{"threads":[{"path":"a","resolve":true,"body_file":""}]}`,
+			wantErr: "threads[0] sets body_file to an empty string in threads.json",
 		},
 		{
 			name:    "a body file that is not there",

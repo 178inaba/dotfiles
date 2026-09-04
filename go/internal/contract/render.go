@@ -18,6 +18,7 @@ import (
 	encodingjson "encoding/json"
 	json "encoding/json/v2"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -286,12 +287,66 @@ func groupType(f reflect.StructField) reflect.Type {
 	return inner
 }
 
-// knownValues is every constraint this renderer can state.
+// valueConstraint is a rule about what a key holds, rather than about whether
+// it is there.
+type valueConstraint struct {
+	// value is the word a contract tag declares the rule with.
+	value string
+	// kind is what the rule constrains. A rule about a string is enforced by
+	// nothing on a field that is not one, so declaring it there is refused for
+	// the reason a misspelt value is.
+	kind reflect.Kind
+	// text is how a rendered row states the rule, and refusal how a violation
+	// does, after "sets <key> ".
+	text    string
+	refusal string
+	// refuses reports whether the value a document supplied breaks the rule.
+	// What it receives is what the decoder made of the document rather than
+	// the field's Go type, so a rule about numbers would be handed a float64.
+	refuses func(any) bool
+}
+
+// valueConstraints is the whole vocabulary of rules about values: how each one
+// renders and what each one refuses, in one place.
+//
+// Not a rendering list beside a checking switch, because a rule that rendered
+// without being enforced is the published-but-unchecked rule this package
+// exists to end, one layer up.
+//
+// The order is the order a row states them in, so that the same declaration
+// reads the same way however the tag was written.
+var valueConstraints = []valueConstraint{
+	{
+		value: "barefilename", kind: reflect.String,
+		text: "a bare file name", refusal: "to a path, not a bare file name",
+		refuses: func(v any) bool {
+			s, ok := v.(string)
+			return ok && strings.ContainsRune(s, filepath.Separator)
+		},
+	},
+	{
+		value: "nonempty", kind: reflect.String,
+		text: "not empty", refusal: "to an empty string",
+		refuses: func(v any) bool {
+			s, ok := v.(string)
+			return ok && s == ""
+		},
+	},
+}
+
+// knownValues is every constraint this renderer can state: the two about where
+// a key is, and the vocabulary above about what it holds.
 //
 // An unrecognised one stops the render rather than being ignored: a struct tag
 // is stringly typed, and a misspelt constraint that rendered as an ordinary
 // optional field would be enforced by nothing and look like a decision.
-var knownValues = []string{"required", "exclusive"}
+var knownValues = func() []string {
+	names := []string{"required", "exclusive"}
+	for _, c := range valueConstraints {
+		names = append(names, c.value)
+	}
+	return names
+}()
 
 // contractValues reads a field's declared constraints. Several are written
 // comma-separated in the one tag, since a field carries as many as are true of
@@ -320,6 +375,16 @@ func contractValues(t reflect.Type, f reflect.StructField, named bool) ([]string
 	case slices.Contains(values, "required") && !named && !exclusive:
 		return nil, fmt.Errorf("contract: %s.%s declares required with no key of its own and no exclusive group to be the cardinality of", t, f.Name)
 	}
+
+	// A rule about a value binds the kind it names, so one written on a field
+	// of another kind is read by nobody — the same silent no-op again.
+	kind := deref(f.Type).Kind()
+	for _, c := range valueConstraints {
+		if slices.Contains(values, c.value) && kind != c.kind {
+			return nil, fmt.Errorf("contract: %s.%s declares %s, which constrains a %s, on a field of kind %s",
+				t, f.Name, c.value, c.kind, kind)
+		}
+	}
 	return values, nil
 }
 
@@ -329,34 +394,49 @@ func (tb Table) describe(t reflect.Type, mode Mode, values []string, opts string
 		return "", err
 	}
 
+	var qs []string
 	switch {
 	// Read on either side: "you must supply this" on the way in and "this is
 	// always present" on the way out are the same statement about the wire.
 	case slices.Contains(values, "required"):
-		return qualify(base, "required"), nil
+		qs = append(qs, "required")
 	case mode == Input:
-		return qualify(base, "optional"), nil
+		qs = append(qs, "optional")
 	case strings.Contains(opts, "omitzero"):
 		// The key is left out rather than written as null, so saying both
 		// would describe two shapes only one of which appears.
 		if t.Kind() == reflect.Pointer {
-			return qualify(base, "may be absent"), nil
+			qs = append(qs, "may be absent")
+		} else {
+			qs = append(qs, "absent when empty")
 		}
-		return qualify(base, "absent when empty"), nil
 	case t.Kind() == reflect.Pointer && !tb.marshals(t):
 		// A type that serialises itself has already said whether it can be
 		// null; the pointer is Go's business rather than the wire's.
-		return qualify(base, "may be null"), nil
+		qs = append(qs, "may be null")
 	}
-	return base, nil
+
+	// After the one above rather than beside it: whether the key has to be
+	// there is the first thing a reader asks, and what it may hold the second.
+	for _, c := range valueConstraints {
+		if slices.Contains(values, c.value) {
+			qs = append(qs, c.text)
+		}
+	}
+	return qualify(base, qs...), nil
 }
 
-// qualify attaches how a field may be absent to what it is.
+// qualify attaches how a field may be absent, and what it may hold, to what it
+// is.
 //
 // In brackets and before the list: a value set is itself comma-separated, so
 // "one of: a, b, required" reads as three values and a qualifier past the
 // colon reads as one more member.
-func qualify(base, q string) string {
+func qualify(base string, qs ...string) string {
+	if len(qs) == 0 {
+		return base
+	}
+	q := strings.Join(qs, ", ")
 	if kind, values, found := strings.Cut(base, ", one of"); found {
 		return kind + " (" + q + "), one of" + values
 	}

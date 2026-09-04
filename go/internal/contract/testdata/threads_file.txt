@@ -20,10 +20,10 @@
                      The reply, written inline. Resolving without replying is how a
                      repeated run avoids saying the same thing twice, and how a resolve
                      is retried where the reply already landed.
-      body_file      string (optional)
+      body_file      string (optional, a bare file name, not empty)
                      The name of a markdown file in the work dir holding the reply. A
-                     bare file name: a path would let an entry reach round the directory
-                     binding that keeps parallel runs on different pull requests apart.
+                     path would let an entry reach round the directory binding that
+                     keeps parallel runs on different pull requests apart.
     resolve          boolean (required)
                      Whether to mark the thread resolved. Required even when it is
                      false, since an entry that neither replies nor resolves does

@@ -13,10 +13,10 @@
   exactly one of:
     body             string (optional)
                      The review body, written inline.
-    body_file        string (optional)
+    body_file        string (optional, a bare file name, not empty)
                      The name of a markdown file in the work dir holding the body. A
-                     bare file name: a path would let a review reach round the directory
-                     binding that keeps parallel runs on different pull requests apart.
+                     path would let a review reach round the directory binding that
+                     keeps parallel runs on different pull requests apart.
   comments           array of object (required)
                      The remarks anchored to lines of the diff, empty for a review that
                      is all body.
@@ -26,4 +26,4 @@
     exactly one of:
       body           string (optional)
                      The remark, inline or named, exactly as the review body is.
-      body_file      string (optional)
+      body_file      string (optional, a bare file name, not empty)
