@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 )
@@ -229,9 +228,8 @@ func TestUnmarshalRefusesBeforeItAnswers(t *testing.T) {
 	if err == nil {
 		t.Fatal("Unmarshal accepted a document with no name")
 	}
-	var ve *ViolationError
-	if !errors.As(err, &ve) {
-		t.Errorf("error %[1]T (%[1]v) is not a *ViolationError, so a parser cannot tell it from a decode failure", err)
+	if err.Error() != "doc.json is missing name" {
+		t.Errorf("error = %q, want it to name the missing key", err)
 	}
 
 	var ok validDoc
@@ -240,21 +238,6 @@ func TestUnmarshalRefusesBeforeItAnswers(t *testing.T) {
 	}
 	if ok.Name == nil || *ok.Name != "n" {
 		t.Errorf("Unmarshal did not decode name, got %+v", ok)
-	}
-}
-
-// TestUnmarshalLeavesADecodeFailureAlone is the other half of requirement 4:
-// each parser still maps the decoder's own complaint until #159 folds those in,
-// so a mismatched type must not arrive dressed as a violation.
-func TestUnmarshalLeavesADecodeFailureAlone(t *testing.T) {
-	var got validDoc
-	err := Unmarshal([]byte(`{"name":5}`), &got, "doc.json")
-	if err == nil {
-		t.Fatal("Unmarshal accepted a name that is not a string")
-	}
-	var ve *ViolationError
-	if errors.As(err, &ve) {
-		t.Errorf("a decode failure arrived as a *ViolationError: %v", err)
 	}
 }
 

@@ -3,7 +3,6 @@ package pullrequest
 import (
 	"context"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -163,28 +162,9 @@ type ReplyBody struct {
 // ParseThreadActions reads the threads file, resolving the bodies it names
 // against the work dir.
 func ParseThreadActions(b []byte, workDir, file string) ([]ThreadAction, error) {
-	notArray := fmt.Errorf("threads must be an array in %s", file)
-	shape := fmt.Errorf(
-		"threads must be an array of {path: string, line?: number, id?: string, resolve: boolean, body xor body_file?: string} in %s", file)
-
 	var wire ThreadsFile
 	if err := contract.Unmarshal(b, &wire, file); err != nil {
-		// A field-level refusal names its field and travels as its own type;
-		// the wrapping below would take both away.
-		var ve *contract.ViolationError
-		if errors.As(err, &ve) {
-			return nil, err
-		}
-		// Mapping the decoder's pointer back is what keeps the field's own
-		// message rather than the decoder's.
-		var se *json.SemanticError
-		if errors.As(err, &se) && firstToken(se.JSONPointer) == "threads" {
-			if se.JSONPointer == "/threads" {
-				return nil, notArray
-			}
-			return nil, shape
-		}
-		return nil, fmt.Errorf("invalid JSON in %s (%v)", file, err)
+		return nil, err
 	}
 
 	out := make([]ThreadAction, 0, len(wire.Threads))

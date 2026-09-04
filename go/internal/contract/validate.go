@@ -2,22 +2,13 @@ package contract
 
 import (
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 )
-
-// ViolationError is a document that decoded but does not match the declaration
-// on the type it decoded into.
-//
-// A type of its own so that a caller can tell it from a decode failure: each
-// parser still wraps the decoder's complaint in a message of its own, and one
-// of those closing over a field-level refusal would lose it.
-type ViolationError struct{ msg string }
-
-func (e *ViolationError) Error() string { return e.msg }
 
 // Unmarshal decodes b into v and holds it to v's declaration.
 func Unmarshal(b []byte, v any, document string) error {
@@ -33,14 +24,15 @@ func Validate(b []byte, t reflect.Type, document string) error {
 // caller cannot obtain a decoded value the declaration was not applied to.
 //
 // The decode comes first, so a document that is malformed as well as
-// incomplete reports the malformation: the parsers still map the decoder's own
-// errors, and 178inaba/dotfiles#159 is where those join the same translation.
+// incomplete reports the malformation. Both halves refuse in the same words:
+// the decoder's own complaint is translated here rather than in each parser,
+// so that neither a missing field nor a mistyped one restates a whole entry.
 //
 // document is what a refusal names — the file a parser was given, or whatever
 // a command reading standard input calls that input.
 func (tb Table) Unmarshal(b []byte, v any, document string) error {
 	if err := json.Unmarshal(b, v); err != nil {
-		return err
+		return tb.decodeError(err, reflect.TypeOf(v), document)
 	}
 	return tb.Validate(b, reflect.TypeOf(v), document)
 }
@@ -213,9 +205,9 @@ func supplied(obj map[string]any, name string) bool {
 // is the document itself.
 func violation(path, document, what string) error {
 	if path == "" {
-		return &ViolationError{msg: document + " " + what}
+		return errors.New(document + " " + what)
 	}
-	return &ViolationError{msg: fmt.Sprintf("%s %s in %s", path, what, document)}
+	return fmt.Errorf("%s %s in %s", path, what, document)
 }
 
 func join(path, name string) string {

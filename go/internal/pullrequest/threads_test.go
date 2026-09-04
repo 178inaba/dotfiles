@@ -108,13 +108,17 @@ func TestParseThreadActions(t *testing.T) {
 		{name: "no threads at all", in: `{}`, wantErr: "threads.json is missing threads"},
 		// An explicit null is not an empty array: only the array says none.
 		{name: "threads null", in: `{"threads":null}`, wantErr: "threads.json is missing threads"},
-		{name: "threads not an array", in: `{"threads":{}}`, wantErr: "threads must be an array"},
+		{name: "threads not an array", in: `{"threads":{}}`, wantErr: "threads must be an array in threads.json"},
 		{name: "no path", in: `{"threads":[{"resolve":true}]}`, wantErr: "threads[0] is missing path in threads.json"},
 		{name: "resolve missing", in: `{"threads":[{"path":"a","body":"x"}]}`, wantErr: "threads[0] is missing resolve in threads.json"},
-		{name: "resolve is a string", in: `{"threads":[{"path":"a","resolve":"yes"}]}`, wantErr: "{path: string"},
-		{name: "line is a string", in: `{"threads":[{"path":"a","line":"7","resolve":true}]}`, wantErr: "{path: string"},
-		{name: "body is a number", in: `{"threads":[{"path":"a","resolve":true,"body":3}]}`, wantErr: "{path: string"},
-		{name: "not json at all", in: "nope", wantErr: "invalid JSON"},
+		// A mistyped field names itself, as a missing one does: what the entry
+		// as a whole should look like is a --help away.
+		{name: "resolve is a string", in: `{"threads":[{"path":"a","resolve":"yes"}]}`, wantErr: "threads[0].resolve must be a boolean in threads.json"},
+		{name: "line is a string", in: `{"threads":[{"path":"a","line":"7","resolve":true}]}`, wantErr: "threads[0].line must be a number in threads.json"},
+		{name: "body is a number", in: `{"threads":[{"path":"a","resolve":true,"body":3}]}`, wantErr: "threads[0].body must be a string in threads.json"},
+		{name: "not json at all", in: "nope", wantErr: "invalid JSON in threads.json"},
+		// The root has no field to name, so the document is what is named.
+		{name: "the root is not an object", in: `[]`, wantErr: "threads.json must be an object"},
 		{
 			name:    "both a body and a file",
 			in:      `{"threads":[{"path":"a","resolve":true,"body":"x","body_file":"r1.md"}]}`,
