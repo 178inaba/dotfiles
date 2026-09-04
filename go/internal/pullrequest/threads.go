@@ -173,9 +173,6 @@ func ParseThreadActions(b []byte, workDir, file string) ([]ThreadAction, error) 
 		// is why this group is declared without required.
 		var body *string
 		if e.Body != nil || e.BodyFile != nil {
-			if !bodyShapeOK(e.BodyFile) {
-				return nil, bodyShapeError(file)
-			}
 			text, err := resolveBody(e.Body, e.BodyFile, workDir)
 			if err != nil {
 				return nil, err

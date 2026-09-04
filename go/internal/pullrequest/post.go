@@ -110,9 +110,6 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	if err := contract.Unmarshal(b, &wire, file); err != nil {
 		return Submission{}, err
 	}
-	if !bodyShapeOK(wire.BodyFile) {
-		return Submission{}, bodyShapeError(file)
-	}
 	body, err := resolveBody(wire.Body, wire.BodyFile, workDir)
 	if err != nil {
 		return Submission{}, err
@@ -122,9 +119,6 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	// which is what Unmarshal has just held the document to.
 	out := Submission{Assessment: *wire.Assessment, Body: body, Comments: []SubmissionComment{}}
 	for _, c := range wire.Comments {
-		if !bodyShapeOK(c.BodyFile) {
-			return Submission{}, bodyShapeError(file)
-		}
 		commentBody, err := resolveBody(c.Body, c.BodyFile, workDir)
 		if err != nil {
 			return Submission{}, err
@@ -134,24 +128,14 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	return out, nil
 }
 
-func bodyShapeError(file string) error {
-	return fmt.Errorf("exactly one of body (string) / body_file (non-empty string) is required in %s", file)
-}
-
-// bodyShapeOK reports whether a named body file is one a work dir could hold.
-//
-// All that is left of the shape check: which of the two forms a document may
-// give is the exclusive group's now, and 178inaba/dotfiles#160 takes this last
-// case as well, once nonempty is something a field can declare.
-func bodyShapeOK(file *string) bool { return file == nil || *file != "" }
-
 // resolveBody turns whichever form was used into the text.
+//
+// All that is left of the body checks: which of the two forms a document may
+// give, and what a named one may look like, are the declaration's. Whether the
+// file is there is not something the document can answer.
 func resolveBody(body, file *string, workDir string) (string, error) {
 	if body != nil {
 		return *body, nil
-	}
-	if strings.ContainsRune(*file, filepath.Separator) {
-		return "", fmt.Errorf("body_file must be a bare filename in the work dir (no path separators): %s", *file)
 	}
 	content, err := os.ReadFile(filepath.Join(workDir, *file))
 	if err != nil {
