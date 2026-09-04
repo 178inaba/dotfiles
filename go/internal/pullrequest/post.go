@@ -2,9 +2,6 @@ package pullrequest
 
 import (
 	"context"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,7 +108,7 @@ type CommentBody struct {
 func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	var wire ReviewFile
 	if err := contract.Unmarshal(b, &wire, file); err != nil {
-		return Submission{}, submissionError(err, file)
+		return Submission{}, err
 	}
 	if !bodyShapeOK(wire.BodyFile) {
 		return Submission{}, bodyShapeError(file)
@@ -137,47 +134,8 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	return out, nil
 }
 
-// submissionError turns the decoder's complaint back into the message the
-// offending field has of its own.
-//
-// The price of typed fields: a review whose comments are an object still has
-// to be told what the field should have held, not what a decoder made of it.
-func submissionError(err error, file string) error {
-	// A field-level refusal has already named its field, and wrapping it in a
-	// sentence about the whole document takes that back — as well as the type
-	// a caller tells a violation from a decode failure by.
-	var ve *contract.ViolationError
-	if errors.As(err, &ve) {
-		return err
-	}
-	var se *json.SemanticError
-	if errors.As(err, &se) {
-		switch firstToken(se.JSONPointer) {
-		case "comments":
-			return commentsError(file)
-		case "assessment":
-			return fmt.Errorf("assessment must be a string in %s", file)
-		case "body", "body_file":
-			return bodyShapeError(file)
-		}
-	}
-	return fmt.Errorf("invalid JSON in %s (%v)", file, err)
-}
-
-// firstToken is as deep as any of these messages distinguishes.
-func firstToken(p jsontext.Pointer) string {
-	for tok := range p.Tokens() {
-		return tok
-	}
-	return ""
-}
-
 func bodyShapeError(file string) error {
 	return fmt.Errorf("exactly one of body (string) / body_file (non-empty string) is required in %s", file)
-}
-
-func commentsError(file string) error {
-	return fmt.Errorf("comments must be an array of {path: string, line: number, body xor body_file: string} in %s", file)
 }
 
 // bodyShapeOK reports whether a named body file is one a work dir could hold.

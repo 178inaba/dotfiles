@@ -46,14 +46,7 @@ type DeleteInput struct {
 func ParseCandidates(b []byte) (Candidates, error) {
 	var wire DeleteInput
 	if err := contract.Unmarshal(b, &wire, "stdin JSON"); err != nil {
-		// The blanket message below says only that the bytes were not usable,
-		// which is all a decoder failure amounts to here; a refusal that names
-		// a field is thrown away by it.
-		var ve *contract.ViolationError
-		if errors.As(err, &ve) {
-			return Candidates{}, err
-		}
-		return Candidates{}, errors.New("invalid JSON on stdin")
+		return Candidates{}, err
 	}
 	return *wire.Candidates, nil
 }

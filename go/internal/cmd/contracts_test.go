@@ -34,7 +34,7 @@ func TestContractsRender(t *testing.T) {
 var goIdentifier = regexp.MustCompile(`\b[A-Z][a-z0-9]+([A-Z][A-Za-z0-9]*)+\b`)
 
 var notAnIdentifier = map[string]bool{
-	"GitHub": true, "GraphQL": true, "SemanticError": true,
+	"GitHub": true, "GraphQL": true,
 }
 
 // TestNoGoNamesInTheRenderedContract is the guard behind the rule that a doc

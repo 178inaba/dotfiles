@@ -190,7 +190,10 @@ func TestParseCandidates(t *testing.T) {
 				Branches:  []BranchCandidate{},
 			},
 		},
-		{name: "not json at all", in: "not json", wantErr: "invalid JSON on stdin"},
+		{name: "not json at all", in: "not json", wantErr: "invalid JSON in stdin JSON"},
+		// The root has no field to name, so the document is what is named.
+		{name: "the root is not an object", in: `"x"`, wantErr: "stdin JSON must be an object"},
+		{name: "candidates is not an object", in: `{"candidates":"x"}`, wantErr: "candidates must be an object in stdin JSON"},
 		// An empty object would otherwise read as an approved list of nothing,
 		// and the command would report a successful deletion of none.
 		{name: "no candidates", in: `{}`, wantErr: "stdin JSON is missing candidates"},
@@ -208,8 +211,11 @@ func TestParseCandidates(t *testing.T) {
 
 			got, err := ParseCandidates([]byte(tc.in))
 			if tc.wantErr != "" {
-				if err == nil || err.Error() != tc.wantErr {
-					t.Fatalf("ParseCandidates = %+v, %v; want the error %q", got, err, tc.wantErr)
+				// Substring rather than equality: a refusal the decoder's own
+				// words are appended to says what it names, and quoting the
+				// decoder back at itself would pin its wording rather than ours.
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("ParseCandidates = %+v, %v; want an error mentioning %q", got, err, tc.wantErr)
 				}
 				return
 			}

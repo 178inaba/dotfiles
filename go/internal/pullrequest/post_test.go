@@ -61,7 +61,7 @@ func TestParseSubmission(t *testing.T) {
 		// A null key is the writer saying "not this one", and a file that
 		// forgot the key has not said there are no comments either.
 		{name: "comments null", in: `{"assessment":"要議論","body":"x","comments":null}`, wantErr: "review.json is missing comments"},
-		{name: "comments not an array", in: `{"assessment":"要議論","body":"x","comments":{}}`, wantErr: "comments must be an array"},
+		{name: "comments not an array", in: `{"assessment":"要議論","body":"x","comments":{}}`, wantErr: "comments must be an array in review.json"},
 		{name: "a comment without a line", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","body":"y"}]}`, wantErr: "comments[0] is missing line in review.json"},
 		{name: "a comment with both forms of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body":"y","body_file":"body.md"}]}`, wantErr: "comments[0] sets both body and body_file in review.json"},
 		{name: "a comment with neither form of body", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3}]}`, wantErr: "comments[0] sets neither body nor body_file in review.json"},
@@ -69,8 +69,12 @@ func TestParseSubmission(t *testing.T) {
 		// the empty string, which 178inaba/dotfiles#160 turns into a
 		// declaration of its own.
 		{name: "a comment with an empty body_file", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":3,"body_file":""}]}`, wantErr: "exactly one of body"},
-		{name: "a comment whose line is not a number", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":"3","body":"y"}]}`, wantErr: "comments must be an array"},
-		{name: "not json at all", in: `not json`, wantErr: "invalid JSON"},
+		{name: "a comment whose line is not a number", in: `{"assessment":"要議論","body":"x","comments":[{"path":"a.go","line":"3","body":"y"}]}`, wantErr: "comments[0].line must be a number in review.json"},
+		{name: "not json at all", in: `not json`, wantErr: "invalid JSON in review.json"},
+		// A root that is the wrong kind is a decode failure like the one above,
+		// but the decoder has a field-shaped complaint for it and no field to
+		// hang it on, so the document is what the message names.
+		{name: "the root is not an object", in: `[]`, wantErr: "review.json must be an object"},
 
 		// The distinctions below were not covered when the fields were read as
 		// raw JSON and checked by hand. They are here so that giving them
@@ -102,7 +106,10 @@ func TestParseSubmission(t *testing.T) {
 				Comments: []pullrequest.SubmissionComment{},
 			},
 		},
-		{name: "an assessment that is not a string", in: `{"assessment":5,"body":"x","comments":[]}`, wantErr: "assessment must be a string"},
+		{name: "an assessment that is not a string", in: `{"assessment":5,"body":"x","comments":[]}`, wantErr: "assessment must be a string in review.json"},
+		// A member of the exclusive group, whose key sits in the same object
+		// its parent was read from.
+		{name: "a body that is not a string", in: `{"assessment":"要議論","body":3,"comments":[]}`, wantErr: "body must be a string in review.json"},
 	}
 
 	for _, tc := range tests {
