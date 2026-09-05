@@ -16,15 +16,33 @@ func TestParse(t *testing.T) {
 		want Payload
 	}{
 		{
-			name: "every field the nine hooks read",
+			name: "every field a hook reads",
 			in: `{"session_id":"s-1","agent_id":"a-1","tool_name":"Edit","cwd":"/w",
 			      "message":"hello","notification_type":"idle_prompt",
-			      "tool_input":{"command":"ls","file_path":"/w/SKILL.md"}}`,
+			      "tool_input":{"command":"ls","file_path":"/w/SKILL.md"},
+			      "transcript_path":"/p/s.jsonl","stop_hook_active":true,
+			      "permission_mode":"plan","background_tasks":[{"id":"t-1"},{"id":"t-2"}]}`,
 			want: Payload{
 				SessionID: "s-1", AgentID: "a-1", ToolName: "Edit", Dir: "/w",
 				Message: "hello", NotificationType: "idle_prompt",
 				Command: "ls", FilePath: "/w/SKILL.md",
+				TranscriptPath: "/p/s.jsonl", StopHookActive: true,
+				PermissionMode: "plan", BackgroundTasks: new(2),
 			},
+		},
+		{
+			// An empty array is the registry saying nothing is in flight, and
+			// a missing one is the registry not answering at all. A guard that
+			// ends the turn on the first and not on the second needs the two
+			// to arrive as different values.
+			name: "an empty task list counts zero rather than nothing",
+			in:   `{"background_tasks":[]}`,
+			want: Payload{SessionID: unknownSession, BackgroundTasks: new(0)},
+		},
+		{
+			name: "a missing task list is no answer at all",
+			in:   `{"permission_mode":"default"}`,
+			want: Payload{SessionID: unknownSession, PermissionMode: "default"},
 		},
 		{
 			// NotebookEdit carries the target under a different key, and the
@@ -84,6 +102,20 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// TestParseExpandsATildeTranscriptPath covers the spelling the reference's own
+// Stop example uses. os.Open cannot follow it, and a hook that fails to open
+// the transcript falls open and never fires.
+func TestParseExpandsATildeTranscriptPath(t *testing.T) {
+	// Not parallel: it sets HOME, which is where the ~ leads.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got := Parse([]byte(`{"transcript_path":"~/p/s.jsonl"}`)).TranscriptPath
+	if want := home + "/p/s.jsonl"; got != want {
+		t.Errorf("TranscriptPath = %q, want %q", got, want)
+	}
+}
+
 func TestDirectiveMarshalsOnlyWhatIsSet(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +131,14 @@ func TestDirectiveMarshalsOnlyWhatIsSet(t *testing.T) {
 			name: "both",
 			in:   Directive{TerminalSequence: "\a", SystemMessage: "boom"},
 			want: `{"terminalSequence":"\u0007","systemMessage":"boom"}`,
+		},
+		{
+			// What a Stop hook writes to refuse the end of a turn. The two
+			// fields sit at the top level rather than in hookSpecificOutput,
+			// and the reason stops being optional once the decision is there.
+			name: "a refused turn end",
+			in:   Directive{SystemMessage: "the guard held", StopDecision: "block", Reason: "go to step 6"},
+			want: `{"systemMessage":"the guard held","decision":"block","reason":"go to step 6"}`,
 		},
 	}
 

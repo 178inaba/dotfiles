@@ -11,6 +11,7 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 	"github.com/178inaba/dotfiles/go/internal/hooks/caffeinate"
+	"github.com/178inaba/dotfiles/go/internal/hooks/issuehandle"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
 	"github.com/178inaba/dotfiles/go/internal/hooks/notify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/skillcheck"
@@ -43,6 +44,8 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 		stopCaffeinateCmd(build),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", build,
 			func() hook { return notify.NewIdle(notify.Default()) }),
+		leafHookCmd("issue-handle-guard", "Refuse the end of a turn while issue-handle is unfinished", build,
+			func() hook { return issuehandle.New() }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", build,
 			func() hook { return noopwait.New() }),
 		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", build,
@@ -111,7 +114,7 @@ func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
 // leafHookCmd wires one hook into the tree. The hook is built at run time
 // rather than passed in, so that one with flags sees the values cobra has by
 // then parsed into the variables its registration closed over — and so that
-// eight discarded subcommands construct no dependencies.
+// the discarded subcommands construct no dependencies.
 func leafHookCmd(use, short string, build selfbuild.State, newHook func() hook) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
@@ -151,8 +154,9 @@ func runHook(ctx context.Context, h hook, build selfbuild.State, stdin io.Reader
 		fmt.Fprint(stderr, result.Message)
 	}
 	if !result.Directive.IsEmpty() {
-		// Two strings and two tags: there is no value of Directive that fails
-		// to marshal, so this is not a third thing that can go wrong.
+		// Every field is a string with omitempty, so there is no value of
+		// Directive that fails to marshal: this is not a third thing that
+		// can go wrong.
 		b, _ := json.Marshal(result.Directive)
 		fmt.Fprintf(stdout, "%s\n", b)
 	}

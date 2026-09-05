@@ -2,18 +2,20 @@
 // writes to a hook's standard input, and the exit status, message and JSON
 // directive it reads back.
 //
-// The nine hooks live in packages beneath this one, cut by what they do rather
-// than by where Claude Code calls them from: notify holds the four that decide
-// and deliver a notification, caffeinate the two that hold the machine awake,
-// and one package each for the three that inspect a tool call, which share
-// nothing but that. What every one of them has in common is only this contract;
-// the dispatcher in internal/cmd declares the interface that binds them
-// together, because it is the one that consumes it.
+// The hooks live in packages beneath this one, cut by what they do rather than
+// by where Claude Code calls them from: notify holds those that decide and
+// deliver a notification, caffeinate those that hold the machine awake, and one
+// package each for the guards, which inspect a tool call or the end of a turn
+// and share nothing but that. What every one of them has in common is only this
+// contract; the dispatcher in internal/cmd declares the interface that binds
+// them together, because it is the one that consumes it.
 package hooks
 
 import (
 	"context"
 	"encoding/json/v2"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -42,6 +44,20 @@ type Payload struct {
 	// notebook_path and the others file_path; no hook cares which key it came
 	// from, only what is being edited.
 	FilePath string
+	// TranscriptPath names the session's transcript, ready to be opened: the
+	// reference's own Stop example spells it with a leading ~, so Parse
+	// resolves that here rather than leaving each reader to discover it.
+	TranscriptPath string
+	// StopHookActive is true when the turn is already carrying on because a
+	// Stop hook refused its end. It is how a guard avoids blocking twice on a
+	// condition its own block will never resolve.
+	StopHookActive bool
+	// PermissionMode is the mode the session is in, "plan" among them.
+	PermissionMode string
+	// BackgroundTasks counts the tasks still in flight, and is nil when the
+	// input gave no answer: the array is absent when Claude Code could not
+	// reach the task registry, which is not the same as nothing running.
+	BackgroundTasks *int
 }
 
 // wire is the input as it arrives. Keeping it separate from Payload is what
@@ -59,6 +75,12 @@ type wire struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 	} `json:"tool_input"`
+	TranscriptPath string `json:"transcript_path"`
+	StopHookActive bool   `json:"stop_hook_active"`
+	PermissionMode string `json:"permission_mode"`
+	// BackgroundTasks is a pointer so that an absent array stays distinct from
+	// an empty one, and holds no fields because only its length is read.
+	BackgroundTasks *[]struct{} `json:"background_tasks"`
 }
 
 // Parse reads the hook input.
@@ -84,6 +106,13 @@ func Parse(in []byte) Payload {
 		NotificationType: w.NotificationType,
 		Command:          w.ToolInput.Command,
 		FilePath:         w.ToolInput.FilePath,
+		TranscriptPath:   expandHome(w.TranscriptPath),
+		StopHookActive:   w.StopHookActive,
+		PermissionMode:   w.PermissionMode,
+	}
+	if w.BackgroundTasks != nil {
+		n := len(*w.BackgroundTasks)
+		p.BackgroundTasks = &n
 	}
 	if p.SessionID == "" {
 		p.SessionID = unknownSession
@@ -107,6 +136,20 @@ func fileSafe(id string) string {
 		}
 		return -1
 	}, id)
+}
+
+// expandHome resolves a leading ~, which is how the reference's Stop example
+// spells transcript_path. os.Open cannot follow it, and a hook that fails to
+// open the transcript falls open and never fires — a failure with no symptom.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, strings.TrimPrefix(p, "~"))
 }
 
 // IsEditTool reports whether a tool call writes a file. The three names are
@@ -156,6 +199,14 @@ type Directive struct {
 	TerminalSequence string `json:"terminalSequence,omitempty"`
 	// SystemMessage is shown to the user.
 	SystemMessage string `json:"systemMessage,omitempty"`
+	// StopDecision is "block" when a Stop hook refuses the end of a turn.
+	// It is not Result.Decision, which stays Allow: Claude Code reads this
+	// object only from a hook that exited 0, so the refusal travels here
+	// rather than in the exit status.
+	StopDecision string `json:"decision,omitempty"`
+	// Reason tells the model why it has to carry on, and Claude Code requires
+	// it wherever StopDecision is set.
+	Reason string `json:"reason,omitempty"`
 }
 
 // IsEmpty reports whether there is nothing here worth writing.

@@ -142,6 +142,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/go/bin/ccx hook issue-handle-guard"
+          },
+          {
+            "type": "command",
             "command": "~/go/bin/ccx hook stop-caffeinate"
           }
         ]
