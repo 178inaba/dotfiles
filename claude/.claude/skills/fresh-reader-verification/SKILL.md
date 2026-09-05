@@ -1,6 +1,6 @@
 ---
 name: fresh-reader-verification
-description: 会話コンテキストを持たないサブエージェントに文書（計画・Issue ドラフト等）を単体で読ませ、blocker / minor に分類させて収束させる共通プロトコル。deep-plan-review・issue-draft から参照される共有知識スキル
+description: 会話コンテキストを持たないサブエージェントに文書（計画・Issue ドラフト等）を単体で読ませ、blocker / minor に分類させて収束させる共通プロトコル。deep-plan-review・issue-draft から起動される共有知識スキル
 user-invocable: false
 ---
 

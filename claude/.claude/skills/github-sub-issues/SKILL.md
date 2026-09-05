@@ -1,6 +1,6 @@
 ---
 name: github-sub-issues
-description: GitHub Sub-Issues（Issueの親子関係）を作成・リンク・読み取る手順と、親子 Issue の運用規約（葉 Issue = 1 PR、親 = リリース単位、release_manual_steps 節、PR 本文の Part of / Closes）。issue-draft・issue-handle・deep-review が参照する共有知識スキル。gh CLIに専用コマンドがないためAPIを直接使用する
+description: GitHub Sub-Issues（Issueの親子関係）を作成・リンク・読み取る手順と、親子 Issue の運用規約（葉 Issue = 1 PR、親 = リリース単位、release_manual_steps 節、PR 本文の Part of / Closes）。issue-draft・issue-handle・deep-review が起動する共有知識スキル。gh CLIに専用コマンドがないためAPIを直接使用する
 ---
 
 # /github-sub-issues
