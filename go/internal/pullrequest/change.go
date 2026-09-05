@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -270,29 +271,35 @@ func readGenerated(ctx context.Context, r runner.Runner, dir, source string, fil
 		return fmt.Errorf("failed to find the top level of the repository holding %s: %v", dir, err)
 	}
 
-	var paths strings.Builder
+	var paths bytes.Buffer
 	for _, f := range files {
-		// The path on the new side, which for a deletion is the path that was
-		// removed: the question is what the repository says about the file the
-		// patch shows, and there is only ever one path to ask about.
+		// Only the one path, even for a rename: what the repository says about
+		// a file is said about where it is now.
 		paths.WriteString(f.Path)
 		paths.WriteByte(0)
 	}
 	out, err := r.Run(ctx, runner.Command{
-		Stdin: []byte(paths.String()),
+		Stdin: paths.Bytes(),
 		Name:  "git",
 		Args:  []string{"-C", top, "check-attr", "--source", source, "-z", "--stdin", generatedAttr},
 	})
 	if err != nil {
+		// git's own words, carried out rather than dropped: the sentence below
+		// reads a phrase git translates, so a machine in another language has
+		// to be left with something to act on.
+		reason := strings.TrimSpace(string(runner.Stderr(err)))
+		if reason == "" {
+			reason = err.Error()
+		}
 		// The arguments are all fixed here, so the only option git can fail to
 		// recognise is --source, and the only git that fails to is one from
 		// before it existed. That makes a separate version probe an extra
 		// process to learn what this call already said.
-		if strings.Contains(string(runner.Stderr(err)), "unknown option") {
+		if strings.Contains(reason, "unknown option") {
 			return fmt.Errorf(
-				"git check-attr in %s does not support --source, which reading the pull request's own attributes needs; git 2.40.0 or newer is required: %v", top, err)
+				"git check-attr in %s does not support --source, which reading the pull request's own attributes needs; git 2.40.0 or newer is required: %s", top, reason)
 		}
-		return fmt.Errorf("git check-attr --source %s failed in %s: %v", source, top, err)
+		return fmt.Errorf("git check-attr --source %s failed in %s: %s", source, top, reason)
 	}
 
 	values, err := parseCheckAttr(string(out))
