@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/178inaba/dotfiles/go/internal/skill"
 )
 
@@ -19,10 +21,14 @@ var published = skill.Published{
 func TestCheckContract(t *testing.T) {
 	t.Parallel()
 
+	// Every body is one line, and the frontmatter written around it puts that
+	// line at 6.
+	const bodyLine = 6
+
 	tests := []struct {
 		name string
 		body string
-		want []string
+		want []skill.ContractFinding
 	}{
 		{
 			name: "a field that exists",
@@ -32,7 +38,10 @@ func TestCheckContract(t *testing.T) {
 			// The point of the whole check.
 			name: "a field that no longer exists",
 			body: "Run `ccx worktree collect` and keep `head_sha` when you thin the list.\n",
-			want: []string{"head_sha"},
+			want: []skill.ContractFinding{{
+				Type: skill.UnknownContractField, File: "sample/SKILL.md",
+				Line: bodyLine, Ref: "head_sha",
+			}},
 		},
 		{
 			// issue-handle names the section keys while delegating the lookup
@@ -62,7 +71,10 @@ func TestCheckContract(t *testing.T) {
 		{
 			name: "a bad field written with its value",
 			body: "Run `ccx issue tree`; stop when `all_subissues_closed: false`.\n",
-			want: []string{"all_subissues_closed"},
+			want: []skill.ContractFinding{{
+				Type: skill.UnknownContractField, File: "sample/SKILL.md",
+				Line: bodyLine, Ref: "all_subissues_closed",
+			}},
 		},
 	}
 
@@ -78,19 +90,17 @@ func TestCheckContract(t *testing.T) {
 				t.Fatalf("CheckContract: %v", err)
 			}
 
-			var unknown []string
-			for _, v := range got.Violations {
-				if v.Type == skill.UnknownContractField {
-					unknown = append(unknown, v.Ref)
-				}
+			want := tc.want
+			if want == nil {
+				want = []skill.ContractFinding{}
 			}
-			if len(unknown) != len(tc.want) {
-				t.Fatalf("unknown contract fields = %v, want %v", unknown, tc.want)
+			if diff := cmp.Diff(want, got.Violations); diff != "" {
+				t.Errorf("violations (-want +got):\n%s", diff)
 			}
-			for i, w := range tc.want {
-				if unknown[i] != w {
-					t.Errorf("unknown contract field %d = %q, want %q", i, unknown[i], w)
-				}
+			// The path is made absolute, so the output alone says which copy
+			// was read.
+			if got.SkillsDir != root {
+				t.Errorf("skills_dir = %q, want %q", got.SkillsDir, root)
 			}
 		})
 	}
