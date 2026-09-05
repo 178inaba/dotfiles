@@ -16,7 +16,7 @@ PRのベースブランチへrebaseし、コンフリクトが発生したら自
 ## 実行内容
 
 ### 1. PR文脈の取得
-@~/.claude/skills/understand-pr/SKILL.md に従ってPRの目的・変更内容・現状を把握する。
+Skill ツールで `understand-pr` を起動し、PRの目的・変更内容・現状を把握する。
 
 PR文脈はコンフリクト解消時の判断材料として使用。
 
