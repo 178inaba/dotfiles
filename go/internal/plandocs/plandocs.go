@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -54,14 +55,17 @@ type Warning struct {
 	Source string `json:"source"`
 }
 
-// roots are the project instruction files Claude Code loads at launch, in the
-// order it loads them. Ancestor directories and ~/.claude/CLAUDE.md are left
-// out on purpose: they are the user's own context rather than the project's
-// constraints, and a plan is checked against the project.
+// roots are the instruction files Claude Code loads from a directory, in the
+// order it loads them.
 var roots = []string{"CLAUDE.md", filepath.Join(".claude", "CLAUDE.md"), "CLAUDE.local.md"}
 
-// Collect walks the project instruction files under root and answers with the
+// Collect walks the project's instruction files and answers with the
 // documents a planner has to read.
+//
+// dir is where the command was run, which may be anywhere inside the
+// repository: Claude Code loads instruction files from the working directory
+// and every directory above it, so a session started in a subdirectory has
+// the repository's own CLAUDE.md in context and loaded has to say so.
 //
 // home resolves the @~/ form of an import. It is a parameter because a test
 // has a fixture home and no business reading the real one.
@@ -69,7 +73,7 @@ var roots = []string{"CLAUDE.md", filepath.Join(".claude", "CLAUDE.md"), "CLAUDE
 // Nothing about the repository is an error: no instruction file at all, a
 // scoped rule nobody links, a link to a file that was deleted — each is an
 // ordinary answer. Only a filesystem that cannot be read is returned as one.
-func Collect(root, home string) (Collection, error) {
+func Collect(dir, home string) (Collection, error) {
 	c := collector{
 		home:   home,
 		seen:   map[string]bool{},
@@ -77,20 +81,25 @@ func Collect(root, home string) (Collection, error) {
 		cache:  map[string][]reference{},
 	}
 
-	for _, name := range roots {
-		path := filepath.Join(root, name)
-		if isFile(path) {
-			if err := c.expand(path); err != nil {
-				return Collection{}, err
+	dirs := directories(dir)
+	for _, at := range dirs {
+		for _, name := range roots {
+			path := filepath.Join(at, name)
+			if isFile(path) {
+				if err := c.expand(path); err != nil {
+					return Collection{}, err
+				}
 			}
 		}
 	}
-	rules, err := unscopedRules(filepath.Join(root, ".claude", "rules"))
-	if err != nil {
-		return Collection{}, err
-	}
-	for _, path := range rules {
-		c.load(path)
+	for _, at := range dirs {
+		rules, err := unscopedRules(filepath.Join(at, ".claude", "rules"))
+		if err != nil {
+			return Collection{}, err
+		}
+		for _, path := range rules {
+			c.load(path)
+		}
 	}
 
 	frontier := c.out.Loaded
@@ -103,6 +112,32 @@ func Collect(root, home string) (Collection, error) {
 		frontier = next
 	}
 	return c.out, nil
+}
+
+// directories are the ones whose instruction files the harness already has in
+// context, ordered as it loads them: the top of the repository first and the
+// working directory last, so that what was read closest to the plan is read
+// closest to the plan here too.
+//
+// The top is found by the .git entry rather than by asking git, which keeps
+// this a walk of the filesystem and nothing else — .git is a directory in a
+// checkout and a file in a linked worktree, and either one stops the walk.
+// Above it is somebody else's project, and outside a repository there is
+// nothing to walk up to.
+func directories(dir string) []string {
+	var out []string
+	for at := dir; ; {
+		out = append(out, at)
+		if _, err := os.Lstat(filepath.Join(at, ".git")); err == nil {
+			slices.Reverse(out)
+			return out
+		}
+		parent := filepath.Dir(at)
+		if parent == at {
+			return []string{dir}
+		}
+		at = parent
+	}
 }
 
 // collector carries the answer being assembled and the sets that keep it from

@@ -34,13 +34,17 @@ by a planner about to draft against it. A path in backticks is a mention and
 loads nowhere. The mention is the default, so putting a document in front of a
 planner is something an author opts into.
 
-Run from the project root. The already-loaded set is CLAUDE.md,
-.claude/CLAUDE.md and CLAUDE.local.md where they exist, everything their @
-imports reach within the four hops the harness expands, and every .md under
-.claude/rules/ that declares no paths field. Those are never listed to read
-again. Ancestor directories and the user's own memory files are not roots: a
-plan is checked against the project. An import written inside a rule is not
-expanded at launch, so it is followed as a link like the rest.
+Runs from anywhere inside the repository. Claude Code loads instruction files
+from the working directory and every directory above it, so the already-loaded
+set is, for each directory from here up to the top of the repository,
+CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md where they exist, everything
+their @ imports reach within the four hops the harness expands, and every .md
+under a .claude/rules/ of those directories that declares no paths field. A
+session started in a subdirectory still has the repository's own CLAUDE.md in
+context, and this says so. Those are never listed to read again. Above the top
+of the repository is somebody else's project, and the user's own memory files
+are not the project's constraints; neither is a root. An import written inside
+a rule is not expanded at launch, so it is followed as a link like the rest.
 
 From there the walk goes two levels: the targets found in the already-loaded
 files, then the targets found in those, and it stops. Both forms count as one

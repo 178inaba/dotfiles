@@ -223,6 +223,42 @@ func TestCollectReadsRulesWrittenTheOtherWays(t *testing.T) {
 	}
 }
 
+// Run from a subdirectory, the answer is the repository's, because that is
+// what the session running there has in context. Its own instruction files
+// are read last, after the ones above them.
+func TestCollectFromASubdirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		".git/HEAD":                        "ref: refs/heads/main\n",
+		"CLAUDE.md":                        "[top](docs/top.md)\n",
+		".claude/rules/unscoped.md":        "[r](../../docs/rule.md)\n",
+		"go/CLAUDE.md":                     "[near](near.md)\n",
+		"go/.claude/rules/unscoped.md":     "[gr](../../rule.md)\n",
+		"docs/top.md":                      "",
+		"docs/rule.md":                     "",
+		"go/near.md":                       "",
+		"go/rule.md":                       "",
+		"outside-the-repository/CLAUDE.md": "[never](never.md)\n",
+		"outside-the-repository/never.md":  "",
+	})
+
+	got, err := Collect(filepath.Join(dir, "go"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := Collection{
+		Loaded: abs(dir,
+			"CLAUDE.md", "go/CLAUDE.md",
+			".claude/rules/unscoped.md", "go/.claude/rules/unscoped.md",
+		),
+		Documents: abs(dir, "docs/top.md", "go/near.md", "docs/rule.md", "go/rule.md"),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestCollectOnRepositoriesWithNothingToWalk(t *testing.T) {
 	tests := map[string]struct {
 		files map[string]string

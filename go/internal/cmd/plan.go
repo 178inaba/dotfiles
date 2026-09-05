@@ -18,8 +18,9 @@ func newPlanCmd(build selfbuild.State) *cobra.Command {
 // newPlanDocsCmd builds `ccx plan docs`, which lists the documents a planner
 // reads before drafting.
 //
-// It takes no arguments: the project is the working directory, the same one
-// whose CLAUDE.md the session was started against.
+// It takes no arguments and runs from anywhere inside the repository: the
+// instruction files a session has in context are decided by where it was
+// started, and the walk reads that off the working directory upwards.
 func newPlanDocsCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "docs",
