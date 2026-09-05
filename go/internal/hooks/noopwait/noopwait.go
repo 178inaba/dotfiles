@@ -38,7 +38,7 @@ import (
 // chase it here.
 //
 // Compiled on first use rather than at init: this is the largest package
-// initialiser in the binary, and every ccx invocation — ten hooks and the
+// initialiser in the binary, and every ccx invocation — every hook and the
 // status line — would otherwise pay for it to answer one hook's question about
 // Bash calls.
 var noOpWait = sync.OnceValue(func() *regexp.Regexp {

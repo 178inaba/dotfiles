@@ -16,17 +16,17 @@ func TestParse(t *testing.T) {
 		want Payload
 	}{
 		{
-			name: "every field the ten hooks read",
+			name: "every field a hook reads",
 			in: `{"session_id":"s-1","agent_id":"a-1","tool_name":"Edit","cwd":"/w",
 			      "message":"hello","notification_type":"idle_prompt",
 			      "tool_input":{"command":"ls","file_path":"/w/SKILL.md"},
-			      "transcript_path":"~/p/s.jsonl","stop_hook_active":true,
+			      "transcript_path":"/p/s.jsonl","stop_hook_active":true,
 			      "permission_mode":"plan","background_tasks":[{"id":"t-1"},{"id":"t-2"}]}`,
 			want: Payload{
 				SessionID: "s-1", AgentID: "a-1", ToolName: "Edit", Dir: "/w",
 				Message: "hello", NotificationType: "idle_prompt",
 				Command: "ls", FilePath: "/w/SKILL.md",
-				TranscriptPath: "~/p/s.jsonl", StopHookActive: true,
+				TranscriptPath: "/p/s.jsonl", StopHookActive: true,
 				PermissionMode: "plan", BackgroundTasks: new(2),
 			},
 		},
@@ -99,6 +99,20 @@ func TestParse(t *testing.T) {
 				t.Errorf("Parse() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestParseExpandsATildeTranscriptPath covers the spelling the reference's own
+// Stop example uses. os.Open cannot follow it, and a hook that fails to open
+// the transcript falls open and never fires.
+func TestParseExpandsATildeTranscriptPath(t *testing.T) {
+	// Not parallel: it sets HOME, which is where the ~ leads.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got := Parse([]byte(`{"transcript_path":"~/p/s.jsonl"}`)).TranscriptPath
+	if want := home + "/p/s.jsonl"; got != want {
+		t.Errorf("TranscriptPath = %q, want %q", got, want)
 	}
 }
 

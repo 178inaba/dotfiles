@@ -28,6 +28,13 @@
 // state instead cannot tell "before PR creation" from "not an issue-handle run
 // at all".
 //
+// A launch the user typed is a record whose content is a string of the
+// <command-message> tags alone; the expanded SKILL.md body arrives in the
+// record after it, with isMeta set. That following record is what separates a
+// skill from a built-in, which has no body and leaves a <local-command-stdout>
+// record instead. The origin field is not usable for this — real transcripts
+// carry origin.kind "human" on some launches of the same skill and not others.
+//
 // Every question it cannot answer allows the turn to end: no transcript, an
 // unreadable or malformed one, no launch to judge, plan mode, or background
 // work still in flight. Two known limits fall the same way. A Bash call that
@@ -47,7 +54,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
@@ -112,7 +118,7 @@ func (Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 		return hooks.Result{}
 	}
 
-	r, err := scan(expandHome(in.TranscriptPath))
+	r, err := scan(in.TranscriptPath)
 	if err != nil {
 		return hooks.Result{}
 	}
@@ -158,7 +164,7 @@ func (r run) next() (step, bool) {
 type kind int
 
 const (
-	planning kind = iota + 1
+	planning kind = iota
 	creating
 	readying
 )
@@ -209,7 +215,7 @@ func scan(path string) (run, error) {
 	// would miss a later gh pr ready and block a run that had finished.
 	lines := bufio.NewReader(f)
 	for {
-		line, err := lines.ReadString('\n')
+		line, err := lines.ReadBytes('\n')
 		if err != nil {
 			// A tail with no newline is a write still in progress — the
 			// transcript is written asynchronously — not a broken record.
@@ -222,7 +228,7 @@ func scan(path string) (run, error) {
 		}
 
 		var rec record
-		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+		if err := json.Unmarshal(line, &rec); err != nil {
 			return run{}, err
 		}
 
@@ -232,9 +238,9 @@ func scan(path string) (run, error) {
 				// The expanded skill body arrives in the record after the
 				// tags, which is what separates a skill from a built-in: a
 				// built-in leaves a <local-command-stdout> record instead.
-				typedName, body := command, rec.IsMeta
+				typedName := command
 				command = ""
-				if body {
+				if rec.IsMeta {
 					r, pending = run{active: typedName == launch}, map[string]kind{}
 					break
 				}
@@ -325,18 +331,4 @@ func blocks(rec record) []block {
 		return nil
 	}
 	return bs
-}
-
-// expandHome resolves the leading ~ the reference's own Stop example writes.
-// os.Open cannot follow it, and a guard that fails to open the transcript
-// never fires at all.
-func expandHome(p string) string {
-	if p != "~" && !strings.HasPrefix(p, "~/") {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return p
-	}
-	return filepath.Join(home, strings.TrimPrefix(p, "~"))
 }

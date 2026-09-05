@@ -299,23 +299,6 @@ func TestRunReadsATranscriptStillBeingWritten(t *testing.T) {
 	}
 }
 
-// TestRunReadsATildeTranscriptPath covers the spelling the reference's own Stop
-// example uses. os.Open cannot follow it, and a guard that fails to open the
-// transcript never fires at all.
-func TestRunReadsATildeTranscriptPath(t *testing.T) {
-	// Not parallel: it sets HOME, which is where the ~ leads.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	p := filepath.Join(home, "session.jsonl")
-	if err := os.WriteFile(p, []byte(strings.Join(withPR(), "\n")+"\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	if got := New().Run(t.Context(), stopping("~/session.jsonl")); got.Directive.StopDecision != "block" {
-		t.Errorf("StopDecision = %q, want a block: the path was not expanded", got.Directive.StopDecision)
-	}
-}
-
 // longResult is a tool result past the 64KB a bufio.Scanner reads by default.
 func longResult() string {
 	return fmt.Sprintf(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"long","content":%q}]}}`,

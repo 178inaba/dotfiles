@@ -2,18 +2,20 @@
 // writes to a hook's standard input, and the exit status, message and JSON
 // directive it reads back.
 //
-// The ten hooks live in packages beneath this one, cut by what they do rather
-// than by where Claude Code calls them from: notify holds the four that decide
-// and deliver a notification, caffeinate the two that hold the machine awake,
-// one package each for the three that inspect a tool call, and one for the
-// guard that judges the end of a turn instead. What every one of them has in
-// common is only this contract; the dispatcher in internal/cmd declares the
-// interface that binds them together, because it is the one that consumes it.
+// The hooks live in packages beneath this one, cut by what they do rather than
+// by where Claude Code calls them from: notify holds those that decide and
+// deliver a notification, caffeinate those that hold the machine awake, and one
+// package each for the guards, which inspect a tool call or the end of a turn
+// and share nothing but that. What every one of them has in common is only this
+// contract; the dispatcher in internal/cmd declares the interface that binds
+// them together, because it is the one that consumes it.
 package hooks
 
 import (
 	"context"
 	"encoding/json/v2"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -42,8 +44,9 @@ type Payload struct {
 	// notebook_path and the others file_path; no hook cares which key it came
 	// from, only what is being edited.
 	FilePath string
-	// TranscriptPath names the session's transcript. Claude Code writes it
-	// with a leading ~ on the Stop event, so it is not ready to be opened.
+	// TranscriptPath names the session's transcript, ready to be opened: the
+	// reference's own Stop example spells it with a leading ~, so Parse
+	// resolves that here rather than leaving each reader to discover it.
 	TranscriptPath string
 	// StopHookActive is true when the turn is already carrying on because a
 	// Stop hook refused its end. It is how a guard avoids blocking twice on a
@@ -76,9 +79,8 @@ type wire struct {
 	StopHookActive bool   `json:"stop_hook_active"`
 	PermissionMode string `json:"permission_mode"`
 	// BackgroundTasks is a pointer so that an absent array stays distinct from
-	// an empty one; only its length is read, so what the entries hold is left
-	// to the harness to describe.
-	BackgroundTasks *[]any `json:"background_tasks"`
+	// an empty one, and holds no fields because only its length is read.
+	BackgroundTasks *[]struct{} `json:"background_tasks"`
 }
 
 // Parse reads the hook input.
@@ -104,7 +106,7 @@ func Parse(in []byte) Payload {
 		NotificationType: w.NotificationType,
 		Command:          w.ToolInput.Command,
 		FilePath:         w.ToolInput.FilePath,
-		TranscriptPath:   w.TranscriptPath,
+		TranscriptPath:   expandHome(w.TranscriptPath),
 		StopHookActive:   w.StopHookActive,
 		PermissionMode:   w.PermissionMode,
 	}
@@ -134,6 +136,20 @@ func fileSafe(id string) string {
 		}
 		return -1
 	}, id)
+}
+
+// expandHome resolves a leading ~, which is how the reference's Stop example
+// spells transcript_path. os.Open cannot follow it, and a hook that fails to
+// open the transcript falls open and never fires — a failure with no symptom.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, strings.TrimPrefix(p, "~"))
 }
 
 // IsEditTool reports whether a tool call writes a file. The three names are
