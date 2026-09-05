@@ -88,6 +88,27 @@ func TestPRSeen(t *testing.T) {
 	}
 }
 
+// TestPRSeenWithoutTheVariable is the other half of where the record goes: with
+// the variable unset the whole command, not just the resolution, has to land
+// under ~/.local/state. Asserting the resolution alone would pass on a command
+// that then wrote somewhere else.
+func TestPRSeenWithoutTheVariable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "")
+
+	var out, errOut bytes.Buffer
+	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z")},
+		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code != 0 {
+		t.Fatalf("`ccx pr seen` = %d, want 0: %s", code, errOut.String())
+	}
+
+	want := filepath.Join(home, ".local", "state", "ccx", "seen", "owner", "repo", "5.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Errorf("no record at %s: %v", want, err)
+	}
+}
+
 // A mark the command does not own is refused on its own terms, before the body
 // is looked for. Resolving the body first reports a missing file for a run
 // whose real fault is the mark, which sends the reader to fix the wrong thing.
