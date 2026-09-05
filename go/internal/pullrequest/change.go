@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -53,6 +54,14 @@ type DiffFile struct {
 	// which git counts no lines.
 	Additions *int `json:"additions"`
 	Deletions *int `json:"deletions"`
+	// Whether the repository marks the file as generated, by
+	// the linguist-generated attribute read at head_oid rather than in
+	// whatever is checked out here — so a pull request that adds the marking
+	// is described by its own marking. Anything but unset, unspecified or
+	// false is true, which is how linguist reads the attribute. It is the one
+	// exclusion a reader of the whole diff is given, and the repository rather
+	// than the reader decides it.
+	Generated bool `json:"generated" contract:"required"`
 }
 
 // Diff is the whole diff of the pull request.
@@ -133,6 +142,9 @@ func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullR
 	}
 	diff, err := readDiff(ctx, r, dir, base+"..."+pr.HeadRefOid, patch)
 	if err != nil {
+		return Change{}, err
+	}
+	if err := readGenerated(ctx, r, dir, pr.HeadRefOid, diff.Files); err != nil {
 		return Change{}, err
 	}
 	return Change{Commits: commits, Diff: diff}, nil
@@ -228,6 +240,113 @@ func readDiff(ctx context.Context, r runner.Runner, dir, span, patch string) (Di
 	}
 	diff.Files = files
 	return diff, nil
+}
+
+// generatedAttr is the attribute the exclusion is declared with, and the only
+// one read. GitHub's documentation names it alone as what is hidden by default
+// in diffs; linguist-vendored and the rest are not that.
+const generatedAttr = "linguist-generated"
+
+// readGenerated marks the files the repository itself calls generated.
+//
+// The flag is set on the entries in place, so that a pull request whose
+// commits net to no change keeps the empty-rather-than-nil file list readDiff
+// built, which is what the document publishes.
+//
+// Asked at source rather than at the checkout, and never falling back to it: a
+// document's contract is that it describes that commit, and the one case where
+// the two differ — a pull request that changes .gitattributes — is the case a
+// fallback would get wrong. One invocation covers every path, since check-attr
+// reads them all from standard input.
+func readGenerated(ctx context.Context, r runner.Runner, dir, source string, files []DiffFile) error {
+	// check-attr resolves what it reads against git's own working directory,
+	// while these paths are relative to the repository — which is what
+	// readDiff pins --no-relative to keep them. A run started in a
+	// subdirectory would otherwise ask about that directory prefixed onto
+	// every path, match nothing, and report a whole generated diff as
+	// hand-written, silently: check-attr echoes the path it was given and
+	// exits 0.
+	top, err := runner.Git(ctx, r, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return fmt.Errorf("failed to find the top level of the repository holding %s: %v", dir, err)
+	}
+
+	var paths bytes.Buffer
+	for _, f := range files {
+		// Only the one path, even for a rename: what the repository says about
+		// a file is said about where it is now.
+		paths.WriteString(f.Path)
+		paths.WriteByte(0)
+	}
+	out, err := r.Run(ctx, runner.Command{
+		// C rather than whatever the machine is set to, because the refusal
+		// below reads a phrase git puts through gettext. The answer itself is
+		// the path, the attribute and its value, none of which is translated,
+		// so this costs the output nothing.
+		Env:   []string{"LC_ALL=C"},
+		Stdin: paths.Bytes(),
+		Name:  "git",
+		Args:  []string{"-C", top, "check-attr", "--source", source, "-z", "--stdin", generatedAttr},
+	})
+	if err != nil {
+		// git's own words, carried out rather than dropped: what a failure of
+		// this call is about is something git has already said better than an
+		// exit status can.
+		reason := strings.TrimSpace(string(runner.Stderr(err)))
+		if reason == "" {
+			reason = err.Error()
+		}
+		// The arguments are all fixed here, so the only option git can fail to
+		// recognise is --source, and the only git that fails to is one from
+		// before it existed. That makes a separate version probe an extra
+		// process to learn what this call already said.
+		if strings.Contains(reason, "unknown option") {
+			return fmt.Errorf(
+				"git check-attr in %s does not support --source, which reading the pull request's own attributes needs; git 2.40.0 or newer is required: %s", top, reason)
+		}
+		return fmt.Errorf("git check-attr --source %s failed in %s: %s", source, top, reason)
+	}
+
+	values, err := parseCheckAttr(string(out))
+	if err != nil {
+		return err
+	}
+	for i := range files {
+		value, ok := values[files[i].Path]
+		if !ok {
+			return fmt.Errorf("git reported no %s attribute for %s at %s", generatedAttr, files[i].Path, source)
+		}
+		files[i].Generated = value
+	}
+	return nil
+}
+
+// parseCheckAttr reads one check-attr answer, whose records are a path, the
+// attribute that was asked about and the value it takes there.
+//
+// Anything but the three spellings of absence is on, which is how linguist
+// itself reads the attribute: linguist-generated, linguist-generated=true and
+// a value nobody anticipated all mean the same thing, and only
+// -linguist-generated and linguist-generated=false mean the other one.
+func parseCheckAttr(out string) (map[string]bool, error) {
+	values := make(map[string]bool)
+	fields := &nulFields{all: split(out)}
+	for fields.more() {
+		path := fields.next()
+		name, ok := fields.take()
+		if !ok {
+			return nil, fmt.Errorf("check-attr record for %s names no attribute", path)
+		}
+		if name != generatedAttr {
+			return nil, fmt.Errorf("check-attr answered for %s rather than %s", name, generatedAttr)
+		}
+		value, ok := fields.take()
+		if !ok {
+			return nil, fmt.Errorf("check-attr record for %s names no value", path)
+		}
+		values[path] = value != "unset" && value != "unspecified" && value != "false"
+	}
+	return values, nil
 }
 
 // lineCount is one file's pair of counts, both absent for a binary file.

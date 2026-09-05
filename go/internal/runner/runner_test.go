@@ -62,6 +62,32 @@ func TestRunAppendsEnv(t *testing.T) {
 	}
 }
 
+// TestRunFeedsStdin covers both halves of the field, because the second is
+// what a command reading standard input sees when nobody set it: a child with
+// no stdin at all would block rather than reach the end of its input.
+func TestRunFeedsStdin(t *testing.T) {
+	// NUL bytes and a newline, which is what the check-attr caller writes and
+	// what a line-oriented seam would corrupt.
+	in := []byte("a\x00b\nc\x00")
+	got, err := Exec{}.Run(t.Context(), Command{
+		Stdin: in,
+		Name:  "cat",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if string(got) != string(in) {
+		t.Errorf("stdin = %q, want %q", got, in)
+	}
+
+	if got, err = (Exec{}).Run(t.Context(), Command{Name: "cat"}); err != nil {
+		t.Fatalf("Run without a stdin: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("stdin = %q, want it empty when the field is unset", got)
+	}
+}
+
 func TestRunHonoursContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

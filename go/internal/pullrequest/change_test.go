@@ -1,6 +1,8 @@
 package pullrequest_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -284,3 +286,158 @@ func TestReadChangeRefusesAMovedHead(t *testing.T) {
 		t.Error("a patch file was written for a head that could not be resolved")
 	}
 }
+
+// generatedHistory is the fixture for the generated flag: a head that adds a
+// .gitattributes the base branch has never had, marking files in the three
+// spellings the attribute takes, one path that no longer exists at head, and
+// one pattern anchored to a directory.
+//
+// The anchored pattern is the only one that can tell where git measured the
+// paths from. An unanchored pattern matches at any level below the
+// .gitattributes it is written in, so a path handed to check-attr with a
+// directory prefixed onto it would still match *.lock — and a run asking about
+// the wrong directory would answer correctly by accident.
+func generatedHistory(t *testing.T) func(string) {
+	t.Helper()
+
+	return func(author string) {
+		gittest.Write(t, filepath.Join(author, ".gitattributes"), strings.Join([]string{
+			"*.lock linguist-generated",
+			"*.pb.go linguist-generated=true",
+			"hand.txt linguist-generated=false",
+			"old.txt linguist-generated",
+			"gen/anchored.txt linguist-generated",
+			// A value nobody anticipated, on a binary file: neither is a case
+			// the flag has an answer of its own for, and saying so is what
+			// keeps it to one meaning.
+			"*.dat linguist-generated=maybe",
+			"",
+		}, "\n"))
+		gittest.Write(t, filepath.Join(author, "bin.dat"), "\x00\x01\x02\x03")
+		gittest.Write(t, filepath.Join(author, "deps.lock"), "locked\n")
+		gittest.Write(t, filepath.Join(author, "api.pb.go"), "package api\n")
+		gittest.Write(t, filepath.Join(author, "hand.txt"), "written by hand\n")
+		gittest.Write(t, filepath.Join(author, "plain.txt"), "nothing marks this\n")
+		gittest.Write(t, filepath.Join(author, "gen", "anchored.txt"), "under gen\n")
+		// Deleted at head while the head still marks it, which is what asks
+		// whether the removed path was the one looked up.
+		gittest.Run(t, author, "rm", "-q", "old.txt")
+		gittest.Run(t, author, "add", "-A")
+		gittest.Run(t, author, "commit", "-qm", "Add generated files and drop one that was marked")
+	}
+}
+
+// wantGenerated is what the fixture above must answer, in git's order.
+func wantGenerated() []pullrequest.DiffFile {
+	return []pullrequest.DiffFile{
+		{Path: ".gitattributes", Status: pullrequest.StatusAdded, Additions: new(6), Deletions: new(0)},
+		{Path: "api.pb.go", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0), Generated: true},
+		// A binary file, whose line counts are null and whose flag is not.
+		{Path: "bin.dat", Status: pullrequest.StatusModified, Generated: true},
+		{Path: "deps.lock", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0), Generated: true},
+		{Path: "gen/anchored.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0), Generated: true},
+		{Path: "hand.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
+		{Path: "old.txt", Status: pullrequest.StatusDeleted, Additions: new(0), Deletions: new(3), Generated: true},
+		{Path: "plain.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
+	}
+}
+
+// TestReadChangeFlagsGeneratedFilesAtTheHead reads the attribute out of the
+// pull request's head rather than out of the checkout, which here has never
+// seen a .gitattributes at all.
+func TestReadChangeFlagsGeneratedFilesAtTheHead(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, generatedHistory(t))
+	patch := filepath.Join(t.TempDir(), "diff.patch")
+
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), patch)
+	if err != nil {
+		t.Fatalf("ReadChange: %v", err)
+	}
+
+	if diff := cmp.Diff(wantGenerated(), got.Diff.Files); diff != "" {
+		t.Errorf("diff.files (-want +got):\n%s", diff)
+	}
+	// The flag is the only addition: the patch still holds every hunk, the
+	// generated files included, and the totals count their lines.
+	if got.Diff.Additions != 11 || got.Diff.Deletions != 3 {
+		t.Errorf("diff totals = +%d -%d, want +11 -3", got.Diff.Additions, got.Diff.Deletions)
+	}
+	content, err := os.ReadFile(patch)
+	if err != nil {
+		t.Fatalf("read the patch: %v", err)
+	}
+	if want := gittest.Run(t, r.author, "diff", r.base+"..."+r.head); string(content) != want {
+		t.Errorf("the patch differs from git diff %s...%s:\n%s", r.base, r.head, cmp.Diff(want, string(content)))
+	}
+}
+
+// TestReadChangeAsksAboutRepositoryRelativePaths pins where the attribute
+// lookup measures a path from.
+//
+// The file list is relative to the repository, whatever directory the command
+// was started in — readDiff pins --no-relative for that. check-attr, on the
+// other hand, resolves what it reads against git's own working directory, so a
+// lookup made where the command stands would prefix that directory onto every
+// path and quietly find nothing.
+func TestReadChangeAsksAboutRepositoryRelativePaths(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, generatedHistory(t))
+	sub := filepath.Join(r.reader, "somewhere", "below")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, sub, prFor(r), filepath.Join(t.TempDir(), "diff.patch"))
+	if err != nil {
+		t.Fatalf("ReadChange: %v", err)
+	}
+	if diff := cmp.Diff(wantGenerated(), got.Diff.Files); diff != "" {
+		t.Errorf("diff.files from a subdirectory (-want +got):\n%s", diff)
+	}
+}
+
+// TestReadChangeRefusesAGitWithoutCheckAttrSource covers the one git version
+// that cannot answer the question at all.
+//
+// Through the runner rather than through a git of that age: what the command
+// has to do with the refusal is name the version, and an old git is not
+// something a test can install.
+func TestReadChangeRefusesAGitWithoutCheckAttrSource(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, generatedHistory(t))
+	old := runnerFunc(func(ctx context.Context, c runner.Command) ([]byte, error) {
+		if !slices.Contains(c.Args, "check-attr") {
+			return runner.Exec{}.Run(ctx, c)
+		}
+		// The phrase matched below is one git puts through gettext, so the
+		// refusal only reaches a reader on a machine told to answer in
+		// English. A stub cannot reproduce a locale; what it can pin is that
+		// the call asks for one.
+		if !slices.Contains(c.Env, "LC_ALL=C") {
+			t.Errorf("check-attr ran with env %q, want it to ask git for untranslated messages", c.Env)
+		}
+		return nil, &runner.Error{
+			Name:   "git",
+			Err:    errors.New("exit status 129"),
+			Stderr: []byte("error: unknown option `source'\nusage: git check-attr [-a | --all | <attr>...] [--] <pathname>...\n"),
+		}
+	})
+
+	_, err := pullrequest.ReadChange(t.Context(), old, r.reader, prFor(r), filepath.Join(t.TempDir(), "diff.patch"))
+	if err == nil {
+		t.Fatal("ReadChange succeeded, want it to refuse a git that cannot read the head's attributes")
+	}
+	if !strings.Contains(err.Error(), "2.40.0") {
+		t.Errorf("ReadChange error = %v, want it to name git 2.40.0", err)
+	}
+}
+
+// runnerFunc is a Runner made of one function, so that a test can let every
+// call through and stand in for a single one.
+type runnerFunc func(context.Context, runner.Command) ([]byte, error)
+
+func (f runnerFunc) Run(ctx context.Context, c runner.Command) ([]byte, error) { return f(ctx, c) }

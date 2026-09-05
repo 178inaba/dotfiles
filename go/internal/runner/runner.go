@@ -7,6 +7,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -23,11 +24,19 @@ import (
 // — either because the program ignores it (ps, lsof) or because the directory
 // is named in the arguments (git -C, go -C). A field for it is what let the
 // status line read one directory and describe another.
+//
+// There is a standard input, on the other hand, because some inputs have no
+// bound to put in argv: the paths of a diff, which is as long as the pull
+// request made it.
 type Command struct {
 	// Env holds extra KEY=VALUE entries appended to the process environment.
-	Env  []string
-	Name string
-	Args []string
+	Env []string
+	// Stdin is what the process reads on its standard input. Nil is the
+	// nothing every other caller wants, and reaches the child as an immediate
+	// end of input rather than as a stream nobody closes.
+	Stdin []byte
+	Name  string
+	Args  []string
 }
 
 // Runner executes external commands.
@@ -86,6 +95,9 @@ func (Exec) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	if len(c.Env) > 0 {
 		cmd.Env = append(os.Environ(), c.Env...)
+	}
+	if c.Stdin != nil {
+		cmd.Stdin = bytes.NewReader(c.Stdin)
 	}
 	out, err := cmd.Output()
 	if err != nil {
