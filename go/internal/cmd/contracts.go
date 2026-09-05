@@ -427,9 +427,11 @@ func published() skill.Published {
 	return out
 }
 
-// limitSentence is read from the list the command itself uses.
+// limitSentence is read from the list the command itself uses, however long it
+// has grown.
 func limitSentence() string {
-	return contract.Wrap(strings.Join(limitVars[:2], ", ") + " and " + limitVars[2] +
+	last := len(limitVars) - 1
+	return contract.Wrap(strings.Join(limitVars[:last], ", ") + " and " + limitVars[last] +
 		" raise the fetch limits; each takes a plain non-negative integer, and the " +
 		"truncated flags below say when one of them was reached.")
 }
