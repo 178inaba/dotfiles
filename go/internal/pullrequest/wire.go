@@ -40,19 +40,27 @@ func (a *actor) typename() *string {
 // thread that may be closed and the thread that may be replied to disagree.
 func (a *actor) isBot() bool { return a != nil && a.Typename == "Bot" }
 
+// commentNode is one comment, whether in the conversation or in a thread.
+//
+// LastEditedAt is selected only by the queries that read the conversation, so
+// it arrives null on a thread's comments — which is what the contract says of
+// them, a thread's state being carried by its ball rather than by when its
+// comments were touched.
 type commentNode struct {
-	Author    *actor `json:"author"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"createdAt"`
-	URL       string `json:"url"`
+	Author       *actor  `json:"author"`
+	Body         string  `json:"body"`
+	CreatedAt    string  `json:"createdAt"`
+	LastEditedAt *string `json:"lastEditedAt"`
+	URL          string  `json:"url"`
 }
 
 type reviewNode struct {
-	Author      *actor `json:"author"`
-	State       string `json:"state"`
-	Body        string `json:"body"`
-	URL         string `json:"url"`
-	SubmittedAt string `json:"submittedAt"`
+	Author       *actor  `json:"author"`
+	State        string  `json:"state"`
+	Body         string  `json:"body"`
+	URL          string  `json:"url"`
+	SubmittedAt  string  `json:"submittedAt"`
+	LastEditedAt *string `json:"lastEditedAt"`
 }
 
 type threadNode struct {

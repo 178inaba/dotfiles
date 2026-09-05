@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/cli/go-gh/v2/pkg/config"
 	"github.com/spf13/cobra"
@@ -97,13 +96,7 @@ func reviewCloneCmd(build selfbuild.State) *cobra.Command {
 // instead of setting a variable — t.Setenv changes the whole process and cannot
 // be used from a parallel test.
 func cloneOptions() reviewprs.CloneOptions {
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			dataHome = filepath.Join(home, ".local", "share")
-		}
-	}
+	dataHome := xdgDir("XDG_DATA_HOME", "share")
 	host := os.Getenv("GH_HOST")
 	if host == "" {
 		host = "github.com"

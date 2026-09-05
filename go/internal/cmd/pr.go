@@ -20,7 +20,8 @@ import (
 // newPRCmd builds `ccx pr`, the commands that work from a pull request.
 func newPRCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
-	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build), prReplyThreadsCmd(build))
+	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build),
+		prReplyThreadsCmd(build), prSeenCmd(build), prCommentCmd(build))
 	return c
 }
 
@@ -105,7 +106,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, doc.Change)
+			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, doc.Change, stateHome())
 			if err != nil {
 				return silent(err)
 			}
@@ -117,6 +118,35 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			}))
 		},
 	}
+}
+
+// stateHome is the directory the record of a judged pull request is kept
+// under, empty where there is nowhere to derive one.
+//
+// Here rather than in the package, for the reason the clone workspace's
+// equivalent is: t.Setenv changes the whole process and forbids a parallel
+// test, so the package that keeps the record takes the directory as a
+// parameter and only this thin reader touches the environment.
+func stateHome() string { return xdgDir("XDG_STATE_HOME", "state") }
+
+// xdgDir resolves one XDG base directory: the variable where it is set, and
+// ~/.local/<fallback> where it is not.
+//
+// The empty string where there is no home directory to build on, which is
+// nothing this package can recover from and which each caller answers for
+// itself — a read of a record degrades to "nothing recorded", a write refuses.
+//
+// One implementation because there is one rule. Written twice, the second XDG
+// root to be added would copy whichever spelling it happened to sit beside.
+func xdgDir(variable, fallback string) string {
+	if dir := os.Getenv(variable); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", fallback)
 }
 
 // currentRepo names the repository these commands work on.
@@ -152,19 +182,22 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 	return pr, nil
 }
 
-// storeContext writes a fetched context to the path it is given.
+// storeJSON writes a document to the path it is given, through a temporary
+// file in the same directory, so that a run interrupted halfway leaves no
+// partial document where a complete one is expected.
 //
-// Through a temporary file in the same directory, so that a run interrupted
-// halfway leaves no partial document where a complete one is expected.
-func storeContext(path string, c pullrequest.Context) error {
+// One implementation for every document this package writes: the sequence is
+// here precisely because getting it wrong leaves a torn file, and a second
+// copy is one a later hardening would silently miss.
+func storeJSON(path, tmpPrefix string, v any) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".pr-context.*")
+	tmp, err := os.CreateTemp(dir, tmpPrefix)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
 
-	if err := renderJSON(tmp, c); err != nil {
+	if err := renderJSON(tmp, v); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -172,6 +205,55 @@ func storeContext(path string, c pullrequest.Context) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// storeContext writes a fetched context to the path it is given.
+func storeContext(path string, c pullrequest.Context) error {
+	return storeJSON(path, ".pr-context.*", c)
+}
+
+// storeSeen writes one record of a judged pull request to the path it is
+// given, atomically as the document is: a run interrupted halfway leaves
+// either the previous record or the new one, and never a torn value the next
+// run would read as nothing recorded.
+func storeSeen(path string, s pullrequest.Seen) error {
+	return storeJSON(path, ".seen.*", s)
+}
+
+// prSeenCmd builds `ccx pr seen`, which a skill runs at the end of a run that
+// reached a judgment.
+//
+// The document rather than the pull request number, because what is recorded
+// is the instant that document was read at: a number would leave the command
+// to fetch one for itself, and the mark would then be later than the judgment
+// it stands for, silently retiring whatever arrived in between.
+func prSeenCmd(build selfbuild.State) *cobra.Command {
+	return &cobra.Command{
+		Use:   "seen <pr-context.json>",
+		Short: "Record that a run judged this pull request",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			content, err := readFile(args[0], "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			prContext, err := pullrequest.ParseContext([]byte(content), args[0])
+			if err != nil {
+				return silent(err)
+			}
+			repo, err := ghapi.ParseRepo(prContext.Repo)
+			if err != nil {
+				return silent(fmt.Errorf("the document names no repository: %v", err))
+			}
+
+			record, err := pullrequest.WriteSeen(stateHome(), repo, prContext.PR.Number, prContext.FetchedAt, storeSeen)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), record))
+		},
+	}
 }
 
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
@@ -210,6 +292,7 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 			options := pullrequest.Options{
 				OutDir: scratch, Number: number, Issue: issue,
 				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
+				StateHome: stateHome(),
 			}
 			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext)
 			if err != nil {
@@ -304,6 +387,62 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 			return silent(renderJSON(c.OutOrStdout(), posted))
 		},
 	}
+}
+
+// prCommentCmd builds `ccx pr comment`, the pull-request-level post a skill
+// makes when there is something to say that belongs to no thread.
+//
+// The body comes from a file rather than from the command line: a report
+// written as a shell argument loses its markdown to one missed escape. The
+// file has to sit in the work dir paired with the document, which is what
+// keeps parallel runs on different pull requests out of each other's files.
+func prCommentCmd(build selfbuild.State) *cobra.Command {
+	var mark, bodyFile string
+	cmd := &cobra.Command{
+		Use:   "comment <pr-context.json> --mark <name> --body-file <name>",
+		Short: "Post a comment on the pull request, marked as ours",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			contextFile := args[0]
+			content, err := readFile(contextFile, "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			prContext, err := pullrequest.ParseContext([]byte(content), contextFile)
+			if err != nil {
+				return silent(err)
+			}
+			// Before the body is looked for: a run whose mark is wrong would
+			// otherwise be told about a missing file it does not have.
+			parsedMark, err := pullrequest.ParseMark(mark)
+			if err != nil {
+				return silent(err)
+			}
+			body, err := pullrequest.ParseCommentBody(pullrequest.WorkDir(contextFile), bodyFile)
+			if err != nil {
+				return silent(err)
+			}
+
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			posted, err := pullrequest.PostComment(c.Context(), runner.Exec{}, client, ".",
+				prContext.Target(), parsedMark, body)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), posted))
+		},
+	}
+	cmd.Flags().StringVar(&mark, "mark", "", "the marker to write at the front of the comment (review-response)")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "the name of a markdown file in the work dir holding the body")
+	// Discarded as the other required flags in this package are: the only way
+	// these fail is on a flag this function did not declare.
+	_ = cmd.MarkFlagRequired("mark")
+	_ = cmd.MarkFlagRequired("body-file")
+	return cmd
 }
 
 func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {

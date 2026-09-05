@@ -56,11 +56,11 @@ query($owner: String!, $name: String!, $number: Int!, $headOid: GitObjectID!) {
       comments(first: 100) {
         totalCount
         pageInfo { hasNextPage endCursor }
-        nodes { author { login __typename } body createdAt url }
+        nodes { author { login __typename } body createdAt lastEditedAt url }
       }
       reviews(last: 50) {
         totalCount
-        nodes { author { login __typename } state body url submittedAt }
+        nodes { author { login __typename } state body url submittedAt lastEditedAt }
       }
       reviewThreads(first: 100) {
         totalCount
@@ -77,7 +77,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
     pullRequest(number: $number) {
       comments(first: 100, after: $cursor) {
         pageInfo { hasNextPage endCursor }
-        nodes { author { login __typename } body createdAt url }
+        nodes { author { login __typename } body createdAt lastEditedAt url }
       }
     }
   }

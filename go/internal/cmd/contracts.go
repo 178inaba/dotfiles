@@ -109,10 +109,46 @@ paired with the context file is created too, since a caller that goes on to
 reply to threads writes into it; it is the same directory
 ` + "`ccx pr prepare-review`" + ` hands out for the same pull request.
 
+What is waiting on us is counted here rather than left to the reader:
+` + "`pending`" + ` holds the threads it is our move on and the reviews and comments
+that have arrived or been rewritten since the point ` + "`ccx pr seen`" + ` last
+recorded for this pull request, with no body text in any of them. Reading a
+remark to decide whether it counts is what that exists to prevent. The record
+it measures against is local to this machine and private to the skill, so a
+machine that has never run ` + "`ccx pr seen`" + ` counts everything — one reading, and
+nothing lost.
+
 ` + limitSentence(),
 		blocks: []block{
 			prints(reflect.TypeFor[pullrequest.Stored]()),
 			writes("The document written to that path", reflect.TypeFor[pullrequest.Context]()),
+		},
+		statuses: with(),
+	},
+
+	"pr seen": {
+		intro: `Record that a run judged this pull request.
+
+Run at the end of every run that reached a judgment, whatever it posted and
+even if it posted nothing. What the next run counts as newly arrived is
+measured against the ` + "`fetched_at`" + ` of the document named here — the one the
+judgment was made from, not one fetched afterwards — so that anything
+submitted during the run is dated after the mark and is answered next time
+rather than retired unread.
+
+The record is this machine's and this skill's: it goes under
+` + "`$XDG_STATE_HOME/ccx/seen/<owner>/<repo>/<number>.json`" + `, with
+` + "`$XDG_STATE_HOME`" + ` defaulting to ~/.local/state. Nothing about it reaches the
+pull request, where it would put one skill's bookkeeping in front of every
+collaborator. A machine with no record counts everything, which costs one
+reading and loses nothing.
+
+A document older than what is already recorded is refused: writing it would
+move the mark backwards and bring back every remark judged in between. One
+fetched at the same instant is the same run recorded twice and overwrites.`,
+		blocks: []block{
+			prints(reflect.TypeFor[pullrequest.SeenRecord]()),
+			writes("The record written to that path", reflect.TypeFor[pullrequest.Seen]()),
 		},
 		statuses: with(),
 	},
@@ -145,11 +181,12 @@ being ignored and letting the review run in a mode nobody asked for.
 <scratchpad-dir> has to exist; the context file and the review work directory
 are made under it.
 
-The document is the one ` + "`ccx pr context`" + ` writes, and git runs the same way for
-it: **wherever context_path is set, the commit that document names as
-` + "`pr.head_oid`" + ` is present in this repository**. Where the preparation stops
-before that — no pull request at all, or a checkout on another branch — nothing
-was fetched and the promise does not apply.`,
+The document is the one ` + "`ccx pr context`" + ` writes — its fields, ` + "`pending`" + ` among
+them, are set out under ` + "`ccx pr context --help`" + ` and not repeated here — and git
+runs the same way for it: **wherever context_path is set, the commit that
+document names as ` + "`pr.head_oid`" + ` is present in this repository**. Where the
+preparation stops before that — no pull request at all, or a checkout on
+another branch — nothing was fetched and the promise does not apply.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.Preparation]())},
 		statuses: with(),
 	},
@@ -171,6 +208,33 @@ the body rather than dropped.`,
 			reads("Input (the review file named as the second argument)", reflect.TypeFor[pullrequest.ReviewFile]()),
 			prints(reflect.TypeFor[pullrequest.Posted]()),
 		},
+		statuses: with(),
+	},
+
+	"pr comment": {
+		intro: `Post a comment on the pull request, marked as ours.
+
+For what belongs to no thread — a completion report, an answer to a remark
+made in the conversation. A reply to a thread goes through
+` + "`ccx pr reply-threads`" + ` instead.
+
+--mark names the marker written at the front, and ` + "`review-response`" + ` is the
+only name there is. It resolves to the marker the fetch keys ` + "`is_skill_comment`" + `
+on, so that what writes a comment as ours and what later recognises it are one
+constant; any other name is refused before anything is sent, since a comment
+carrying an unrecognised marker would count as somebody else's remark for
+ever. The marker goes on the first line, a blank line follows it, and the
+file's content comes after, so the markdown renders as it was written.
+
+--body-file is a bare file name in the work dir paired with the context file,
+as ` + "`ccx pr reply-threads`" + ` takes one: prose written as a shell argument loses
+its meaning to one missed escape, and a path would reach round the directory
+binding that keeps parallel runs on different pull requests apart.
+
+The local HEAD is confirmed to be the pull request's head first, as posting a
+review does. A report written against a checkout that has since moved is about
+code the pull request no longer holds, and nothing undoes it once published.`,
+		blocks:   []block{prints(reflect.TypeFor[pullrequest.Commented]())},
 		statuses: with(),
 	},
 
