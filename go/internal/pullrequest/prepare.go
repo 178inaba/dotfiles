@@ -143,7 +143,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		return Preparation{}, err
 	}
 
-	fetched, err := p.fetch(ctx, c, repo, pr, store, doc)
+	fetched, limits, err := p.fetch(ctx, c, repo, pr, store, doc)
 	if err != nil {
 		return Preparation{}, err
 	}
@@ -174,7 +174,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		// says it closes, which the flag does not change. Where the body
 		// closes that very issue the document already has it, and reading it
 		// again would be two round trips for a value in hand.
-		named, warnings, err := namedIssue(ctx, c, repo, o.Issue, fetched.LinkedIssues)
+		named, warnings, err := namedIssue(ctx, c, repo, o.Issue, fetched.LinkedIssues, limits.IssueComments)
 		if err != nil {
 			return Preparation{}, err
 		}
@@ -196,7 +196,11 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 // namedIssue is the one --issue asked for, taken from what the pull request
 // body already named where that is the same issue and read from GitHub where
 // it is not.
-func namedIssue(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number int, linked []LinkedIssue) ([]LinkedIssue, []string, error) {
+//
+// limit is the one the document was read under, raised rerun included. It is
+// not raised a second time for this issue: the rerun belongs to the document,
+// and an issue the body never named was no part of what it fetched twice.
+func namedIssue(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number int, linked []LinkedIssue, limit int) ([]LinkedIssue, []string, error) {
 	for _, i := range linked {
 		// Only an issue in this repository: the flag is a bare number, so an
 		// entry the body wrote as owner/repo#N is a different issue.
@@ -204,7 +208,7 @@ func namedIssue(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number in
 			return []LinkedIssue{i}, nil, nil
 		}
 	}
-	return readIssues(ctx, c, repo, []LinkedIssue{{Number: number}}, DefaultLimits.IssueComments)
+	return readIssues(ctx, c, repo, []LinkedIssue{{Number: number}}, limit)
 }
 
 // probe settles which pull request is meant without fetching anything.
@@ -248,10 +252,13 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string,
 // total the first attempt reported. Once, not in a loop: the totals came from
 // that same answer, so a second truncation means something else is wrong and
 // the caller is told rather than kept waiting.
-func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store, doc Document) (Context, error) {
+//
+// The limits it settled on come back with the document, because an issue read
+// afterwards — the one --issue names — is read the way the document's own were.
+func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store, doc Document) (Context, Limits, error) {
 	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits, doc.Change)
 	if err != nil {
-		return Context{}, fmt.Errorf(
+		return Context{}, Limits{}, fmt.Errorf(
 			"failed to fetch the pull request context while the PR exists; fix the environment issue instead of falling back to a no-PR review")
 	}
 
@@ -263,14 +270,14 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 		// The same change: what git already answered cannot have changed, and
 		// rerunning it would be several fetches and a diff for nothing.
 		if fetched, err = Fetch(ctx, c, repo, pr, limits, doc.Change); err != nil {
-			return Context{}, fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun: %v", err)
+			return Context{}, Limits{}, fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun: %v", err)
 		}
 	}
 	if err := store(doc.Path, fetched); err != nil {
-		return Context{}, err
+		return Context{}, Limits{}, err
 	}
 	if !raised {
-		return fetched, nil
+		return fetched, limits, nil
 	}
 
 	if fetched.CommentsTruncated {
@@ -288,7 +295,14 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 			break
 		}
 	}
-	return fetched, nil
+	for _, issue := range fetched.LinkedIssues {
+		if issue.CommentsTruncated || (issue.Parent != nil && issue.Parent.CommentsTruncated) {
+			p.Warnings = append(p.Warnings, fmt.Sprintf(
+				"issue comments still truncated after raising MAX_ISSUE_COMMENTS to %d; rerun `ccx pr context` with a larger MAX_ISSUE_COMMENTS before reading linked_issues", limits.IssueComments))
+			break
+		}
+	}
+	return fetched, limits, nil
 }
 
 // raisedLimits are the limits to try again with, and whether anything was cut
@@ -307,6 +321,15 @@ func raisedLimits(c Context) (Limits, bool) {
 	for _, thread := range c.ReviewThreads {
 		if thread.CommentsTruncated && thread.CommentsTotalCount > limits.ThreadComments {
 			limits.ThreadComments, raised = thread.CommentsTotalCount, true
+		}
+	}
+	for _, issue := range c.LinkedIssues {
+		if issue.CommentsTruncated && issue.CommentsTotalCount > limits.IssueComments {
+			limits.IssueComments, raised = issue.CommentsTotalCount, true
+		}
+		// A parent is an issue for this too, and is read under the same limit.
+		if p := issue.Parent; p != nil && p.CommentsTruncated && p.CommentsTotalCount > limits.IssueComments {
+			limits.IssueComments, raised = p.CommentsTotalCount, true
 		}
 	}
 	return limits, raised
