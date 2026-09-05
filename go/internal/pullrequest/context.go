@@ -55,9 +55,9 @@ type LinkedIssue struct {
 	// two are told apart.
 	Title *string `json:"title"`
 	Body  *string `json:"body"`
-	// comments_total_count and comments_truncated are what a caller raises
-	// MAX_ISSUE_COMMENTS against when an issue was cut short, as the pull
-	// request's own comments do with MAX_COMMENTS.
+	// comments_total_count and comments_truncated are what a caller raises the
+	// per-issue limit against when an issue was cut short, as the pull
+	// request's own comments are.
 	CommentsTotalCount int  `json:"comments_total_count" contract:"required"`
 	CommentsTruncated  bool `json:"comments_truncated" contract:"required"`
 	// The discussion the body does not carry, oldest first. Empty for
@@ -82,8 +82,8 @@ type IssueParent struct {
 	Number int     `json:"number"`
 	Title  string  `json:"title"`
 	Body   string  `json:"body"`
-	// The parent is an issue for the cap as much as the sub-issue is:
-	// its own MAX_ISSUE_COMMENTS, its own total to raise it to.
+	// The parent is an issue for the limit as much as the sub-issue
+	// is: its own share of it, and its own total to raise it to.
 	CommentsTotalCount int  `json:"comments_total_count" contract:"required"`
 	CommentsTruncated  bool `json:"comments_truncated" contract:"required"`
 	// What was settled in the parent's discussion rather than written
