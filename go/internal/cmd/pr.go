@@ -21,7 +21,7 @@ import (
 func newPRCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
 	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build),
-		prReplyThreadsCmd(build), prSeenCmd(build))
+		prReplyThreadsCmd(build), prSeenCmd(build), prCommentCmd(build))
 	return c
 }
 
@@ -386,6 +386,67 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 			}
 			return silent(renderJSON(c.OutOrStdout(), posted))
 		},
+	}
+}
+
+// prCommentCmd builds `ccx pr comment`, the pull-request-level post a skill
+// makes when there is something to say that belongs to no thread.
+//
+// The body comes from a file rather than from the command line: a report
+// written as a shell argument loses its markdown to one missed escape. The
+// file has to sit in the work dir paired with the document, which is what
+// keeps parallel runs on different pull requests out of each other's files.
+func prCommentCmd(build selfbuild.State) *cobra.Command {
+	var mark, bodyFile string
+	cmd := &cobra.Command{
+		Use:   "comment <pr-context.json> --mark <name> --body-file <name>",
+		Short: "Post a comment on the pull request, marked as ours",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			contextFile := args[0]
+			content, err := readFile(contextFile, "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			prContext, err := pullrequest.ParseContext([]byte(content), contextFile)
+			if err != nil {
+				return silent(err)
+			}
+			// A bare name, as a threads file's body_file is: a path would
+			// reach round the directory binding the work dir exists to make.
+			if bodyFile != filepath.Base(bodyFile) {
+				return silent(fmt.Errorf("--body-file takes a bare file name, not a path: %s", bodyFile))
+			}
+			body, err := readFile(filepath.Join(pullrequest.WorkDir(contextFile), bodyFile), "body file")
+			if err != nil {
+				return silent(err)
+			}
+
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			posted, err := pullrequest.PostComment(c.Context(), runner.Exec{}, client, ".",
+				prContext.Target(), pullrequest.Mark(mark), body)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), posted))
+		},
+	}
+	cmd.Flags().StringVar(&mark, "mark", "", "the marker to write at the front of the comment (review-response)")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "the name of a markdown file in the work dir holding the body")
+	must(cmd.MarkFlagRequired("mark"))
+	must(cmd.MarkFlagRequired("body-file"))
+	return cmd
+}
+
+// must is for the flag registrations that can only fail on a flag this file
+// did not declare, which is a programmer's error rather than a caller's.
+func must(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
 

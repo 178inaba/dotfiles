@@ -211,6 +211,33 @@ the body rather than dropped.`,
 		statuses: with(),
 	},
 
+	"pr comment": {
+		intro: `Post a comment on the pull request, marked as ours.
+
+For what belongs to no thread — a completion report, an answer to a remark
+made in the conversation. A reply to a thread goes through
+` + "`ccx pr reply-threads`" + ` instead.
+
+--mark names the marker written at the front, and ` + "`review-response`" + ` is the
+only name there is. It resolves to the marker the fetch keys ` + "`is_skill_comment`" + `
+on, so that what writes a comment as ours and what later recognises it are one
+constant; any other name is refused before anything is sent, since a comment
+carrying an unrecognised marker would count as somebody else's remark for
+ever. The marker goes on the first line, a blank line follows it, and the
+file's content comes after, so the markdown renders as it was written.
+
+--body-file is a bare file name in the work dir paired with the context file,
+as ` + "`ccx pr reply-threads`" + ` takes one: prose written as a shell argument loses
+its meaning to one missed escape, and a path would reach round the directory
+binding that keeps parallel runs on different pull requests apart.
+
+The local HEAD is confirmed to be the pull request's head first, as posting a
+review does. A report written against a checkout that has since moved is about
+code the pull request no longer holds, and nothing undoes it once published.`,
+		blocks:   []block{prints(reflect.TypeFor[pullrequest.Commented]())},
+		statuses: with(),
+	},
+
 	"pr reply-threads": {
 		intro: `Reply to and resolve the review threads it is our move on.
 

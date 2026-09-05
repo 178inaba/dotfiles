@@ -24,10 +24,12 @@ import (
 // SkillMarker is what /review-response puts at the front of every comment it
 // posts.
 //
-// Exported because the writing side has to agree with it, and a test compares
-// this against the skill that does the writing: if the two ever part, this
-// stops recognising its own past replies and answers them again as though they
-// were new remarks.
+// Both ends of that are here now: PostComment writes it and the fetch below
+// recognises it, so the two cannot part. It stays exported, and the test
+// comparing it against the skill stays with it, because the skill's own
+// wording still names the marker — until the skill posts through PostComment
+// alone, a marker changed here and not there would stop this recognising its
+// own past replies and answer them again as though they were new remarks.
 const SkillMarker = "<!-- review-response -->"
 
 // PR is the pull request itself.

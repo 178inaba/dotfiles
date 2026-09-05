@@ -88,6 +88,26 @@ func TestPRSeen(t *testing.T) {
 	}
 }
 
+// A path would reach round the work dir that keeps parallel runs on different
+// pull requests out of each other's files, so it is refused before the
+// repository or the network is touched.
+func TestPRCommentRefusesABodyFilePath(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	code := run(t.Context(), []string{
+		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z"),
+		"--mark", "review-response", "--body-file", "sub/report.md",
+	}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
+
+	if code == 0 {
+		t.Fatal("`ccx pr comment` with a path = 0, want a refusal")
+	}
+	if !strings.Contains(errOut.String(), "bare file name") {
+		t.Errorf("stderr = %q, want it to say a bare file name is wanted", errOut.String())
+	}
+}
+
 // TestStateHome pins where a judged pull request is recorded. Not parallel,
 // and here rather than in pullrequest, for the reason the clone workspace's
 // equivalent is: t.Setenv changes the whole process, so the package that keeps
