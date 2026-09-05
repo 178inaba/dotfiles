@@ -1,25 +1,34 @@
 package skill_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/178inaba/dotfiles/go/internal/skill"
 )
 
 // published stands in for what the commands publish. internal/cmd assembles
 // the real set; written out here so the check can be exercised without it.
-var published = skill.Contract{
+var published = skill.Published{
 	Commands:    []string{"worktree collect", "issue tree"},
 	Identifiers: []string{"head_oid", "in_use_by_process", "all_sub_issues_closed", "release_manual_steps"},
 }
 
-func TestCheckRefsContractFields(t *testing.T) {
+func TestCheckContract(t *testing.T) {
 	t.Parallel()
+
+	// Every body is one line, and the frontmatter written around it puts that
+	// line at 6.
+	const bodyLine = 6
 
 	tests := []struct {
 		name string
 		body string
-		want []string
+		want []skill.ContractFinding
 	}{
 		{
 			name: "a field that exists",
@@ -29,7 +38,10 @@ func TestCheckRefsContractFields(t *testing.T) {
 			// The point of the whole check.
 			name: "a field that no longer exists",
 			body: "Run `ccx worktree collect` and keep `head_sha` when you thin the list.\n",
-			want: []string{"head_sha"},
+			want: []skill.ContractFinding{{
+				Type: skill.UnknownContractField, File: "sample/SKILL.md",
+				Line: bodyLine, Ref: "head_sha",
+			}},
 		},
 		{
 			// issue-handle names the section keys while delegating the lookup
@@ -59,7 +71,10 @@ func TestCheckRefsContractFields(t *testing.T) {
 		{
 			name: "a bad field written with its value",
 			body: "Run `ccx issue tree`; stop when `all_subissues_closed: false`.\n",
-			want: []string{"all_subissues_closed"},
+			want: []skill.ContractFinding{{
+				Type: skill.UnknownContractField, File: "sample/SKILL.md",
+				Line: bodyLine, Ref: "all_subissues_closed",
+			}},
 		},
 	}
 
@@ -70,24 +85,54 @@ func TestCheckRefsContractFields(t *testing.T) {
 			root := t.TempDir()
 			write(t, root, "sample", "---\nname: sample\ndescription: x\n---\n\n"+tc.body)
 
-			got, err := skill.CheckRefs(root, published)
+			got, err := skill.CheckContract(root, published)
 			if err != nil {
-				t.Fatalf("CheckRefs: %v", err)
+				t.Fatalf("CheckContract: %v", err)
 			}
 
-			var unknown []string
-			for _, v := range got.Violations {
-				if v.Type == skill.UnknownContractField {
-					unknown = append(unknown, v.Ref)
-				}
+			want := tc.want
+			if want == nil {
+				want = []skill.ContractFinding{}
 			}
-			if len(unknown) != len(tc.want) {
-				t.Fatalf("unknown contract fields = %v, want %v", unknown, tc.want)
+			if diff := cmp.Diff(want, got.Violations); diff != "" {
+				t.Errorf("violations (-want +got):\n%s", diff)
 			}
-			for i, w := range tc.want {
-				if unknown[i] != w {
-					t.Errorf("unknown contract field %d = %q, want %q", i, unknown[i], w)
-				}
+			// The path is made absolute, so the output alone says which copy
+			// was read.
+			if got.SkillsDir != root {
+				t.Errorf("skills_dir = %q, want %q", got.SkillsDir, root)
+			}
+		})
+	}
+}
+
+func TestCheckContractFails(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		target  string
+		wantErr string
+	}{
+		{name: "a directory that is not there", target: filepath.Join(root, "nope"), wantErr: "skills directory not found"},
+		{name: "a directory holding no skills", target: root, wantErr: "no */SKILL.md found"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := skill.CheckContract(tc.target, published)
+			if err == nil {
+				t.Fatalf("CheckContract = %+v, want an error mentioning %q", got, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
 			}
 		})
 	}

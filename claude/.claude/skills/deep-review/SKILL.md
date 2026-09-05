@@ -34,7 +34,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 
 ### 1. 準備（配管はスクリプトに集約）
 
-`--worktree` 指定時は、先に @~/.claude/skills/worktree-resolution/SKILL.md の「PR worktree 解決手順」に従い対象 PR の worktree に session を切り替える。
+`--worktree` 指定時は、先に Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解決手順」に従って対象 PR の worktree に session を切り替える。
 
 次に準備スクリプトを実行する。スキル引数（`<pr-number>` とフラグ）をそのまま渡す:
 
@@ -46,7 +46,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 出力の読み方は `ccx pr prepare-review --help` にある。本スキルがそれに対して行うこと:
 
-- `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は @~/.claude/skills/worktree-resolution/SKILL.md の「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
+- `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は、Skill ツールで `worktree-resolution` を起動し、その「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
 - `pr_exists: false` は縮退なので続行する。**PR があるのに取得系が失敗した場合はコマンドが非ゼロ exit で止まる**ので、そちらは stderr を提示して停止する（両者を混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
 - `context_path` の読み方はセクション2
 - `work_dir`: **レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる
@@ -84,7 +84,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 `issues` の各要素について Issue 内容を取得し、要件・仕様を確認する（空ならスキップ）。同リポ（`repo: null`）は `gh issue view <N>`、クロスリポは `gh issue view -R <owner>/<repo> <N>`。
 
-あわせて各 Issue の親子関係を `ccx issue tree <N> [-R <owner>/<repo>]` で確認し、**`parent` があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（節の引き方とマーカーの照合は `github-sub-issues` の「本文の節の読み取り」）。満たさなければ指摘する（親が早期に閉じる）。
+あわせて各 Issue の親子関係を `ccx issue tree <N> [-R <owner>/<repo>]` で確認し、**`parent` があれば親の本文・コメントも取得する**（`gh issue view <parent.number> --comments [-R ...]`）。横断ルールは親にしか無く、Sub 単体では横断ルール違反を見落とすため（規約は `github-sub-issues` の「運用規約」）。役割分担: **充足判定（セクション5「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（Skill ツールで `github-sub-issues` を起動し、その「本文の節の読み取り」に従って節を引き、マーカーを照合する）。満たさなければ指摘する（親が早期に閉じる）。
 
 ### 5. レビュー実行
 
@@ -105,7 +105,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 - アーキテクチャ・設計判断（責務分離、結合度、抽象の妥当性）
 - 可読性・保守性
 - ビジネス要件・仕様との整合性
-- テストの妥当性（@~/.claude/skills/test-implementation/SKILL.md の3原則: 無駄なテスト・抜け漏れ・可読性）
+- テストの妥当性（Skill ツールで `test-implementation` を起動し、その3原則で判定する: 無駄なテスト・抜け漏れ・可読性）
 
 **断定を避ける箇所**:
 - アーキテクチャ・ビジネスロジックの妥当性は、レビュアーが前提を見落としている可能性がある領域。断定せず質問形 (`〜という理解で合っていますか？`) で提示する
@@ -141,7 +141,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 **文書化されたルールとの突き合わせ**:
 - [ ] **（常時）** リポジトリの CLAUDE.md に記載されたルール・方針と差分を突き合わせる
 - [ ] **（常時）** リンク元 CLAUDE.md のリンクテキスト・周辺説明から、差分の変更種別（新規コード要素・テスト・スキーマ・設定等）に関わるリンク先ドキュメント（設計パターン、ワークフロー等）を特定して読み、準拠を確認する。リンク元の記述だけで関連の有無を判別できない文書は、冒頭を確認してから除外する（文書の主題が PR の中心論点と違うという印象だけで省略しない — 慣習系の文書は中心論点でない差分にこそ効く）
-- [ ] **「推奨」等の非必須と記載されたルールからの逸脱がある** → @~/.claude/skills/finding-triage/SKILL.md の「非必須ルールの一様準拠判定」を読み、その基準で拘束力を判定する（事実上の必須慣習と判定したら指摘対象にする — 「非必須だから違反しても Approve 可」と解釈しない）
+- [ ] **「推奨」等の非必須と記載されたルールからの逸脱がある** → Skill ツールで `finding-triage` を起動し、その「非必須ルールの一様準拠判定」の基準で拘束力を判定する（事実上の必須慣習と判定したら指摘対象にする — 「非必須だから違反しても Approve 可」と解釈しない）
 - [ ] **個人ルールモードON時** → 上記3項目と同じ基準を、個人グローバル `~/.claude/CLAUDE.md` にも適用する
 
 **仕様・説明との整合**:
@@ -366,7 +366,7 @@ ccx pr reply-threads <context_path> <threads_path>
 
 ローカル出力（セクション7）の後、指摘事項を分析して対応すべきものを working tree に適用し、コミット・テスト・PR更新まで進める。
 
-指摘ごとの対応要否の判断と対応リストの出力は @~/.claude/skills/finding-severity/SKILL.md に従う（対象はセクション7で出力したすべての指摘）。
+指摘ごとの対応要否の判断と対応リストの出力は、Skill ツールで `finding-severity` を起動して行う（対象はセクション7で出力したすべての指摘）。
 
 #### 対応すべきものがゼロの場合
 ここで終了。コミット・PR更新は行わない。
@@ -378,7 +378,7 @@ ccx pr reply-threads <context_path> <threads_path>
    - 同一ファイルに複数指摘がある場合は副作用を考慮した順序で適用
 
 2. **コミット**
-   - @~/.claude/skills/git-commit/SKILL.md に従ってコミット
+   - Skill ツールで `git-commit` を起動してコミットする
 
 3. **テスト・Lint実行**
    - プロジェクトのテスト・Lintコマンドを実行（プロジェクトCLAUDE.md依拠）
@@ -387,10 +387,10 @@ ccx pr reply-threads <context_path> <threads_path>
    - **失敗時**: 修正 → コミット → 再テスト を繰り返す
 
 4. **プッシュ・PR更新**
-   - @~/.claude/skills/git-pr/SKILL.md に従ってプッシュ・PR作成/更新
+   - Skill ツールで `git-pr` を起動してプッシュ・PR作成/更新を行う
    - 既存PRがあれば説明更新、未PRなら新規作成
 
 ## 注意事項
 - `ccx pr prepare-review` が非ゼロ exit した場合（明示指定 PR の不在・コンテキスト取得失敗等）は stderr を提示して停止する。「PR なし」縮退（`pr_exists: false`）と混同しない
-- **`--worktree` 指定時の挙動**: @~/.claude/skills/worktree-resolution/SKILL.md の注意事項を参照
+- **`--worktree` 指定時の挙動**: `worktree-resolution` の注意事項を参照
 - **鮮度ガード**: `ccx pr prepare-review` が差分取得前に鮮度確認を実行し、**外部へ書き込む 2 つのサブコマンド（`ccx pr post-review`・`ccx pr reply-threads`）が実行直前にそれぞれローカル HEAD == `pr.head_oid` を再確認する**（停止条件の正は worktree-resolution の「共通サブ手順: PR head との鮮度確認」）

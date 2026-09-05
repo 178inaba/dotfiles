@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 スキル一覧と各スキルの仕様（フラグ・オプション等）は `claude/.claude/skills/*/SKILL.md` を正とする。
 
 - `deep-review` の命名: Claude Code 2.1.146 以降は組み込み `/code-review`・`/simplify` と区別するため `deep-review` としている
-- `worktree-resolution` / `finding-triage` / `finding-severity` / `fresh-reader-verification` は他スキルから参照される共有知識スキルで、ユーザー直接起動は不可
+- `worktree-resolution` / `finding-triage` / `finding-severity` / `fresh-reader-verification` は他スキルから起動される共有知識スキルで、ユーザー直接起動は不可
 - `rdsh` / `slio` / `cflio` は本リポジトリにコピーを置かず、`settings.json` の `enabledPlugins` で有効化した各 CLI リポジトリのプラグインから供給される（仕様の正は upstream の `skills/<name>/SKILL.md`、呼び出しは plugin 名で namespace され `/rdsh:rdsh` 等になる）
 
 ### コンテキストの置き場所

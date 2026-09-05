@@ -23,7 +23,7 @@ argument-hint: "[計画ファイルパス]"
 
 ### 2. 検証・収束
 
-@~/.claude/skills/fresh-reader-verification/SKILL.md のプロトコルに従う（起動・分類基準・指摘への対処・収束）。修正の反映先は計画ファイル。
+Skill ツールで `fresh-reader-verification` を起動し、そのプロトコルに従う（起動・分類基準・指摘への対処・収束）。修正の反映先は計画ファイル。
 
 同スキルの「依頼文」に差し込む役割と検証観点:
 

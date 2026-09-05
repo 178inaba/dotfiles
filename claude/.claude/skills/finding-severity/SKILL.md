@@ -1,6 +1,6 @@
 ---
 name: finding-severity
-description: レビュー指摘を重要度ラベル（必須修正・推奨修正・質問/確認事項・nit）ごとに対応要否へ振り分ける判断基準と、対応リストの出力形式。deep-review・issue-handle がレビュー指摘の反映時に参照する共有知識スキル
+description: レビュー指摘を重要度ラベル（必須修正・推奨修正・質問/確認事項・nit）ごとに対応要否へ振り分ける判断基準と、対応リストの出力形式。deep-review・issue-handle がレビュー指摘の反映時に起動する共有知識スキル
 user-invocable: false
 ---
 

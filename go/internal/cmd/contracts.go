@@ -19,9 +19,9 @@ import (
 // writes.
 //
 // One table rather than a field on each command because two things read it:
-// the help, and the identifiers `ccx skill refs` checks a SKILL.md against. A
-// second command-to-type mapping for the latter would be the very inventory
-// this arrangement exists to delete.
+// the help, and the identifiers `ccx skill contract` checks a SKILL.md
+// against. A second command-to-type mapping for the latter would be the very
+// inventory this arrangement exists to delete.
 var contracts = map[string]help{
 	"issue tree": {
 		intro: `Resolve where an issue sits among its parent, its children and its blockers.
@@ -373,28 +373,33 @@ unable to check at all is.`,
 		statuses: with(),
 	},
 
-	"skill refs": {
-		intro: `Check the @ references between skills.
+	"skill contract": {
+		intro: `Check the contract identifiers skills name.
 
-A reference attaches its target one level only, and nothing says so when a
-second hop goes unattached — which is how a verification once ran with its
-convergence protocol unread.
+A skill names the fields of the commands it runs at the point where it acts on
+them, which is the arrangement. What this catches is a rename that left the old
+name behind in a skill: the command answers with the new name, the skill goes
+on instructing the model to read one that is not there, and nothing says so.
+
+Only names inside backticks are read, and only those with an underscore — a
+bare word cannot be told from ordinary prose. A skill that runs none of these
+commands is exempt, its snake_case words being about something else entirely.
 
 <skills-dir> defaults to the skills directory of the repository this
 configuration is stowed from.`,
-		blocks:   []block{prints(reflect.TypeFor[skill.Refs]())},
+		blocks:   []block{prints(reflect.TypeFor[skill.Contract]())},
 		statuses: with(),
 	},
 }
 
-// published is what `ccx skill refs` checks a SKILL.md against.
+// published is what `ccx skill contract` checks a SKILL.md against.
 //
 // Built from the same table the help is rendered from, so a field gone from
 // the contract is gone from here in the same commit. Handed to the check
 // rather than imported by it, because internal/cmd already imports
 // internal/skill.
-func published() skill.Contract {
-	out := skill.Contract{
+func published() skill.Published {
+	out := skill.Published{
 		Commands: slices.Sorted(maps.Keys(contracts)),
 		// The section keys are contract too: `ccx issue sections schema` takes
 		// one, and the skills that read an issue body name them.

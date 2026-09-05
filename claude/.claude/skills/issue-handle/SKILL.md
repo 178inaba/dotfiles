@@ -47,7 +47,7 @@ disable-model-invocation: true
 
 ### Issue 階層の扱い（Issue番号指定時）
 
-Issue と PR の対応は @~/.claude/skills/github-sub-issues/SKILL.md の「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力の `kind` で分岐する（出力の読み方は `ccx issue tree --help`）。取得できていなければ `ccx issue tree <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
+Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し、その「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力の `kind` で分岐する（出力の読み方は `ccx issue tree --help`）。取得できていなければ `ccx issue tree <issue-number>` を実行する。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
 
 - **`standalone`**: 単独の Issue として進める
 - **`sub`（親あり・Sub なし）**: 実装対象。以下を要件確認に加える
@@ -127,7 +127,7 @@ PlanモードではBashが使えないため、以下を**移行前に**必ず�
   - fix 系は対象を示す名詞句（`null-pointer`, `race-condition` 等）
   - 全体で60文字以内目安
 - 例: `feature/99-add-oauth-login`, `fix/42-null-pointer`, `feature/add-login-validation`（--file 指定時）
-- **worktree 名は branch 名から `/` を `-` に置換した sanitized 形式**（例: `feature/99-add-oauth-login` → `feature-99-add-oauth-login`。スキル間で worktree を相互発見するための共通規約: @~/.claude/skills/worktree-resolution/SKILL.md の「共通規約」）
+- **worktree 名は branch 名から `/` を `-` に置換した sanitized 形式**（例: `feature/99-add-oauth-login` → `feature-99-add-oauth-login`。スキル間で worktree を相互発見するための共通規約: `worktree-resolution` の「共通規約」）
 
 **Step 5. worktree 作成**（`--worktree` 指定 & 新規シナリオのみ）
 - 同梱スクリプトで worktree と branch を作成する:
@@ -162,8 +162,11 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 
 名前変更を希望されたら worktree 破棄 → 再作成で対応する: Plan モードを抜けて `ExitWorktree(action: "keep")` でメインツリーへ戻り、Step 6 の失敗時リカバリと同じ手順で破棄 → Step 4-6 を新しい名前で再実行 → 改めて EnterPlanMode。
 
-1. **参照文書の読込**
-   - @~/.claude/skills/check-plan-compliance/SKILL.md の「1. 参照文書の収集」に従い、プロジェクトCLAUDE.mdとそのリンク先文書を読み込む
+1. **参照文書の読込**（グローバル CLAUDE.md「計画立案原則」が計画者に課す事前読込。本スキル自身の責務として行う）
+   - プロジェクトルートの `CLAUDE.md` を読む（無ければこの読込は対象なしとして飛ばす）
+   - その `CLAUDE.md` がリンクしている `.md` を読む（標準 Markdown リンク `[text](path.md)` と Claude の `@import` 記法の両形式。プロジェクト内相対パス・ホーム絶対パスとも）
+   - リンク先の文書がさらにリンクしている `.md` を、**1 段だけ**追って読む
+   - リンク先が存在しない場合は警告のみ表示して続行する
    - 読み込んだ制約を以降の計画起案の前提として扱う（事後チェックではなく事前読込）
    - **再開シナリオの場合**: 事前準備で取得した前回計画ファイル・既存コミット・未コミット変更を最優先の前提として扱う
 
@@ -208,8 +211,8 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
        - [ ] プッシュ・PR作成（draft で作成。Issue番号指定時は `Closes #<issue-number>` を含める。Sub の場合は `Part of #<parent>` と、最後の Sub なら親の `Closes` も — 実装完了処理の規則に従う）
        - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
        - [ ] 同期検証を通過して PR を Ready 化
-   - **計画準拠チェック**: @~/.claude/skills/check-plan-compliance/SKILL.md の Step 2〜4 を実行（Step 1 は本Planモード冒頭で実施済みのためスキップ。`--no-plan-review` 未指定時は後続の計画検証が ExitPlanMode を担うため、Step 4 の ExitPlanMode は呼ばず計画修正までに留める。`--no-plan-review` 指定時は後続の計画検証が無いため、同スキルの原則どおり Step 4 の ExitPlanMode まで実行する）
-   - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。`@` 参照で本文を先読みしない — 同スキルが依存する共有プロトコル（fresh-reader-verification）は同スキルの起動時に添付されるもので、起動を経ずに本文だけをなぞると未読のまま検証が回る（規約: skill-authoring「スキル間参照」）。修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない
+   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を、`--no-plan-review` 未指定時は引数 `--no-exit` で、指定時は引数なしで起動する（ExitPlanMode を担うのは、`--no-plan-review` 未指定時は後続の計画検証、指定時は `check-plan-compliance` 自身）
+   - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない
    - ユーザーの承認を待つ
 
 4. **実装フェーズへ**（承認後）
@@ -262,8 +265,8 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
 - このセッションが実装専用であり、計画起案時の会話コンテキストを持たない旨
 - 計画ファイルの絶対パス（Read して承認済み計画に従う）
 - 作業範囲: 実装・テスト（想定コミット計画の単位で都度コミット）、Test/Lint 成功確認（失敗時は修正 → コミット → 再テスト）
-  - コミットは @~/.claude/skills/git-commit/SKILL.md に従い、コミット・コードコメントの言語は計画の言語方針に従う（自動言語判定はスキップ）
-  - テストコードの作成・修正は @~/.claude/skills/test-implementation/SKILL.md の3原則に従う（Step 3 の同項は親がスキップするため、委譲時はこの契約が唯一の経路）
+  - コミットは Skill ツールで `git-commit` を起動して行い、コミット・コードコメントの言語は計画の言語方針に従う（自動言語判定はスキップ）
+  - テストコードの作成・修正では Skill ツールで `test-implementation` を起動し、その3原則に従う（Step 3 の同項は親がスキップするため、委譲時はこの契約が唯一の経路）
   - テスト完了待ち等で後続単位の編集へ先行する場合も、編集を終えた計画単位は `git add <パス指定>` で先にコミットしてから進める（複数単位の未コミット変更を working tree に溜めない。実行中のテストが読むファイルと編集対象が重なる場合は先行編集しない）。計画が「テスト成功確認後にコミット」を指定していても、テスト待ちが発生する場合は先行コミットを優先し、テストで問題が出たら修正コミットを追加する（git-commit の自己完結原則の検証をテスト完了後へずらす意図的なトレードオフ）
 - **長時間処理（コマンド・バックグラウンドタスク）の待ち方**: 完了待ちだけを目的にターンを終えない（サブエージェントのターン終了は親への報告として返り、再開に SendMessage の往復が必要になる。`TaskOutput` 相当のブロッキング取得ツールは無い前提で振る舞う）。この項はこの handoff を受けた実装エージェント向け（親セッション側の待ち方は `ccx hook no-op-wait-guard` が機械的に強制する）
   - 余裕を持って 10 分以内に終わる見込み → フォアグラウンド（`timeout` 上限の 600000ms まで指定可）で同一ターン内に完了させる
@@ -298,8 +301,8 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
      - 計画した単位ごとに、実装 → テスト確認 → コミット のサイクルを回す
      - 同じファイルに無関係な変更が混ざる前にコミットすることで、後からの hunk 分割を回避
      - 実装中に計画と現実が乖離した場合は、コミット境界を調整してよい（計画通りの固定にこだわらない）
-   - テストコードの作成・修正は @~/.claude/skills/test-implementation/SKILL.md の3原則に従う
-   - コミット方針は git-commit.md に従う
+   - テストコードの作成・修正では Skill ツールで `test-implementation` を起動し、その3原則に従う
+   - コミットは Skill ツールで `git-commit` を起動して行う
    - コミット・PR・コードコメントの言語: 計画で確定した方針に従う（git-commit / git-pr の自動言語判定はスキップ）
 
 4. **Test, Lint成功確認**
@@ -312,13 +315,12 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
    - `/simplify` を実行し、変更コードの再利用性・品質・効率性を確認・修正
      - レビューエージェントは `model` を指定せず（親継承）、4 角度（reuse / simplification / efficiency / altitude）を 4 エージェントのまま起動する。diff が小さいことを理由に角度を統合・削減しない（組み込みプロンプトは Claude Code バイナリ内にありリポジトリから監査できないため、期待値をここに列挙している。角度の構成が変わっていたら組み込み側が正で、統合・削減しない点だけが不変）
      - `/simplify` の要約はサブステップの区切りでありターンの終わりではない。finding の見送り検証と修正のコミットまで済ませたら、ユーザー確認を待たず同一ターンでステップ6（実装完了処理）へ進む（禁止しているのはユーザー確認での停止だけで、長時間のテスト等バックグラウンド待ちでターンを終える規定はそのまま適用される）
-   - finding を見送る（skip する）場合、@~/.claude/skills/finding-triage/SKILL.md を読み、その規律で検証してから確定する（写像: /simplify の finding = 「対応が期待される指摘」。/simplify 組み込みスキルの skip 基準だけでは印象ベースの見送りを弾けないため）
+   - finding を見送る（skip する）場合、Skill ツールで `finding-triage` を起動し、その規律で検証してから確定する（写像: /simplify の finding = 「対応が期待される指摘」。/simplify 組み込みスキルの skip 基準だけでは印象ベースの見送りを弾けないため）
    - 修正があればコミット
 
 6. **実装完了処理**
-   - 未コミットの変更があれば @~/.claude/skills/git-commit/SKILL.md に従ってコミット
-   - @~/.claude/skills/git-pr/SKILL.md に従ってプッシュ・PR作成
-     - 計画ファイルに記録したベースブランチを `/git-pr --draft --base <base-branch>` として引き渡す（レビューループ中は draft という不変条件。Ready 化は 7-3 のみが行う）
+   - 未コミットの変更があれば Skill ツールで `git-commit` を起動してコミット
+   - Skill ツールで `git-pr` を引数 `--draft --base <base-branch>` で起動し、プッシュ・PR作成を行う（`<base-branch>` は計画ファイルに記録したベースブランチ。レビューループ中は draft という不変条件で、Ready 化は 7-3 のみが行う）
    - PR説明にIssue/仕様の背景・動機を含める（リンクだけでなく「なぜこの変更が必要か」を本文に書く）
    - Issue番号指定時: `Closes #<issue-number>` を含める
    - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of #<parent>` を書く（`parent.same_repo: false` なら `Part of <parent.repo>#<parent>`。別リポの親は兄弟が取れず `all_siblings_closed` が false のままなので `Closes` は付かない）。**PR 作成直前に `ccx issue tree <issue-number>` を再実行**し、`all_siblings_closed: true` かつ計画の親 close 方針が `PR で閉じてよい` なら `Closes #<parent>` も書く。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
@@ -337,7 +339,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
      - `fork` は親コンテキストを継承するため使わない（実装バイアスが残るため目的に反する）
    - サブエージェントへのプロンプトに以下を含める:
      - このセッションが独立レビュー専用であり、親セッションの実装コンテキストを持たない旨
-     - 実行コマンド: `/deep-review <pr-number> --issue <issue-number> --no-autofix`
+     - Skill ツールで `deep-review` を引数 `<pr-number> --issue <issue-number> --no-autofix` で起動すること
        - `<pr-number>`: ステップ6で確定した PR 番号（PR 作成後に中断した再開セッション等、同一セッションでステップ6を経由していない場合は、ステップ6と同じ手順で `<pr-number>` / `<owner/repo>` を確定し、draft 不変条件の確認もレビュー起動前に済ませる）
        - `<issue-number>`: Issue 番号（`--file` 指定時は `--issue <issue-number>` 部分を省略）
        - `--no-autofix`: 自動修正を強制OFF（修正は親セッションで行うため）
@@ -349,7 +351,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
    7-2. **親セッションで自動修正**
    - サブエージェント失敗時（Agent ツールが null/error を返した場合）はエラーを表示してユーザー判断を仰ぐ（自動リトライしない）。7-3 に到達しないため PR は draft のまま残る旨も報告に明記する
    - サブエージェントから返ってきたレビュー結果を親セッションで表示
-   - そのレビュー結果を入力として、@~/.claude/skills/finding-severity/SKILL.md の判断基準・対応リストの形式に従って対応要否を判断し、対応リストを出力する。本スキル固有の事情:
+   - そのレビュー結果を入力として、Skill ツールで `finding-severity` を起動し、その判断基準・対応リストの形式に従って対応要否を判断し、対応リストを出力する。本スキル固有の事情:
      - 親は実装コンテキストを持つため、誤指摘・前提誤りを正しく弾ける（`--delegate-impl` 時は実装報告を判断材料に加える）
      - `--delegate-impl` 時は対応する各指摘に修正方針（どう直すか）まで含める（マイクロな実装判断まで実装エージェントに落とさないため）
    - 対応リストの確定後:

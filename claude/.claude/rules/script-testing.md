@@ -34,7 +34,7 @@ Go モジュール `go/` を編集したら、対応するリグレッション�
 - テストは実環境に触れない: 外部コマンドは注入した runner インターフェース、HTTP は `httptest` で差し替える（バイナリにテスト専用の env を残さないため。シェル時代の `YQ_BIN`・`LSOF_BIN` 等はこれに置き換わって消えた）。git 操作は `t.TempDir()` の使い捨てリポジトリで完結させ、実 gh・実リポジトリに触れない
   - **`GH_BIN` だけは残る**（`go/internal/ghshim`）。実体の `gh` を探すこと自体が gh shim の仕事なので、これはテスト用の穴ではなく本番の入力
   - ファイルシステムは runner 注入の対象外で、`t.TempDir()` に実際のツリーを組んで検証してよい（`go/internal/selfbuild` の symlink 解決、`go/internal/ghshim` の本文ファイルがこの形）
-  - 例外として実リポジトリを読むテストが 3 つある（`go/internal/skill` の frontmatter 検査と `go/internal/cmd` の参照検査は実 `skills/` の検査自体が仕様、`go/internal/pullrequest` のマーカー同期テストは上記の例外）。いずれもネットワーク・認証情報・実 GitHub には触れない
-  - 参照検査が `go/internal/cmd` にあるのは、突き合わせる契約識別子を組み立てられるのがそこだけだから（どのコマンドがどの型を描画するかを知っているのは `internal/cmd`）
+  - 例外として実リポジトリを読むテストが 3 つある（`go/internal/skill` の frontmatter 検査と `go/internal/cmd` の契約検査は実 `skills/` の検査自体が仕様、`go/internal/pullrequest` のマーカー同期テストは上記の例外）。いずれもネットワーク・認証情報・実 GitHub には触れない
+  - 契約検査が `go/internal/cmd` にあるのは、突き合わせる契約識別子を組み立てられるのがそこだけだから（どのコマンドがどの型を描画するかを知っているのは `internal/cmd`）
 - 外部コマンドを実際に起動するテストは、**production がそのコマンドを叩く経路の検証**に限る（`gittest` の実 git、`go/internal/worktree` の実 `lsof`）。テスト都合のビルドやスタブスクリプトを起こす形は採らない
 - テストが無いコードを新規追加する場合は、配置規約に従う場所へテストも同時に追加する。規約から導出できない対応になる場合のみ、例外として上記へ追記する
