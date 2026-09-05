@@ -56,7 +56,7 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 
 ### 配置規約
 - 起動口は `ccx <group> <name>` のサブコマンド。実装コードの置き場所は `~/.claude/rules/script-testing.md` にある
-- **ドメインで切る**（`issue` / `pullrequest` / `worktree` / `reviewprs` / `skill`）。スキルごとではない — 同じ対象を触るコマンドは 1 パッケージに収め、スキル間で共有するものも同じ場所に置く
+- **ドメインで切る**（`issue` / `pullrequest` / `worktree` / `reviewprs` / `skill` / `plandocs`）。スキルごとではない — 同じ対象を触るコマンドは 1 パッケージに収め、スキル間で共有するものも同じ場所に置く
 - `skills/<skill-name>/scripts/` は使わない。frontmatter 検査はスキルディレクトリ直下に置いてよいものを知り続ける必要があるため、ここに規約が残っている
 
 ### 出力契約

@@ -102,6 +102,7 @@ func TestHelpRendersTheContract(t *testing.T) {
 // refresh commands are not among them.
 func TestEverySkillFacingCommandHasAContract(t *testing.T) {
 	want := []string{
+		"plan docs",
 		"issue tree",
 		"issue sections schema", "issue sections list", "issue sections check", "issue sections find",
 		"pr context", "pr seen", "pr freshness", "pr prepare-review", "pr post-review", "pr reply-threads",
