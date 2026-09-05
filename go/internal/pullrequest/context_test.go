@@ -816,3 +816,181 @@ func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 		})
 	}
 }
+
+// fullContext is the smallest document that satisfies every declaration on
+// Context: the eight fields its readers depend on and nothing else. What
+// `ccx pr context` writes carries far more, none of which is declared, so
+// building the document here rather than fetching one keeps each case below
+// about the one field it edits.
+func fullContext() map[string]any {
+	return map[string]any{
+		"repo":      "owner/repo",
+		"is_own_pr": false,
+		"pr": map[string]any{
+			"number":   5,
+			"base_ref": "main",
+			"head_ref": "feature/x",
+			"head_oid": "abc123",
+		},
+		"review_threads": []any{},
+	}
+}
+
+// drop removes what the path names and put writes a value there, walking the
+// one nested object the declaration reaches into.
+func drop(path ...string) func(map[string]any) {
+	return func(m map[string]any) {
+		obj, last := walkTo(m, path)
+		delete(obj, last)
+	}
+}
+
+func put(value any, path ...string) func(map[string]any) {
+	return func(m map[string]any) {
+		obj, last := walkTo(m, path)
+		obj[last] = value
+	}
+}
+
+func walkTo(m map[string]any, path []string) (map[string]any, string) {
+	for _, key := range path[:len(path)-1] {
+		m = m[key].(map[string]any)
+	}
+	return m, path[len(path)-1]
+}
+
+// edited is one case's document, as the bytes a parser is given.
+func edited(t *testing.T, edit func(map[string]any)) []byte {
+	t.Helper()
+
+	doc := fullContext()
+	if edit != nil {
+		edit(doc)
+	}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal the case document: %v", err)
+	}
+	return b
+}
+
+// TestParseContextRefusesADocumentAgainstItsDeclaration covers what used to be
+// three sets of hand-written checks in three parsers. The union is declared
+// once on Context, so every reader of a context file refuses the same
+// documents whichever fields it goes on to dereference.
+func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		edit func(map[string]any)
+		want string
+	}{
+		{name: "the whole document"},
+
+		{name: "no repo", edit: drop("repo"), want: "ctx.json is missing repo"},
+		{name: "null repo", edit: put(nil, "repo"), want: "ctx.json is missing repo"},
+		{name: "empty repo", edit: put("", "repo"), want: "ctx.json sets repo to an empty string"},
+
+		// The object the four below sit in. Without it they are not absent to
+		// a validator that reads a nested declaration only where the document
+		// supplied the object, and a reader would find a zero number.
+		{name: "no pr", edit: drop("pr"), want: "ctx.json is missing pr"},
+		{name: "null pr", edit: put(nil, "pr"), want: "ctx.json is missing pr"},
+
+		{name: "no is_own_pr", edit: drop("is_own_pr"), want: "ctx.json is missing is_own_pr"},
+		{name: "null is_own_pr", edit: put(nil, "is_own_pr"), want: "ctx.json is missing is_own_pr"},
+
+		{name: "no review_threads", edit: drop("review_threads"), want: "ctx.json is missing review_threads"},
+		{name: "null review_threads", edit: put(nil, "review_threads"), want: "ctx.json is missing review_threads"},
+
+		{name: "no pr.number", edit: drop("pr", "number"), want: "pr is missing number in ctx.json"},
+		{name: "null pr.number", edit: put(nil, "pr", "number"), want: "pr is missing number in ctx.json"},
+		{name: "zero pr.number", edit: put(0, "pr", "number"), want: "pr sets number to a number that is not positive in ctx.json"},
+		{name: "negative pr.number", edit: put(-1, "pr", "number"), want: "pr sets number to a number that is not positive in ctx.json"},
+
+		{name: "no pr.base_ref", edit: drop("pr", "base_ref"), want: "pr is missing base_ref in ctx.json"},
+		{name: "null pr.base_ref", edit: put(nil, "pr", "base_ref"), want: "pr is missing base_ref in ctx.json"},
+		{name: "empty pr.base_ref", edit: put("", "pr", "base_ref"), want: "pr sets base_ref to an empty string in ctx.json"},
+
+		{name: "no pr.head_ref", edit: drop("pr", "head_ref"), want: "pr is missing head_ref in ctx.json"},
+		{name: "null pr.head_ref", edit: put(nil, "pr", "head_ref"), want: "pr is missing head_ref in ctx.json"},
+		{name: "empty pr.head_ref", edit: put("", "pr", "head_ref"), want: "pr sets head_ref to an empty string in ctx.json"},
+
+		{name: "no pr.head_oid", edit: drop("pr", "head_oid"), want: "pr is missing head_oid in ctx.json"},
+		{name: "null pr.head_oid", edit: put(nil, "pr", "head_oid"), want: "pr is missing head_oid in ctx.json"},
+		{name: "empty pr.head_oid", edit: put("", "pr", "head_oid"), want: "pr sets head_oid to an empty string in ctx.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := edited(t, tc.edit)
+			got, err := pullrequest.ParseContext(b, "ctx.json")
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("ParseContext(%s) = %v, want it accepted", b, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ParseContext(%s) = %+v, want the error %q", b, got, tc.want)
+			}
+			if err.Error() != tc.want {
+				t.Errorf("ParseContext(%s) = %q, want %q", b, err, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseContextKeepsTheUnconstrainedFieldsWhole is the other half of the
+// declaration: false and the empty list are answers `ccx pr context` writes,
+// so a rule that read either as absence would refuse a document that says
+// exactly what it means.
+func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
+	t.Parallel()
+
+	want := pullrequest.Context{
+		Repo: "owner/repo",
+		PR: pullrequest.PR{
+			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
+		},
+		ReviewThreads: []pullrequest.Thread{},
+	}
+
+	got, err := pullrequest.ParseContext(edited(t, nil), "ctx.json")
+	if err != nil {
+		t.Fatalf("ParseContext: %v", err)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ParseContext (-want +got):\n%s", diff)
+	}
+
+	own, err := pullrequest.ParseContext(edited(t, put(true, "is_own_pr")), "ctx.json")
+	if err != nil {
+		t.Fatalf("ParseContext: %v", err)
+	}
+	if !own.IsOwnPR {
+		t.Error("is_own_pr true was read as false")
+	}
+}
+
+// TestParseContextReportsAMalformedDocument is the decoder's own complaint
+// arriving through the same entry point, in the words a violation uses.
+func TestParseContextReportsAMalformedDocument(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ name, in string }{
+		{"not JSON at all", "not json"},
+		{"a field of the wrong kind", `{"repo":5}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got, err := pullrequest.ParseContext([]byte(tc.in), "ctx.json"); err == nil {
+				t.Fatalf("ParseContext(%s) = %+v, want a failure", tc.in, got)
+			} else if !strings.Contains(err.Error(), "ctx.json") {
+				t.Errorf("ParseContext(%s) = %q, want it to name the document", tc.in, err)
+			}
+		})
+	}
+}

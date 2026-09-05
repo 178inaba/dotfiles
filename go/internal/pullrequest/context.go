@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 )
 
@@ -31,15 +32,15 @@ const SkillMarker = "<!-- review-response -->"
 
 // PR is the pull request itself.
 type PR struct {
-	Number  int           `json:"number"`
+	Number  int           `json:"number" contract:"required,positive"`
 	Title   string        `json:"title"`
 	Body    string        `json:"body"`
 	URL     string        `json:"url"`
 	State   ghapi.PRState `json:"state"`
 	Author  string        `json:"author"`
-	HeadRef string        `json:"head_ref"`
-	BaseRef string        `json:"base_ref"`
-	HeadOID string        `json:"head_oid"`
+	HeadRef string        `json:"head_ref" contract:"required,nonempty"`
+	BaseRef string        `json:"base_ref" contract:"required,nonempty"`
+	HeadOID string        `json:"head_oid" contract:"required,nonempty"`
 }
 
 // LinkedIssue is an issue the pull request closes.
@@ -163,10 +164,10 @@ type Thread struct {
 // Context is everything one review needs, in the order the contract publishes
 // it.
 type Context struct {
-	Repo        string `json:"repo"`
+	Repo        string `json:"repo" contract:"required,nonempty"`
 	CurrentUser string `json:"current_user"`
-	IsOwnPR     bool   `json:"is_own_pr"`
-	PR          PR     `json:"pr"`
+	IsOwnPR     bool   `json:"is_own_pr" contract:"required"`
+	PR          PR     `json:"pr" contract:"required"`
 	// What the body's closing keywords name, which is what
 	// GitHub itself would close on merge.
 	LinkedIssues []LinkedIssue `json:"linked_issues"`
@@ -187,7 +188,7 @@ type Context struct {
 	Reviews            []Review  `json:"reviews"`
 	ThreadsTotalCount  int       `json:"threads_total_count"`
 	ThreadsTruncated   bool      `json:"threads_truncated"`
-	ReviewThreads      []Thread  `json:"review_threads"`
+	ReviewThreads      []Thread  `json:"review_threads" contract:"required"`
 	// The degradations that did not stop the document being
 	// useful: one line per issue that could not be read, as owner/repo#N
 	// followed by why. Empty rather than null when everything was read. What
@@ -195,6 +196,38 @@ type Context struct {
 	// that, and a caller answers it by raising the limit rather than by
 	// reading prose.
 	Warnings []string `json:"warnings"`
+}
+
+// ParseContext reads a context file, held to Context's own declaration.
+//
+// The whole document rather than the part any one caller uses: the three
+// commands that read a context file dereference different fields of it, and a
+// subset decoded here would be a second declaration of fields Context has
+// already published. What each of them goes on to hand its caller is a
+// projection off the value this returns.
+//
+// Which fields carry a tag is settled the same way. A tag is a statement about
+// the document rather than about a reader, so the union of what the three
+// dereference is declared: repo, pr and its number, base_ref, head_ref and
+// head_oid, is_own_pr, and review_threads. The value rules go on with them —
+// the readers refused an empty repo and a zero number before this, and
+// presence alone would newly accept them. is_own_pr and review_threads get
+// none, because false and the empty list are answers `ccx pr context` writes.
+// pr is declared for a reason of the validator's rather than of any reader's:
+// a nested declaration is read only where the document supplied the object it
+// sits on, so without it a document with no pr at all would pass the four
+// rules under it.
+//
+// The doc comments of those types are rendered into a --help, which is why
+// none of this is written there.
+//
+// file is what a refusal names, since the path is the caller's.
+func ParseContext(b []byte, file string) (Context, error) {
+	var c Context
+	if err := contract.Unmarshal(b, &c, file); err != nil {
+		return Context{}, err
+	}
+	return c, nil
 }
 
 // Limits stop an unusually large pull request from costing an unbounded number

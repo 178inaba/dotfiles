@@ -100,55 +100,40 @@ func TestRequireInWorkDir(t *testing.T) {
 	}
 }
 
-func TestParseCheckout(t *testing.T) {
+// TestContextCheckout pins the projection alone; what a context file has to
+// carry is the declaration's and is covered where that is enforced.
+func TestContextCheckout(t *testing.T) {
 	t.Parallel()
 
-	const full = `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"},"is_own_pr":true}`
-
-	tests := []struct {
-		name    string
-		in      string
-		want    worktree.PullRequest
-		wantErr string
+	for _, tc := range []struct {
+		name string
+		in   pullrequest.Context
+		want worktree.PullRequest
 	}{
 		{
-			name: "every field",
-			in:   full,
-			want: worktree.PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
+			name: "somebody else's pull request",
+			in: pullrequest.Context{
+				PR: pullrequest.PR{HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main"},
+			},
+			want: worktree.PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main"},
 		},
 		{
 			// false is an answer, and reading its absence as one would treat a
-			// reviewer's checkout as the author's.
-			name: "is_own_pr false",
-			in:   `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"},"is_own_pr":false}`,
-			want: worktree.PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main"},
+			// reviewer's checkout as the author's. The declaration is what
+			// keeps the two apart, so this reads a plain bool.
+			name: "our own pull request",
+			in: pullrequest.Context{
+				IsOwnPR: true,
+				PR:      pullrequest.PR{HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main"},
+			},
+			want: worktree.PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
 		},
-		{name: "no head_oid", in: `{"pr":{"head_ref":"feature/x","base_ref":"main"},"is_own_pr":true}`, wantErr: "pr.head_oid missing"},
-		{name: "no head_ref", in: `{"pr":{"head_oid":"abc123","base_ref":"main"},"is_own_pr":true}`, wantErr: "pr.head_ref missing"},
-		{name: "no base_ref", in: `{"pr":{"head_oid":"abc123","head_ref":"feature/x"},"is_own_pr":true}`, wantErr: "pr.base_ref missing"},
-		{name: "no is_own_pr", in: `{"pr":{"head_oid":"abc123","head_ref":"feature/x","base_ref":"main"}}`, wantErr: "is_own_pr missing"},
-		{name: "not json at all", in: `not json`, wantErr: "decode"},
-	}
-
-	for _, tc := range tests {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := pullrequest.ParseCheckout([]byte(tc.in))
-			if tc.wantErr != "" {
-				if err == nil {
-					t.Fatalf("ParseCheckout = %+v, want an error mentioning %q", got, tc.wantErr)
-				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Errorf("ParseCheckout error = %q, want it to mention %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ParseCheckout: %v", err)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ParseCheckout (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tc.want, tc.in.Checkout()); diff != "" {
+				t.Errorf("Checkout (-want +got):\n%s", diff)
 			}
 		})
 	}

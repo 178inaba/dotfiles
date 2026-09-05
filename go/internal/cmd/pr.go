@@ -37,17 +37,14 @@ func prFreshnessCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			pr, err := pullrequest.ParseCheckout([]byte(content))
+			prContext, err := pullrequest.ParseContext([]byte(content), args[0])
 			if err != nil {
-				// The package reports the field without naming the file,
-				// because the path is the caller's; a message that says which
-				// file is missing a field is the useful one.
-				return silent(fmt.Errorf("%v in %s", err, args[0]))
+				return silent(err)
 			}
 
 			// The working directory, which is the checkout the caller means:
 			// these run inside the worktree being reviewed in.
-			report, err := worktree.CheckFreshness(c.Context(), runner.Exec{}, ".", pr)
+			report, err := worktree.CheckFreshness(c.Context(), runner.Exec{}, ".", prContext.Checkout())
 			if err != nil {
 				return silent(err)
 			}
@@ -279,9 +276,9 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			target, err := pullrequest.ParseTarget([]byte(context))
+			prContext, err := pullrequest.ParseContext([]byte(context), contextFile)
 			if err != nil {
-				return silent(fmt.Errorf("%v in %s", err, contextFile))
+				return silent(err)
 			}
 			// The directory check comes before the contents: a comment
 			// anchored to the wrong pull request is caught by the line check
@@ -299,7 +296,7 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			posted, err := pullrequest.Post(c.Context(), runner.Exec{}, client, ".", target, submission)
+			posted, err := pullrequest.Post(c.Context(), runner.Exec{}, client, ".", prContext.Target(), submission)
 			if err != nil {
 				return silent(err)
 			}
@@ -326,14 +323,14 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			known, headOID, err := pullrequest.ParseThreads([]byte(context))
+			prContext, err := pullrequest.ParseContext([]byte(context), contextFile)
 			if err != nil {
-				return silent(fmt.Errorf("%v in %s", err, contextFile))
+				return silent(err)
 			}
 			if err := pullrequest.RequireInWorkDir(threadsFile, "threads_path", contextFile); err != nil {
 				return silent(err)
 			}
-			if err := pullrequest.RequireHead(c.Context(), runner.Exec{}, ".", headOID, "replying or resolving"); err != nil {
+			if err := pullrequest.RequireHead(c.Context(), runner.Exec{}, ".", prContext.PR.HeadOID, "replying or resolving"); err != nil {
 				return silent(err)
 			}
 
@@ -360,7 +357,7 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 			req := pullrequest.ReplyRequest{
-				Actions: actions, Threads: known, ContextFile: contextFile, ThreadsFile: threadsFile,
+				Actions: actions, Threads: prContext.KnownThreads(), ContextFile: contextFile, ThreadsFile: threadsFile,
 			}
 			if dryRun {
 				planned, err := pullrequest.DryRun(c.Context(), client, req)
