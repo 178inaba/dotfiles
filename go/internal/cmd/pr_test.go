@@ -88,6 +88,26 @@ func TestPRSeen(t *testing.T) {
 	}
 }
 
+// A mark the command does not own is refused on its own terms, before the body
+// is looked for. Resolving the body first reports a missing file for a run
+// whose real fault is the mark, which sends the reader to fix the wrong thing.
+func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	code := run(t.Context(), []string{
+		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z"),
+		"--mark", "other", "--body-file", "nowhere.md",
+	}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
+
+	if code == 0 {
+		t.Fatal("`ccx pr comment --mark other` = 0, want a refusal")
+	}
+	if !strings.Contains(errOut.String(), "unknown mark") {
+		t.Errorf("stderr = %q, want it to name the mark as the fault", errOut.String())
+	}
+}
+
 // TestStateHome pins where a judged pull request is recorded. Not parallel,
 // and here rather than in pullrequest, for the reason the clone workspace's
 // equivalent is: t.Setenv changes the whole process, so the package that keeps

@@ -26,6 +26,19 @@ type Mark string
 // MarkReviewResponse is the only mark, and resolves to SkillMarker.
 const MarkReviewResponse Mark = "review-response"
 
+// ParseMark reads what a caller asked to mark a comment with.
+//
+// Separate from posting so that a caller can settle the mark before it goes
+// looking for a body: a run whose mark is wrong reports a missing file
+// otherwise, which sends the reader to fix the wrong thing.
+func ParseMark(name string) (Mark, error) {
+	m := Mark(name)
+	if _, err := m.marker(); err != nil {
+		return "", err
+	}
+	return m, nil
+}
+
 func (m Mark) marker() (string, error) {
 	if m == MarkReviewResponse {
 		return SkillMarker, nil

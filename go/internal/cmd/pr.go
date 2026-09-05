@@ -413,6 +413,12 @@ func prCommentCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
+			// Before the body is looked for: a run whose mark is wrong would
+			// otherwise be told about a missing file it does not have.
+			parsedMark, err := pullrequest.ParseMark(mark)
+			if err != nil {
+				return silent(err)
+			}
 			body, err := pullrequest.ParseCommentBody(pullrequest.WorkDir(contextFile), bodyFile)
 			if err != nil {
 				return silent(err)
@@ -423,7 +429,7 @@ func prCommentCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 			posted, err := pullrequest.PostComment(c.Context(), runner.Exec{}, client, ".",
-				prContext.Target(), pullrequest.Mark(mark), body)
+				prContext.Target(), parsedMark, body)
 			if err != nil {
 				return silent(err)
 			}
