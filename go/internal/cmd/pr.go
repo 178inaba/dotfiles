@@ -123,23 +123,30 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 // stateHome is the directory the record of a judged pull request is kept
 // under, empty where there is nowhere to derive one.
 //
-// Here rather than in the package, for the reason cloneOptions is: t.Setenv
-// changes the whole process and forbids a parallel test, so the package takes
-// the directory as a parameter and only this thin reader touches the
-// environment. The rule is the XDG default — the variable, else ~/.local/state
-// — which is the shape cloneOptions already follows for the data directory.
-func stateHome() string {
-	if home := os.Getenv("XDG_STATE_HOME"); home != "" {
-		return home
+// Here rather than in the package, for the reason the clone workspace's
+// equivalent is: t.Setenv changes the whole process and forbids a parallel
+// test, so the package that keeps the record takes the directory as a
+// parameter and only this thin reader touches the environment.
+func stateHome() string { return xdgDir("XDG_STATE_HOME", "state") }
+
+// xdgDir resolves one XDG base directory: the variable where it is set, and
+// ~/.local/<fallback> where it is not.
+//
+// The empty string where there is no home directory to build on, which is
+// nothing this package can recover from and which each caller answers for
+// itself — a read of a record degrades to "nothing recorded", a write refuses.
+//
+// One implementation because there is one rule. Written twice, the second XDG
+// root to be added would copy whichever spelling it happened to sit beside.
+func xdgDir(variable, fallback string) string {
+	if dir := os.Getenv(variable); dir != "" {
+		return dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		// Nothing to build a path out of. Reported by whoever tries to write;
-		// a read of the record degrades to "nothing recorded", which counts
-		// everything and loses nothing.
 		return ""
 	}
-	return filepath.Join(home, ".local", "state")
+	return filepath.Join(home, ".local", fallback)
 }
 
 // currentRepo names the repository these commands work on.
@@ -175,19 +182,22 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, numbe
 	return pr, nil
 }
 
-// storeContext writes a fetched context to the path it is given.
+// storeJSON writes a document to the path it is given, through a temporary
+// file in the same directory, so that a run interrupted halfway leaves no
+// partial document where a complete one is expected.
 //
-// Through a temporary file in the same directory, so that a run interrupted
-// halfway leaves no partial document where a complete one is expected.
-func storeContext(path string, c pullrequest.Context) error {
+// One implementation for every document this package writes: the sequence is
+// here precisely because getting it wrong leaves a torn file, and a second
+// copy is one a later hardening would silently miss.
+func storeJSON(path, tmpPrefix string, v any) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".pr-context.*")
+	tmp, err := os.CreateTemp(dir, tmpPrefix)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
 
-	if err := renderJSON(tmp, c); err != nil {
+	if err := renderJSON(tmp, v); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -197,27 +207,17 @@ func storeContext(path string, c pullrequest.Context) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// storeContext writes a fetched context to the path it is given.
+func storeContext(path string, c pullrequest.Context) error {
+	return storeJSON(path, ".pr-context.*", c)
+}
+
 // storeSeen writes one record of a judged pull request to the path it is
-// given, the way storeContext writes the document: whole to a temporary file
-// beside it and renamed into place, so that a run interrupted halfway leaves
-// either the previous record or the new one and never a torn value the next
+// given, atomically as the document is: a run interrupted halfway leaves
+// either the previous record or the new one, and never a torn value the next
 // run would read as nothing recorded.
 func storeSeen(path string, s pullrequest.Seen) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".seen.*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-
-	if err := renderJSON(tmp, s); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return storeJSON(path, ".seen.*", s)
 }
 
 // prSeenCmd builds `ccx pr seen`, which a skill runs at the end of a run that
@@ -413,12 +413,7 @@ func prCommentCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			// A bare name, as a threads file's body_file is: a path would
-			// reach round the directory binding the work dir exists to make.
-			if bodyFile != filepath.Base(bodyFile) {
-				return silent(fmt.Errorf("--body-file takes a bare file name, not a path: %s", bodyFile))
-			}
-			body, err := readFile(filepath.Join(pullrequest.WorkDir(contextFile), bodyFile), "body file")
+			body, err := pullrequest.ParseCommentBody(pullrequest.WorkDir(contextFile), bodyFile)
 			if err != nil {
 				return silent(err)
 			}
@@ -437,17 +432,11 @@ func prCommentCmd(build selfbuild.State) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&mark, "mark", "", "the marker to write at the front of the comment (review-response)")
 	cmd.Flags().StringVar(&bodyFile, "body-file", "", "the name of a markdown file in the work dir holding the body")
-	must(cmd.MarkFlagRequired("mark"))
-	must(cmd.MarkFlagRequired("body-file"))
+	// Discarded as the other required flags in this package are: the only way
+	// these fail is on a flag this function did not declare.
+	_ = cmd.MarkFlagRequired("mark")
+	_ = cmd.MarkFlagRequired("body-file")
 	return cmd
-}
-
-// must is for the flag registrations that can only fail on a flag this file
-// did not declare, which is a programmer's error rather than a caller's.
-func must(err error) {
-	if err != nil {
-		panic(err)
-	}
 }
 
 func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {

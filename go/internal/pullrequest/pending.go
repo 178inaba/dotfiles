@@ -83,6 +83,7 @@ func Pending(c Context, since *string) PendingSet {
 		Reviews:  []PendingReview{},
 		Comments: []PendingComment{},
 	}
+	mark := watermark(since)
 
 	for _, t := range c.ReviewThreads {
 		if t.Ball != BallMine {
@@ -107,7 +108,7 @@ func Pending(c Context, since *string) PendingSet {
 			r.State == "APPROVED" || r.State == "DISMISSED" {
 			continue
 		}
-		if !arrivedSince(r.SubmittedAt, r.LastEditedAt, since) {
+		if !arrivedSince(r.SubmittedAt, r.LastEditedAt, mark) {
 			continue
 		}
 		p.Reviews = append(p.Reviews, PendingReview{
@@ -117,7 +118,7 @@ func Pending(c Context, since *string) PendingSet {
 	}
 
 	for _, comment := range c.Comments {
-		if comment.IsSkillComment || !arrivedSince(comment.CreatedAt, comment.LastEditedAt, since) {
+		if comment.IsSkillComment || !arrivedSince(comment.CreatedAt, comment.LastEditedAt, mark) {
 			continue
 		}
 		p.Comments = append(p.Comments, PendingComment{
@@ -128,46 +129,45 @@ func Pending(c Context, since *string) PendingSet {
 	return p
 }
 
-// arrivedSince reports whether something written at made or last changed its
-// point at or after the watermark.
+// watermark is the instant a count measures against, the zero time where
+// there is nothing to measure against.
 //
-// The later of the two dates, so that a remark rewritten after a run had
-// already judged it is a remark again. Equality counts: the watermark is the
-// instant a read began, truncated to the second, and excluding that second
-// would lose whatever was submitted inside it.
-//
-// A date that will not parse counts, on either side. Everything else here
-// degrades towards reading a remark twice rather than towards never seeing it,
-// and one unreadable timestamp should not silently retire a review.
-func arrivedSince(at string, edited, since *string) bool {
+// Read once per count rather than once per element: it is the same string
+// either way. The two ways there can be no mark — nothing recorded, and a
+// record nobody could read — need not be told apart, since no timestamp is
+// before the zero time and everything therefore counts.
+func watermark(since *string) time.Time {
 	if since == nil {
-		return true
+		return time.Time{}
 	}
 	mark, err := time.Parse(time.RFC3339, *since)
 	if err != nil {
-		return true
+		return time.Time{}
 	}
-	newest, ok := latest(at, edited)
-	if !ok {
-		return true
-	}
-	return !newest.Before(mark)
+	return mark
 }
 
-// latest is the later of a creation date and an edit date, and whether either
-// could be read at all.
-func latest(at string, edited *string) (time.Time, bool) {
-	newest, err := time.Parse(time.RFC3339, at)
-	ok := err == nil
-	if edited == nil {
-		return newest, ok
+// arrivedSince reports whether something created at, and possibly edited
+// since, has anything to say the run behind the watermark has not seen.
+//
+// Either date is enough: a remark rewritten after a run had already judged it
+// is a remark again, and equality counts because the watermark is the instant
+// a read began truncated to the second — excluding that second would lose
+// whatever was submitted inside it.
+//
+// A date that will not parse counts, whichever of the two it is. Everything
+// here degrades towards reading a remark twice rather than towards never
+// seeing it, and one unreadable timestamp should not silently retire a review.
+func arrivedSince(at string, edited *string, mark time.Time) bool {
+	dates := []string{at}
+	if edited != nil {
+		dates = append(dates, *edited)
 	}
-	editedAt, err := time.Parse(time.RFC3339, *edited)
-	if err != nil {
-		return newest, ok
+	for _, d := range dates {
+		t, err := time.Parse(time.RFC3339, d)
+		if err != nil || !t.Before(mark) {
+			return true
+		}
 	}
-	if !ok || editedAt.After(newest) {
-		return editedAt, true
-	}
-	return newest, true
+	return false
 }

@@ -4,6 +4,8 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,6 +20,43 @@ import (
 type posted struct {
 	path string
 	body string
+}
+
+func TestParseCommentBody(t *testing.T) {
+	t.Parallel()
+
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "report.md"), []byte("# Done\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := pullrequest.ParseCommentBody(work, "report.md")
+	if err != nil {
+		t.Fatalf("ParseCommentBody: %v", err)
+	}
+	if got != "# Done\n" {
+		t.Errorf("body = %q, want the file's content", got)
+	}
+
+	for _, tc := range []struct {
+		name, file, wantErr string
+	}{
+		// A path would reach round the directory binding that keeps parallel
+		// runs on different pull requests out of each other's files.
+		{name: "a path", file: "sub/report.md", wantErr: "bare file name"},
+		{name: "nothing named", file: "", wantErr: "bare file name"},
+		{name: "not there", file: "nope.md", wantErr: "not found in the work dir"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := pullrequest.ParseCommentBody(work, tc.file); err == nil {
+				t.Fatalf("ParseCommentBody(%q) = nil, want a refusal", tc.file)
+			} else if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
+			}
+		})
+	}
 }
 
 func TestPostComment(t *testing.T) {

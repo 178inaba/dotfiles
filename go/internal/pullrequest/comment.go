@@ -3,6 +3,7 @@ package pullrequest
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -35,6 +36,21 @@ func (m Mark) marker() (string, error) {
 // Commented is where the comment ended up.
 type Commented struct {
 	URL string `json:"url"`
+}
+
+// ParseCommentBody reads a comment's body out of the work dir paired with a
+// context file.
+//
+// Here rather than at the command line so that every body a run posts — a
+// review's, a reply's, a comment's — is joined, read and refused in one place.
+// A bare name for the reason the two documents declare one: a path would reach
+// round the directory binding that keeps parallel runs on different pull
+// requests out of each other's files.
+func ParseCommentBody(workDir, bodyFile string) (string, error) {
+	if bodyFile == "" || bodyFile != filepath.Base(bodyFile) {
+		return "", fmt.Errorf("the body file must be a bare file name, not a path: %s", bodyFile)
+	}
+	return resolveBody(nil, &bodyFile, workDir)
 }
 
 // PostComment posts one comment on a pull request, marked as ours.

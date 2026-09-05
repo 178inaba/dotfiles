@@ -141,15 +141,33 @@ func TestPendingCountsFromASince(t *testing.T) {
 func TestPendingCountsWhatItCannotDate(t *testing.T) {
 	t.Parallel()
 
-	c := countable()
-	c.Comments = append(c.Comments, pullrequest.Comment{
-		Author: new("reviewer"), Body: "undated", CreatedAt: "not a date", URL: "https://example.com/c9",
-	})
+	// Every shape an unreadable date can take, each paired with a readable one
+	// that is old enough to be excluded on its own: what is asserted is that
+	// the unreadable half is what carries the element through.
+	for _, tc := range []struct {
+		name      string
+		createdAt string
+		edited    *string
+	}{
+		{name: "no date at all", createdAt: "not a date"},
+		{name: "an unreadable creation date beside an old edit", createdAt: "not a date", edited: new("2026-01-01T00:00:00Z")},
+		{name: "an unreadable edit date beside an old creation", createdAt: "2026-01-01T00:00:00Z", edited: new("whenever")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	got := pullrequest.Pending(c, new("2026-06-01T00:00:00Z"))
+			c := countable()
+			c.Comments = append(c.Comments, pullrequest.Comment{
+				Author: new("reviewer"), Body: "undated", CreatedAt: tc.createdAt,
+				LastEditedAt: tc.edited, URL: "https://example.com/c9",
+			})
 
-	if !slices.Contains(urls(got.Comments, commentURL), "https://example.com/c9") {
-		t.Errorf("comments = %v, want the undated one among them", urls(got.Comments, commentURL))
+			got := pullrequest.Pending(c, new("2026-06-01T00:00:00Z"))
+
+			if !slices.Contains(urls(got.Comments, commentURL), "https://example.com/c9") {
+				t.Errorf("comments = %v, want the undated one among them", urls(got.Comments, commentURL))
+			}
+		})
 	}
 }
 
