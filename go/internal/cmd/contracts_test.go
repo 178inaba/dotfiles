@@ -108,7 +108,7 @@ func TestEverySkillFacingCommandHasAContract(t *testing.T) {
 		"worktree detect", "worktree create", "worktree resolve", "worktree checkout",
 		"worktree collect", "worktree delete",
 		"review pending", "review verify", "review clone",
-		"skill frontmatter", "skill refs",
+		"skill frontmatter", "skill contract",
 	}
 	for _, path := range want {
 		if _, ok := contracts[path]; !ok {

@@ -1,6 +1,9 @@
 package skill_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/skill"
@@ -8,12 +11,12 @@ import (
 
 // published stands in for what the commands publish. internal/cmd assembles
 // the real set; written out here so the check can be exercised without it.
-var published = skill.Contract{
+var published = skill.Published{
 	Commands:    []string{"worktree collect", "issue tree"},
 	Identifiers: []string{"head_oid", "in_use_by_process", "all_sub_issues_closed", "release_manual_steps"},
 }
 
-func TestCheckRefsContractFields(t *testing.T) {
+func TestCheckContract(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -70,9 +73,9 @@ func TestCheckRefsContractFields(t *testing.T) {
 			root := t.TempDir()
 			write(t, root, "sample", "---\nname: sample\ndescription: x\n---\n\n"+tc.body)
 
-			got, err := skill.CheckRefs(root, published)
+			got, err := skill.CheckContract(root, published)
 			if err != nil {
-				t.Fatalf("CheckRefs: %v", err)
+				t.Fatalf("CheckContract: %v", err)
 			}
 
 			var unknown []string
@@ -88,6 +91,38 @@ func TestCheckRefsContractFields(t *testing.T) {
 				if unknown[i] != w {
 					t.Errorf("unknown contract field %d = %q, want %q", i, unknown[i], w)
 				}
+			}
+		})
+	}
+}
+
+func TestCheckContractFails(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		target  string
+		wantErr string
+	}{
+		{name: "a directory that is not there", target: filepath.Join(root, "nope"), wantErr: "skills directory not found"},
+		{name: "a directory holding no skills", target: root, wantErr: "no */SKILL.md found"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := skill.CheckContract(tc.target, published)
+			if err == nil {
+				t.Fatalf("CheckContract = %+v, want an error mentioning %q", got, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
 			}
 		})
 	}

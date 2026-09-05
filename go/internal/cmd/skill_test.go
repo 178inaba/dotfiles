@@ -10,7 +10,7 @@ import (
 )
 
 // TestPublishedNamesTheContract keeps the set from quietly emptying, which
-// would turn `ccx skill refs` into a check that passes on anything.
+// would turn `ccx skill contract` into a check that passes on anything.
 func TestPublishedNamesTheContract(t *testing.T) {
 	got := published()
 
@@ -25,18 +25,19 @@ func TestPublishedNamesTheContract(t *testing.T) {
 	}
 }
 
-// TestSkillRefsOnThisRepository is the case a fixture cannot make: what this
-// repository's skills actually say holds together. Here rather than beside
-// CheckRefs because the contract it checks against is assembled here.
-func TestSkillRefsOnThisRepository(t *testing.T) {
+// TestSkillContractOnThisRepository is the case a fixture cannot make: what
+// this repository's skills actually name holds together. Here rather than
+// beside CheckContract because the contract it checks against is assembled
+// here.
+func TestSkillContractOnThisRepository(t *testing.T) {
 	skills := filepath.Join("..", "..", "..", "claude", ".claude", "skills")
 	if _, err := os.Stat(skills); err != nil {
 		t.Skipf("the repository's skills are not there: %v", err)
 	}
 
-	got, err := skill.CheckRefs(skills, published())
+	got, err := skill.CheckContract(skills, published())
 	if err != nil {
-		t.Fatalf("CheckRefs: %v", err)
+		t.Fatalf("CheckContract: %v", err)
 	}
 	for _, v := range got.Violations {
 		t.Errorf("%s:%d %s %s", v.File, v.Line, v.Type, v.Ref)

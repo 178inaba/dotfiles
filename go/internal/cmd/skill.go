@@ -14,7 +14,7 @@ import (
 // SKILL.md files themselves.
 func newSkillCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("skill", "Check the SKILL.md files a skill is defined by")
-	c.AddCommand(skillFrontmatterCmd(build), skillRefsCmd(build))
+	c.AddCommand(skillFrontmatterCmd(build), skillContractCmd(build))
 	return c
 }
 
@@ -64,15 +64,15 @@ func skillsDir() (string, error) {
 	return filepath.Join(repo, "claude", ".claude", "skills"), nil
 }
 
-// skillRefsCmd builds `ccx skill refs`.
+// skillContractCmd builds `ccx skill contract`.
 //
-// A `@` reference attaches its target one level only, and nothing says so when
-// a second hop goes unattached — which is how a verification once ran with its
-// convergence protocol unread.
-func skillRefsCmd(build selfbuild.State) *cobra.Command {
+// A skill names the fields of the commands it runs, and a rename that leaves
+// the old name behind in a skill goes unnoticed until somebody follows the
+// instruction and finds no such field.
+func skillContractCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
-		Use:   "refs [<skills-dir>]",
-		Short: "Check the @ references between skills",
+		Use:   "contract [<skills-dir>]",
+		Short: "Check the contract identifiers skills name",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, build)
@@ -80,7 +80,7 @@ func skillRefsCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			checked, err := skill.CheckRefs(target, published())
+			checked, err := skill.CheckContract(target, published())
 			if err != nil {
 				return silent(err)
 			}
