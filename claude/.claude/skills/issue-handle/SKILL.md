@@ -74,7 +74,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 
 #### 事前準備（Planモード移行前、Bashで実行）
 
-PlanモードではBashが使えないため、以下を**移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
+Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェルコマンドも自由には走らない（classifier の審査か permission prompt に落ちる）。以下は fetch・worktree 作成といった書き込みを伴う準備なので、**移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
 
 **流れの要約**（`--worktree` 新規シナリオ）: 調査 (0) → base 確定・fetch (1-2) → 既存 worktree 検出 (3、あれば再開へ) → 名前確定・worktree 作成・切替 (4-6) → Plan モード (7)。worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れないため、Plan モード中もメインツリーで並列作業可能。
 
@@ -82,7 +82,7 @@ PlanモードではBashが使えないため、以下を**移行前に**必ず�
 - Issue 本文とコメント（`!gh issue view` で取得済み）を読み、続く Step 4 の worktree 名（type + description）判断に必要な範囲で関連コードを Read/Grep
   - コメントは時系列で読み、要件に影響する確定事項（スコープ調整・方針変更・仕様追記）は本文と同格の要件として扱う
   - Bot コメントと minimized なコメント（`isMinimized: true`）は読み飛ばす
-- **深追い禁止**: 実装方針の詳細検討・計画起案は Plan モード内で実施（Plan モード内でも Read/Grep は可能、Bash のみ不可）
+- **深追い禁止**: 実装方針の詳細検討・計画起案は Plan モード内で実施（Plan モード内でも Read/Grep と `ccx plan docs` 等の読み取り専用コマンドは実行できる。塞がれるのはファイル編集）
 - 「### Issue 階層の扱い」の分岐（親なら停止または充足検証、Sub なら親の継承・親 close 方針・依存の確認）は**この Step で済ませる**（親 close 方針は AskUserQuestion を伴いうるため Plan モード前に確定させ、依存の選択は Step 1 のベースブランチに影響する）
 - 参考: 上記「### 要件確認・調査」セクションは Plan モード内での追加調査時にも用いる共通の指針
 
