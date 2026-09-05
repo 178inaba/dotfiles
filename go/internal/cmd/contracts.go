@@ -126,6 +126,33 @@ nothing lost.
 		statuses: with(),
 	},
 
+	"pr seen": {
+		intro: `Record that a run judged this pull request.
+
+Run at the end of every run that reached a judgment, whatever it posted and
+even if it posted nothing. What the next run counts as newly arrived is
+measured against the ` + "`fetched_at`" + ` of the document named here — the one the
+judgment was made from, not one fetched afterwards — so that anything
+submitted during the run is dated after the mark and is answered next time
+rather than retired unread.
+
+The record is this machine's and this skill's: it goes under
+` + "`$XDG_STATE_HOME/ccx/seen/<owner>/<repo>/<number>.json`" + `, with
+` + "`$XDG_STATE_HOME`" + ` defaulting to ~/.local/state. Nothing about it reaches the
+pull request, where it would put one skill's bookkeeping in front of every
+collaborator. A machine with no record counts everything, which costs one
+reading and loses nothing.
+
+A document older than what is already recorded is refused: writing it would
+move the mark backwards and bring back every remark judged in between. One
+fetched at the same instant is the same run recorded twice and overwrites.`,
+		blocks: []block{
+			prints(reflect.TypeFor[pullrequest.SeenRecord]()),
+			writes("The record written to that path", reflect.TypeFor[pullrequest.Seen]()),
+		},
+		statuses: with(),
+	},
+
 	"pr freshness": {
 		intro: `Compare the checkout here with the pull request's head.
 

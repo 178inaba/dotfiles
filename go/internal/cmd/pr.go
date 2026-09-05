@@ -20,7 +20,8 @@ import (
 // newPRCmd builds `ccx pr`, the commands that work from a pull request.
 func newPRCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
-	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build), prReplyThreadsCmd(build))
+	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build),
+		prReplyThreadsCmd(build), prSeenCmd(build))
 	return c
 }
 
@@ -217,6 +218,42 @@ func storeSeen(path string, s pullrequest.Seen) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// prSeenCmd builds `ccx pr seen`, which a skill runs at the end of a run that
+// reached a judgment.
+//
+// The document rather than the pull request number, because what is recorded
+// is the instant that document was read at: a number would leave the command
+// to fetch one for itself, and the mark would then be later than the judgment
+// it stands for, silently retiring whatever arrived in between.
+func prSeenCmd(build selfbuild.State) *cobra.Command {
+	return &cobra.Command{
+		Use:   "seen <pr-context.json>",
+		Short: "Record that a run judged this pull request",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			content, err := readFile(args[0], "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			prContext, err := pullrequest.ParseContext([]byte(content), args[0])
+			if err != nil {
+				return silent(err)
+			}
+			repo, err := ghapi.ParseRepo(prContext.Repo)
+			if err != nil {
+				return silent(fmt.Errorf("the document names no repository: %v", err))
+			}
+
+			record, err := pullrequest.WriteSeen(stateHome(), repo, prContext.PR.Number, prContext.FetchedAt, storeSeen)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), record))
+		},
+	}
 }
 
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens

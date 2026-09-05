@@ -104,7 +104,7 @@ func TestEverySkillFacingCommandHasAContract(t *testing.T) {
 	want := []string{
 		"issue tree",
 		"issue sections schema", "issue sections list", "issue sections check", "issue sections find",
-		"pr context", "pr freshness", "pr prepare-review", "pr post-review", "pr reply-threads",
+		"pr context", "pr seen", "pr freshness", "pr prepare-review", "pr post-review", "pr reply-threads",
 		"worktree detect", "worktree create", "worktree resolve", "worktree checkout",
 		"worktree collect", "worktree delete",
 		"review pending", "review verify", "review clone",
