@@ -307,8 +307,13 @@ func generatedHistory(t *testing.T) func(string) {
 			"hand.txt linguist-generated=false",
 			"old.txt linguist-generated",
 			"gen/anchored.txt linguist-generated",
+			// A value nobody anticipated, on a binary file: neither is a case
+			// the flag has an answer of its own for, and saying so is what
+			// keeps it to one meaning.
+			"*.dat linguist-generated=maybe",
 			"",
 		}, "\n"))
+		gittest.Write(t, filepath.Join(author, "bin.dat"), "\x00\x01\x02\x03")
 		gittest.Write(t, filepath.Join(author, "deps.lock"), "locked\n")
 		gittest.Write(t, filepath.Join(author, "api.pb.go"), "package api\n")
 		gittest.Write(t, filepath.Join(author, "hand.txt"), "written by hand\n")
@@ -325,8 +330,10 @@ func generatedHistory(t *testing.T) func(string) {
 // wantGenerated is what the fixture above must answer, in git's order.
 func wantGenerated() []pullrequest.DiffFile {
 	return []pullrequest.DiffFile{
-		{Path: ".gitattributes", Status: pullrequest.StatusAdded, Additions: new(5), Deletions: new(0)},
+		{Path: ".gitattributes", Status: pullrequest.StatusAdded, Additions: new(6), Deletions: new(0)},
 		{Path: "api.pb.go", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0), Generated: true},
+		// A binary file, whose line counts are null and whose flag is not.
+		{Path: "bin.dat", Status: pullrequest.StatusModified, Generated: true},
 		{Path: "deps.lock", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0), Generated: true},
 		{Path: "gen/anchored.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0), Generated: true},
 		{Path: "hand.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
@@ -354,8 +361,8 @@ func TestReadChangeFlagsGeneratedFilesAtTheHead(t *testing.T) {
 	}
 	// The flag is the only addition: the patch still holds every hunk, the
 	// generated files included, and the totals count their lines.
-	if got.Diff.Additions != 10 || got.Diff.Deletions != 3 {
-		t.Errorf("diff totals = +%d -%d, want +10 -3", got.Diff.Additions, got.Diff.Deletions)
+	if got.Diff.Additions != 11 || got.Diff.Deletions != 3 {
+		t.Errorf("diff totals = +%d -%d, want +11 -3", got.Diff.Additions, got.Diff.Deletions)
 	}
 	content, err := os.ReadFile(patch)
 	if err != nil {
@@ -405,6 +412,13 @@ func TestReadChangeRefusesAGitWithoutCheckAttrSource(t *testing.T) {
 	old := runnerFunc(func(ctx context.Context, c runner.Command) ([]byte, error) {
 		if !slices.Contains(c.Args, "check-attr") {
 			return runner.Exec{}.Run(ctx, c)
+		}
+		// The phrase matched below is one git puts through gettext, so the
+		// refusal only reaches a reader on a machine told to answer in
+		// English. A stub cannot reproduce a locale; what it can pin is that
+		// the call asks for one.
+		if !slices.Contains(c.Env, "LC_ALL=C") {
+			t.Errorf("check-attr ran with env %q, want it to ask git for untranslated messages", c.Env)
 		}
 		return nil, &runner.Error{
 			Name:   "git",

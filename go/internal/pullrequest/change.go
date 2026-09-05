@@ -279,14 +279,19 @@ func readGenerated(ctx context.Context, r runner.Runner, dir, source string, fil
 		paths.WriteByte(0)
 	}
 	out, err := r.Run(ctx, runner.Command{
+		// C rather than whatever the machine is set to, because the refusal
+		// below reads a phrase git puts through gettext. The answer itself is
+		// the path, the attribute and its value, none of which is translated,
+		// so this costs the output nothing.
+		Env:   []string{"LC_ALL=C"},
 		Stdin: paths.Bytes(),
 		Name:  "git",
 		Args:  []string{"-C", top, "check-attr", "--source", source, "-z", "--stdin", generatedAttr},
 	})
 	if err != nil {
-		// git's own words, carried out rather than dropped: the sentence below
-		// reads a phrase git translates, so a machine in another language has
-		// to be left with something to act on.
+		// git's own words, carried out rather than dropped: what a failure of
+		// this call is about is something git has already said better than an
+		// exit status can.
 		reason := strings.TrimSpace(string(runner.Stderr(err)))
 		if reason == "" {
 			reason = err.Error()
