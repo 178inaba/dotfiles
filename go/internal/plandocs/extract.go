@@ -22,11 +22,14 @@ var (
 	// they were written and a link's own label cannot be read a second time
 	// as an import. Group 1 is a link's target, group 2 an import's.
 	//
-	// A link target stops at whitespace, which leaves a title — [x](p "T") —
-	// behind and never matches a reference-style link, [x][ref]. An import's @
-	// has to open a word, which is what separates @docs/x.md from the one in
-	// an e-mail address.
-	referencePattern = regexp.MustCompile(`\[[^\]\n]*\]\(([^)\s]+)\)|(?:^|\s)@(\S+)`)
+	// A link target stops at whitespace, so a title — [x](p "T") — is matched
+	// beside it rather than taken for part of the path, and a reference-style
+	// link, [x][ref], never matches at all. An import's @ has to open a word,
+	// which is what separates @docs/x.md from the one in an e-mail address.
+	referencePattern = regexp.MustCompile(`\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"\n]*")?\)|(?:^|\s)@(\S+)`)
+	// Sentence punctuation an import written in prose ends up carrying, since
+	// nothing but whitespace closes one. A path never ends in any of these.
+	importTail = regexp.MustCompile(`[.,;:!?)\]]+$`)
 	// A URL or a mailto:, which name something that is not a file here.
 	schemePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*:`)
 	// A fence opening or closing a code block, at either of the two spellings.
@@ -45,7 +48,7 @@ func references(text string) []reference {
 	for _, m := range referencePattern.FindAllStringSubmatch(stripCode(text), -1) {
 		target, isImport := m[1], false
 		if target == "" {
-			target, isImport = m[2], true
+			target, isImport = importTail.ReplaceAllString(m[2], ""), true
 		}
 		if target, _, _ = strings.Cut(target, "#"); target == "" {
 			continue
@@ -114,6 +117,12 @@ func stripSpans(line string) string {
 
 // resolve turns a target written in file into the absolute path it names, and
 // reports whether it names a file at all.
+//
+// A leading / is the filesystem root, which is what an import means by it and
+// not what GitHub renders a link with one as — GitHub reads it against the
+// repository root. Nothing here writes that form, and one that did would be
+// reported as a link to a file that is not there rather than read silently
+// from the wrong place.
 func resolve(target, file, home string) (string, bool) {
 	if schemePattern.MatchString(target) {
 		return "", false

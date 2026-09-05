@@ -23,7 +23,7 @@ func newPlanCmd(build selfbuild.State) *cobra.Command {
 func newPlanDocsCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "docs",
-		Short: "List the documents a plan has to be read against",
+		Short: "List the documents a plan has to be drafted against",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, build)

@@ -190,6 +190,39 @@ func TestCollectReadsEveryRoot(t *testing.T) {
 	}
 }
 
+// A rule saved with CRLF declares its paths field like any other, and a rule
+// directory shared between projects by a symlink is still read.
+func TestCollectReadsRulesWrittenTheOtherWays(t *testing.T) {
+	dir, shared := t.TempDir(), t.TempDir()
+	writeTree(t, shared, map[string]string{
+		"unscoped.md": "[r](../../r.md)\n",
+		"scoped.md":   "---\r\npaths:\r\n  - \"**/*.go\"\r\n---\r\n",
+	})
+	writeTree(t, dir, map[string]string{"CLAUDE.md": "[s](.claude/rules/scoped.md)\n"})
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(dir, ".claude", "rules")); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, dir, map[string]string{"r.md": ""})
+
+	got, err := Collect(dir, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := Collection{
+		// Named under .claude/rules, the spelling the project uses, rather
+		// than under the directory the link points at.
+		Loaded:    abs(dir, "CLAUDE.md", ".claude/rules/unscoped.md"),
+		Documents: abs(dir, ".claude/rules/scoped.md", "r.md"),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestCollectOnRepositoriesWithNothingToWalk(t *testing.T) {
 	tests := map[string]struct {
 		files map[string]string

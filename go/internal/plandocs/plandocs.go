@@ -132,9 +132,11 @@ func (c *collector) load(path string) {
 // Only imports are followed here: this is a replay of what the harness did at
 // launch, and the harness expands nothing else. A rules file is not a root of
 // its own closure, because the harness does not expand the imports written in
-// one — measured with the InstructionsLoaded hook, which reported a file
-// imported by CLAUDE.md and not the one imported by an unscoped rule beside
-// it. So a rule's import reaches a planner through the walk instead.
+// one. Measured, since the documentation says nothing either way: a project
+// holding a CLAUDE.md importing @y.md, an unscoped .claude/rules/r.md
+// importing @x.md, and an InstructionsLoaded hook logging what loads, reports
+// CLAUDE.md, y.md and r.md — and not x.md. So a rule's import reaches a
+// planner through the walk instead.
 func (c *collector) expand(root string) error {
 	type step struct {
 		path string
@@ -243,9 +245,21 @@ func (c *collector) warn(target, source string) {
 // the directory, recursively, that carries no paths field. A scoped rule is
 // left out because the harness has not loaded it, which is what makes it a
 // document to read when something links it.
+//
+// The directory is descended through its link target, since sharing one set
+// of rules across projects by symlinking .claude/rules is a documented
+// arrangement and WalkDir stops at the link rather than entering it. What
+// comes back is still named under the directory as it was asked for: the
+// resolved spelling is the one nobody recognises, which is the same reason
+// nothing else here canonicalises a path.
 func unscopedRules(dir string) ([]string, error) {
+	root := dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		root = resolved
+	}
+
 	var out []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -256,9 +270,14 @@ func unscopedRules(dir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		if !scoped {
-			out = append(out, path)
+		if scoped {
+			return nil
 		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		out = append(out, filepath.Join(dir, rel))
 		return nil
 	})
 	if errors.Is(err, fs.ErrNotExist) {
@@ -277,7 +296,11 @@ func hasPaths(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	lines := strings.Split(string(b), "\n")
+	// Carriage returns come off first: a rule saved with CRLF whose fences
+	// then failed to match would be taken for a rule with no frontmatter, and
+	// a scoped rule read as an unscoped one is loaded at launch in this
+	// walk's model and never listed as a document in either.
+	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	if lines[0] != "---" {
 		return false, nil
 	}
