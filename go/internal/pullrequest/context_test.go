@@ -635,13 +635,13 @@ func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
 		{
 			name:        "the issue was deleted",
 			status:      map[string]int{issuePath("owner/repo", 10): http.StatusNotFound},
-			want:        pullrequest.LinkedIssue{Number: 10},
+			want:        pullrequest.LinkedIssue{Number: 10, Comments: []pullrequest.IssueComment{}},
 			wantWarning: "owner/repo#10: the issue could not be read (HTTP 404)",
 		},
 		{
 			name:        "the issue is not ours to see",
 			status:      map[string]int{issuePath("owner/repo", 10): http.StatusForbidden},
-			want:        pullrequest.LinkedIssue{Number: 10},
+			want:        pullrequest.LinkedIssue{Number: 10, Comments: []pullrequest.IssueComment{}},
 			wantWarning: "owner/repo#10: the issue could not be read (HTTP 403)",
 		},
 		{
@@ -754,6 +754,37 @@ func TestFetchStopsAtTheIssueCommentLimit(t *testing.T) {
 	if len(parent.Comments) != 2 || !parent.CommentsTruncated || parent.CommentsTotalCount != 3 {
 		t.Errorf("parent = %d comments, total %d, truncated %v; want 2, 3 and true",
 			len(parent.Comments), parent.CommentsTotalCount, parent.CommentsTruncated)
+	}
+}
+
+// TestFetchReadsCommentsFromTheIssuesOwnRepository pins where the comments are
+// asked for, which the shared fixture cannot: an issue and a parent may each
+// live somewhere other than the pull request, and asking the wrong repository
+// answers 404 rather than anything a caller would notice.
+func TestFetchReadsCommentsFromTheIssuesOwnRepository(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Resolves other/repo#12"
+
+	got := fetch(t, pages{
+		body: fixtureBody,
+		issues: map[string]string{
+			issuePath("other/repo", 12):  issueJSON("other/repo", 12, "Issue 12", "Elsewhere", 1),
+			parentPath("other/repo", 12): issueJSON("third/repo", 20, "Issue 20", "Elsewhere again", 1),
+		},
+		issueComments: map[string][]string{
+			commentsPath("other/repo", 12): {commentJSON(7, "reviewer1", "in the issue's repository")},
+			commentsPath("third/repo", 20): {commentJSON(8, "reviewer1", "in the parent's repository")},
+		},
+	}, one, pullrequest.DefaultLimits)
+
+	issue := got.LinkedIssues[0]
+	if len(issue.Comments) != 1 || issue.Comments[0].Body != "in the issue's repository" {
+		t.Errorf("issue comments = %+v, want the one from other/repo", issue.Comments)
+	}
+	if len(issue.Parent.Comments) != 1 || issue.Parent.Comments[0].Body != "in the parent's repository" {
+		t.Errorf("parent comments = %+v, want the one from third/repo", issue.Parent.Comments)
 	}
 }
 

@@ -579,6 +579,11 @@ func linkedIssues(body string) []LinkedIssue {
 func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []LinkedIssue, limit int) ([]LinkedIssue, []string, error) {
 	warnings := []string{}
 	for i, linked := range issues {
+		// Set before anything can fail, so that the empty list the document
+		// promises is in the value on every path rather than only in the bytes
+		// the encoder writes.
+		issues[i].Comments = []IssueComment{}
+
 		in := repo
 		if linked.Repo != nil {
 			var err error
@@ -648,6 +653,9 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 
 // issueComments reads one issue's comments into what the document publishes,
 // and says whether the limit left any behind.
+//
+// in is the issue's own repository rather than the pull request's, since a
+// linked issue and a parent may each live somewhere else.
 //
 // A failure is returned rather than recorded as a warning: the body it belongs
 // to has already been read, and an issue whose body is present is one a reader
