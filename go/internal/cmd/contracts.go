@@ -9,6 +9,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/contract"
 
 	"github.com/178inaba/dotfiles/go/internal/issue"
+	"github.com/178inaba/dotfiles/go/internal/plandocs"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
 	"github.com/178inaba/dotfiles/go/internal/reviewprs"
 	"github.com/178inaba/dotfiles/go/internal/skill"
@@ -23,6 +24,51 @@ import (
 // against. A second command-to-type mapping for the latter would be the very
 // inventory this arrangement exists to delete.
 var contracts = map[string]help{
+	"plan docs": {
+		intro: `List the documents a plan has to be drafted against.
+
+A path written in a memory file belongs to one of three tiers, and how it is
+written is what chooses the tier. An @ import is expanded at launch and costs
+context in every session afterwards. A [text](path.md) link is read only here,
+by a planner about to draft against it. A path in backticks is a mention and
+loads nowhere. The mention is the default, so putting a document in front of a
+planner is something an author opts into.
+
+Run from the project root. The already-loaded set is CLAUDE.md,
+.claude/CLAUDE.md and CLAUDE.local.md where they exist, everything their @
+imports reach within the four hops the harness expands, and every .md under
+.claude/rules/ that declares no paths field. Those are never listed to read
+again. Ancestor directories and the user's own memory files are not roots: a
+plan is checked against the project. An import written inside a rule is not
+expanded at launch, so it is followed as a link like the rest.
+
+From there the walk goes two levels: the targets found in the already-loaded
+files, then the targets found in those, and it stops. Both forms count as one
+kind of link, and both are read out of the text the way the import parser
+reads it, with code spans and fenced blocks skipped, so a backticked path
+stays a mention. A #fragment comes off before a target is resolved and
+deduplicated. A URL, a mailto: and a bare #anchor name no file here; a
+reference-style link, the [text][ref] form, is out of scope and ignored. A
+path-scoped rule is listed like any other target when a document links it,
+which is how the conventions for one file area reach a planner.
+
+Two levels rather than a fixpoint, measured on the deepest tree to hand: that
+CLAUDE.md links 10 documents, those link 13 more — 8 of them the path-scoped
+rules a planner has to know before touching a file — and one level further
+adds 93, almost all of them generated table definitions reached through the
+README. The whole closure is 117 files. The stop lands after the convention
+bodies and before the reference material.
+
+Nothing about a repository is a failure here. One with no instruction file at
+all answers with three empty lists and exit 0, which is how a caller with
+nothing to read tells that from a project whose paths are all mentions. A link
+to a file that is not there is reported and the walk carries on. External
+imports are assumed to have been approved, since whether they were is not
+observable from here.`,
+		blocks:   []block{prints(reflect.TypeFor[plandocs.Collection]())},
+		statuses: with(),
+	},
+
 	"issue tree": {
 		intro: `Resolve where an issue sits among its parent, its children and its blockers.
 

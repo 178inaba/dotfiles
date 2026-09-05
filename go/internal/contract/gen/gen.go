@@ -27,6 +27,7 @@ var sources = []string{
 	"internal/worktree",
 	"internal/pullrequest",
 	"internal/reviewprs",
+	"internal/plandocs",
 	"internal/skill",
 	"internal/ghapi",
 }
