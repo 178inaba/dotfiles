@@ -105,7 +105,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, doc.Change)
+			fetched, err := pullrequest.Fetch(c.Context(), client, repo, meta, limits, doc.Change, stateHome())
 			if err != nil {
 				return silent(err)
 			}
@@ -117,6 +117,28 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 			}))
 		},
 	}
+}
+
+// stateHome is the directory the record of a judged pull request is kept
+// under, empty where there is nowhere to derive one.
+//
+// Here rather than in the package, for the reason cloneOptions is: t.Setenv
+// changes the whole process and forbids a parallel test, so the package takes
+// the directory as a parameter and only this thin reader touches the
+// environment. The rule is the XDG default — the variable, else ~/.local/state
+// — which is the shape cloneOptions already follows for the data directory.
+func stateHome() string {
+	if home := os.Getenv("XDG_STATE_HOME"); home != "" {
+		return home
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Nothing to build a path out of. Reported by whoever tries to write;
+		// a read of the record degrades to "nothing recorded", which counts
+		// everything and loses nothing.
+		return ""
+	}
+	return filepath.Join(home, ".local", "state")
 }
 
 // currentRepo names the repository these commands work on.
@@ -174,6 +196,29 @@ func storeContext(path string, c pullrequest.Context) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// storeSeen writes one record of a judged pull request to the path it is
+// given, the way storeContext writes the document: whole to a temporary file
+// beside it and renamed into place, so that a run interrupted halfway leaves
+// either the previous record or the new one and never a torn value the next
+// run would read as nothing recorded.
+func storeSeen(path string, s pullrequest.Seen) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".seen.*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+
+	if err := renderJSON(tmp, s); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
 // with: it settles which pull request, whether the checkout matches it, its
 // context, its freshness and which mode the review runs in, in one call.
@@ -210,6 +255,7 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 			options := pullrequest.Options{
 				OutDir: scratch, Number: number, Issue: issue,
 				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
+				StateHome: stateHome(),
 			}
 			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext)
 			if err != nil {

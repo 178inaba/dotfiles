@@ -323,11 +323,43 @@ const fixtureBody = `{"data":{
 func fetch(t *testing.T, p pages, pr ghapi.PullRequest, limits pullrequest.Limits) pullrequest.Context {
 	t.Helper()
 
-	got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, pr, limits, noChange())
+	got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, pr, limits, noChange(), t.TempDir())
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	return got
+}
+
+// TestFetchCountsFromWhatWasRecorded is the wiring the count depends on: the
+// document is built and then measured against the state file for this very
+// pull request, so that a second run after `ccx pr seen` starts where the
+// first one stopped.
+func TestFetchCountsFromWhatWasRecorded(t *testing.T) {
+	t.Parallel()
+
+	state := t.TempDir()
+	// Later than everything in the fixture's conversation, so that what
+	// survives the count is what the mark let through rather than the whole
+	// list.
+	if _, err := pullrequest.WriteSeen(state, repo, meta.Number, "2026-01-03T00:00:00Z", storeSeen); err != nil {
+		t.Fatalf("WriteSeen: %v", err)
+	}
+
+	got, err := pullrequest.Fetch(t.Context(), serve(t, pages{body: fixtureBody, issues: linkedIssues}),
+		repo, meta, pullrequest.DefaultLimits, noChange(), state)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	if got.Pending.Since == nil || *got.Pending.Since != "2026-01-03T00:00:00Z" {
+		t.Fatalf("pending.since = %v, want what was recorded", got.Pending.Since)
+	}
+	// c1 and c2 are older than the mark, c2 is ours besides; c3 was edited
+	// after it and c4 arrived after it.
+	want := []string{"https://example.com/c3", "https://example.com/c4"}
+	if diff := cmp.Diff(want, urls(got.Pending.Comments, commentURL)); diff != "" {
+		t.Errorf("pending.comments (-want +got):\n%s", diff)
+	}
 }
 
 func TestFetch(t *testing.T) {
@@ -361,6 +393,17 @@ func TestFetch(t *testing.T) {
 		}
 		if at.Nanosecond() != 0 {
 			t.Errorf("fetched_at = %q, want it truncated to the second", got.FetchedAt)
+		}
+	})
+
+	t.Run("what is waiting on us", func(t *testing.T) {
+		// The count itself is settled elsewhere; what this asserts is that
+		// Fetch takes it at all, and over the document it has just built.
+		if got.Pending.Since != nil {
+			t.Errorf("pending.since = %v, want null with nothing recorded", got.Pending.Since)
+		}
+		if len(got.Pending.Threads) == 0 || len(got.Pending.Reviews) == 0 || len(got.Pending.Comments) == 0 {
+			t.Errorf("pending = %+v, want the fixture's threads, review and comments counted", got.Pending)
 		}
 	})
 
@@ -702,7 +745,7 @@ func TestFetchFailsOnAnUnreadableIssueForAnotherReason(t *testing.T) {
 		body: fixtureBody, issues: linkedIssues,
 		issueStatus: map[string]int{issuePath("owner/repo", 10): http.StatusInternalServerError},
 	})
-	if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange()); err == nil {
+	if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange(), t.TempDir()); err == nil {
 		t.Fatal("Fetch succeeded, want the server error to stop it")
 	}
 }
@@ -726,7 +769,7 @@ func TestFetchFailsOnUnreadableIssueComments(t *testing.T) {
 				body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments,
 				issueStatus: map[string]int{commentsPath("owner/repo", 10): status},
 			})
-			if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange()); err == nil {
+			if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange(), t.TempDir()); err == nil {
 				t.Fatal("Fetch succeeded, want the comment failure to stop it")
 			}
 		})
@@ -1037,7 +1080,7 @@ func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 
 			p := pagedFixture()
 			p.failAfter = query
-			if got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, meta, pullrequest.DefaultLimits, noChange()); err == nil {
+			if got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, meta, pullrequest.DefaultLimits, noChange(), t.TempDir()); err == nil {
 				t.Fatalf("Fetch = %+v, want a failure when the %s query fails", got, query)
 			}
 		})
@@ -1052,7 +1095,10 @@ func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 func fullContext() map[string]any {
 	return map[string]any{
 		"fetched_at": "2026-01-10T00:00:00Z",
-		"repo":       "owner/repo",
+		"pending": map[string]any{
+			"since": nil, "threads": []any{}, "reviews": []any{}, "comments": []any{},
+		},
+		"repo":      "owner/repo",
 		"is_own_pr": false,
 		"pr": map[string]any{
 			"number":   5,
@@ -1119,6 +1165,17 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 		{name: "no fetched_at", edit: drop("fetched_at"), want: "ctx.json is missing fetched_at"},
 		{name: "null fetched_at", edit: put(nil, "fetched_at"), want: "ctx.json is missing fetched_at"},
 
+		// The object the three lists sit in, as pr is for the four below it.
+		{name: "no pending", edit: drop("pending"), want: "ctx.json is missing pending"},
+		{name: "null pending", edit: put(nil, "pending"), want: "ctx.json is missing pending"},
+
+		{name: "no pending.threads", edit: drop("pending", "threads"), want: "pending is missing threads in ctx.json"},
+		{name: "null pending.threads", edit: put(nil, "pending", "threads"), want: "pending is missing threads in ctx.json"},
+		{name: "no pending.reviews", edit: drop("pending", "reviews"), want: "pending is missing reviews in ctx.json"},
+		{name: "null pending.reviews", edit: put(nil, "pending", "reviews"), want: "pending is missing reviews in ctx.json"},
+		{name: "no pending.comments", edit: drop("pending", "comments"), want: "pending is missing comments in ctx.json"},
+		{name: "null pending.comments", edit: put(nil, "pending", "comments"), want: "pending is missing comments in ctx.json"},
+
 		{name: "no repo", edit: drop("repo"), want: "ctx.json is missing repo"},
 		{name: "null repo", edit: put(nil, "repo"), want: "ctx.json is missing repo"},
 		{name: "empty repo", edit: put("", "repo"), want: "ctx.json sets repo to an empty string"},
@@ -1182,7 +1239,12 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 
 	want := pullrequest.Context{
 		FetchedAt: "2026-01-10T00:00:00Z",
-		Repo:      "owner/repo",
+		Pending: pullrequest.PendingSet{
+			Threads:  []pullrequest.PendingThread{},
+			Reviews:  []pullrequest.PendingReview{},
+			Comments: []pullrequest.PendingComment{},
+		},
+		Repo: "owner/repo",
 		PR: pullrequest.PR{
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
 		},

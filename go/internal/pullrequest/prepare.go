@@ -83,6 +83,10 @@ type Options struct {
 	Worktree  bool
 	LocalOnly bool
 	NoAutofix bool
+	// StateHome is where the record of the last judgment is kept, empty where
+	// there is nowhere to look. Read from the environment by the command line
+	// and carried here, as the fetch limits are.
+	StateHome string
 }
 
 // Store writes a fetched context to the path it is given.
@@ -143,7 +147,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		return Preparation{}, err
 	}
 
-	fetched, limits, err := p.fetch(ctx, c, repo, pr, store, doc)
+	fetched, limits, err := p.fetch(ctx, c, repo, pr, store, doc, o.StateHome)
 	if err != nil {
 		return Preparation{}, err
 	}
@@ -255,8 +259,8 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string,
 //
 // The limits it settled on come back with the document, because an issue read
 // afterwards — the one --issue names — is read the way the document's own were.
-func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store, doc Document) (Context, Limits, error) {
-	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits, doc.Change)
+func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, store Store, doc Document, stateHome string) (Context, Limits, error) {
+	fetched, err := Fetch(ctx, c, repo, pr, DefaultLimits, doc.Change, stateHome)
 	if err != nil {
 		return Context{}, Limits{}, fmt.Errorf(
 			"failed to fetch the pull request context while the PR exists; fix the environment issue instead of falling back to a no-PR review")
@@ -269,7 +273,7 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 	if raised {
 		// The same change: what git already answered cannot have changed, and
 		// rerunning it would be several fetches and a diff for nothing.
-		if fetched, err = Fetch(ctx, c, repo, pr, limits, doc.Change); err != nil {
+		if fetched, err = Fetch(ctx, c, repo, pr, limits, doc.Change, stateHome); err != nil {
 			return Context{}, Limits{}, fmt.Errorf("failed to fetch the pull request context on the raised-limit rerun: %v", err)
 		}
 	}

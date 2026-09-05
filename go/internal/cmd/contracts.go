@@ -109,6 +109,15 @@ paired with the context file is created too, since a caller that goes on to
 reply to threads writes into it; it is the same directory
 ` + "`ccx pr prepare-review`" + ` hands out for the same pull request.
 
+What is waiting on us is counted here rather than left to the reader:
+` + "`pending`" + ` holds the threads it is our move on and the reviews and comments
+that have arrived or been rewritten since the point ` + "`ccx pr seen`" + ` last
+recorded for this pull request, with no body text in any of them. Reading a
+remark to decide whether it counts is what that exists to prevent. The record
+it measures against is local to this machine and private to the skill, so a
+machine that has never run ` + "`ccx pr seen`" + ` counts everything — one reading, and
+nothing lost.
+
 ` + limitSentence(),
 		blocks: []block{
 			prints(reflect.TypeFor[pullrequest.Stored]()),
@@ -145,11 +154,12 @@ being ignored and letting the review run in a mode nobody asked for.
 <scratchpad-dir> has to exist; the context file and the review work directory
 are made under it.
 
-The document is the one ` + "`ccx pr context`" + ` writes, and git runs the same way for
-it: **wherever context_path is set, the commit that document names as
-` + "`pr.head_oid`" + ` is present in this repository**. Where the preparation stops
-before that — no pull request at all, or a checkout on another branch — nothing
-was fetched and the promise does not apply.`,
+The document is the one ` + "`ccx pr context`" + ` writes — its fields, ` + "`pending`" + ` among
+them, are set out under ` + "`ccx pr context --help`" + ` and not repeated here — and git
+runs the same way for it: **wherever context_path is set, the commit that
+document names as ` + "`pr.head_oid`" + ` is present in this repository**. Where the
+preparation stops before that — no pull request at all, or a checkout on
+another branch — nothing was fetched and the promise does not apply.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.Preparation]())},
 		statuses: with(),
 	},

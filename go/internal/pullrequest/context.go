@@ -208,11 +208,16 @@ type Context struct {
 	// finer precision. Anything submitted while the read was in flight is
 	// therefore dated at or after it, and is counted again on the next run
 	// rather than being lost between the two.
-	FetchedAt   string `json:"fetched_at" contract:"required"`
-	Repo        string `json:"repo" contract:"required,nonempty"`
-	CurrentUser string `json:"current_user"`
-	IsOwnPR     bool   `json:"is_own_pr" contract:"required"`
-	PR          PR     `json:"pr" contract:"required"`
+	FetchedAt string `json:"fetched_at" contract:"required"`
+	// What is waiting on us, counted from the rest of the document
+	// and from what the last run recorded. A reader takes it before anything
+	// else: three empty lists is "nothing to judge", and the whole reading
+	// below can be skipped.
+	Pending     PendingSet `json:"pending" contract:"required"`
+	Repo        string     `json:"repo" contract:"required,nonempty"`
+	CurrentUser string     `json:"current_user"`
+	IsOwnPR     bool       `json:"is_own_pr" contract:"required"`
+	PR          PR         `json:"pr" contract:"required"`
 	// What the body's closing keywords name, which is what
 	// GitHub itself would close on merge.
 	LinkedIssues []LinkedIssue `json:"linked_issues"`
@@ -312,7 +317,12 @@ var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200, Iss
 // change is what ReadChange already read out of git, handed in rather than
 // read here: a caller that runs this twice with the limits raised runs git
 // once, and the document is assembled in one place either way.
-func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, limits Limits, change Change) (Context, error) {
+//
+// stateHome is where the record of the last judgment is kept, the empty string
+// meaning there is nowhere to look and everything counts. It is a parameter
+// rather than a read of the environment because the environment is read once,
+// at the command line, which is what lets these tests run in parallel.
+func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, limits Limits, change Change, stateHome string) (Context, error) {
 	// Before the first request rather than after the last: the point of the
 	// stamp is that nothing arriving during the read is dated before it.
 	fetchedAt := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
@@ -418,6 +428,11 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		}
 		out.ReviewThreads = append(out.ReviewThreads, t)
 	}
+
+	// Last, because it is a count over everything above it. Here rather than
+	// at each caller: one of them fetches twice with the limits raised, and a
+	// count taken by the caller would be the first fetch's.
+	out.Pending = Pending(out, ReadSeen(stateHome, repo, pr.Number))
 	return out, nil
 }
 
