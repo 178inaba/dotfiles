@@ -7,6 +7,7 @@ version: "2"
 linters:
   default: none
   enable:
+    - depguard
     - errcheck
     - govet
     - ineffassign
@@ -14,6 +15,29 @@ linters:
     - staticcheck
     - unused
   settings:
+    depguard:
+      rules:
+        # The documents internal/pullrequest and internal/worktree read are
+        # published contracts, and contract.Unmarshal is the one way in that
+        # holds a document to its declaration. Decoding one directly publishes
+        # nothing and is checked by nothing, which is the defect the contract
+        # exists to remove — so the package that would do it is denied rather
+        # than the three functions that would be called from it: after the last
+        # such call was moved to the entry point there is no legitimate
+        # non-test use of json left in either place, and a rule about the
+        # import needs no allowlist and no alias resolution.
+        #
+        # The prefix has no trailing $, so encoding/json, encoding/json/v2 and
+        # encoding/json/jsontext are all denied. Tests are exempt: several in
+        # both packages decode fixtures directly and are not contract readers.
+        contract-readers:
+          files:
+            - "**/internal/pullrequest/**"
+            - "**/internal/worktree/**"
+            - "!$test"
+          deny:
+            - pkg: encoding/json
+              desc: decode a contract document with contract.Unmarshal, which holds it to its declaration
     errcheck:
       # Informational writes to a diagnostic stream or a hash, and best-effort
       # cleanup where there is no meaningful recovery from a failure.

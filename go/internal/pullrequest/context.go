@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 )
 
@@ -31,15 +32,15 @@ const SkillMarker = "<!-- review-response -->"
 
 // PR is the pull request itself.
 type PR struct {
-	Number  int           `json:"number"`
+	Number  int           `json:"number" contract:"required,positive"`
 	Title   string        `json:"title"`
 	Body    string        `json:"body"`
 	URL     string        `json:"url"`
 	State   ghapi.PRState `json:"state"`
 	Author  string        `json:"author"`
-	HeadRef string        `json:"head_ref"`
-	BaseRef string        `json:"base_ref"`
-	HeadOID string        `json:"head_oid"`
+	HeadRef string        `json:"head_ref" contract:"required,nonempty"`
+	BaseRef string        `json:"base_ref" contract:"required,nonempty"`
+	HeadOID string        `json:"head_oid" contract:"required,nonempty"`
 }
 
 // LinkedIssue is an issue the pull request closes.
@@ -163,10 +164,10 @@ type Thread struct {
 // Context is everything one review needs, in the order the contract publishes
 // it.
 type Context struct {
-	Repo        string `json:"repo"`
+	Repo        string `json:"repo" contract:"required,nonempty"`
 	CurrentUser string `json:"current_user"`
-	IsOwnPR     bool   `json:"is_own_pr"`
-	PR          PR     `json:"pr"`
+	IsOwnPR     bool   `json:"is_own_pr" contract:"required"`
+	PR          PR     `json:"pr" contract:"required"`
 	// What the body's closing keywords name, which is what
 	// GitHub itself would close on merge.
 	LinkedIssues []LinkedIssue `json:"linked_issues"`
@@ -187,7 +188,7 @@ type Context struct {
 	Reviews            []Review  `json:"reviews"`
 	ThreadsTotalCount  int       `json:"threads_total_count"`
 	ThreadsTruncated   bool      `json:"threads_truncated"`
-	ReviewThreads      []Thread  `json:"review_threads"`
+	ReviewThreads      []Thread  `json:"review_threads" contract:"required"`
 	// The degradations that did not stop the document being
 	// useful: one line per issue that could not be read, as owner/repo#N
 	// followed by why. Empty rather than null when everything was read. What
@@ -195,6 +196,41 @@ type Context struct {
 	// that, and a caller answers it by raising the limit rather than by
 	// reading prose.
 	Warnings []string `json:"warnings"`
+}
+
+// ParseContext reads a context file, held to Context's own declaration.
+//
+// The whole document rather than the part any one caller uses: the three
+// commands that read a context file dereference different fields of it, and a
+// subset decoded here would be a second declaration of fields Context has
+// already published. What each of them goes on to hand its caller is a
+// projection off the value this returns.
+//
+// Which fields carry a tag is settled the same way. A tag is a statement about
+// the document rather than about a reader, so what the three between them
+// dereference is declared as one set rather than as three overlapping ones.
+// Every tag is true of what `ccx pr context` writes, pr included: the document
+// always carries the object, and a reader goes straight through it to the
+// number. It also has to be said out loud, because a nested declaration is
+// read only where the document supplied the object it sits on — the four rules
+// under pr are not a substitute for the one on pr itself.
+//
+// The value rules go on with the presence ones rather than after them: the
+// readers refused an empty repo and a zero number before this, and presence
+// alone would newly accept both. is_own_pr and review_threads carry none,
+// because false and the empty list are answers `ccx pr context` writes.
+//
+// None of this is on Context or PR because a type's doc comment is rendered
+// into a --help, where how a validator walks a document answers nothing a
+// reader of one asked.
+//
+// file is what a refusal names, since the path is the caller's.
+func ParseContext(b []byte, file string) (Context, error) {
+	var c Context
+	if err := contract.Unmarshal(b, &c, file); err != nil {
+		return Context{}, err
+	}
+	return c, nil
 }
 
 // Limits stop an unusually large pull request from costing an unbounded number

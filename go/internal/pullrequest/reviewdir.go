@@ -2,7 +2,6 @@ package pullrequest
 
 import (
 	"context"
-	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -170,32 +169,9 @@ type Target struct {
 	HeadOID string
 }
 
-// ParseTarget reads the fields of a pull request context that posting needs.
-func ParseTarget(b []byte) (Target, error) {
-	var wire struct {
-		Repo string `json:"repo"`
-		PR   struct {
-			Number  int    `json:"number"`
-			BaseRef string `json:"base_ref"`
-			HeadOID string `json:"head_oid"`
-		} `json:"pr"`
-	}
-	if err := json.Unmarshal(b, &wire); err != nil {
-		return Target{}, fmt.Errorf("decode the pull request context: %w", err)
-	}
-	if wire.Repo == "" {
-		return Target{}, fmt.Errorf("repo missing")
-	}
-	if wire.PR.Number == 0 {
-		return Target{}, fmt.Errorf("pr.number missing")
-	}
-	if wire.PR.BaseRef == "" {
-		return Target{}, fmt.Errorf("pr.base_ref missing")
-	}
-	if wire.PR.HeadOID == "" {
-		return Target{}, fmt.Errorf("pr.head_oid missing")
-	}
-	return Target{Repo: wire.Repo, Number: wire.PR.Number, BaseRef: wire.PR.BaseRef, HeadOID: wire.PR.HeadOID}, nil
+// Target is what posting needs out of a pull request context.
+func (c Context) Target() Target {
+	return Target{Repo: c.Repo, Number: c.PR.Number, BaseRef: c.PR.BaseRef, HeadOID: c.PR.HeadOID}
 }
 
 // RequireHead checks that the checkout has not moved since the review was
@@ -223,45 +199,18 @@ func RequireHead(ctx context.Context, r runner.Runner, dir, headOID, before stri
 	return nil
 }
 
-// ParseCheckout reads the four fields of a context that the freshness check
-// depends on.
+// Checkout is what the freshness check needs out of a pull request context.
 //
-// A subset of what a context holds, deliberately: naming only what is read
-// keeps a field the check never looks at from becoming a reason it fails. It
-// lives here rather than in worktree because the document is this package's,
-// and a renamed field should not have to be found in two of them.
-func ParseCheckout(b []byte) (worktree.PullRequest, error) {
-	var wire struct {
-		PR struct {
-			HeadOID string `json:"head_oid"`
-			HeadRef string `json:"head_ref"`
-			BaseRef string `json:"base_ref"`
-		} `json:"pr"`
-		// A pointer, because false is a meaningful answer and its absence is
-		// not: reading a missing flag as false would treat the author's own
-		// unpushed commits as somebody else's history.
-		IsOwnPR *bool `json:"is_own_pr"`
-	}
-	if err := json.Unmarshal(b, &wire); err != nil {
-		return worktree.PullRequest{}, fmt.Errorf("decode the pull request context: %w", err)
-	}
-
-	for _, field := range []struct{ name, value string }{
-		{"pr.head_oid", wire.PR.HeadOID},
-		{"pr.head_ref", wire.PR.HeadRef},
-		{"pr.base_ref", wire.PR.BaseRef},
-	} {
-		if field.value == "" {
-			return worktree.PullRequest{}, fmt.Errorf("%s missing", field.name)
-		}
-	}
-	if wire.IsOwnPR == nil {
-		return worktree.PullRequest{}, fmt.Errorf("is_own_pr missing")
-	}
+// It lives here rather than in worktree because the document is this
+// package's, and a renamed field should not have to be found in two of them.
+// is_own_pr is read as the plain bool it is: false is a meaningful answer and
+// its absence is not, and what tells the two apart is the declaration, which
+// reads presence from the document rather than from the decoded value.
+func (c Context) Checkout() worktree.PullRequest {
 	return worktree.PullRequest{
-		HeadRef: wire.PR.HeadRef,
-		HeadOID: wire.PR.HeadOID,
-		BaseRef: wire.PR.BaseRef,
-		IsOwnPR: *wire.IsOwnPR,
-	}, nil
+		HeadRef: c.PR.HeadRef,
+		HeadOID: c.PR.HeadOID,
+		BaseRef: c.PR.BaseRef,
+		IsOwnPR: c.IsOwnPR,
+	}
 }

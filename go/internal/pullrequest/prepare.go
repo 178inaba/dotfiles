@@ -155,10 +155,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	// answer differently to a fetch that fails — reading the change stops the
 	// run, the check reports fetch_failed — and giving the check a way to skip
 	// its own fetch would put that decision in the caller of both.
-	freshness, err := worktree.CheckFreshness(ctx, r, dir, worktree.PullRequest{
-		HeadRef: fetched.PR.HeadRef, HeadOID: fetched.PR.HeadOID,
-		BaseRef: fetched.PR.BaseRef, IsOwnPR: fetched.IsOwnPR,
-	})
+	freshness, err := worktree.CheckFreshness(ctx, r, dir, fetched.Checkout())
 	if err != nil {
 		return Preparation{}, fmt.Errorf("the freshness check failed: %v", err)
 	}

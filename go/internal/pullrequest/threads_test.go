@@ -589,19 +589,22 @@ func TestDryRun(t *testing.T) {
 	}
 }
 
-func TestParseThreads(t *testing.T) {
+// TestContextKnownThreads pins the projection alone.
+func TestContextKnownThreads(t *testing.T) {
 	t.Parallel()
 
-	const context = `{"pr":{"head_oid":"abc"},"review_threads":[
-		{"id":"PRRT_1","path":"a.go","line":3,"original_line":3,"opened_by":"me",
-		 "ball":"mine","resolvable_by_me":true,"last_comment":{"url":"https://example.com/1"}},
-		{"id":"PRRT_2","path":"b.go","line":null,"original_line":9,"opened_by":null,
-		 "ball":"none","resolvable_by_me":false,"last_comment":null}]}`
-
-	got, head, err := pullrequest.ParseThreads([]byte(context))
-	if err != nil {
-		t.Fatalf("ParseThreads: %v", err)
+	c := pullrequest.Context{
+		PR: pullrequest.PR{HeadOID: "abc"},
+		ReviewThreads: []pullrequest.Thread{
+			{
+				ID: "PRRT_1", Path: "a.go", Line: new(3), OriginalLine: new(3),
+				OpenedBy: new("me"), Ball: pullrequest.BallMine, ResolvableByMe: true,
+				LastComment: &pullrequest.ThreadComment{URL: "https://example.com/1"},
+			},
+			{ID: "PRRT_2", Path: "b.go", OriginalLine: new(9), Ball: pullrequest.BallNone},
+		},
 	}
+
 	want := []pullrequest.KnownThread{
 		{
 			ID: "PRRT_1", Path: "a.go", Line: new(3), OriginalLine: new(3), OpenedBy: new("me"),
@@ -611,18 +614,14 @@ func TestParseThreads(t *testing.T) {
 		// against, which the empty string is.
 		{ID: "PRRT_2", Path: "b.go", OriginalLine: new(9), Ball: pullrequest.BallNone},
 	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("ParseThreads (-want +got):\n%s", diff)
-	}
-	if head != "abc" {
-		t.Errorf("head = %q, want abc", head)
+	if diff := cmp.Diff(want, c.KnownThreads()); diff != "" {
+		t.Errorf("KnownThreads (-want +got):\n%s", diff)
 	}
 
-	if _, _, err := pullrequest.ParseThreads([]byte(`{"pr":{"head_oid":"abc"}}`)); err == nil {
-		t.Error("a context with no review_threads was accepted")
-	}
-	if _, _, err := pullrequest.ParseThreads([]byte(`{"review_threads":[]}`)); err == nil {
-		t.Error("a context with no head_oid was accepted")
+	// A pull request with no threads: the empty list is what `ccx pr context`
+	// writes for one, and an empty list is what a run then acts on.
+	if got := (pullrequest.Context{ReviewThreads: []pullrequest.Thread{}}).KnownThreads(); len(got) != 0 {
+		t.Errorf("KnownThreads on a context with no threads = %+v, want none", got)
 	}
 }
 

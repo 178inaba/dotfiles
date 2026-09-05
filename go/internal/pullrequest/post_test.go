@@ -386,40 +386,18 @@ func TestPostWithoutAURL(t *testing.T) {
 	}
 }
 
-func TestParseTarget(t *testing.T) {
+// TestContextTarget pins the projection alone.
+func TestContextTarget(t *testing.T) {
 	t.Parallel()
 
-	const full = `{"repo":"owner/repo","pr":{"number":5,"base_ref":"main","head_oid":"abc"}}`
-	tests := []struct {
-		name    string
-		in      string
-		wantErr string
-	}{
-		{name: "every field", in: full},
-		{name: "no repo", in: `{"pr":{"number":5,"base_ref":"main","head_oid":"abc"}}`, wantErr: "repo missing"},
-		{name: "no number", in: `{"repo":"owner/repo","pr":{"base_ref":"main","head_oid":"abc"}}`, wantErr: "pr.number missing"},
-		{name: "no base_ref", in: `{"repo":"owner/repo","pr":{"number":5,"head_oid":"abc"}}`, wantErr: "pr.base_ref missing"},
-		{name: "no head_oid", in: `{"repo":"owner/repo","pr":{"number":5,"base_ref":"main"}}`, wantErr: "pr.head_oid missing"},
+	c := pullrequest.Context{
+		Repo: "owner/repo",
+		PR: pullrequest.PR{
+			Number: 5, Title: "Test PR", BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc",
+		},
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := pullrequest.ParseTarget([]byte(tc.in))
-			if tc.wantErr != "" {
-				if err == nil || err.Error() != tc.wantErr {
-					t.Fatalf("ParseTarget = %+v, %v; want the error %q", got, err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ParseTarget: %v", err)
-			}
-			want := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: "abc"}
-			if got != want {
-				t.Errorf("ParseTarget = %+v, want %+v", got, want)
-			}
-		})
+	want := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: "abc"}
+	if got := c.Target(); got != want {
+		t.Errorf("Target = %+v, want %+v", got, want)
 	}
 }

@@ -2,7 +2,6 @@ package pullrequest
 
 import (
 	"context"
-	"encoding/json/v2"
 	"fmt"
 	"os"
 	"slices"
@@ -680,37 +679,11 @@ func remaining(done []string, planned []plannedAction) []string {
 	return left
 }
 
-// ParseThreads reads the review threads a context holds, and the head they were
-// judged at.
-func ParseThreads(b []byte) (threads []KnownThread, headOID string, err error) {
-	var wire struct {
-		PR struct {
-			HeadOID string `json:"head_oid"`
-		} `json:"pr"`
-		ReviewThreads *[]struct {
-			ID             string  `json:"id"`
-			Path           string  `json:"path"`
-			Line           *int    `json:"line"`
-			OriginalLine   *int    `json:"original_line"`
-			OpenedBy       *string `json:"opened_by"`
-			Ball           Ball    `json:"ball"`
-			ResolvableByMe bool    `json:"resolvable_by_me"`
-			LastComment    *struct {
-				URL string `json:"url"`
-			} `json:"last_comment"`
-		} `json:"review_threads"`
-	}
-	if err := json.Unmarshal(b, &wire); err != nil {
-		return nil, "", fmt.Errorf("decode the pull request context: %w", err)
-	}
-	if wire.ReviewThreads == nil {
-		return nil, "", fmt.Errorf("review_threads missing")
-	}
-	if wire.PR.HeadOID == "" {
-		return nil, "", fmt.Errorf("pr.head_oid missing")
-	}
-
-	for _, t := range *wire.ReviewThreads {
+// KnownThreads is the review threads a context holds, in the shape a run
+// selects against.
+func (c Context) KnownThreads() []KnownThread {
+	threads := make([]KnownThread, 0, len(c.ReviewThreads))
+	for _, t := range c.ReviewThreads {
 		known := KnownThread{
 			ID: t.ID, Path: t.Path, Line: t.Line, OriginalLine: t.OriginalLine,
 			OpenedBy: t.OpenedBy, Ball: t.Ball, ResolvableByMe: t.ResolvableByMe,
@@ -720,5 +693,5 @@ func ParseThreads(b []byte) (threads []KnownThread, headOID string, err error) {
 		}
 		threads = append(threads, known)
 	}
-	return threads, wire.PR.HeadOID, nil
+	return threads
 }
