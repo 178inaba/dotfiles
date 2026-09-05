@@ -267,8 +267,8 @@ func TestRenderRefusesAMisplacedContractValue(t *testing.T) {
 		// nothing to bind to is a field of another kind. The message names the
 		// kind as well, since the value alone does not say what is wrong.
 		{"a value constraint off its kind", reflect.TypeFor[sampleValueOnAnInteger](), []string{"nonempty", "string"}},
-		// The same refusal from the other side, with the noun the decoder's
-		// own messages use for the kinds a rule about numbers binds.
+		// The same refusal from the other side, naming the kinds a rule about
+		// numbers binds the way a rendered row names them.
 		{"a rule about numbers on a string", reflect.TypeFor[samplePositiveOnAString](), []string{"positive", "an integer"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

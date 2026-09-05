@@ -681,9 +681,6 @@ func remaining(done []string, planned []plannedAction) []string {
 
 // KnownThreads is the review threads a context holds, in the shape a run
 // selects against.
-//
-// The head they were judged at is PR.HeadOID on the same value, so it is not
-// returned beside them.
 func (c Context) KnownThreads() []KnownThread {
 	threads := make([]KnownThread, 0, len(c.ReviewThreads))
 	for _, t := range c.ReviewThreads {

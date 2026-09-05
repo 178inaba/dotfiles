@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"strconv"
 )
 
@@ -131,29 +130,27 @@ func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
 // --help — integer, array of object, string, one of: — where this names the
 // kind the decoder wanted and JSON has no integer.
 //
-// The kinds are kindOf's all the same, and no wider — the integers literally
-// so, off the one list both read. A kind the renderer refuses to describe
-// belongs to no published declaration, so a document could not have been held
-// to it: a word for one here would be a second, quieter answer to what a Go
-// type looks like on the wire.
+// The kinds are kindOf's all the same, and no wider — the integers and the
+// strings literally so, off the same two sets both read. A kind the renderer
+// refuses to describe belongs to no published declaration, so a document could
+// not have been held to it: a word for one here would be a second, quieter
+// answer to what a Go type looks like on the wire.
 //
 // Its subject is the kind and not the value: a number too large for an int
 // arrives here as a number that could not be handled, and is told it must be
 // one. What a value may hold is declared by a rule of its own rather than
 // guessed at from a kind.
 func jsonWord(t reflect.Type) (string, bool) {
-	if slices.Contains(integerKinds, t.Kind()) {
-		return "a number", true
-	}
-
-	switch t.Kind() {
-	case reflect.Bool:
+	switch k := t.Kind(); {
+	case k == reflect.Bool:
 		return "a boolean", true
-	case reflect.String:
+	case integerKind.has(k):
+		return "a number", true
+	case stringKind.has(k):
 		return "a string", true
-	case reflect.Slice, reflect.Array:
+	case k == reflect.Slice, k == reflect.Array:
 		return "an array", true
-	case reflect.Struct:
+	case k == reflect.Struct:
 		return "an object", true
 	}
 	return "", false

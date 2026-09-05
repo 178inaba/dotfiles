@@ -386,9 +386,7 @@ func TestPostWithoutAURL(t *testing.T) {
 	}
 }
 
-// TestContextTarget pins the projection alone. What a context file has to
-// carry for it to be meaningful is the declaration's, and is covered where
-// that is enforced.
+// TestContextTarget pins the projection alone.
 func TestContextTarget(t *testing.T) {
 	t.Parallel()
 

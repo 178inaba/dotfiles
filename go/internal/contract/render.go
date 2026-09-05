@@ -292,19 +292,10 @@ func groupType(f reflect.StructField) reflect.Type {
 type valueConstraint struct {
 	// value is the word a contract tag declares the rule with.
 	value string
-	// kinds is what the rule constrains. A rule about a string is enforced by
+	// kind is what the rule constrains. A rule about a string is enforced by
 	// nothing on a field that is not one, so declaring it there is refused for
 	// the reason a misspelt value is.
-	//
-	// A set rather than one kind, because JSON has one number and Go has five
-	// integers: what a rule about an integer's value can be said of is the
-	// width-independent thing the document holds, not the width the field
-	// happens to have.
-	kinds []reflect.Kind
-	// noun is how a refusal names that set, in the words the decoder's own
-	// messages use — the set is what it describes, so spelling out the Go
-	// kinds would answer a question the reader did not ask.
-	noun string
+	kind jsonKind
 	// text is how a rendered row states the rule, and refusal how a violation
 	// does, after "sets <key> ".
 	text    string
@@ -326,7 +317,7 @@ type valueConstraint struct {
 // reads the same way however the tag was written.
 var valueConstraints = []valueConstraint{
 	{
-		value: "barefilename", kinds: stringKinds, noun: "a string",
+		value: "barefilename", kind: stringKind,
 		text: "a bare file name", refusal: "to a path, not a bare file name",
 		refuses: func(v any) bool {
 			s, ok := v.(string)
@@ -334,7 +325,7 @@ var valueConstraints = []valueConstraint{
 		},
 	},
 	{
-		value: "nonempty", kinds: stringKinds, noun: "a string",
+		value: "nonempty", kind: stringKind,
 		text: "not empty", refusal: "to an empty string",
 		refuses: func(v any) bool {
 			s, ok := v.(string)
@@ -342,7 +333,7 @@ var valueConstraints = []valueConstraint{
 		},
 	},
 	{
-		value: "positive", kinds: integerKinds, noun: "an integer",
+		value: "positive", kind: integerKind,
 		text: "positive", refusal: "to a number that is not positive",
 		refuses: func(v any) bool {
 			// A float64 because that is what a JSON number decodes into
@@ -353,15 +344,31 @@ var valueConstraints = []valueConstraint{
 	},
 }
 
-// integerKinds and stringKinds are the Go kinds behind one JSON kind, which is
-// the granularity a rule about a value binds at.
+// jsonKind is one kind a document can hold, and the Go kinds it is read from.
 //
-// integerKinds is read by kindOf and jsonWord too, so what the renderer calls
-// an integer, what a decode failure asks for, and what a rule about an
-// integer's value may be declared on are one list rather than three.
+// A set rather than one kind, because JSON has one number and Go has five
+// integers: what a rule about an integer's value can be said of is the
+// width-independent thing the document holds, not the width the field happens
+// to have. Naming the set is what lets kindOf, jsonWord and a value rule agree
+// on which kinds those are without enumerating them three times.
+type jsonKind struct {
+	kinds []reflect.Kind
+	// noun is how a message about the declaration names this kind. Not
+	// jsonWord's word, which describes what the document should have held —
+	// an integer field is asked for "a number" there and named "an integer"
+	// here, because a misplaced tag is a statement about the Go declaration
+	// and the renderer calls that kind an integer.
+	noun string
+}
+
+func (j jsonKind) has(k reflect.Kind) bool { return slices.Contains(j.kinds, k) }
+
 var (
-	integerKinds = []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64}
-	stringKinds  = []reflect.Kind{reflect.String}
+	integerKind = jsonKind{
+		kinds: []reflect.Kind{reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64},
+		noun:  "an integer",
+	}
+	stringKind = jsonKind{kinds: []reflect.Kind{reflect.String}, noun: "a string"}
 )
 
 // knownValues is every constraint this renderer can state: the two about where
@@ -410,9 +417,9 @@ func contractValues(t reflect.Type, f reflect.StructField, named bool) ([]string
 	// of another kind is read by nobody — the same silent no-op again.
 	kind := deref(f.Type).Kind()
 	for _, c := range valueConstraints {
-		if slices.Contains(values, c.value) && !slices.Contains(c.kinds, kind) {
+		if slices.Contains(values, c.value) && !c.kind.has(kind) {
 			return nil, fmt.Errorf("contract: %s.%s declares %s, which constrains %s, on a field of kind %s",
-				t, f.Name, c.value, c.noun, kind)
+				t, f.Name, c.value, c.kind.noun, kind)
 		}
 	}
 	return values, nil
@@ -519,24 +526,22 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 		return "", err
 	}
 
-	if slices.Contains(integerKinds, t.Kind()) {
-		return "integer", nil
-	}
-
-	switch t.Kind() {
-	case reflect.Pointer:
+	switch k := t.Kind(); {
+	case k == reflect.Pointer:
 		return tb.kindOf(t.Elem())
-	case reflect.Slice, reflect.Array:
+	case k == reflect.Slice, k == reflect.Array:
 		of, err := tb.kindOf(t.Elem())
 		if err != nil {
 			return "", err
 		}
 		return "array of " + of, nil
-	case reflect.Struct:
+	case k == reflect.Struct:
 		return "object", nil
-	case reflect.Bool:
+	case k == reflect.Bool:
 		return "boolean", nil
-	case reflect.String:
+	case integerKind.has(k):
+		return "integer", nil
+	case stringKind.has(k):
 		if values := tb.Enums[typeKey(t)]; len(values) > 0 {
 			if tb.documented(t) {
 				return "string, one of:", nil

@@ -100,8 +100,10 @@ func TestRequireInWorkDir(t *testing.T) {
 	}
 }
 
-// TestContextCheckout pins the projection alone; what a context file has to
-// carry is the declaration's and is covered where that is enforced.
+// TestContextCheckout pins the projection alone. The projections are pure, so
+// what a context file has to carry for one to be meaningful is the
+// declaration's business and is covered where that is enforced, in
+// TestParseContextRefusesADocumentAgainstItsDeclaration.
 func TestContextCheckout(t *testing.T) {
 	t.Parallel()
 

@@ -589,8 +589,7 @@ func TestDryRun(t *testing.T) {
 	}
 }
 
-// TestContextKnownThreads pins the projection alone; what a context file has
-// to carry is the declaration's and is covered where that is enforced.
+// TestContextKnownThreads pins the projection alone.
 func TestContextKnownThreads(t *testing.T) {
 	t.Parallel()
 

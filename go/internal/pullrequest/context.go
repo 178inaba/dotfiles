@@ -207,19 +207,22 @@ type Context struct {
 // projection off the value this returns.
 //
 // Which fields carry a tag is settled the same way. A tag is a statement about
-// the document rather than about a reader, so the union of what the three
-// dereference is declared: repo, pr and its number, base_ref, head_ref and
-// head_oid, is_own_pr, and review_threads. The value rules go on with them —
-// the readers refused an empty repo and a zero number before this, and
-// presence alone would newly accept them. is_own_pr and review_threads get
-// none, because false and the empty list are answers `ccx pr context` writes.
-// pr is declared for a reason of the validator's rather than of any reader's:
-// a nested declaration is read only where the document supplied the object it
-// sits on, so without it a document with no pr at all would pass the four
-// rules under it.
+// the document rather than about a reader, so what the three between them
+// dereference is declared as one set rather than as three overlapping ones.
+// Every tag is true of what `ccx pr context` writes, pr included: the document
+// always carries the object, and a reader goes straight through it to the
+// number. It also has to be said out loud, because a nested declaration is
+// read only where the document supplied the object it sits on — the four rules
+// under pr are not a substitute for the one on pr itself.
 //
-// The doc comments of those types are rendered into a --help, which is why
-// none of this is written there.
+// The value rules go on with the presence ones rather than after them: the
+// readers refused an empty repo and a zero number before this, and presence
+// alone would newly accept both. is_own_pr and review_threads carry none,
+// because false and the empty list are answers `ccx pr context` writes.
+//
+// None of this is on Context or PR because a type's doc comment is rendered
+// into a --help, where how a validator walks a document answers nothing a
+// reader of one asked.
 //
 // file is what a refusal names, since the path is the caller's.
 func ParseContext(b []byte, file string) (Context, error) {
