@@ -28,12 +28,17 @@
 // state instead cannot tell "before PR creation" from "not an issue-handle run
 // at all".
 //
-// A launch the user typed is a record whose content is a string of the
-// <command-message> tags alone; the expanded SKILL.md body arrives in the
-// record after it, with isMeta set. That following record is what separates a
-// skill from a built-in, which has no body and leaves a <local-command-stdout>
-// record instead. The origin field is not usable for this — real transcripts
-// carry origin.kind "human" on some launches of the same skill and not others.
+// A command the user typed is a record whose content is a string of the
+// <command-message>, <command-name> and <command-args> tags alone. Whether it
+// launched a skill is decided by the record after it: an expanded SKILL.md body
+// arrives with isMeta set, while a built-in has no body and leaves a
+// <local-command-stdout> record, and a launch that failed leaves
+// <local-command-stderr>. The tags are read without depending on their order,
+// because the two cases are written differently — a launch puts
+// <command-message> first, and a built-in or a failed launch puts
+// <command-name> first — and a rule that leant on that would be deciding by
+// accident. The origin field is not usable either: real transcripts carry
+// origin.kind "human" on some launches of the same skill and not others.
 //
 // Every question it cannot answer allows the turn to end: no transcript, an
 // unreadable or malformed one, no launch to judge, plan mode, or background
@@ -294,11 +299,12 @@ func scan(path string) (run, error) {
 }
 
 // typed reads the command a user typed at the prompt, and reports false for
-// everything else.
+// everything else. Whether the command launched anything is not its question;
+// that is the following record's to answer.
 //
-// The record holds the three tags and nothing else, and its content is a
-// string. Both matter: a skill body is an array whose text can quote the same
-// tags, as the body of the issue this guard came from does.
+// The record opens with one of the tags and its content is a string. Both
+// matter: a skill body is an array whose text can quote the same tags, as the
+// body of the issue this guard came from does.
 func typed(rec record) (string, bool) {
 	if rec.IsMeta || rec.Message.Content.Kind() != '"' {
 		return "", false
@@ -307,7 +313,8 @@ func typed(rec record) (string, bool) {
 	if err := json.Unmarshal(rec.Message.Content, &s); err != nil {
 		return "", false
 	}
-	if !strings.HasPrefix(s, "<command-message>") {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "<command-message>") && !strings.HasPrefix(s, "<command-name>") {
 		return "", false
 	}
 	_, rest, ok := strings.Cut(s, "<command-name>")

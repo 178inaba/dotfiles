@@ -15,12 +15,16 @@ import (
 const (
 	invoke      = `{"type":"user","message":{"role":"user","content":"<command-message>issue-handle</command-message>\n<command-name>/issue-handle</command-name>\n<command-args>190</command-args>"}}`
 	invokeDraft = `{"type":"user","message":{"role":"user","content":"<command-message>issue-draft</command-message>\n<command-name>/issue-draft</command-name>\n<command-args></command-args>"}}`
-	invokeModel = `{"type":"user","message":{"role":"user","content":"<command-message>model</command-message>\n<command-name>/model</command-name>\n<command-args></command-args>"}}`
+	// invokeModel and invokeFailed are the shape a built-in and a launch that
+	// never started are written in: the same tags in the other order, indented.
+	invokeModel  = `{"type":"user","message":{"role":"user","content":"<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args></command-args>"}}`
+	invokeFailed = `{"type":"user","message":{"role":"user","content":"<command-name>/issue-handle</command-name>\n            <command-message>issue-handle</command-message>\n            <command-args>190</command-args>"}}`
 
-	// skillBody is what makes a typed command a skill launch, and stdout is
-	// what a built-in leaves behind instead.
+	// skillBody is what makes a typed command a skill launch. A built-in leaves
+	// stdout instead, and a launch that failed leaves stderr.
 	skillBody = `{"type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /Users/x/.claude/skills/issue-handle\n\n# /issue-handle"}]}}`
 	stdout    = `{"type":"user","message":{"role":"user","content":"<local-command-stdout>Set model to Opus</local-command-stdout>"}}`
+	stderr    = `{"type":"user","message":{"role":"user","content":"<local-command-stderr>Error: permission denied</local-command-stderr>"}}`
 )
 
 func toolUse(id, name, input string) string {
@@ -114,10 +118,24 @@ func TestRunBlocks(t *testing.T) {
 			want:    "step 6",
 		},
 		{
+			// The mirror of the one above: a ready that did not take leaves the
+			// run exactly where it was.
+			name:    "a ready that failed",
+			records: append(withReview(), bash("b8", "gh pr ready 7 -R o/r"), errResult("b8")),
+			want:    "step 7-2",
+		},
+		{
 			// A built-in command is not a skill: no body follows it, so it
 			// leaves the run it interrupted running.
 			name:    "a built-in command does not end the run",
 			records: append(withPR(), invokeModel, stdout),
+			want:    "step 7-1",
+		},
+		{
+			// Nor does a launch of this very skill that never started; the
+			// run it was typed over is still the one that counts.
+			name:    "a launch that failed does not end the run",
+			records: append(withPR(), invokeFailed, stderr),
 			want:    "step 7-1",
 		},
 		{
