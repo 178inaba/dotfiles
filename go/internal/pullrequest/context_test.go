@@ -3,9 +3,11 @@ package pullrequest_test
 import (
 	"encoding/json/v2"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -52,6 +54,11 @@ type pages struct {
 	// how the parent endpoint says an issue is nobody's child.
 	issues      map[string]string
 	issueStatus map[string]int
+	// issueComments answers the comment endpoints by api path, oldest first,
+	// and is paginated the way GitHub paginates it. A path not in it has no
+	// comments rather than no endpoint: reading them is not optional, so a
+	// missing fixture would fail every issue in every other test.
+	issueComments map[string][]string
 }
 
 func serve(t *testing.T, p pages) *ghapi.Client {
@@ -111,12 +118,16 @@ func serve(t *testing.T, p pages) *ghapi.Client {
 	}))
 }
 
-// serveIssue answers the two REST endpoints the linked issues are read from.
+// serveIssue answers the three REST endpoints the linked issues are read from.
 func serveIssue(w http.ResponseWriter, r *http.Request, p pages) {
 	w.Header().Set("Content-Type", "application/json")
 	if s, ok := p.issueStatus[r.URL.Path]; ok {
 		w.WriteHeader(s)
 		fmt.Fprint(w, `{"message":"unavailable"}`)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/comments") {
+		serveIssueComments(w, r, p.issueComments[r.URL.Path])
 		return
 	}
 	body, ok := p.issues[r.URL.Path]
@@ -128,28 +139,98 @@ func serveIssue(w http.ResponseWriter, r *http.Request, p pages) {
 	fmt.Fprint(w, body)
 }
 
-// issuePath and parentPath name the endpoints one issue is read through.
+// serveIssueComments answers one page of a comment list, and links to the next
+// one where there is one, since what the walk stops on is that link.
+func serveIssueComments(w http.ResponseWriter, r *http.Request, list []string) {
+	perPage, page := 30, 1
+	if n, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil {
+		perPage = n
+	}
+	if n, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil {
+		page = n
+	}
+
+	start := min((page-1)*perPage, len(list))
+	end := min(start+perPage, len(list))
+	if end < len(list) {
+		w.Header().Set("Link", fmt.Sprintf(`<http://%s%s?per_page=%d&page=%d>; rel="next"`,
+			r.Host, r.URL.Path, perPage, page+1))
+	}
+	fmt.Fprintf(w, "[%s]", strings.Join(list[start:end], ","))
+}
+
+// issuePath, parentPath and commentsPath name the endpoints one issue is read
+// through.
 func issuePath(repo string, number int) string {
 	return fmt.Sprintf("/repos/%s/issues/%d", repo, number)
 }
 
 func parentPath(repo string, number int) string { return issuePath(repo, number) + "/parent" }
 
+func commentsPath(repo string, number int) string { return issuePath(repo, number) + "/comments" }
+
 // issueJSON is a GitHub issue object, as much of it as the context reads.
-func issueJSON(repo string, number int, title, body string) string {
-	return fmt.Sprintf(`{"number":%d,"title":%q,"body":%q,"state":"open",
+// comments is the total the truncation flag is measured against, so it is given
+// even where the comment fixture is left empty.
+func issueJSON(repo string, number int, title, body string, comments int) string {
+	return fmt.Sprintf(`{"number":%d,"title":%q,"body":%q,"state":"open","comments":%d,
 		"html_url":"https://github.com/%s/issues/%d",
 		"repository_url":"https://api.github.com/repos/%s"}`,
-		number, title, body, repo, number, repo)
+		number, title, body, comments, repo, number, repo)
+}
+
+// commentJSON is a GitHub issue comment, numbered so that the order it is
+// written in is visible in what comes back.
+func commentJSON(n int, login, body string) string {
+	return fmt.Sprintf(`{"user":{"login":%q,"type":"User"},"body":%q,
+		"created_at":"2026-02-0%dT00:00:00Z","html_url":%q}`,
+		login, body, n, issueCommentURL(n))
+}
+
+func issueCommentURL(n int) string {
+	return fmt.Sprintf("https://github.com/owner/repo/issues/10#issuecomment-%d", n)
 }
 
 // linkedIssues answers every endpoint the fixture pull request's body reaches:
 // #10 with a parent, #11 with none, and other/repo#12 with none.
 var linkedIssues = map[string]string{
-	issuePath("owner/repo", 10):  issueJSON("owner/repo", 10, "Issue 10", "The tenth body"),
-	parentPath("owner/repo", 10): issueJSON("owner/repo", 9, "Issue 9", "The parent body"),
-	issuePath("owner/repo", 11):  issueJSON("owner/repo", 11, "Issue 11", ""),
-	issuePath("other/repo", 12):  issueJSON("other/repo", 12, "Issue 12", "Elsewhere"),
+	issuePath("owner/repo", 10):  issueJSON("owner/repo", 10, "Issue 10", "The tenth body", 3),
+	parentPath("owner/repo", 10): issueJSON("owner/repo", 9, "Issue 9", "The parent body", 1),
+	issuePath("owner/repo", 11):  issueJSON("owner/repo", 11, "Issue 11", "", 1),
+	issuePath("other/repo", 12):  issueJSON("other/repo", 12, "Issue 12", "Elsewhere", 0),
+}
+
+// linkedIssueComments gives the issue with a parent three comments and the
+// parent one, which is the shape the acceptance criteria name.
+//
+// #11 has one as well, and no parent at all, which is what catches a fetch
+// placed after the parent lookup: every issue with no parent leaves that block
+// early, and its comments would go missing with the whole positive case still
+// passing on #10.
+var linkedIssueComments = map[string][]string{
+	commentsPath("owner/repo", 10): {
+		commentJSON(1, "178inaba", "first"),
+		commentJSON(2, "reviewer1", "second"),
+		commentJSON(3, "178inaba", "third"),
+	},
+	commentsPath("owner/repo", 9):  {commentJSON(4, "reviewer1", "on the parent")},
+	commentsPath("owner/repo", 11): {commentJSON(5, "reviewer1", "on the eleventh")},
+}
+
+// issue10Comments, issue9Comments and issue11Comments are what the fixture
+// issues carry, written once because several tests assert on the same lists.
+var issue10Comments = []pullrequest.IssueComment{
+	{Author: new("178inaba"), AuthorType: new("User"), Body: "first", CreatedAt: "2026-02-01T00:00:00Z", URL: issueCommentURL(1)},
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "second", CreatedAt: "2026-02-02T00:00:00Z", URL: issueCommentURL(2)},
+	{Author: new("178inaba"), AuthorType: new("User"), Body: "third", CreatedAt: "2026-02-03T00:00:00Z", URL: issueCommentURL(3)},
+}
+
+var issue9Comments = []pullrequest.IssueComment{
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the parent", CreatedAt: "2026-02-04T00:00:00Z", URL: issueCommentURL(4)},
+}
+
+var issue11Comments = []pullrequest.IssueComment{
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the eleventh", CreatedAt: "2026-02-05T00:00:00Z", URL: issueCommentURL(5)},
 }
 
 // The fixture below is, thread by thread: one
@@ -251,7 +332,7 @@ func fetch(t *testing.T, p pages, pr ghapi.PullRequest, limits pullrequest.Limit
 func TestFetch(t *testing.T) {
 	t.Parallel()
 
-	got := fetch(t, pages{body: fixtureBody, issues: linkedIssues}, meta, pullrequest.DefaultLimits)
+	got := fetch(t, pages{body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments}, meta, pullrequest.DefaultLimits)
 
 	t.Run("the pull request and who is reading it", func(t *testing.T) {
 		want := pullrequest.PR{
@@ -276,14 +357,21 @@ func TestFetch(t *testing.T) {
 		want := []pullrequest.LinkedIssue{
 			{
 				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
+				CommentsTotalCount: 3, Comments: issue10Comments,
 				// A parent in this repository writes no repository, the way
 				// the linked issue itself does.
-				Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+				Parent: &pullrequest.IssueParent{
+					Number: 9, Title: "Issue 9", Body: "The parent body",
+					CommentsTotalCount: 1, Comments: issue9Comments,
+				},
 			},
 			// An empty body is empty rather than null: null is reserved for an
 			// issue that could not be read at all.
-			{Number: 11, Title: new("Issue 11"), Body: new("")},
-			{Repo: &other, Number: 12, Title: new("Issue 12"), Body: new("Elsewhere")},
+			{
+				Number: 11, Title: new("Issue 11"), Body: new(""),
+				CommentsTotalCount: 1, Comments: issue11Comments,
+			},
+			{Repo: &other, Number: 12, Title: new("Issue 12"), Body: new("Elsewhere"), Comments: []pullrequest.IssueComment{}},
 		}
 		if diff := cmp.Diff(want, got.LinkedIssues); diff != "" {
 			t.Errorf("linked_issues (-want +got):\n%s", diff)
@@ -547,22 +635,25 @@ func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
 		{
 			name:        "the issue was deleted",
 			status:      map[string]int{issuePath("owner/repo", 10): http.StatusNotFound},
-			want:        pullrequest.LinkedIssue{Number: 10},
+			want:        pullrequest.LinkedIssue{Number: 10, Comments: []pullrequest.IssueComment{}},
 			wantWarning: "owner/repo#10: the issue could not be read (HTTP 404)",
 		},
 		{
 			name:        "the issue is not ours to see",
 			status:      map[string]int{issuePath("owner/repo", 10): http.StatusForbidden},
-			want:        pullrequest.LinkedIssue{Number: 10},
+			want:        pullrequest.LinkedIssue{Number: 10, Comments: []pullrequest.IssueComment{}},
 			wantWarning: "owner/repo#10: the issue could not be read (HTTP 403)",
 		},
 		{
 			// Only the parent is lost here, and the body that was read is
-			// kept: dropping it would throw away what the run came for.
+			// kept, comments and all: dropping either would throw away what the
+			// run came for, and the comments are the half a fetch placed after
+			// the parent lookup would lose.
 			name:   "only the parent is unreadable",
 			status: map[string]int{parentPath("owner/repo", 10): http.StatusGone},
 			want: pullrequest.LinkedIssue{
 				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
+				CommentsTotalCount: 3, Comments: issue10Comments,
 			},
 			wantWarning: "owner/repo#10: the parent issue could not be read (HTTP 410)",
 		},
@@ -572,7 +663,7 @@ func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := fetch(t, pages{body: fixtureBody, issues: linkedIssues, issueStatus: tc.status}, one, pullrequest.DefaultLimits)
+			got := fetch(t, pages{body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments, issueStatus: tc.status}, one, pullrequest.DefaultLimits)
 
 			if diff := cmp.Diff([]pullrequest.LinkedIssue{tc.want}, got.LinkedIssues); diff != "" {
 				t.Errorf("linked_issues (-want +got):\n%s", diff)
@@ -599,6 +690,127 @@ func TestFetchFailsOnAnUnreadableIssueForAnotherReason(t *testing.T) {
 	if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange()); err == nil {
 		t.Fatal("Fetch succeeded, want the server error to stop it")
 	}
+}
+
+// TestFetchFailsOnUnreadableIssueComments is the rule that separates the two:
+// a body that is present means the issue was read whole, so comments that could
+// not be read stop the run rather than degrading it. Reported as a warning, an
+// issue with a body and an empty comment list would be indistinguishable from
+// one nobody has commented on.
+func TestFetchFailsOnUnreadableIssueComments(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Closes #10"
+
+	for _, status := range []int{http.StatusNotFound, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			t.Parallel()
+
+			c := serve(t, pages{
+				body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments,
+				issueStatus: map[string]int{commentsPath("owner/repo", 10): status},
+			})
+			if _, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange()); err == nil {
+				t.Fatal("Fetch succeeded, want the comment failure to stop it")
+			}
+		})
+	}
+}
+
+// TestFetchStopsAtTheIssueCommentLimit is MAX_ISSUE_COMMENTS on both an issue
+// and a parent: what fits is written oldest first, and the total says what was
+// left behind.
+func TestFetchStopsAtTheIssueCommentLimit(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Closes #10"
+	limits := pullrequest.DefaultLimits
+	limits.IssueComments = 2
+
+	// The parent is an issue for the cap as much as the issue is, so it is
+	// given three of its own here rather than the one the shared fixture has.
+	issues := maps.Clone(linkedIssues)
+	issues[parentPath("owner/repo", 10)] = issueJSON("owner/repo", 9, "Issue 9", "The parent body", 3)
+	comments := maps.Clone(linkedIssueComments)
+	comments[commentsPath("owner/repo", 9)] = []string{
+		commentJSON(4, "reviewer1", "on the parent"),
+		commentJSON(5, "178inaba", "and again"),
+		commentJSON(6, "reviewer1", "once more"),
+	}
+
+	got := fetch(t, pages{body: fixtureBody, issues: issues, issueComments: comments}, one, limits)
+
+	issue := got.LinkedIssues[0]
+	if len(issue.Comments) != 2 || !issue.CommentsTruncated || issue.CommentsTotalCount != 3 {
+		t.Errorf("issue = %d comments, total %d, truncated %v; want 2, 3 and true",
+			len(issue.Comments), issue.CommentsTotalCount, issue.CommentsTruncated)
+	}
+	if want := []string{"first", "second"}; !cmp.Equal(want, bodiesOf(issue.Comments)) {
+		t.Errorf("issue comments = %v, want the oldest two %v", bodiesOf(issue.Comments), want)
+	}
+	parent := issue.Parent
+	if len(parent.Comments) != 2 || !parent.CommentsTruncated || parent.CommentsTotalCount != 3 {
+		t.Errorf("parent = %d comments, total %d, truncated %v; want 2, 3 and true",
+			len(parent.Comments), parent.CommentsTotalCount, parent.CommentsTruncated)
+	}
+}
+
+// TestFetchReadsCommentsFromTheIssuesOwnRepository pins where the comments are
+// asked for, which the shared fixture cannot: an issue and a parent may each
+// live somewhere other than the pull request, and asking the wrong repository
+// answers 404 rather than anything a caller would notice.
+func TestFetchReadsCommentsFromTheIssuesOwnRepository(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Resolves other/repo#12"
+
+	got := fetch(t, pages{
+		body: fixtureBody,
+		issues: map[string]string{
+			issuePath("other/repo", 12):  issueJSON("other/repo", 12, "Issue 12", "Elsewhere", 1),
+			parentPath("other/repo", 12): issueJSON("third/repo", 20, "Issue 20", "Elsewhere again", 1),
+		},
+		issueComments: map[string][]string{
+			commentsPath("other/repo", 12): {commentJSON(7, "reviewer1", "in the issue's repository")},
+			commentsPath("third/repo", 20): {commentJSON(8, "reviewer1", "in the parent's repository")},
+		},
+	}, one, pullrequest.DefaultLimits)
+
+	issue := got.LinkedIssues[0]
+	if len(issue.Comments) != 1 || issue.Comments[0].Body != "in the issue's repository" {
+		t.Errorf("issue comments = %+v, want the one from other/repo", issue.Comments)
+	}
+	if len(issue.Parent.Comments) != 1 || issue.Parent.Comments[0].Body != "in the parent's repository" {
+		t.Errorf("parent comments = %+v, want the one from third/repo", issue.Parent.Comments)
+	}
+}
+
+// TestFetchLeavesNoIssueCommentsNil keeps the document's promise in the value
+// rather than in the bytes: encoding/json/v2 would write a nil slice as [] on
+// its own, so only the value tells a caller reading the context back whether
+// an empty list was meant.
+func TestFetchLeavesNoIssueCommentsNil(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Resolves other/repo#12"
+
+	got := fetch(t, pages{body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments}, one, pullrequest.DefaultLimits)
+
+	if got.LinkedIssues[0].Comments == nil {
+		t.Error("comments = nil on an issue nobody has commented on, want an empty list")
+	}
+}
+
+func bodiesOf(comments []pullrequest.IssueComment) []string {
+	out := make([]string, 0, len(comments))
+	for _, c := range comments {
+		out = append(out, c.Body)
+	}
+	return out
 }
 
 // TestSkillMarkerMatchesTheSkill is a contract in two directions: the skill

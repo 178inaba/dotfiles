@@ -50,12 +50,15 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues)
+	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues, prepareIssueComments)
 }
 
-// prepareGitHubKnowing is prepareGitHub with the issues it knows about named,
-// so that a test can leave one out and see what the run makes of that.
-func prepareGitHubKnowing(t *testing.T, headOID, author, threads string, issues map[string]string) *ghapi.Client {
+// prepareGitHubKnowing is prepareGitHub with the issues and comments it knows
+// about named, so that a test can leave one out, or make one longer than a
+// limit, and see what the run makes of that.
+func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
+	issues map[string]string, comments map[string][]string,
+) *ghapi.Client {
 	t.Helper()
 
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +68,7 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string, issues 
 		// pull request into an issue and passes, which is how a fake reports a
 		// parent that does not exist.
 		if r.URL.Path != "/graphql" {
-			serveIssue(w, r, pages{issues: issues})
+			serveIssue(w, r, pages{issues: issues, issueComments: comments})
 			return
 		}
 		if author == "" {
@@ -111,7 +114,7 @@ func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Cli
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/graphql" {
-			serveIssue(w, r, pages{issues: prepareIssues})
+			serveIssue(w, r, pages{issues: prepareIssues, issueComments: prepareIssueComments})
 			return
 		}
 		body, err := io.ReadAll(r.Body)
@@ -134,9 +137,22 @@ const noThreads = `{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":"
 // issue --issue names instead of it.
 var prepareIssues = func() map[string]string {
 	m := maps.Clone(linkedIssues)
-	m[issuePath("owner/repo", 42)] = issueJSON("owner/repo", 42, "Issue 42", "The overriding body")
+	m[issuePath("owner/repo", 42)] = issueJSON("owner/repo", 42, "Issue 42", "The overriding body", 1)
 	return m
 }()
+
+// prepareIssueComments is what those issues have been commented with.
+var prepareIssueComments = func() map[string][]string {
+	m := maps.Clone(linkedIssueComments)
+	m[commentsPath("owner/repo", 42)] = []string{commentJSON(6, "reviewer1", "on the overriding issue")}
+	return m
+}()
+
+// issue42Comments is what the issue --issue names carries; what the issues the
+// body closes carry is declared beside the fixtures themselves.
+var issue42Comments = []pullrequest.IssueComment{
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the overriding issue", CreatedAt: "2026-02-06T00:00:00Z", URL: issueCommentURL(6)},
+}
 
 // store records the contexts it is given, and the paths, and writes nothing:
 // turning one into bytes is the command layer's business.
@@ -291,7 +307,11 @@ func TestPrepare(t *testing.T) {
 			// than merely numbered.
 			if diff := cmp.Diff([]pullrequest.LinkedIssue{{
 				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
-				Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+				CommentsTotalCount: 3, Comments: issue10Comments,
+				Parent: &pullrequest.IssueParent{
+					Number: 9, Title: "Issue 9", Body: "The parent body",
+					CommentsTotalCount: 1, Comments: issue9Comments,
+				},
 			}}, got.Issues); diff != "" {
 				t.Errorf("issues (-want +got):\n%s", diff)
 			}
@@ -315,7 +335,10 @@ func TestPrepareWithAnIssue(t *testing.T) {
 	}
 	// Read the way the body's own issues are: a bare number would leave the
 	// review with nothing to check the work against.
-	want := []pullrequest.LinkedIssue{{Number: 42, Title: new("Issue 42"), Body: new("The overriding body")}}
+	want := []pullrequest.LinkedIssue{{
+		Number: 42, Title: new("Issue 42"), Body: new("The overriding body"),
+		CommentsTotalCount: 1, Comments: issue42Comments,
+	}}
 	if diff := cmp.Diff(want, got.Issues); diff != "" {
 		t.Errorf("issues (-want +got):\n%s", diff)
 	}
@@ -329,7 +352,11 @@ func TestPrepareWithAnIssue(t *testing.T) {
 	}
 	if diff := cmp.Diff([]pullrequest.LinkedIssue{{
 		Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
-		Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+		CommentsTotalCount: 3, Comments: issue10Comments,
+		Parent: &pullrequest.IssueParent{
+			Number: 9, Title: "Issue 9", Body: "The parent body",
+			CommentsTotalCount: 1, Comments: issue9Comments,
+		},
 	}}, seen[0].LinkedIssues); diff != "" {
 		t.Errorf("the document's linked_issues (-want +got):\n%s", diff)
 	}
@@ -423,7 +450,7 @@ func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
 				known = maps.Clone(prepareIssues)
 				delete(known, issuePath("owner/repo", 10))
 			}
-			gh := prepareGitHubKnowing(t, head, "me", noThreads, known)
+			gh := prepareGitHubKnowing(t, head, "me", noThreads, known, prepareIssueComments)
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
@@ -514,6 +541,96 @@ func TestPrepareRaisesTheLimits(t *testing.T) {
 	// the second fetch happened — and that the rerun answered the same way, so
 	// the caller is told rather than kept waiting on a third attempt.
 	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "MAX_THREADS to 400") {
+		t.Errorf("warnings = %v, want one naming the raised limit", got.Warnings)
+	}
+}
+
+// manyComments is a comment list long enough to reach the default per-issue
+// limit, which is what the rerun has to be shown raising.
+func manyComments(n int) []string {
+	out := make([]string, 0, n)
+	for i := range n {
+		out = append(out, fmt.Sprintf(
+			`{"user":{"login":"reviewer1","type":"User"},"body":"comment %d",
+				"created_at":"2026-03-01T00:00:00Z","html_url":"https://example.com/ic/%d"}`, i, i))
+	}
+	return out
+}
+
+// TestPrepareRaisesTheIssueCommentLimit is the rerun on an issue's comments,
+// and on a parent's: either one being cut short raises the one limit both are
+// read under, since one limit has to cover them all.
+func TestPrepareRaisesTheIssueCommentLimit(t *testing.T) {
+	t.Parallel()
+
+	total := pullrequest.DefaultLimits.IssueComments + 50
+
+	for _, tc := range []struct {
+		name   string
+		at     string
+		number int
+		parent bool
+	}{
+		{name: "the issue", at: issuePath("owner/repo", 10), number: 10},
+		{name: "its parent", at: parentPath("owner/repo", 10), number: 9, parent: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			issues := maps.Clone(prepareIssues)
+			comments := maps.Clone(prepareIssueComments)
+			issues[tc.at] = issueJSON("owner/repo", tc.number, "Issue", "The body", total)
+			comments[commentsPath("owner/repo", tc.number)] = manyComments(total)
+
+			repo, head := prepareRepo(t)
+			var seen []pullrequest.Context
+			var paths []string
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, comments),
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+				pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+
+			// The rerun found room for all of them, so nothing is left to warn
+			// about — which is what says the limit was raised rather than the
+			// truncation simply going unnoticed.
+			if len(got.Warnings) != 0 {
+				t.Errorf("warnings = %v, want none after the rerun found room", got.Warnings)
+			}
+			issue := seen[0].LinkedIssues[0]
+			read, truncated := issue.Comments, issue.CommentsTruncated
+			if tc.parent {
+				read, truncated = issue.Parent.Comments, issue.Parent.CommentsTruncated
+			}
+			if len(read) != total || truncated {
+				t.Errorf("%d comments, truncated %v; want %d and false", len(read), truncated, total)
+			}
+		})
+	}
+}
+
+// TestPrepareReportsIssueCommentsStillTruncated is the other end of the one
+// rerun: a second truncation is told to the caller rather than retried, and the
+// warning names the variable to raise.
+func TestPrepareReportsIssueCommentsStillTruncated(t *testing.T) {
+	t.Parallel()
+
+	issues := maps.Clone(prepareIssues)
+	// More than the fixture serves, so raising the limit changes nothing.
+	issues[issuePath("owner/repo", 10)] = issueJSON("owner/repo", 10, "Issue 10", "The tenth body", 900)
+
+	repo, head := prepareRepo(t)
+	var seen []pullrequest.Context
+	var paths []string
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, prepareIssueComments),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "MAX_ISSUE_COMMENTS to 900") {
 		t.Errorf("warnings = %v, want one naming the raised limit", got.Warnings)
 	}
 }

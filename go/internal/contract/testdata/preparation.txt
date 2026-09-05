@@ -2,88 +2,129 @@
   stopping status, because each is only established as the step that produces it
   succeeds.
 
-  status               string
-                       ok, branch_mismatch, or whichever freshness status stopped the
-                       preparation. Everything below is null on a stopping status.
-  flags                object
-    pr_number          integer (may be null)
-    issue              integer (may be null)
-    worktree           boolean
-    local_only         boolean
-    no_autofix         boolean
-  pr_exists            boolean
-                       False is the ordinary degradation to a local review rather than a
-                       failure. Everything else that goes wrong stops instead: confusing
-                       the two would let a review of somebody else's work run with this
-                       repository's own conventions and automatic fixing switched on.
-  head_ref             string (may be null)
-  context_path         string (may be null)
-  work_dir             string (may be null)
-                       work_dir, review_path and threads_path are handed out rather than
-                       left to the caller to name, which is what binds a review's
-                       working files to one pull request.
-  review_path          string (may be null)
-  threads_path         string (may be null)
-  base_branch          string (may be null)
-                       The branch to diff against, already prefixed with origin/.
-  modes                object (may be null)
-    comment            boolean
-                       The findings are posted as a review rather than acted on, which
-                       is what reviewing somebody else's work means.
-    personal_rules     boolean
-                       This repository's own conventions apply, which they do to our own
-                       work and not to a stranger's.
-    autofix            boolean
-                       The findings are acted on here rather than posted. Never true at
-                       the same time as comment: a review either tells somebody else
-                       what it found or fixes it, and doing both would post remarks
-                       about code that has already changed.
-  freshness            object (may be null)
-                       The whole freshness report, so that a caller stopping on one can
-                       say what it compared.
-    status             string, one of:
-      ok               A checkout already at the pull request's head.
-      synced           The same checkout after this command moved it there.
-      ahead_own        The author's own checkout with commits not pushed yet, which is
-                       ordinary rather than stale.
-      behind_dirty     A stale checkout with uncommitted changes in it, which is for a
-                       person to resolve rather than for this command.
-      diverged         The same, with commits the remote has never seen.
-      branch_mismatch  A checkout of something else entirely, a detached head included.
-      fetch_failed     fetch_failed most often means the head branch is not on origin at
-                       all, which is what a pull request from a fork looks like from
-                       here.
-    head_ref           string
-    head_oid           string
-    local_head         string
-                       Read after any synchronisation, so it is where the checkout ended
-                       up rather than where it started.
-  issues               array of object
-                       The issues the review checks the work against: the one --issue
-                       named, or else the ones the pull request body's closing keywords
-                       point at.
-    repo               string (may be null)
-                       Null for an issue in this repository, which is how the body wrote
-                       it.
-    number             integer
-    title              string (may be null)
-                       title and body are null where the issue could not be read —
-                       deleted, or not ours to see — and warnings says which. An issue
-                       with nothing written in it has an empty body rather than a null
-                       one, so the two are told apart.
-    body               string (may be null)
-    parent             object (may be null)
-                       The issue this one is a sub-issue of, null where it has none or
-                       where the parent could not be read. A Sub is bound by the rules
-                       its parent states and cannot be judged without them.
-      repo             string (may be null)
-                       Null for a parent in this repository, as the linked issue's own
-                       repository is.
-      number           integer
-      title            string
-      body             string
-  warnings             array of string
-                       The degradations that did not stop the preparation: an issue that
-                       could not be read, named as owner/repo#N, and anything that was
-                       still cut short after the limits were raised. Empty rather than
-                       null when there was nothing to report.
+  status                    string
+                            ok, branch_mismatch, or whichever freshness status stopped
+                            the preparation. Everything below is null on a stopping
+                            status.
+  flags                     object
+    pr_number               integer (may be null)
+    issue                   integer (may be null)
+    worktree                boolean
+    local_only              boolean
+    no_autofix              boolean
+  pr_exists                 boolean
+                            False is the ordinary degradation to a local review rather
+                            than a failure. Everything else that goes wrong stops
+                            instead: confusing the two would let a review of somebody
+                            else's work run with this repository's own conventions and
+                            automatic fixing switched on.
+  head_ref                  string (may be null)
+  context_path              string (may be null)
+  work_dir                  string (may be null)
+                            work_dir, review_path and threads_path are handed out rather
+                            than left to the caller to name, which is what binds a
+                            review's working files to one pull request.
+  review_path               string (may be null)
+  threads_path              string (may be null)
+  base_branch               string (may be null)
+                            The branch to diff against, already prefixed with origin/.
+  modes                     object (may be null)
+    comment                 boolean
+                            The findings are posted as a review rather than acted on,
+                            which is what reviewing somebody else's work means.
+    personal_rules          boolean
+                            This repository's own conventions apply, which they do to
+                            our own work and not to a stranger's.
+    autofix                 boolean
+                            The findings are acted on here rather than posted. Never
+                            true at the same time as comment: a review either tells
+                            somebody else what it found or fixes it, and doing both
+                            would post remarks about code that has already changed.
+  freshness                 object (may be null)
+                            The whole freshness report, so that a caller stopping on one
+                            can say what it compared.
+    status                  string, one of:
+      ok                    A checkout already at the pull request's head.
+      synced                The same checkout after this command moved it there.
+      ahead_own             The author's own checkout with commits not pushed yet, which
+                            is ordinary rather than stale.
+      behind_dirty          A stale checkout with uncommitted changes in it, which is
+                            for a person to resolve rather than for this command.
+      diverged              The same, with commits the remote has never seen.
+      branch_mismatch       A checkout of something else entirely, a detached head
+                            included.
+      fetch_failed          fetch_failed most often means the head branch is not on
+                            origin at all, which is what a pull request from a fork
+                            looks like from here.
+    head_ref                string
+    head_oid                string
+    local_head              string
+                            Read after any synchronisation, so it is where the checkout
+                            ended up rather than where it started.
+  issues                    array of object
+                            The issues the review checks the work against: the one
+                            --issue named, or else the ones the pull request body's
+                            closing keywords point at.
+    repo                    string (may be null)
+                            Null for an issue in this repository, which is how the body
+                            wrote it.
+    number                  integer
+    title                   string (may be null)
+                            title and body are null where the issue could not be read —
+                            deleted, or not ours to see — and warnings says which. An
+                            issue with nothing written in it has an empty body rather
+                            than a null one, so the two are told apart.
+    body                    string (may be null)
+    comments_total_count    integer (required)
+                            comments_total_count and comments_truncated are what a
+                            caller raises the per-issue limit against when an issue was
+                            cut short, as the pull request's own comments are.
+    comments_truncated      boolean (required)
+    comments                array of object (required)
+                            The discussion the body does not carry, oldest first. Empty
+                            for an issue that could not be read, and for one nobody has
+                            commented on — never null. A body that is present means the
+                            comments were read too, since failing to read them stops the
+                            fetch rather than degrading it.
+      author                string (may be null)
+      author_type           string (may be null)
+                            The type REST gives the author — User, Bot and so on — which
+                            is how a CI comment is told from a person's without a list
+                            of bot names to keep up to date. Null together with author,
+                            for an author since deleted.
+      body                  string
+      created_at            string
+      url                   string
+    parent                  object (may be null)
+                            The issue this one is a sub-issue of, null where it has none
+                            or where the parent could not be read. A Sub is bound by the
+                            rules its parent states and cannot be judged without them.
+      repo                  string (may be null)
+                            Null for a parent in this repository, as the linked issue's
+                            own repository is.
+      number                integer
+      title                 string
+      body                  string
+      comments_total_count  integer (required)
+                            The parent is an issue for the limit as much as the
+                            sub-issue is: its own share of it, and its own total to
+                            raise it to.
+      comments_truncated    boolean (required)
+      comments              array of object (required)
+                            What was settled in the parent's discussion rather than
+                            written into its body, oldest first — which a reader of
+                            somebody else's issue cannot assume is the same thing.
+        author              string (may be null)
+        author_type         string (may be null)
+                            The type REST gives the author — User, Bot and so on — which
+                            is how a CI comment is told from a person's without a list
+                            of bot names to keep up to date. Null together with author,
+                            for an author since deleted.
+        body                string
+        created_at          string
+        url                 string
+  warnings                  array of string
+                            The degradations that did not stop the preparation: an issue
+                            that could not be read, named as owner/repo#N, and anything
+                            that was still cut short after the limits were raised. Empty
+                            rather than null when there was nothing to report.
