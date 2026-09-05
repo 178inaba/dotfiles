@@ -64,11 +64,8 @@ func skillsDir() (string, error) {
 	return filepath.Join(repo, "claude", ".claude", "skills"), nil
 }
 
-// skillContractCmd builds `ccx skill contract`.
-//
-// A skill names the fields of the commands it runs, and a rename that leaves
-// the old name behind in a skill goes unnoticed until somebody follows the
-// instruction and finds no such field.
+// skillContractCmd builds `ccx skill contract`, whose reason for existing is
+// in the help this renders.
 func skillContractCmd(build selfbuild.State) *cobra.Command {
 	return &cobra.Command{
 		Use:   "contract [<skills-dir>]",

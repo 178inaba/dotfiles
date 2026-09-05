@@ -46,7 +46,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 出力の読み方は `ccx pr prepare-review --help` にある。本スキルがそれに対して行うこと:
 
-- `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は、Skill ツールで `worktree-resolution` を起動し、その「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため。`--worktree` 無しの実行では上の解決手順を通らないので、ここで起動する）
+- `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は、Skill ツールで `worktree-resolution` を起動し、その「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用 — stale なコードを対象にすると誤スコープの指摘になるため）
 - `pr_exists: false` は縮退なので続行する。**PR があるのに取得系が失敗した場合はコマンドが非ゼロ exit で止まる**ので、そちらは stderr を提示して停止する（両者を混同すると `is_own_pr` 不在のままモード判定が自動対応ONへ倒れる事故につながる）
 - `context_path` の読み方はセクション2
 - `work_dir`: **レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる

@@ -10,12 +10,6 @@ import (
 	"sync"
 )
 
-// A SKILL.md names the fields of the ccx commands it runs, at the point where
-// it acts on them. A rename that leaves the old name behind in a skill is
-// silent: the command answers with the new name and the skill goes on
-// instructing the model to read one that is not there. This check makes that
-// decidable.
-
 // ContractViolation is one thing wrong with the contract identifiers a skill
 // names.
 type ContractViolation string
@@ -65,6 +59,8 @@ type Published struct {
 	Identifiers []string
 }
 
+// set is built once per run rather than per file: every skill is judged
+// against the same names.
 func (p Published) set() map[string]bool {
 	out := make(map[string]bool, len(p.Identifiers))
 	for _, id := range p.Identifiers {
@@ -93,13 +89,14 @@ func CheckContract(skillsDir string, published Published) (Contract, error) {
 		return Contract{}, fmt.Errorf("no */SKILL.md found under %s", root)
 	}
 
+	names := published.set()
 	violations := []ContractFinding{}
 	for _, rel := range found {
 		content, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
 			continue
 		}
-		violations = append(violations, contractFindings(rel, string(content), published)...)
+		violations = append(violations, contractFindings(rel, string(content), published.Commands, names)...)
 	}
 	sortFindings(violations, func(f ContractFinding) (string, int, string) {
 		return f.File, f.Line, string(f.Type)
@@ -144,11 +141,11 @@ func invokesCommand(content string, commands []string) bool {
 	return false
 }
 
-func contractFindings(file, content string, p Published) []ContractFinding {
-	if len(p.Identifiers) == 0 || !invokesCommand(content, p.Commands) {
+func contractFindings(file, content string, commands []string, published map[string]bool) []ContractFinding {
+	if len(published) == 0 || !invokesCommand(content, commands) {
 		return nil
 	}
-	known, published := allowed(), p.set()
+	known := allowed()
 
 	var out []ContractFinding
 	for i, line := range strings.Split(content, "\n") {

@@ -162,8 +162,8 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 
 名前変更を希望されたら worktree 破棄 → 再作成で対応する: Plan モードを抜けて `ExitWorktree(action: "keep")` でメインツリーへ戻り、Step 6 の失敗時リカバリと同じ手順で破棄 → Step 4-6 を新しい名前で再実行 → 改めて EnterPlanMode。
 
-1. **参照文書の読込**
-   - プロジェクトルートの `CLAUDE.md` を読む（無ければ「対象なし」として次へ）
+1. **参照文書の読込**（グローバル CLAUDE.md「計画立案原則」が計画者に課す事前読込。本スキル自身の責務として行う）
+   - プロジェクトルートの `CLAUDE.md` を読む（無ければこの読込は対象なしとして飛ばす）
    - その `CLAUDE.md` がリンクしている `.md` を読む（標準 Markdown リンク `[text](path.md)` と Claude の `@import` 記法の両形式。プロジェクト内相対パス・ホーム絶対パスとも）
    - リンク先の文書がさらにリンクしている `.md` を、**1 段だけ**追って読む
    - リンク先が存在しない場合は警告のみ表示して続行する
@@ -211,7 +211,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
        - [ ] プッシュ・PR作成（draft で作成。Issue番号指定時は `Closes #<issue-number>` を含める。Sub の場合は `Part of #<parent>` と、最後の Sub なら親の `Closes` も — 実装完了処理の規則に従う）
        - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
        - [ ] 同期検証を通過して PR を Ready 化
-   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を起動する。`--no-plan-review` 未指定時は引数 `--no-exit` を渡す（後続の計画検証が ExitPlanMode を担うため）。`--no-plan-review` 指定時は引数なしで起動する（後続の計画検証が無いため、同スキルが ExitPlanMode まで行う）
+   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を、`--no-plan-review` 未指定時は引数 `--no-exit` で、指定時は引数なしで起動する（ExitPlanMode を担うのは、`--no-plan-review` 未指定時は後続の計画検証、指定時は `check-plan-compliance` 自身）
    - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない
    - ユーザーの承認を待つ
 
@@ -302,7 +302,7 @@ Step 3〜4 を実装エージェントに委譲する。本ブロック完了後
      - 同じファイルに無関係な変更が混ざる前にコミットすることで、後からの hunk 分割を回避
      - 実装中に計画と現実が乖離した場合は、コミット境界を調整してよい（計画通りの固定にこだわらない）
    - テストコードの作成・修正では Skill ツールで `test-implementation` を起動し、その3原則に従う
-   - コミット方針は `git-commit` に従う
+   - コミットは Skill ツールで `git-commit` を起動して行う
    - コミット・PR・コードコメントの言語: 計画で確定した方針に従う（git-commit / git-pr の自動言語判定はスキップ）
 
 4. **Test, Lint成功確認**
