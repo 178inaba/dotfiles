@@ -49,17 +49,17 @@ func TestCollectWalksTheWholeTree(t *testing.T) {
 			"[missing](docs/missing.md)\n" +
 			"[fragment](docs/a.md#section)\n" +
 			"[site](https://example.com/x.md) [mail](mailto:a@example.com) [here](#anchor)\n",
-		"imported.md":               "[b](docs/b.md)\n",
-		"docs/a.md":                 "@c.md\n[rule](../.claude/rules/scoped.md)\n",
-		"docs/b.md":                 "[deep](deep1.md)\n",
-		"docs/c.md":                 "[too deep](toodeep.md)\n",
-		"docs/deep1.md":             "[too deep](toodeep2.md)\n",
-		"docs/toodeep.md":           "",
-		"docs/toodeep2.md":          "",
-		"docs/skipped.md":           "",
-		"docs/fenced.md":            "",
-		"docs/fromrule.md":          "",
-		"docs/fromimport.md":        "",
+		"imported.md":        "[b](docs/b.md)\n",
+		"docs/a.md":          "@c.md\n[rule](../.claude/rules/scoped.md)\n",
+		"docs/b.md":          "[deep](deep1.md)\n",
+		"docs/c.md":          "[too deep](toodeep.md)\n",
+		"docs/deep1.md":      "[too deep](toodeep2.md)\n",
+		"docs/toodeep.md":    "",
+		"docs/toodeep2.md":   "",
+		"docs/skipped.md":    "",
+		"docs/fenced.md":     "",
+		"docs/fromrule.md":   "",
+		"docs/fromimport.md": "",
 		// The harness does not expand an import written in a rule, so both
 		// forms reach a planner the same way — as depth-1 links.
 		".claude/rules/unscoped.md": "[r](../../docs/fromrule.md)\n@../../docs/fromimport.md\n",
