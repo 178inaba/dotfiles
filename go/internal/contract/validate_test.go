@@ -43,13 +43,16 @@ type validUntagged struct {
 // would pass every case below that is written against File and refuse none of
 // the ones written against Name.
 //
-// Number is optional so that the cases about strings need not carry one: a
-// rule about a value says nothing about presence, which is the very thing the
-// first cases below assert.
+// Number and Wide are optional so that the cases about strings need not carry
+// one: a rule about a value says nothing about presence, which is the very
+// thing the first cases below assert. They are two widths of the same JSON
+// kind, which is what the rule binds — a set narrowed to int alone would stop
+// this type rendering at all.
 type validValues struct {
 	File   *string     `json:"file" contract:"nonempty,barefilename"`
 	Name   string      `json:"name" contract:"required,nonempty"`
 	Number int         `json:"number" contract:"positive"`
+	Wide   int64       `json:"wide" contract:"positive"`
 	Plain  *string     `json:"plain"`
 	Items  []validItem `json:"items"`
 }
@@ -227,6 +230,17 @@ func TestValidateChecksWhatAKeyHolds(t *testing.T) {
 		{
 			name: "a constrained number written as null",
 			in:   `{"name":"n","number":null}`,
+		},
+		{
+			// The same rule on a wider integer, which is what the tag binds
+			// to: the JSON kind, not the width the field happens to have.
+			name: "zero in a wider integer field",
+			in:   `{"name":"n","wide":0}`,
+			want: "doc.json sets wide to a number that is not positive",
+		},
+		{
+			name: "a positive number in a wider integer field",
+			in:   `{"name":"n","wide":5000000000}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
