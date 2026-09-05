@@ -153,8 +153,8 @@ func serveIssueComments(w http.ResponseWriter, r *http.Request, list []string) {
 	start := min((page-1)*perPage, len(list))
 	end := min(start+perPage, len(list))
 	if end < len(list) {
-		w.Header().Set("Link", fmt.Sprintf(`<%s://%s%s?per_page=%d&page=%d>; rel="next"`,
-			"http", r.Host, r.URL.Path, perPage, page+1))
+		w.Header().Set("Link", fmt.Sprintf(`<http://%s%s?per_page=%d&page=%d>; rel="next"`,
+			r.Host, r.URL.Path, perPage, page+1))
 	}
 	fmt.Fprintf(w, "[%s]", strings.Join(list[start:end], ","))
 }
@@ -215,6 +215,22 @@ var linkedIssueComments = map[string][]string{
 	},
 	commentsPath("owner/repo", 9):  {commentJSON(4, "reviewer1", "on the parent")},
 	commentsPath("owner/repo", 11): {commentJSON(5, "reviewer1", "on the eleventh")},
+}
+
+// issue10Comments, issue9Comments and issue11Comments are what the fixture
+// issues carry, written once because several tests assert on the same lists.
+var issue10Comments = []pullrequest.IssueComment{
+	{Author: new("178inaba"), AuthorType: new("User"), Body: "first", CreatedAt: "2026-02-01T00:00:00Z", URL: issueCommentURL(1)},
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "second", CreatedAt: "2026-02-02T00:00:00Z", URL: issueCommentURL(2)},
+	{Author: new("178inaba"), AuthorType: new("User"), Body: "third", CreatedAt: "2026-02-03T00:00:00Z", URL: issueCommentURL(3)},
+}
+
+var issue9Comments = []pullrequest.IssueComment{
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the parent", CreatedAt: "2026-02-04T00:00:00Z", URL: issueCommentURL(4)},
+}
+
+var issue11Comments = []pullrequest.IssueComment{
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the eleventh", CreatedAt: "2026-02-05T00:00:00Z", URL: issueCommentURL(5)},
 }
 
 // The fixture below is, thread by thread: one
@@ -341,29 +357,19 @@ func TestFetch(t *testing.T) {
 		want := []pullrequest.LinkedIssue{
 			{
 				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
-				CommentsTotalCount: 3,
-				Comments: []pullrequest.IssueComment{
-					{Author: new("178inaba"), AuthorType: new("User"), Body: "first", CreatedAt: "2026-02-01T00:00:00Z", URL: issueCommentURL(1)},
-					{Author: new("reviewer1"), AuthorType: new("User"), Body: "second", CreatedAt: "2026-02-02T00:00:00Z", URL: issueCommentURL(2)},
-					{Author: new("178inaba"), AuthorType: new("User"), Body: "third", CreatedAt: "2026-02-03T00:00:00Z", URL: issueCommentURL(3)},
-				},
+				CommentsTotalCount: 3, Comments: issue10Comments,
 				// A parent in this repository writes no repository, the way
 				// the linked issue itself does.
 				Parent: &pullrequest.IssueParent{
 					Number: 9, Title: "Issue 9", Body: "The parent body",
-					CommentsTotalCount: 1,
-					Comments: []pullrequest.IssueComment{
-						{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the parent", CreatedAt: "2026-02-04T00:00:00Z", URL: issueCommentURL(4)},
-					},
+					CommentsTotalCount: 1, Comments: issue9Comments,
 				},
 			},
 			// An empty body is empty rather than null: null is reserved for an
 			// issue that could not be read at all.
 			{
-				Number: 11, Title: new("Issue 11"), Body: new(""), CommentsTotalCount: 1,
-				Comments: []pullrequest.IssueComment{
-					{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the eleventh", CreatedAt: "2026-02-05T00:00:00Z", URL: issueCommentURL(5)},
-				},
+				Number: 11, Title: new("Issue 11"), Body: new(""),
+				CommentsTotalCount: 1, Comments: issue11Comments,
 			},
 			{Repo: &other, Number: 12, Title: new("Issue 12"), Body: new("Elsewhere"), Comments: []pullrequest.IssueComment{}},
 		}
@@ -647,12 +653,7 @@ func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
 			status: map[string]int{parentPath("owner/repo", 10): http.StatusGone},
 			want: pullrequest.LinkedIssue{
 				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
-				CommentsTotalCount: 3,
-				Comments: []pullrequest.IssueComment{
-					{Author: new("178inaba"), AuthorType: new("User"), Body: "first", CreatedAt: "2026-02-01T00:00:00Z", URL: issueCommentURL(1)},
-					{Author: new("reviewer1"), AuthorType: new("User"), Body: "second", CreatedAt: "2026-02-02T00:00:00Z", URL: issueCommentURL(2)},
-					{Author: new("178inaba"), AuthorType: new("User"), Body: "third", CreatedAt: "2026-02-03T00:00:00Z", URL: issueCommentURL(3)},
-				},
+				CommentsTotalCount: 3, Comments: issue10Comments,
 			},
 			wantWarning: "owner/repo#10: the parent issue could not be read (HTTP 410)",
 		},

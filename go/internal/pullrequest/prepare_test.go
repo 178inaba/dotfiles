@@ -148,20 +148,10 @@ var prepareIssueComments = func() map[string][]string {
 	return m
 }()
 
-// issue42Comments and issue10Comments are what the two issues the preparation
-// tests read carry, written once because three of them assert on them.
+// issue42Comments is what the issue --issue names carries; what the issues the
+// body closes carry is declared beside the fixtures themselves.
 var issue42Comments = []pullrequest.IssueComment{
 	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the overriding issue", CreatedAt: "2026-02-06T00:00:00Z", URL: issueCommentURL(6)},
-}
-
-var issue10Comments = []pullrequest.IssueComment{
-	{Author: new("178inaba"), AuthorType: new("User"), Body: "first", CreatedAt: "2026-02-01T00:00:00Z", URL: issueCommentURL(1)},
-	{Author: new("reviewer1"), AuthorType: new("User"), Body: "second", CreatedAt: "2026-02-02T00:00:00Z", URL: issueCommentURL(2)},
-	{Author: new("178inaba"), AuthorType: new("User"), Body: "third", CreatedAt: "2026-02-03T00:00:00Z", URL: issueCommentURL(3)},
-}
-
-var issue9Comments = []pullrequest.IssueComment{
-	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the parent", CreatedAt: "2026-02-04T00:00:00Z", URL: issueCommentURL(4)},
 }
 
 // store records the contexts it is given, and the paths, and writes nothing:
@@ -575,21 +565,22 @@ func TestPrepareRaisesTheIssueCommentLimit(t *testing.T) {
 
 	total := pullrequest.DefaultLimits.IssueComments + 50
 
-	for _, tc := range []struct{ name, path, parent string }{
-		{name: "the issue", path: issuePath("owner/repo", 10)},
-		{name: "its parent", path: parentPath("owner/repo", 10), parent: "yes"},
+	for _, tc := range []struct {
+		name   string
+		at     string
+		number int
+		parent bool
+	}{
+		{name: "the issue", at: issuePath("owner/repo", 10), number: 10},
+		{name: "its parent", at: parentPath("owner/repo", 10), number: 9, parent: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			issues := maps.Clone(prepareIssues)
 			comments := maps.Clone(prepareIssueComments)
-			number, at := 10, commentsPath("owner/repo", 10)
-			if tc.parent != "" {
-				number, at = 9, commentsPath("owner/repo", 9)
-			}
-			issues[tc.path] = issueJSON("owner/repo", number, "Issue", "The body", total)
-			comments[at] = manyComments(total)
+			issues[tc.at] = issueJSON("owner/repo", tc.number, "Issue", "The body", total)
+			comments[commentsPath("owner/repo", tc.number)] = manyComments(total)
 
 			repo, head := prepareRepo(t)
 			var seen []pullrequest.Context
@@ -609,7 +600,7 @@ func TestPrepareRaisesTheIssueCommentLimit(t *testing.T) {
 			}
 			issue := seen[0].LinkedIssues[0]
 			read, truncated := issue.Comments, issue.CommentsTruncated
-			if tc.parent != "" {
+			if tc.parent {
 				read, truncated = issue.Parent.Comments, issue.Parent.CommentsTruncated
 			}
 			if len(read) != total || truncated {

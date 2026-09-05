@@ -239,10 +239,10 @@ type Context struct {
 //
 // Which fields carry a tag is settled the same way. A tag is a statement about
 // the document rather than about a reader, so what the three between them
-// dereference is declared as one set rather than as three overlapping ones —
-// and a field the command always writes is declared whether a reader has
-// reached for it yet or not, since the statement is true either way and one
-// added later would otherwise arrive undeclared.
+// dereference is declared as one set rather than as three overlapping ones. The
+// linked issues' comments are in that set ahead of the reader they were added
+// for: `ccx pr context` always writes them, so the statement is already true,
+// and the reader that arrives finds the declaration rather than adding it.
 // Every tag is true of what `ccx pr context` writes, pr included: the document
 // always carries the object, and a reader goes straight through it to the
 // number. It also has to be said out loud, because a nested declaration is
@@ -603,13 +603,13 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		// Before the parent lookup, not after it: an issue with no parent and
 		// one whose parent could not be read both leave that block early, and
 		// their comments would go missing with the body still in hand.
-		comments, err := issueComments(ctx, c, in, linked.Number, read.Comments, limit)
+		comments, truncated, err := issueComments(ctx, c, in, read, limit)
 		if err != nil {
 			return nil, nil, err
 		}
 		issues[i].Comments = comments
 		issues[i].CommentsTotalCount = read.Comments
-		issues[i].CommentsTruncated = read.Comments > len(comments)
+		issues[i].CommentsTruncated = truncated
 
 		parent, err := c.IssueParent(ctx, in, linked.Number)
 		if err != nil {
@@ -623,14 +623,15 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		if parent == nil {
 			continue
 		}
-		// The parent's own repository, since a sub-issue may cross one; where
-		// its repository url could not be read the issue's own is the better
-		// guess than the empty owner an unparsed one would send.
-		parentIn := parent.Repo
-		if parentIn == (ghapi.Repo{}) {
-			parentIn = in
+		// Resolved once, so that the repository the comments come from is the
+		// one the document names them as being in. A sub-issue may cross
+		// repositories, and where the parent's repository url could not be read
+		// the issue's own is a better guess than the empty owner an unparsed one
+		// would send.
+		if parent.Repo == (ghapi.Repo{}) {
+			parent.Repo = in
 		}
-		parentComments, err := issueComments(ctx, c, parentIn, parent.Number, parent.Comments, limit)
+		parentComments, parentTruncated, err := issueComments(ctx, c, parent.Repo, *parent, limit)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -638,32 +639,30 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 			Repo: elsewhere(parent.Repo, repo), Number: parent.Number,
 			Title: parent.Title, Body: parent.Body,
 			CommentsTotalCount: parent.Comments,
-			CommentsTruncated:  parent.Comments > len(parentComments),
+			CommentsTruncated:  parentTruncated,
 			Comments:           parentComments,
 		}
 	}
 	return issues, warnings, nil
 }
 
-// issueComments reads one issue's comments into what the document publishes.
+// issueComments reads one issue's comments into what the document publishes,
+// and says whether the limit left any behind.
 //
 // A failure is returned rather than recorded as a warning: the body it belongs
 // to has already been read, and an issue whose body is present is one a reader
-// takes as read whole. total is what the issue object already reported, and is
-// only here so that the message names the issue the same way.
-func issueComments(ctx context.Context, c *ghapi.Client, in ghapi.Repo, number, total, limit int) ([]IssueComment, error) {
-	read, err := c.IssueComments(ctx, in, number, limit)
+// takes as read whole.
+func issueComments(ctx context.Context, c *ghapi.Client, in ghapi.Repo, issue ghapi.Issue, limit int) ([]IssueComment, bool, error) {
+	read, err := c.IssueComments(ctx, in, issue.Number, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read the comments of %s#%d (%d of them): %v", in, number, total, err)
+		return nil, false, fmt.Errorf("failed to read the comments of %s#%d (%d of them): %v",
+			in, issue.Number, issue.Comments, err)
 	}
 	out := make([]IssueComment, 0, len(read))
 	for _, comment := range read {
-		out = append(out, IssueComment{
-			Author: comment.Author, AuthorType: comment.AuthorType, Body: comment.Body,
-			CreatedAt: comment.CreatedAt, URL: comment.URL,
-		})
+		out = append(out, IssueComment(comment))
 	}
-	return out, nil
+	return out, issue.Comments > len(out), nil
 }
 
 // unreadable reports whether GitHub declined to show something in a way that

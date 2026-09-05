@@ -430,10 +430,15 @@ func published() skill.Published {
 // limitSentence is read from the list the command itself uses, however long it
 // has grown.
 func limitSentence() string {
-	last := len(limitVars) - 1
-	return contract.Wrap(strings.Join(limitVars[:last], ", ") + " and " + limitVars[last] +
+	return contract.Wrap(andList(limitVars[:]) +
 		" raise the fetch limits; each takes a plain non-negative integer, and the " +
 		"truncated flags below say when one of them was reached.")
+}
+
+// andList is how both sentences below name a list of things: A, B and C.
+func andList(xs []string) string {
+	last := len(xs) - 1
+	return strings.Join(xs[:last], ", ") + " and " + xs[last]
 }
 
 // sectionKeys is the schema's key column, wrapped into a sentence.
@@ -442,8 +447,7 @@ func limitSentence() string {
 // so they cannot come from the rendering. Read from the schema so that a key
 // added to it appears here without anyone remembering to.
 func sectionKeys() string {
-	keys := issue.Keys()
-	return contract.Wrap("The keys are " + strings.Join(keys[:len(keys)-1], ", ") + " and " + keys[len(keys)-1] + ".")
+	return contract.Wrap("The keys are " + andList(issue.Keys()) + ".")
 }
 
 // longFor is a command's help text, empty where none is registered.

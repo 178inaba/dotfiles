@@ -189,12 +189,12 @@ func TestIssueCommentsFollowsTheLinkHeader(t *testing.T) {
 
 	want := []ghapi.IssueComment{
 		{
-			Author: ptr("178inaba"), AuthorType: ptr("User"), Body: "first",
+			Author: new("178inaba"), AuthorType: new("User"), Body: "first",
 			CreatedAt: "2026-01-01T00:00:00Z",
 			URL:       "https://github.com/owner/repo/issues/10#issuecomment-1",
 		},
 		{
-			Author: ptr("github-actions"), AuthorType: ptr("Bot"), Body: "second",
+			Author: new("github-actions"), AuthorType: new("Bot"), Body: "second",
 			CreatedAt: "2026-01-02T00:00:00Z",
 			URL:       "https://github.com/owner/repo/issues/10#issuecomment-2",
 		},
@@ -285,5 +285,3 @@ func TestIssueCommentsReportsAFailure(t *testing.T) {
 		t.Errorf("IssueComments = %+v, want a failure", got)
 	}
 }
-
-func ptr[T any](v T) *T { return &v }

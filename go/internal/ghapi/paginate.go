@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
 
@@ -32,16 +33,9 @@ var linkRel = regexp.MustCompile(`<([^>]+)>;\s*rel="([^"]+)"`)
 // A free function rather than a method because a method cannot introduce a type
 // parameter.
 func GetAll[T any](ctx context.Context, c *Client, path string) ([]T, error) {
-	var all []T
-	for path != "" {
-		page, next, err := getPage[T](ctx, c, path)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, page...)
-		path = next
-	}
-	return all, nil
+	// A limit no collection reaches rather than a sentinel: zero already means
+	// the first page alone, so there is no spare value to spell "no limit" with.
+	return GetUpTo[T](ctx, c, path, math.MaxInt)
 }
 
 // GetUpTo is GetAll with room for only so many elements.
