@@ -204,7 +204,7 @@ func namedIssue(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number in
 			return []LinkedIssue{i}, nil, nil
 		}
 	}
-	return readIssues(ctx, c, repo, []LinkedIssue{{Number: number}})
+	return readIssues(ctx, c, repo, []LinkedIssue{{Number: number}}, DefaultLimits.IssueComments)
 }
 
 // probe settles which pull request is meant without fetching anything.

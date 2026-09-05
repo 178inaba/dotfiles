@@ -65,7 +65,7 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string, issues 
 		// pull request into an issue and passes, which is how a fake reports a
 		// parent that does not exist.
 		if r.URL.Path != "/graphql" {
-			serveIssue(w, r, pages{issues: issues})
+			serveIssue(w, r, pages{issues: issues, issueComments: prepareIssueComments})
 			return
 		}
 		if author == "" {
@@ -111,7 +111,7 @@ func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Cli
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/graphql" {
-			serveIssue(w, r, pages{issues: prepareIssues})
+			serveIssue(w, r, pages{issues: prepareIssues, issueComments: prepareIssueComments})
 			return
 		}
 		body, err := io.ReadAll(r.Body)
@@ -134,9 +134,32 @@ const noThreads = `{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":"
 // issue --issue names instead of it.
 var prepareIssues = func() map[string]string {
 	m := maps.Clone(linkedIssues)
-	m[issuePath("owner/repo", 42)] = issueJSON("owner/repo", 42, "Issue 42", "The overriding body")
+	m[issuePath("owner/repo", 42)] = issueJSON("owner/repo", 42, "Issue 42", "The overriding body", 1)
 	return m
 }()
+
+// prepareIssueComments is what those issues have been commented with.
+var prepareIssueComments = func() map[string][]string {
+	m := maps.Clone(linkedIssueComments)
+	m[commentsPath("owner/repo", 42)] = []string{commentJSON(6, "reviewer1", "on the overriding issue")}
+	return m
+}()
+
+// issue42Comments and issue10Comments are what the two issues the preparation
+// tests read carry, written once because three of them assert on them.
+var issue42Comments = []pullrequest.IssueComment{
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the overriding issue", CreatedAt: "2026-02-06T00:00:00Z", URL: issueCommentURL(6)},
+}
+
+var issue10Comments = []pullrequest.IssueComment{
+	{Author: new("178inaba"), AuthorType: new("User"), Body: "first", CreatedAt: "2026-02-01T00:00:00Z", URL: issueCommentURL(1)},
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "second", CreatedAt: "2026-02-02T00:00:00Z", URL: issueCommentURL(2)},
+	{Author: new("178inaba"), AuthorType: new("User"), Body: "third", CreatedAt: "2026-02-03T00:00:00Z", URL: issueCommentURL(3)},
+}
+
+var issue9Comments = []pullrequest.IssueComment{
+	{Author: new("reviewer1"), AuthorType: new("User"), Body: "on the parent", CreatedAt: "2026-02-04T00:00:00Z", URL: issueCommentURL(4)},
+}
 
 // store records the contexts it is given, and the paths, and writes nothing:
 // turning one into bytes is the command layer's business.
@@ -291,7 +314,11 @@ func TestPrepare(t *testing.T) {
 			// than merely numbered.
 			if diff := cmp.Diff([]pullrequest.LinkedIssue{{
 				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
-				Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+				CommentsTotalCount: 3, Comments: issue10Comments,
+				Parent: &pullrequest.IssueParent{
+					Number: 9, Title: "Issue 9", Body: "The parent body",
+					CommentsTotalCount: 1, Comments: issue9Comments,
+				},
 			}}, got.Issues); diff != "" {
 				t.Errorf("issues (-want +got):\n%s", diff)
 			}
@@ -315,7 +342,10 @@ func TestPrepareWithAnIssue(t *testing.T) {
 	}
 	// Read the way the body's own issues are: a bare number would leave the
 	// review with nothing to check the work against.
-	want := []pullrequest.LinkedIssue{{Number: 42, Title: new("Issue 42"), Body: new("The overriding body")}}
+	want := []pullrequest.LinkedIssue{{
+		Number: 42, Title: new("Issue 42"), Body: new("The overriding body"),
+		CommentsTotalCount: 1, Comments: issue42Comments,
+	}}
 	if diff := cmp.Diff(want, got.Issues); diff != "" {
 		t.Errorf("issues (-want +got):\n%s", diff)
 	}
@@ -329,7 +359,11 @@ func TestPrepareWithAnIssue(t *testing.T) {
 	}
 	if diff := cmp.Diff([]pullrequest.LinkedIssue{{
 		Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
-		Parent: &pullrequest.IssueParent{Number: 9, Title: "Issue 9", Body: "The parent body"},
+		CommentsTotalCount: 3, Comments: issue10Comments,
+		Parent: &pullrequest.IssueParent{
+			Number: 9, Title: "Issue 9", Body: "The parent body",
+			CommentsTotalCount: 1, Comments: issue9Comments,
+		},
 	}}, seen[0].LinkedIssues); diff != "" {
 		t.Errorf("the document's linked_issues (-want +got):\n%s", diff)
 	}

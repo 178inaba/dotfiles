@@ -55,6 +55,16 @@ type LinkedIssue struct {
 	// two are told apart.
 	Title *string `json:"title"`
 	Body  *string `json:"body"`
+	// comments_total_count and comments_truncated are what a caller raises
+	// MAX_ISSUE_COMMENTS against when an issue was cut short, as the pull
+	// request's own comments do with MAX_COMMENTS.
+	CommentsTotalCount int  `json:"comments_total_count" contract:"required"`
+	CommentsTruncated  bool `json:"comments_truncated" contract:"required"`
+	// The discussion the body does not carry, oldest first. Empty for
+	// an issue that could not be read, and for one nobody has commented on —
+	// never null. A body that is present means the comments were read too,
+	// since failing to read them stops the fetch rather than degrading it.
+	Comments []IssueComment `json:"comments" contract:"required"`
 	// The issue this one is a sub-issue of, null where it has none
 	// or where the parent could not be read. A Sub is bound by the rules its
 	// parent states and cannot be judged without them.
@@ -72,6 +82,27 @@ type IssueParent struct {
 	Number int     `json:"number"`
 	Title  string  `json:"title"`
 	Body   string  `json:"body"`
+	// The parent is an issue for the cap as much as the sub-issue is:
+	// its own MAX_ISSUE_COMMENTS, its own total to raise it to.
+	CommentsTotalCount int  `json:"comments_total_count" contract:"required"`
+	CommentsTruncated  bool `json:"comments_truncated" contract:"required"`
+	// What was settled in the parent's discussion rather than written
+	// into its body, oldest first — which a reader of somebody else's issue
+	// cannot assume is the same thing.
+	Comments []IssueComment `json:"comments" contract:"required"`
+}
+
+// IssueComment is one comment on a linked issue or its parent.
+type IssueComment struct {
+	Author *string `json:"author"`
+	// The type REST gives the author — User, Bot and so on — which
+	// is how a CI comment is told from a person's without a list of bot names
+	// to keep up to date. Null together with author, for an author since
+	// deleted.
+	AuthorType *string `json:"author_type"`
+	Body       string  `json:"body"`
+	CreatedAt  string  `json:"created_at"`
+	URL        string  `json:"url"`
 }
 
 // Comment is one comment in the pull request's conversation.
@@ -208,7 +239,10 @@ type Context struct {
 //
 // Which fields carry a tag is settled the same way. A tag is a statement about
 // the document rather than about a reader, so what the three between them
-// dereference is declared as one set rather than as three overlapping ones.
+// dereference is declared as one set rather than as three overlapping ones —
+// and a field the command always writes is declared whether a reader has
+// reached for it yet or not, since the statement is true either way and one
+// added later would otherwise arrive undeclared.
 // Every tag is true of what `ccx pr context` writes, pr included: the document
 // always carries the object, and a reader goes straight through it to the
 // number. It also has to be said out loud, because a nested declaration is
@@ -246,11 +280,14 @@ type Limits struct {
 	// threads of five comments would reach a shared limit in ordinary use, and
 	// every thread after it would lose its discussion.
 	ThreadComments int
+	// IssueComments is per issue for the same reason, and a parent counts as
+	// an issue of its own.
+	IssueComments int
 }
 
 // DefaultLimits are generous enough that no pull request in this repository
 // has reached one.
-var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200}
+var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200, IssueComments: 200}
 
 // Fetch gathers the context of one pull request.
 //
@@ -304,7 +341,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		headCommittedAt = &b.Repository.HeadCommit.CommittedDate
 	}
 
-	issues, warnings, err := readIssues(ctx, c, repo, linkedIssues(pr.Body))
+	issues, warnings, err := readIssues(ctx, c, repo, linkedIssues(pr.Body), limits.IssueComments)
 	if err != nil {
 		return Context{}, err
 	}
@@ -539,7 +576,7 @@ func linkedIssues(body string) []LinkedIssue {
 // Everything else that goes wrong is returned, because a server error or an
 // expired token says nothing about the issue, and a null title would report it
 // as gone.
-func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []LinkedIssue) ([]LinkedIssue, []string, error) {
+func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []LinkedIssue, limit int) ([]LinkedIssue, []string, error) {
 	warnings := []string{}
 	for i, linked := range issues {
 		in := repo
@@ -563,6 +600,17 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		}
 		issues[i].Title, issues[i].Body = &read.Title, &read.Body
 
+		// Before the parent lookup, not after it: an issue with no parent and
+		// one whose parent could not be read both leave that block early, and
+		// their comments would go missing with the body still in hand.
+		comments, err := issueComments(ctx, c, in, linked.Number, read.Comments, limit)
+		if err != nil {
+			return nil, nil, err
+		}
+		issues[i].Comments = comments
+		issues[i].CommentsTotalCount = read.Comments
+		issues[i].CommentsTruncated = read.Comments > len(comments)
+
 		parent, err := c.IssueParent(ctx, in, linked.Number)
 		if err != nil {
 			status, gone := unreadable(err)
@@ -575,12 +623,47 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		if parent == nil {
 			continue
 		}
+		// The parent's own repository, since a sub-issue may cross one; where
+		// its repository url could not be read the issue's own is the better
+		// guess than the empty owner an unparsed one would send.
+		parentIn := parent.Repo
+		if parentIn == (ghapi.Repo{}) {
+			parentIn = in
+		}
+		parentComments, err := issueComments(ctx, c, parentIn, parent.Number, parent.Comments, limit)
+		if err != nil {
+			return nil, nil, err
+		}
 		issues[i].Parent = &IssueParent{
 			Repo: elsewhere(parent.Repo, repo), Number: parent.Number,
 			Title: parent.Title, Body: parent.Body,
+			CommentsTotalCount: parent.Comments,
+			CommentsTruncated:  parent.Comments > len(parentComments),
+			Comments:           parentComments,
 		}
 	}
 	return issues, warnings, nil
+}
+
+// issueComments reads one issue's comments into what the document publishes.
+//
+// A failure is returned rather than recorded as a warning: the body it belongs
+// to has already been read, and an issue whose body is present is one a reader
+// takes as read whole. total is what the issue object already reported, and is
+// only here so that the message names the issue the same way.
+func issueComments(ctx context.Context, c *ghapi.Client, in ghapi.Repo, number, total, limit int) ([]IssueComment, error) {
+	read, err := c.IssueComments(ctx, in, number, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the comments of %s#%d (%d of them): %v", in, number, total, err)
+	}
+	out := make([]IssueComment, 0, len(read))
+	for _, comment := range read {
+		out = append(out, IssueComment{
+			Author: comment.Author, AuthorType: comment.AuthorType, Body: comment.Body,
+			CreatedAt: comment.CreatedAt, URL: comment.URL,
+		})
+	}
+	return out, nil
 }
 
 // unreadable reports whether GitHub declined to show something in a way that
