@@ -7,6 +7,16 @@
   },
   "permissions": {
     "allow": [
+      "Bash(ccx issue sections:*)",
+      "Bash(ccx issue tree:*)",
+      "Bash(ccx plan docs:*)",
+      "Bash(ccx pr context:*)",
+      "Bash(ccx review pending:*)",
+      "Bash(ccx review verify:*)",
+      "Bash(ccx skill contract:*)",
+      "Bash(ccx skill frontmatter:*)",
+      "Bash(ccx worktree collect:*)",
+      "Bash(ccx worktree detect:*)",
       "Bash(docker compose:*)",
       "Bash(gh api user:*)",
       "Bash(gh issue list:*)",
