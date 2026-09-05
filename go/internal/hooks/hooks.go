@@ -2,13 +2,13 @@
 // writes to a hook's standard input, and the exit status, message and JSON
 // directive it reads back.
 //
-// The nine hooks live in packages beneath this one, cut by what they do rather
+// The ten hooks live in packages beneath this one, cut by what they do rather
 // than by where Claude Code calls them from: notify holds the four that decide
 // and deliver a notification, caffeinate the two that hold the machine awake,
-// and one package each for the three that inspect a tool call, which share
-// nothing but that. What every one of them has in common is only this contract;
-// the dispatcher in internal/cmd declares the interface that binds them
-// together, because it is the one that consumes it.
+// one package each for the three that inspect a tool call, and one for the
+// guard that judges the end of a turn instead. What every one of them has in
+// common is only this contract; the dispatcher in internal/cmd declares the
+// interface that binds them together, because it is the one that consumes it.
 package hooks
 
 import (
