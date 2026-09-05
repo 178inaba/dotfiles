@@ -111,9 +111,13 @@ type Comment struct {
 	// The GraphQL type of the author — User, Bot and so on —
 	// which is how a CI comment is told from a person's without a list of bot
 	// names to keep up to date.
-	AuthorType     *string `json:"author_type"`
-	Body           string  `json:"body"`
-	CreatedAt      string  `json:"created_at"`
+	AuthorType *string `json:"author_type"`
+	Body       string  `json:"body"`
+	CreatedAt  string  `json:"created_at"`
+	// When the comment was last edited, null for one never edited.
+	// What counts as newly arrived is the later of this and the creation date:
+	// a remark rewritten after a run had already judged it is a remark again.
+	LastEditedAt   *string `json:"last_edited_at"`
 	URL            string  `json:"url"`
 	IsSkillComment bool    `json:"is_skill_comment"`
 }
@@ -128,6 +132,10 @@ type Review struct {
 	Body        string  `json:"body"`
 	URL         string  `json:"url"`
 	SubmittedAt string  `json:"submitted_at"`
+	// When the review was last edited, null for one never edited,
+	// and read the way the conversation's comments read theirs: the later of
+	// this and the submission date is when it last had something new to say.
+	LastEditedAt *string `json:"last_edited_at"`
 }
 
 // ThreadComment is one comment inside a review thread.
@@ -195,6 +203,12 @@ type Thread struct {
 // Context is everything one review needs, in the order the contract publishes
 // it.
 type Context struct {
+	// The instant the read began, taken before the first request
+	// and truncated to the second, since GitHub's own timestamps carry no
+	// finer precision. Anything submitted while the read was in flight is
+	// therefore dated at or after it, and is counted again on the next run
+	// rather than being lost between the two.
+	FetchedAt   string `json:"fetched_at" contract:"required"`
 	Repo        string `json:"repo" contract:"required,nonempty"`
 	CurrentUser string `json:"current_user"`
 	IsOwnPR     bool   `json:"is_own_pr" contract:"required"`
@@ -299,6 +313,10 @@ var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200, Iss
 // read here: a caller that runs this twice with the limits raised runs git
 // once, and the document is assembled in one place either way.
 func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullRequest, limits Limits, change Change) (Context, error) {
+	// Before the first request rather than after the last: the point of the
+	// stamp is that nothing arriving during the read is dated before it.
+	fetchedAt := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+
 	vars := map[string]any{
 		"owner": repo.Owner, "name": repo.Name, "number": pr.Number, "headOid": pr.HeadRefOid,
 	}
@@ -347,6 +365,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 	}
 
 	out := Context{
+		FetchedAt:   fetchedAt,
 		Repo:        repo.String(),
 		CurrentUser: me,
 		IsOwnPR:     pr.Author == me,
@@ -374,11 +393,12 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 
 	for _, n := range comments {
 		out.Comments = append(out.Comments, Comment{
-			Author:     n.Author.login(),
-			AuthorType: n.Author.typename(),
-			Body:       n.Body,
-			CreatedAt:  n.CreatedAt,
-			URL:        n.URL,
+			Author:       n.Author.login(),
+			AuthorType:   n.Author.typename(),
+			Body:         n.Body,
+			CreatedAt:    n.CreatedAt,
+			LastEditedAt: n.LastEditedAt,
+			URL:          n.URL,
 			// Prefix rather than contains, so that a reply quoting one of our
 			// comments does not read as one.
 			IsSkillComment: strings.HasPrefix(n.Body, SkillMarker),
@@ -388,6 +408,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		out.Reviews = append(out.Reviews, Review{
 			Author: n.Author.login(), AuthorType: n.Author.typename(),
 			State: n.State, Body: n.Body, URL: n.URL, SubmittedAt: n.SubmittedAt,
+			LastEditedAt: n.LastEditedAt,
 		})
 	}
 	for _, n := range threads {

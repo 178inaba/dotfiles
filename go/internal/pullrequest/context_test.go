@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -250,14 +251,14 @@ const fixtureBody = `{"data":{
         "nodes": [
           {"author": {"login": "reviewer1", "__typename": "User"}, "body": "普通のコメント", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/c1"},
           {"author": {"login": "testuser", "__typename": "User"}, "body": "<!-- review-response -->\n対応しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/c2"},
-          {"author": {"login": "reviewer1", "__typename": "User"}, "body": "> <!-- review-response -->\n引用返信", "createdAt": "2026-01-03T00:00:00Z", "url": "https://example.com/c3"},
+          {"author": {"login": "reviewer1", "__typename": "User"}, "body": "> <!-- review-response -->\n引用返信", "createdAt": "2026-01-03T00:00:00Z", "lastEditedAt": "2026-01-05T00:00:00Z", "url": "https://example.com/c3"},
           {"author": null, "body": "CI 通知", "createdAt": "2026-01-04T00:00:00Z", "url": "https://example.com/c4"}
         ]
       },
       "reviews": {
         "totalCount": 1,
         "nodes": [
-          {"author": {"login": "reviewer1", "__typename": "User"}, "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submittedAt": "2026-01-01T00:00:00Z"}
+          {"author": {"login": "reviewer1", "__typename": "User"}, "state": "CHANGES_REQUESTED", "body": "優先度1: テスト不足", "url": "https://example.com/r1", "submittedAt": "2026-01-01T00:00:00Z", "lastEditedAt": "2026-02-01T00:00:00Z"}
         ]
       },
       "reviewThreads": {
@@ -350,6 +351,19 @@ func TestFetch(t *testing.T) {
 		}
 	})
 
+	t.Run("when the read began", func(t *testing.T) {
+		// Whole seconds, because a document stamped more precisely than
+		// GitHub's own timestamps would sort a comment made in the same second
+		// before the read that did not see it.
+		at, err := time.Parse(time.RFC3339, got.FetchedAt)
+		if err != nil {
+			t.Fatalf("fetched_at = %q, which does not parse: %v", got.FetchedAt, err)
+		}
+		if at.Nanosecond() != 0 {
+			t.Errorf("fetched_at = %q, want it truncated to the second", got.FetchedAt)
+		}
+	})
+
 	t.Run("the issues the body closes", func(t *testing.T) {
 		// A bare #99 and a url are not among them, because GitHub does not
 		// close on those either; #10 appears twice and once.
@@ -389,7 +403,7 @@ func TestFetch(t *testing.T) {
 			// Quoting one of our own replies copies the marker with the rest of
 			// the markdown, and the "> " in front is what keeps it from
 			// counting as ours.
-			{Author: &reviewer, AuthorType: &user, Body: "> <!-- review-response -->\n引用返信", CreatedAt: "2026-01-03T00:00:00Z", URL: "https://example.com/c3"},
+			{Author: &reviewer, AuthorType: &user, Body: "> <!-- review-response -->\n引用返信", CreatedAt: "2026-01-03T00:00:00Z", LastEditedAt: new("2026-01-05T00:00:00Z"), URL: "https://example.com/c3"},
 			// An account that no longer exists has no login and no type.
 			{Body: "CI 通知", CreatedAt: "2026-01-04T00:00:00Z", URL: "https://example.com/c4"},
 		}
@@ -405,6 +419,7 @@ func TestFetch(t *testing.T) {
 		want := []pullrequest.Review{{
 			Author: new("reviewer1"), AuthorType: new("User"), State: "CHANGES_REQUESTED", Body: "優先度1: テスト不足",
 			URL: "https://example.com/r1", SubmittedAt: "2026-01-01T00:00:00Z",
+			LastEditedAt: new("2026-02-01T00:00:00Z"),
 		}}
 		if diff := cmp.Diff(want, got.Reviews); diff != "" {
 			t.Errorf("reviews (-want +got):\n%s", diff)
@@ -1030,13 +1045,14 @@ func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 }
 
 // fullContext is the smallest document that satisfies every declaration on
-// Context: the eight fields its readers depend on and nothing else. What
+// Context: the fields its readers depend on and nothing else. What
 // `ccx pr context` writes carries far more, none of which is declared, so
 // building the document here rather than fetching one keeps each case below
 // about the one field it edits.
 func fullContext() map[string]any {
 	return map[string]any{
-		"repo":      "owner/repo",
+		"fetched_at": "2026-01-10T00:00:00Z",
+		"repo":       "owner/repo",
 		"is_own_pr": false,
 		"pr": map[string]any{
 			"number":   5,
@@ -1100,6 +1116,9 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 	}{
 		{name: "the whole document"},
 
+		{name: "no fetched_at", edit: drop("fetched_at"), want: "ctx.json is missing fetched_at"},
+		{name: "null fetched_at", edit: put(nil, "fetched_at"), want: "ctx.json is missing fetched_at"},
+
 		{name: "no repo", edit: drop("repo"), want: "ctx.json is missing repo"},
 		{name: "null repo", edit: put(nil, "repo"), want: "ctx.json is missing repo"},
 		{name: "empty repo", edit: put("", "repo"), want: "ctx.json sets repo to an empty string"},
@@ -1162,7 +1181,8 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 	t.Parallel()
 
 	want := pullrequest.Context{
-		Repo: "owner/repo",
+		FetchedAt: "2026-01-10T00:00:00Z",
+		Repo:      "owner/repo",
 		PR: pullrequest.PR{
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
 		},
