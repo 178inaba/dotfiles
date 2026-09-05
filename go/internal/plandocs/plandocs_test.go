@@ -193,15 +193,17 @@ func TestCollectReadsEveryRoot(t *testing.T) {
 func TestCollectOnRepositoriesWithNothingToWalk(t *testing.T) {
 	tests := map[string]struct {
 		files map[string]string
-		want  Collection
+		// The only thing these cases vary: documents and warnings are empty
+		// in all of them, which is the point.
+		loaded []string
 	}{
 		// The 「対象なし」 signal: no project instruction file of any kind.
 		"no instruction file at all": {files: map[string]string{"README.md": "[x](x.md)\n"}},
 		// An empty documents list says nothing about the roots, which is why
 		// loaded is what the skills branch on.
 		"instructions with no links": {
-			files: map[string]string{"CLAUDE.md": "a mention of `docs/a.md` and nothing else\n"},
-			want:  Collection{Loaded: []string{"CLAUDE.md"}},
+			files:  map[string]string{"CLAUDE.md": "a mention of `docs/a.md` and nothing else\n"},
+			loaded: []string{"CLAUDE.md"},
 		},
 		// A scoped rule is not loaded at launch, and nothing links it here.
 		"only a scoped rule": {
@@ -218,7 +220,7 @@ func TestCollectOnRepositoriesWithNothingToWalk(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			want := Collection{Loaded: abs(dir, tt.want.Loaded...)}
+			want := Collection{Loaded: abs(dir, tt.loaded...)}
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
 			}

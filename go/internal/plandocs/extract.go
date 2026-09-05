@@ -3,7 +3,6 @@ package plandocs
 import (
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -16,17 +15,18 @@ type reference struct {
 	// has to correct.
 	target   string
 	isImport bool
-	at       int
 }
 
 var (
-	// A Markdown inline link. The target stops at whitespace so that a title —
-	// [x](path "Title") — leaves the title behind, and reference-style links,
-	// [x][ref], never match at all.
-	linkPattern = regexp.MustCompile(`\[[^\]\n]*\]\(([^)\s]+)\)`)
-	// An import. The @ has to open a word, which is what separates
-	// @docs/x.md from the one in an e-mail address.
-	importPattern = regexp.MustCompile(`(?:^|\s)@(\S+)`)
+	// Both forms in one pass, so that the references come out in the order
+	// they were written and a link's own label cannot be read a second time
+	// as an import. Group 1 is a link's target, group 2 an import's.
+	//
+	// A link target stops at whitespace, which leaves a title — [x](p "T") —
+	// behind and never matches a reference-style link, [x][ref]. An import's @
+	// has to open a word, which is what separates @docs/x.md from the one in
+	// an e-mail address.
+	referencePattern = regexp.MustCompile(`\[[^\]\n]*\]\(([^)\s]+)\)|(?:^|\s)@(\S+)`)
 	// A URL or a mailto:, which name something that is not a file here.
 	schemePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*:`)
 	// A fence opening or closing a code block, at either of the two spellings.
@@ -37,23 +37,26 @@ var (
 // appear.
 //
 // Code is stripped first, exactly as Claude Code's import parser skips it, so
-// that a backticked path is a mention rather than a reference.
+// that a backticked path is a mention rather than a reference. A fragment
+// comes off here and nowhere else, which is what makes a link to one heading
+// of a document and a link to the document the same reference.
 func references(text string) []reference {
-	text = stripCode(text)
-
-	out := []reference{}
-	for _, m := range linkPattern.FindAllStringSubmatchIndex(text, -1) {
-		out = append(out, reference{target: text[m[2]:m[3]], at: m[0]})
+	var out []reference
+	for _, m := range referencePattern.FindAllStringSubmatch(stripCode(text), -1) {
+		target, isImport := m[1], false
+		if target == "" {
+			target, isImport = m[2], true
+		}
+		if target, _, _ = strings.Cut(target, "#"); target == "" {
+			continue
+		}
+		out = append(out, reference{target: target, isImport: isImport})
 	}
-	for _, m := range importPattern.FindAllStringSubmatchIndex(text, -1) {
-		out = append(out, reference{target: text[m[2]:m[3]], isImport: true, at: m[0]})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].at < out[j].at })
 	return out
 }
 
-// stripCode blanks out fenced blocks and inline code spans, keeping the rest
-// of the text where it was so that positions still order the references.
+// stripCode blanks out fenced blocks and inline code spans, so that what is
+// left is the prose the two forms are read out of.
 func stripCode(text string) string {
 	lines := strings.Split(text, "\n")
 	fence := ""
@@ -69,7 +72,7 @@ func stripCode(text string) string {
 		case len(open) > 0:
 			fence = open[1]
 			lines[i] = ""
-		default:
+		case strings.IndexByte(line, '`') >= 0:
 			lines[i] = stripSpans(line)
 		}
 	}
@@ -78,6 +81,10 @@ func stripCode(text string) string {
 
 // stripSpans blanks out the code spans in one line. A run of backticks is
 // closed by a run of the same length, which is how a span holds a backtick.
+//
+// A span is padded to its own width rather than deleted, so that what follows
+// it keeps the character in front of it: an import written after a span is
+// still preceded by a space, and still an import.
 func stripSpans(line string) string {
 	var b strings.Builder
 	for i := 0; i < len(line); {
@@ -107,17 +114,11 @@ func stripSpans(line string) string {
 
 // resolve turns a target written in file into the absolute path it names, and
 // reports whether it names a file at all.
-//
-// A fragment is dropped first, so that a link to one heading of a document and
-// a link to the document are the same target.
 func resolve(target, file, home string) (string, bool) {
-	target, _, _ = strings.Cut(target, "#")
-	if target == "" || schemePattern.MatchString(target) {
+	if schemePattern.MatchString(target) {
 		return "", false
 	}
 	switch {
-	case target == "~":
-		return "", false
 	case strings.HasPrefix(target, "~/"):
 		return filepath.Join(home, target[2:]), true
 	case filepath.IsAbs(target):
@@ -130,6 +131,5 @@ func resolve(target, file, home string) (string, bool) {
 // lists. The closure follows every import regardless of extension, as the
 // harness does; only what a planner is told to read is held to .md.
 func isDocument(target string) bool {
-	target, _, _ = strings.Cut(target, "#")
 	return strings.HasSuffix(target, ".md")
 }

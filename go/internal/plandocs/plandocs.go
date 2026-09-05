@@ -22,7 +22,7 @@ const importHops = 4
 // its rationale, and the rationale links the convention bodies — and two
 // levels is where that ends: a third reaches whatever the conventions cite,
 // which is generated reference material more often than anything a planner
-// needs.
+// needs. The measurement behind the number is in the command's help.
 const walkDepth = 2
 
 // Collection is what a planner reads, and what the harness already read for
@@ -47,8 +47,8 @@ type Collection struct {
 
 // Warning is a link that leads nowhere.
 type Warning struct {
-	// The path as the link writes it, so that it can be found in the file
-	// named below and corrected there.
+	// The path as the link writes it, minus any fragment, so that it can be
+	// found in the file named below and corrected there.
 	Target string `json:"target"`
 	// The file the link is written in, absolute.
 	Source string `json:"source"`
@@ -70,7 +70,12 @@ var roots = []string{"CLAUDE.md", filepath.Join(".claude", "CLAUDE.md"), "CLAUDE
 // scoped rule nobody links, a link to a file that was deleted — each is an
 // ordinary answer. Only a filesystem that cannot be read is returned as one.
 func Collect(root, home string) (Collection, error) {
-	c := collector{home: home, seen: map[string]bool{}, warned: map[Warning]bool{}}
+	c := collector{
+		home:   home,
+		seen:   map[string]bool{},
+		warned: map[Warning]bool{},
+		cache:  map[string][]reference{},
+	}
 
 	for _, name := range roots {
 		path := filepath.Join(root, name)
@@ -85,14 +90,11 @@ func Collect(root, home string) (Collection, error) {
 		return Collection{}, err
 	}
 	for _, path := range rules {
-		if !c.seen[path] {
-			c.seen[path] = true
-			c.out.Loaded = append(c.out.Loaded, path)
-		}
+		c.load(path)
 	}
 
 	frontier := c.out.Loaded
-	for depth := 1; depth <= walkDepth; depth++ {
+	for range walkDepth {
 		next, err := c.follow(frontier)
 		if err != nil {
 			return Collection{}, err
@@ -110,9 +112,19 @@ type collector struct {
 	out    Collection
 	seen   map[string]bool
 	warned map[Warning]bool
-	// Files are read twice — once for the closure, once for the walk — and
-	// the second read is the same bytes as the first.
-	cache map[string]string
+	// Every loaded file is scanned twice — once to replay the harness's
+	// closure, once as the first frontier of the walk — and the second scan
+	// finds what the first one did.
+	cache map[string][]reference
+}
+
+// load records a file as one the harness already has in context.
+func (c *collector) load(path string) {
+	if c.seen[path] {
+		return
+	}
+	c.seen[path] = true
+	c.out.Loaded = append(c.out.Loaded, path)
 }
 
 // expand adds a root and everything its imports reach to the loaded set.
@@ -135,28 +147,17 @@ func (c *collector) expand(root string) error {
 		if c.seen[at.path] {
 			continue
 		}
-		c.seen[at.path] = true
-		c.out.Loaded = append(c.out.Loaded, at.path)
+		c.load(at.path)
 		if at.hop == importHops {
 			continue
 		}
 
-		text, err := c.read(at.path)
+		imported, err := c.targets(at.path, func(r reference) bool { return r.isImport })
 		if err != nil {
 			return err
 		}
-		for _, ref := range references(text) {
-			if !ref.isImport {
-				continue
-			}
-			target, ok := resolve(ref.target, at.path, c.home)
-			switch {
-			case !ok:
-			case !isFile(target):
-				c.warn(ref.target, at.path)
-			default:
-				queue = append(queue, step{path: target, hop: at.hop + 1})
-			}
+		for _, path := range imported {
+			queue = append(queue, step{path: path, hop: at.hop + 1})
 		}
 	}
 	return nil
@@ -168,29 +169,62 @@ func (c *collector) expand(root string) error {
 func (c *collector) follow(files []string) ([]string, error) {
 	var out []string
 	for _, file := range files {
-		text, err := c.read(file)
+		linked, err := c.targets(file, func(r reference) bool { return isDocument(r.target) })
 		if err != nil {
 			return nil, err
 		}
-		for _, ref := range references(text) {
-			if !isDocument(ref.target) {
-				continue
-			}
-			target, ok := resolve(ref.target, file, c.home)
-			if !ok {
-				continue
-			}
-			if !isFile(target) {
-				c.warn(ref.target, file)
-				continue
-			}
-			if !c.seen[target] {
-				c.seen[target] = true
-				out = append(out, target)
+		for _, path := range linked {
+			if !c.seen[path] {
+				c.seen[path] = true
+				out = append(out, path)
 			}
 		}
 	}
 	return out, nil
+}
+
+// targets resolves the references in file that keep accepts, dropping the
+// ones that name no file at all and warning about the ones whose file is not
+// there.
+//
+// A path already answered for is dropped rather than stated again: everything
+// in seen was found to exist when it was added, so it can neither warn now
+// nor be listed a second time.
+func (c *collector) targets(file string, keep func(reference) bool) ([]string, error) {
+	refs, err := c.refs(file)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []string
+	for _, ref := range refs {
+		if !keep(ref) {
+			continue
+		}
+		target, ok := resolve(ref.target, file, c.home)
+		switch {
+		case !ok, c.seen[target]:
+		case !isFile(target):
+			c.warn(ref.target, file)
+		default:
+			out = append(out, target)
+		}
+	}
+	return out, nil
+}
+
+// refs reads a file's links and imports, once per file.
+func (c *collector) refs(path string) ([]reference, error) {
+	if refs, ok := c.cache[path]; ok {
+		return refs, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	refs := references(string(b))
+	c.cache[path] = refs
+	return refs, nil
 }
 
 // warn records a broken link once per place it is written, so that the same
@@ -203,21 +237,6 @@ func (c *collector) warn(target, source string) {
 	}
 	c.warned[w] = true
 	c.out.Warnings = append(c.out.Warnings, w)
-}
-
-func (c *collector) read(path string) (string, error) {
-	if text, ok := c.cache[path]; ok {
-		return text, nil
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	if c.cache == nil {
-		c.cache = map[string]string{}
-	}
-	c.cache[path] = string(b)
-	return string(b), nil
 }
 
 // unscopedRules lists the rules Claude Code loads at launch: every .md under
@@ -259,7 +278,7 @@ func hasPaths(path string) (bool, error) {
 		return false, err
 	}
 	lines := strings.Split(string(b), "\n")
-	if len(lines) == 0 || lines[0] != "---" {
+	if lines[0] != "---" {
 		return false, nil
 	}
 	end := 0
