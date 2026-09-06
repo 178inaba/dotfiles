@@ -275,8 +275,12 @@ type Context struct {
 	CommentsTruncated  bool      `json:"comments_truncated"`
 	Comments           []Comment `json:"comments"`
 	ReviewsTotalCount  int       `json:"reviews_total_count"`
-	ReviewsTruncated   bool      `json:"reviews_truncated"`
-	Reviews            []Review  `json:"reviews"`
+	// True where the limit left reviews behind, and the ones left
+	// behind are the oldest: the connection is read from its newest end, so
+	// what a truncated document carries is the most recent of what every
+	// reviewer said.
+	ReviewsTruncated bool     `json:"reviews_truncated"`
+	Reviews          []Review `json:"reviews"`
 	// Where each reviewer stands, derived from the reviews above
 	// and so from what was fetched: with reviews_truncated an old approval may
 	// be outside the window, and this says what the reviews say rather than
@@ -340,7 +344,10 @@ func ParseContext(b []byte, file string) (Context, error) {
 // flags are for.
 type Limits struct {
 	Comments int
-	Threads  int
+	// Reviews bounds what is written rather than only the round trips: the
+	// window asked for is what is still wanted, so a limit of two writes two.
+	Reviews int
+	Threads int
 	// ThreadComments is per thread rather than across all of them: forty
 	// threads of five comments would reach a shared limit in ordinary use, and
 	// every thread after it would lose its discussion.
@@ -352,7 +359,7 @@ type Limits struct {
 
 // DefaultLimits are generous enough that no pull request in this repository
 // has reached one.
-var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200, IssueComments: 200}
+var DefaultLimits = Limits{Comments: 500, Reviews: 200, Threads: 300, ThreadComments: 200, IssueComments: 200}
 
 // Fetch gathers the context of one pull request.
 //
@@ -375,6 +382,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 
 	vars := map[string]any{
 		"owner": repo.Owner, "name": repo.Name, "number": pr.Number, "headOid": pr.HeadRefOid,
+		"reviews": window(limits.Reviews, 0),
 	}
 	var b body
 	if err := c.GraphQL(ctx, bodyQuery, vars, &b); err != nil {
@@ -392,6 +400,20 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 				return nil, pageInfo{}, fmt.Errorf("failed to fetch PR comments page (GraphQL): %v", err)
 			}
 			return page.Repository.PullRequest.Comments.Nodes, page.Repository.PullRequest.Comments.PageInfo, nil
+		})
+	if err != nil {
+		return Context{}, err
+	}
+
+	reviews, err := pagesBefore(ctx, limits.Reviews, prq.Reviews.Nodes, prq.Reviews.PageInfo,
+		func(ctx context.Context, cursor string, want int) ([]reviewNode, pageInfo, error) {
+			var page body
+			vars := map[string]any{"owner": repo.Owner, "name": repo.Name, "number": pr.Number,
+				"cursor": cursor, "reviews": want}
+			if err := c.GraphQL(ctx, reviewsPageQuery, vars, &page); err != nil {
+				return nil, pageInfo{}, fmt.Errorf("failed to fetch PR reviews page (GraphQL): %v", err)
+			}
+			return page.Repository.PullRequest.Reviews.Nodes, page.Repository.PullRequest.Reviews.PageInfo, nil
 		})
 	if err != nil {
 		return Context{}, err
@@ -437,10 +459,10 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		CommentsTruncated:  prq.Comments.TotalCount > len(comments),
 		Comments:           make([]Comment, 0, len(comments)),
 		ReviewsTotalCount:  prq.Reviews.TotalCount,
-		// The reviews are a fixed window rather than a paginated connection, so
-		// this reports what fell outside it.
-		ReviewsTruncated:  prq.Reviews.TotalCount > len(prq.Reviews.Nodes),
-		Reviews:           make([]Review, 0, len(prq.Reviews.Nodes)),
+		// What the limit left behind, which for the reviews is the oldest of
+		// them: they are walked from the newest end.
+		ReviewsTruncated:  prq.Reviews.TotalCount > len(reviews),
+		Reviews:           make([]Review, 0, len(reviews)),
 		ThreadsTotalCount: prq.ReviewThreads.TotalCount,
 		ThreadsTruncated:  prq.ReviewThreads.TotalCount > len(threads),
 		ReviewThreads:     make([]Thread, 0, len(threads)),
@@ -460,7 +482,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			IsSkillComment: strings.HasPrefix(n.Body, SkillMarker),
 		})
 	}
-	for _, n := range prq.Reviews.Nodes {
+	for _, n := range reviews {
 		out.Reviews = append(out.Reviews, Review{
 			Author: n.Author.login(), AuthorType: n.Author.typename(),
 			State: n.State, Body: n.Body, URL: n.URL, SubmittedAt: n.SubmittedAt,
@@ -877,4 +899,43 @@ func pages[T any](ctx context.Context, limit int, first []T, info pageInfo,
 		info = page
 	}
 	return all, nil
+}
+
+// pagesBefore walks a connection backwards from its end, keeping the whole in
+// the order GitHub answers each page in.
+//
+// The other direction of pages, and deliberately not a mode of it: the limit
+// here bounds what is kept rather than the round trips, so each request asks
+// for what is still wanted and the count never exceeds the limit. What a limit
+// drops is therefore the far end — for the reviews, the oldest, which is the
+// end a reader can do without.
+//
+// first is the window the opening query already asked for, at the size window
+// gave it.
+func pagesBefore[T any](ctx context.Context, limit int, first []T, info pageInfo,
+	next func(ctx context.Context, cursor string, want int) ([]T, pageInfo, error),
+) ([]T, error) {
+	all := first
+	for info.HasPreviousPage && len(all) < limit {
+		nodes, page, err := next(ctx, info.StartCursor, window(limit, len(all)))
+		if err != nil {
+			return nil, err
+		}
+		all = append(nodes, all...)
+		info = page
+	}
+	return all, nil
+}
+
+// window is how many elements one request asks for: what the limit has left,
+// capped at the hundred GraphQL allows in one page.
+//
+// A limit of zero or less is no limit at all rather than a request for
+// nothing, which is how the REST side reads one too (ghapi.IssueComments).
+func window(limit, have int) int {
+	const page = 100
+	if want := limit - have; limit > 0 && want < page {
+		return want
+	}
+	return page
 }

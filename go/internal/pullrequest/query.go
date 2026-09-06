@@ -44,11 +44,13 @@ const newestComment = `comments(last: 1) { nodes { author { login __typename } b
 // that the date compared against a thread's last reply belongs to the same
 // commit the freshness check is looking at.
 //
-// reviews are asked for from the end: they arrive oldest first, and a pull
-// request with more than fifty — CI and bot reviews add up — would otherwise
-// answer with a window holding none of the outstanding requests for changes.
+// reviews are asked for from the end, and paginated backwards from there: they
+// arrive oldest first, and a window holding the oldest of them — CI and bot
+// reviews add up — would say nothing about where anybody now stands. The size
+// asked for is what the limit still has room for, so that what is written is
+// what was asked for rather than a first page that outruns it.
 const bodyQuery = `
-query($owner: String!, $name: String!, $number: Int!, $headOid: GitObjectID!) {
+query($owner: String!, $name: String!, $number: Int!, $headOid: GitObjectID!, $reviews: Int!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
     headCommit: object(oid: $headOid) { ... on Commit { committedDate } }
@@ -58,8 +60,9 @@ query($owner: String!, $name: String!, $number: Int!, $headOid: GitObjectID!) {
         pageInfo { hasNextPage endCursor }
         nodes { author { login __typename } body createdAt lastEditedAt url }
       }
-      reviews(last: 50) {
+      reviews(last: $reviews) {
         totalCount
+        pageInfo { hasPreviousPage startCursor }
         nodes { author { login __typename } state body url submittedAt lastEditedAt }
       }
       reviewThreads(first: 100) {
@@ -78,6 +81,21 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String!) {
       comments(first: 100, after: $cursor) {
         pageInfo { hasNextPage endCursor }
         nodes { author { login __typename } body createdAt lastEditedAt url }
+      }
+    }
+  }
+}`
+
+// reviewsPageQuery walks backwards from where the first window began, so that
+// each page is older than the last and the whole stays oldest first once the
+// pages are put back together.
+const reviewsPageQuery = `
+query($owner: String!, $name: String!, $number: Int!, $reviews: Int!, $cursor: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviews(last: $reviews, before: $cursor) {
+        pageInfo { hasPreviousPage startCursor }
+        nodes { author { login __typename } state body url submittedAt lastEditedAt }
       }
     }
   }

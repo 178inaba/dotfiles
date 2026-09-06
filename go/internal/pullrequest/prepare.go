@@ -288,6 +288,10 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 		p.Warnings = append(p.Warnings, fmt.Sprintf(
 			"comments still truncated after raising MAX_COMMENTS to %d; rerun `ccx pr context` with a larger MAX_COMMENTS before reading comments", limits.Comments))
 	}
+	if fetched.ReviewsTruncated {
+		p.Warnings = append(p.Warnings, fmt.Sprintf(
+			"reviews still truncated after raising MAX_REVIEWS to %d; rerun `ccx pr context` with a larger MAX_REVIEWS before reading reviews", limits.Reviews))
+	}
 	if fetched.ThreadsTruncated {
 		p.Warnings = append(p.Warnings, fmt.Sprintf(
 			"review threads still truncated after raising MAX_THREADS to %d; rerun `ccx pr context` with a larger MAX_THREADS before reading review_threads", limits.Threads))
@@ -318,6 +322,9 @@ func raisedLimits(c Context) (Limits, bool) {
 	limits, raised := DefaultLimits, false
 	if c.CommentsTruncated {
 		limits.Comments, raised = c.CommentsTotalCount, true
+	}
+	if c.ReviewsTruncated {
+		limits.Reviews, raised = c.ReviewsTotalCount, true
 	}
 	if c.ThreadsTruncated {
 		limits.Threads, raised = c.ThreadsTotalCount, true

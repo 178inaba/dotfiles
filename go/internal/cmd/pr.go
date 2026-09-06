@@ -318,7 +318,7 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 // They stay environment variables rather than becoming flags: the only time
 // anybody sets one is to run the same command again with more room, and the
 // command line belongs to the skill.
-var limitVars = [4]string{"MAX_COMMENTS", "MAX_THREADS", "MAX_THREAD_COMMENTS", "MAX_ISSUE_COMMENTS"}
+var limitVars = [5]string{"MAX_COMMENTS", "MAX_REVIEWS", "MAX_THREADS", "MAX_THREAD_COMMENTS", "MAX_ISSUE_COMMENTS"}
 
 func contextLimits() (pullrequest.Limits, error) {
 	limits := pullrequest.DefaultLimits
@@ -327,9 +327,10 @@ func contextLimits() (pullrequest.Limits, error) {
 		out  *int
 	}{
 		{limitVars[0], &limits.Comments},
-		{limitVars[1], &limits.Threads},
-		{limitVars[2], &limits.ThreadComments},
-		{limitVars[3], &limits.IssueComments},
+		{limitVars[1], &limits.Reviews},
+		{limitVars[2], &limits.Threads},
+		{limitVars[3], &limits.ThreadComments},
+		{limitVars[4], &limits.IssueComments},
 	} {
 		value := os.Getenv(l.name)
 		if value == "" {
