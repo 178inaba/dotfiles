@@ -12,11 +12,13 @@
 // More than those two read a body, though, and the reading is what they all
 // share rather than the verdict: issue's section check asks which lines of a
 // draft are prose, plandocs blanks a plan document's code out before looking
-// for the links and imports in it, and skill's contract check wants the names
-// a SKILL.md writes in a code span. None of them owns the reading, so it lives
-// here rather than in whichever of them wrote it first — a copy in a caller
-// drifts the next time this one is corrected, which is what plandocs' own
-// scanner had done in six places by the time it was retired.
+// for the links and imports in it, skill's contract check wants the names
+// a SKILL.md writes in a code span, and pullrequest's linked_issues asks for
+// the closing keywords a body means, which is the same question the refusal
+// asks with the answer kept the other way round. None of them owns the
+// reading, so it lives here rather than in whichever of them wrote it first —
+// a copy in a caller drifts the next time this one is corrected, which is what
+// plandocs' own scanner had done in six places by the time it was retired.
 //
 // A notation whose meaning depends on that reading belongs here too, even
 // where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
@@ -42,6 +44,7 @@ import (
 	"fmt"
 	"iter"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -285,21 +288,68 @@ That keeps the link and does not trip this guard.`, distinct)
 // only the direct adjacency of keyword, optional colon, space and reference,
 // so the detection is limited to it as well.
 //
-// The same knowledge is encoded in pullrequest.closingKeyword, which reads a
-// body for the issues it closes; if GitHub ever changes the set, both have to
-// move.
+// Unexported, and the reading exported instead as ClosingReferences: a caller
+// handed the pattern would derive the boundary and the keyword set from it for
+// itself, which is the second implementation this one exists to be instead of.
 var closingKeyword = regexp.MustCompile(
-	`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
+	`(?i)(?:^|[^[:alnum:]])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#([0-9]+)`)
+
+// ClosingReference is one reference a closing keyword names, and the run of the
+// body it sits in.
+type ClosingReference struct {
+	// Repo is the owner/repo a qualified reference names, and empty for a bare
+	// #N — which is how the body wrote it.
+	Repo string
+	// Number is the issue or pull request the reference names.
+	Number int
+	// Kind is the run the reference sits in. GitHub closes on a Prose one and
+	// on no other, so a consumer keeps one side of this and drops the rest.
+	Kind Kind
+}
+
+// ClosingReferences returns every closing-keyword reference in body, in the
+// order the body writes them.
+//
+// One reading for both the judgements made about a closing keyword: the
+// refusal below wants the references GitHub will not read, and pr context's
+// linked_issues the ones it will. Split in two, the two would come to disagree
+// about the same body — as they did, over an underscore before the keyword and
+// over a keyword quoted in code.
+//
+// The match runs on each segment's own text rather than on the body at the
+// segment's offsets, which is what makes the pattern's leading ^ mean the start
+// of a run. A reference is therefore attributed to the run it sits in, a
+// keyword parted from its number by a line end is read by nobody, and both
+// follow from Segments rather than from a rule of their own.
+func ClosingReferences(body string) []ClosingReference {
+	var out []ClosingReference
+	for s := range Segments(body) {
+		for _, m := range closingKeyword.FindAllStringSubmatch(body[s.Start:s.End], -1) {
+			out = append(out, ClosingReference{Repo: m[1], Number: atoi(m[2]), Kind: s.Kind})
+		}
+	}
+	return out
+}
 
 // hasQuotedClosingKeyword reports whether body holds a closing keyword where
 // GitHub will not read it as one: inside a fence, or inside a code span.
 func hasQuotedClosingKeyword(body string) bool {
-	for s := range Segments(body) {
-		if s.Kind != Prose && closingKeyword.MatchString(body[s.Start:s.End]) {
+	for _, ref := range ClosingReferences(body) {
+		if ref.Kind != Prose {
 			return true
 		}
 	}
 	return false
+}
+
+// atoi reads the digits of a reference.
+//
+// The pattern matched digits, so this cannot fail on anything that reaches it;
+// a number too large for an int comes back as zero rather than as a reason to
+// abandon the whole body.
+func atoi(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 // RefuseQuotedClosingKeyword is what to say about a pull request body that
