@@ -28,7 +28,9 @@ func appendServer(t *testing.T, live string, sent *string) http.Handler {
 			fmt.Fprint(w, `{"html_url":"https://github.com/owner/repo/pull/5"}`)
 			return
 		}
-		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":{"number":5,"body":%q}}}}`, live)
+		fmt.Fprintf(w,
+			`{"data":{"repository":{"pullRequest":{"number":5,"body":%q,"url":"https://github.com/owner/repo/pull/5"}}}}`,
+			live)
 	})
 }
 
@@ -68,6 +70,9 @@ func TestAppendBody(t *testing.T) {
 	// write-down this was, and the section itself is in the pull request.
 	if want := "## The decision"; got.SectionFirstLine != want {
 		t.Errorf("section_first_line = %q, want %q", got.SectionFirstLine, want)
+	}
+	if sent != "edited" {
+		t.Error("nothing was sent to the pull request endpoint")
 	}
 }
 

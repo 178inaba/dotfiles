@@ -183,14 +183,15 @@ func (c *Client) AppendToPullRequestBody(ctx context.Context, repo Repo, number 
 		body = trimmed + "\n\n" + body
 	}
 
-	var w struct {
-		HTMLURL string `json:"html_url"`
-	}
 	path := fmt.Sprintf("repos/%s/pulls/%d", repo, number)
-	if err := c.patch(ctx, path, map[string]any{"body": body}, &w); err != nil {
+	// The response is discarded rather than read back, unlike the writers that
+	// answer with what GitHub stored: the one thing a caller wants from it is
+	// the url, and the read above already has that one — from GraphQL, which
+	// is where this package's pull request fields come from.
+	if err := c.patch(ctx, path, map[string]any{"body": body}, &struct{}{}); err != nil {
 		return "", err
 	}
-	return w.HTMLURL, nil
+	return pr.URL, nil
 }
 
 // PullRequestForCurrentBranch is `gh pr view` with no argument: the pull

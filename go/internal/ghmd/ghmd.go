@@ -291,6 +291,17 @@ That keeps the link and does not trip this guard.`, distinct)
 var closingKeyword = regexp.MustCompile(
 	`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
 
+// hasQuotedClosingKeyword reports whether body holds a closing keyword where
+// GitHub will not read it as one: inside a fence, or inside a code span.
+func hasQuotedClosingKeyword(body string) bool {
+	for s := range Segments(body) {
+		if s.Kind != Prose && closingKeyword.MatchString(body[s.Start:s.End]) {
+			return true
+		}
+	}
+	return false
+}
+
 // RefuseQuotedClosingKeyword is what to say about a pull request body that
 // holds a closing keyword where GitHub will not read it as one — inside a
 // fence, or inside a code span — and the empty string for one that does not.
@@ -301,14 +312,7 @@ var closingKeyword = regexp.MustCompile(
 // how the two ends of it come to disagree. Where the body came from is the
 // caller's to name, above or in front of this.
 func RefuseQuotedClosingKeyword(body string) string {
-	quoted := false
-	for s := range Segments(body) {
-		if s.Kind != Prose && closingKeyword.MatchString(body[s.Start:s.End]) {
-			quoted = true
-			break
-		}
-	}
-	if !quoted {
+	if !hasQuotedClosingKeyword(body) {
 		return ""
 	}
 	// An interpreted string because it quotes a backtick, which a raw one

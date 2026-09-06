@@ -5,11 +5,10 @@ import (
 	"strings"
 )
 
-// The quoting the messages echo commands with. Every body rule this shim
-// applies is judged in ghmd, because `ccx issue publish` and `ccx pr
-// body-append` write bodies this shim never sees and have to reach the same
-// verdict about them; what is left here is what this shim decides once it has
-// been told.
+// The quoting the messages echo commands with, which is all this file is:
+// every body rule the shim applies is judged in ghmd, because `ccx issue
+// publish` and `ccx pr body-append` write bodies this shim never sees and have
+// to reach the same verdict about them.
 
 // attemptedCommand echoes the command that was refused, in a form that can be
 // pasted back into a shell.

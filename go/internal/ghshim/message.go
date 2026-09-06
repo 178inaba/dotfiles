@@ -168,12 +168,21 @@ because reading stdin here would consume what gh is meant to read.`, what, what,
 // a found: line of its own, so that the two refusals cannot come to say it
 // differently.
 func bareHashRefsMessage(refusal, source string) string {
-	return fmt.Sprintf(`Blocked: the body numbers its items with bare #N.
+	return bodyRuleMessage("the body numbers its items with bare #N", refusal, source)
+}
+
+// bodyRuleMessage frames what ghmd found: the headline this shim writes for
+// the rule, where the body came from, and the refusal itself.
+//
+// One frame because both body rules are refused the same way, and a third
+// judged in ghmd would be too.
+func bodyRuleMessage(headline, refusal, source string) string {
+	return fmt.Sprintf(`Blocked: %s.
 
   source: %s
 
 %s
-`, source, refusal)
+`, headline, source, refusal)
 }
 
 // replyThreadsRecovery is the way through for both of the fifth rule's
@@ -233,13 +242,6 @@ here loses no command that would otherwise have succeeded.
 `, attemptedCommand(argv), source, reason, unreadableFileFix("the query", "input"))
 }
 
-// quotedClosingKeywordMessage is the fourth rule: the frame around what ghmd
-// found, as the third rule's message is.
 func quotedClosingKeywordMessage(refusal, source string) string {
-	return fmt.Sprintf(`Blocked: the pull request body holds a closing keyword inside backticks.
-
-  source: %s
-
-%s
-`, source, refusal)
+	return bodyRuleMessage("the pull request body holds a closing keyword inside backticks", refusal, source)
 }
