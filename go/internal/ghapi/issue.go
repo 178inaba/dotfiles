@@ -164,9 +164,10 @@ func (c *Client) CreateIssueComment(ctx context.Context, repo Repo, number int, 
 // IssueParent reads the issue an issue is a sub-issue of.
 //
 // (nil, nil) is an issue that is nobody's child, which the endpoint reports as
-// a 404. Every other failure comes back as an error rather than as "has none",
-// because the two callers degrade differently: the tree records a warning and
-// carries on, while the pull request context decides from the status.
+// a 404 — and so is a parent in a repository this token cannot see, which the
+// two cannot be told apart. Every other failure comes back as an error rather
+// than as "has none", which is what lets both callers stop on it: a refusal
+// answered with a null would be read as a fact about the issue.
 func (c *Client) IssueParent(ctx context.Context, repo Repo, number int) (*Issue, error) {
 	var w issueWire
 	err := c.Get(ctx, fmt.Sprintf("repos/%s/issues/%d/parent", repo, number), &w)

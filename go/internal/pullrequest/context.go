@@ -67,16 +67,19 @@ type LinkedIssue struct {
 	// never null. A body that is present means the comments were read too,
 	// since failing to read them stops the fetch rather than degrading it.
 	Comments []IssueComment `json:"comments" contract:"required"`
-	// The issue this one is a sub-issue of, null where it has none
-	// or where the parent could not be read. A Sub is bound by the rules its
-	// parent states and cannot be judged without them.
+	// The issue this one is a sub-issue of, null where it has none.
+	// A parent in a repository the token cannot read is answered as no parent
+	// by GitHub, which this cannot tell from having none. Every other refusal
+	// stops the fetch, so a null here is never a lookup that failed. A Sub is
+	// bound by the rules its parent states and cannot be judged without them.
 	Parent *IssueParent `json:"parent"`
 }
 
 // IssueParent is the issue a linked issue is a sub-issue of.
 //
-// Its title and body are never null: an unreadable parent is reported as no
-// parent at all, since there would be nothing left of it to carry.
+// Its title and body are never null: a parent GitHub refuses to show stops the
+// fetch rather than arriving half read, and the one refusal that does not —
+// 404 — means the issue has no parent to carry.
 type IssueParent struct {
 	// Null for a parent in this repository, as the linked issue's own
 	// repository is.
@@ -735,6 +738,10 @@ func linkedIssues(body string) []LinkedIssue {
 // Everything else that goes wrong is returned, because a server error or an
 // expired token says nothing about the issue, and a null title would report it
 // as gone.
+//
+// The parent is not degraded that way at all: whatever ghapi.IssueParent
+// returns as an error is about the run rather than about the issue, and is
+// returned.
 func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []LinkedIssue, limit int) ([]LinkedIssue, []string, error) {
 	warnings := []string{}
 	for i, linked := range issues {
@@ -764,9 +771,9 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		}
 		issues[i].Title, issues[i].Body = &read.Title, &read.Body
 
-		// Before the parent lookup, not after it: an issue with no parent and
-		// one whose parent could not be read both leave that block early, and
-		// their comments would go missing with the body still in hand.
+		// Before the parent lookup, not after it: an issue with no parent
+		// leaves that block early, and its comments would go missing with the
+		// body still in hand.
 		comments, truncated, err := issueComments(ctx, c, in, read, limit)
 		if err != nil {
 			return nil, nil, err
@@ -777,12 +784,7 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 
 		parent, err := c.IssueParent(ctx, in, linked.Number)
 		if err != nil {
-			status, gone := unreadable(err)
-			if !gone {
-				return nil, nil, fmt.Errorf("failed to read the parent of %s#%d: %v", in, linked.Number, err)
-			}
-			warnings = append(warnings, fmt.Sprintf("%s#%d: the parent issue could not be read (HTTP %d)", in, linked.Number, status))
-			continue
+			return nil, nil, fmt.Errorf("failed to read the parent of %s#%d: %v", in, linked.Number, err)
 		}
 		if parent == nil {
 			continue

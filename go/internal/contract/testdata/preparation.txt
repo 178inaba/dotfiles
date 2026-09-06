@@ -96,8 +96,11 @@
       created_at            string
       url                   string
     parent                  object (may be null)
-                            The issue this one is a sub-issue of, null where it has none
-                            or where the parent could not be read. A Sub is bound by the
+                            The issue this one is a sub-issue of, null where it has
+                            none. A parent in a repository the token cannot read is
+                            answered as no parent by GitHub, which this cannot tell from
+                            having none. Every other refusal stops the fetch, so a null
+                            here is never a lookup that failed. A Sub is bound by the
                             rules its parent states and cannot be judged without them.
       repo                  string (may be null)
                             Null for a parent in this repository, as the linked issue's

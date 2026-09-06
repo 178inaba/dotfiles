@@ -220,6 +220,9 @@ type treeCase struct {
 	number int
 	opts   issue.TreeOptions
 	want   issue.Hierarchy
+	// wantErr is what the error has to say where the case is one that stops
+	// the resolution. Set, want is not compared: there is no answer to compare.
+	wantErr string
 	// asked and notAsked are the round trips the answer is allowed to cost.
 	asked    []string
 	notAsked []string
@@ -238,6 +241,15 @@ func runTreeCases(t *testing.T, tests []treeCase) {
 			c := ghapitest.NewAt(t, srv.URL)
 
 			got, err := issue.Tree(t.Context(), c, repo, tc.number, tc.opts)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("Tree(%d) succeeded, want it stopped by %q", tc.number, tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("Tree(%d) = %v, want it to name %q", tc.number, err, tc.wantErr)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("Tree(%d): %v", tc.number, err)
 			}
@@ -426,25 +438,28 @@ func TestTreeDegrades(t *testing.T) {
 
 	runTreeCases(t, []treeCase{
 		{
+			// Answering with no parent would make "has none" and "could not be
+			// asked" the same value, and every caller that gates on a parent
+			// would act on the wrong one.
 			name: "the parent lookup fails for a reason other than absence",
 			server: fixtures{
 				rest:   map[string]string{at("10"): fixtureIssue{Number: 10, Title: "Issue 10", State: "open"}.json()},
 				status: map[string]int{at("10/parent"): http.StatusInternalServerError},
 			},
-			number: 10,
-			want: issue.Hierarchy{
-				Repo: repoName, Number: 10, Title: "Issue 10", State: "open",
-				URL: "https://github.com/owner/repo/issues/10",
-				// Safe in the direction that matters: an issue whose parent
-				// could not be read is treated as having none, and the warning
-				// is what says the answer is not certain.
-				Kind:           issue.KindStandalone,
-				BlockersClosed: true,
-				SubIssues:      []issue.SubIssue{},
-				Warnings: []string{
-					"parent lookup failed for #10: HTTP 500: Not Found (https://api.github.com/repos/owner/repo/issues/10/parent)",
-				},
+			number:  10,
+			wantErr: "read the parent of #10",
+		},
+		{
+			// The clause belongs to the one status that means it. A server
+			// error sending its reader to look at their token would be worse
+			// than saying nothing.
+			name: "a forbidden parent names SSO authorisation",
+			server: fixtures{
+				rest:   map[string]string{at("10"): fixtureIssue{Number: 10, Title: "Issue 10", State: "open"}.json()},
+				status: map[string]int{at("10/parent"): http.StatusForbidden},
 			},
+			number:  10,
+			wantErr: "SSO",
 		},
 		{
 			name: "the child list cannot be read",
@@ -457,18 +472,8 @@ func TestTreeDegrades(t *testing.T) {
 					at("30/sub_issues"): http.StatusInternalServerError,
 				},
 			},
-			number: 30,
-			want: issue.Hierarchy{
-				Repo: repoName, Number: 30, Title: "Issue 30", State: "open",
-				URL: "https://github.com/owner/repo/issues/30",
-				// The summary still says it is a parent, so the kind survives
-				// the list being unreadable.
-				Kind:             issue.KindParent,
-				BlockersClosed:   true,
-				SubIssues:        []issue.SubIssue{},
-				SubIssuesSummary: issue.Summary{Total: 2, Completed: 1},
-				Warnings:         []string{"sub_issues lookup failed for #30"},
-			},
+			number:  30,
+			wantErr: "read the children of #30",
 		},
 		{
 			name: "fewer children arrive than the summary counts",
@@ -502,16 +507,8 @@ func TestTreeDegrades(t *testing.T) {
 				},
 				status: map[string]int{at("20/sub_issues"): http.StatusInternalServerError},
 			},
-			number: 21,
-			want: issue.Hierarchy{
-				Repo: repoName, Number: 21, Title: "Issue 21", State: "open",
-				URL:            "https://github.com/owner/repo/issues/21",
-				Kind:           issue.KindSub,
-				Parent:         new(wantRef("Issue", 20, "open", repoName)),
-				BlockersClosed: true,
-				SubIssues:      []issue.SubIssue{},
-				Warnings:       []string{"sub_issues lookup failed for parent #20 (siblings unknown)"},
-			},
+			number:  21,
+			wantErr: "read the children of #20",
 		},
 		{
 			name: "the parent lives in another repository",
@@ -532,6 +529,10 @@ func TestTreeDegrades(t *testing.T) {
 				BlockersClosed: true,
 				SubIssues:      []issue.SubIssue{},
 				Warnings:       []string{"parent #7 is in another repository (owner/other); siblings unknown"},
+				// The siblings this repository cannot list are why the answer
+				// stays no: closing the parent from here would close it over
+				// children nobody checked.
+				AllSiblingsClosed: false,
 			},
 			notAsked: []string{"issues/7/sub_issues"},
 		},
@@ -568,10 +569,10 @@ func TestTreeBlockers(t *testing.T) {
 			},
 			number: 50,
 			want: with(func(h *issue.Hierarchy) {
-				h.BlockedBy = issue.RefList{Refs: []issue.Ref{
+				h.BlockedBy = []issue.Ref{
 					wantRef("Blocker", 51, "closed", repoName),
 					wantRef("Blocker", 52, "open", repoName),
-				}}
+				}
 			}),
 			asked: []string{"50/dependencies/blocked_by?per_page=100"},
 		},
@@ -588,10 +589,10 @@ func TestTreeBlockers(t *testing.T) {
 			want: with(func(h *issue.Hierarchy) {
 				// Closed blockers stay in the list, which is GitHub's own
 				// behaviour and lets a caller show what the issue waited on.
-				h.BlockedBy = issue.RefList{Refs: []issue.Ref{
+				h.BlockedBy = []issue.Ref{
 					wantRef("Blocker", 51, "closed", repoName),
 					wantRef("Blocker", 52, "closed", repoName),
-				}}
+				}
 				h.BlockersClosed = true
 			}),
 		},
@@ -601,11 +602,8 @@ func TestTreeBlockers(t *testing.T) {
 				rest:   map[string]string{at("50"): self(1)},
 				status: map[string]int{at("50/parent"): http.StatusNotFound, at("50/dependencies/blocked_by"): http.StatusInternalServerError},
 			},
-			number: 50,
-			want: with(func(h *issue.Hierarchy) {
-				h.BlockedBy = issue.RefList{Unknown: true}
-				h.Warnings = []string{"blocked_by lookup failed for #50"}
-			}),
+			number:  50,
+			wantErr: "read what is blocking #50",
 		},
 		{
 			name: "fewer blockers arrive than the summary counts",
@@ -618,10 +616,10 @@ func TestTreeBlockers(t *testing.T) {
 			},
 			number: 50,
 			want: with(func(h *issue.Hierarchy) {
-				h.BlockedBy = issue.RefList{Refs: []issue.Ref{
+				h.BlockedBy = []issue.Ref{
 					wantRef("Blocker", 51, "closed", repoName),
 					wantRef("Blocker", 52, "closed", repoName),
-				}}
+				}
 				h.Warnings = []string{"blocked_by count mismatch for #50: summary=3 fetched=2"}
 			}),
 		},
@@ -636,7 +634,7 @@ func TestTreeBlockers(t *testing.T) {
 			},
 			number: 50,
 			want: with(func(h *issue.Hierarchy) {
-				h.BlockedBy = issue.RefList{Refs: []issue.Ref{wantRef("Blocker", 7, "open", "owner/other")}}
+				h.BlockedBy = []issue.Ref{wantRef("Blocker", 7, "open", "owner/other")}
 			}),
 		},
 	})
@@ -684,16 +682,16 @@ func TestTreeWithPRs(t *testing.T) {
 				Kind:           issue.KindParent,
 				BlockersClosed: true,
 				SubIssues: []issue.SubIssue{
-					withPRs(wantSub(31, "closed"), issue.PRList{PRs: []issue.PR{
+					withPRs(wantSub(31, "closed"), []issue.PR{
 						{Number: 310, State: ghapi.StateMerged, BaseRef: "main", Merged: true, URL: pr310},
-					}}),
-					withPRs(wantSub(32, "closed"), issue.PRList{PRs: []issue.PR{
+					}),
+					withPRs(wantSub(32, "closed"), []issue.PR{
 						{Number: 320, State: ghapi.StateMerged, BaseRef: "main", Merged: true, URL: pr320},
 						{Number: 321, State: ghapi.StateOpen, BaseRef: "develop", Merged: false, URL: pr321},
-					}}),
+					}),
 					// A child closed by hand has no pull request, which is an
 					// empty list rather than the null a failure produces.
-					withPRs(wantSub(33, "closed"), issue.PRList{PRs: []issue.PR{}}),
+					withPRs(wantSub(33, "closed"), []issue.PR{}),
 				},
 				SubIssuesSummary:   issue.Summary{Total: 3, Completed: 3},
 				AllSubIssuesClosed: true,
@@ -703,31 +701,32 @@ func TestTreeWithPRs(t *testing.T) {
 			asked: []string{sub31, pr321},
 		},
 		{
-			name: "neither lookup can be read",
+			// An empty list means the sub-issue has nothing closing it, which is
+			// what a caller about to close the parent acts on — so a lookup
+			// that failed must not arrive looking like one.
+			name: "the list of closing pull requests cannot be read",
 			server: fixtures{
 				rest:    map[string]string{at("30"): parent, at("30/sub_issues"): list(sub(31, "closed"), sub(32, "closed"))},
 				status:  map[string]int{at("30/parent"): http.StatusNotFound},
 				closing: map[string][]string{sub32: {pr320}},
 			},
-			number: 30,
-			opts:   issue.TreeOptions{WithPRs: true},
-			want: issue.Hierarchy{
-				Repo: repoName, Number: 30, Title: "Issue 30", State: "open",
-				URL:            "https://github.com/owner/repo/issues/30",
-				Kind:           issue.KindParent,
-				BlockersClosed: true,
-				SubIssues: []issue.SubIssue{
-					withPRs(wantSub(31, "closed"), issue.PRList{Unknown: true}),
-					withPRs(wantSub(32, "closed"), issue.PRList{Unknown: true}),
-				},
-				SubIssuesSummary:   issue.Summary{Total: 3, Completed: 3},
-				AllSubIssuesClosed: false,
-				Warnings: []string{
-					"closing PR lookup failed for Sub #31",
-					"pr lookup failed for " + pr320 + " (closing Sub #32)",
-					"sub_issues count mismatch for #30: summary=3 fetched=2",
-				},
+			number:  30,
+			opts:    issue.TreeOptions{WithPRs: true},
+			wantErr: "read the pull requests closing Sub #31",
+		},
+		{
+			// The second lookup of the pair: the list arrived, and GitHub
+			// declined one of the pull requests it names.
+			name: "a pull request the list names cannot be read",
+			server: fixtures{
+				rest:    map[string]string{at("30"): parent, at("30/sub_issues"): list(sub(31, "closed"), sub(32, "closed"))},
+				status:  map[string]int{at("30/parent"): http.StatusNotFound},
+				closing: map[string][]string{sub31: {pr310}, sub32: {pr320}},
+				prs:     map[string]string{pr310: prJSON(310, "MERGED", "main", pr310)},
 			},
+			number:  30,
+			opts:    issue.TreeOptions{WithPRs: true},
+			wantErr: "read " + pr320,
 		},
 		{
 			name: "GraphQL answers with no resource at all",
@@ -736,18 +735,9 @@ func TestTreeWithPRs(t *testing.T) {
 				status:       map[string]int{at("30/parent"): http.StatusNotFound},
 				nullResource: map[string]bool{sub31: true},
 			},
-			number: 30,
-			opts:   issue.TreeOptions{WithPRs: true},
-			want: issue.Hierarchy{
-				Repo: repoName, Number: 30, Title: "Issue 30", State: "open",
-				URL:                "https://github.com/owner/repo/issues/30",
-				Kind:               issue.KindParent,
-				BlockersClosed:     true,
-				SubIssues:          []issue.SubIssue{withPRs(wantSub(31, "closed"), issue.PRList{Unknown: true})},
-				SubIssuesSummary:   issue.Summary{Total: 1, Completed: 1},
-				AllSubIssuesClosed: true,
-				Warnings:           []string{"closing PR lookup failed for Sub #31"},
-			},
+			number:  30,
+			opts:    issue.TreeOptions{WithPRs: true},
+			wantErr: "read the pull requests closing Sub #31",
 		},
 		{
 			name: "without the flag no pull request is read",
@@ -796,18 +786,37 @@ func TestTreeWithDeps(t *testing.T) {
 				Kind:           issue.KindParent,
 				BlockersClosed: true,
 				SubIssues: []issue.SubIssue{
-					withDeps(wantSub(61, "open"), issue.RefList{}, true),
-					withDeps(wantSub(62, "open"), issue.RefList{Refs: []issue.Ref{wantRef("Blocker", 61, "open", repoName)}}, false),
-					withDeps(wantSub(63, "open"), issue.RefList{Refs: []issue.Ref{
+					withDeps(wantSub(61, "open"), nil, true),
+					withDeps(wantSub(62, "open"), []issue.Ref{wantRef("Blocker", 61, "open", repoName)}, false),
+					withDeps(wantSub(63, "open"), []issue.Ref{
 						wantRef("Blocker", 61, "closed", repoName),
 						wantRef("Blocker", 64, "closed", repoName),
-					}}, true),
+					}, true),
 				},
 				SubIssuesSummary: issue.Summary{Total: 3},
 			},
 			asked: []string{"62/dependencies/blocked_by"},
 			// A child the summary says has no blockers costs no round trip.
 			notAsked: []string{"61/dependencies/blocked_by"},
+		},
+		{
+			// The second place blockers are read from. An empty list here is
+			// "nothing is blocking this child", which is what a caller picking
+			// the next Sub to start acts on.
+			name: "a child's blocker list cannot be read",
+			server: fixtures{
+				rest: map[string]string{
+					at("60"):            parent,
+					at("60/sub_issues"): list(sub(61, "open"), sub(62, "open", blockedBy(1))),
+				},
+				status: map[string]int{
+					at("60/parent"):                  http.StatusNotFound,
+					at("62/dependencies/blocked_by"): http.StatusInternalServerError,
+				},
+			},
+			number:  60,
+			opts:    issue.TreeOptions{WithDeps: true},
+			wantErr: "read what is blocking Sub #62",
 		},
 		{
 			name: "a child in another repository is asked about in its own",
@@ -829,7 +838,7 @@ func TestTreeWithDeps(t *testing.T) {
 				SubIssues: []issue.SubIssue{
 					withDeps(
 						issue.SubIssue{Number: 8, Title: "Sub 8", State: "open", URL: "https://github.com/other/repo/issues/8"},
-						issue.RefList{Refs: []issue.Ref{wantRef("Blocker", 9, "closed", "other/repo")}}, true),
+						[]issue.Ref{wantRef("Blocker", 9, "closed", "other/repo")}, true),
 				},
 				SubIssuesSummary: issue.Summary{Total: 1},
 			},
@@ -858,10 +867,10 @@ func TestTreeWithDeps(t *testing.T) {
 				BlockersClosed: true,
 				SubIssues: []issue.SubIssue{
 					withDeps(
-						withPRs(wantSub(61, "closed"), issue.PRList{PRs: []issue.PR{
+						withPRs(wantSub(61, "closed"), []issue.PR{
 							{Number: 610, State: ghapi.StateMerged, BaseRef: "main", Merged: true, URL: "https://github.com/owner/repo/pull/610"},
-						}}),
-						issue.RefList{Refs: []issue.Ref{wantRef("Blocker", 62, "closed", repoName)}}, true),
+						}),
+						[]issue.Ref{wantRef("Blocker", 62, "closed", repoName)}, true),
 				},
 				SubIssuesSummary:   issue.Summary{Total: 1, Completed: 1},
 				AllSubIssuesClosed: true,
@@ -890,9 +899,9 @@ func TestTreeWithDeps(t *testing.T) {
 	})
 }
 
-// TestTreeFailsOnlyForTheIssueItself is the one failure that is not a
-// degradation: without the issue there is nothing to describe.
-func TestTreeFailsOnlyForTheIssueItself(t *testing.T) {
+// TestTreeFailsForTheIssueItself is the first failure a resolution can meet:
+// without the issue there is nothing to describe.
+func TestTreeFailsForTheIssueItself(t *testing.T) {
 	t.Parallel()
 
 	c := ghapitest.New(t, &fake{})
@@ -901,12 +910,12 @@ func TestTreeFailsOnlyForTheIssueItself(t *testing.T) {
 	}
 }
 
-func withPRs(s issue.SubIssue, prs issue.PRList) issue.SubIssue {
+func withPRs(s issue.SubIssue, prs []issue.PR) issue.SubIssue {
 	s.PRs = &prs
 	return s
 }
 
-func withDeps(s issue.SubIssue, refs issue.RefList, closed bool) issue.SubIssue {
+func withDeps(s issue.SubIssue, refs []issue.Ref, closed bool) issue.SubIssue {
 	s.BlockedBy = &refs
 	s.BlockersClosed = &closed
 	return s

@@ -2,27 +2,15 @@ package contract
 
 import (
 	"reflect"
-
-	"github.com/178inaba/dotfiles/go/internal/issue"
 )
 
 //go:generate go test . -run=^TestGenerated$ -update
 
-// marshalers is the exception list the renderer's guard is checked against.
-//
-// Two types serialise themselves, both so that a list GitHub declined to
-// supply is null rather than empty. Their Go fields are the wrapper rather
-// than the wire form, so each says what it puts out.
-var marshalers = map[reflect.Type]Marshaled{
-	reflect.TypeFor[issue.RefList](): {
-		Kind: "array of object, or null when the list could not be read",
-		Elem: reflect.TypeFor[issue.Ref](),
-	},
-	reflect.TypeFor[issue.PRList](): {
-		Kind: "array of object, or null when the list could not be read",
-		Elem: reflect.TypeFor[issue.PR](),
-	},
-}
+// marshalers is the exception list the renderer's guard is checked against: a
+// type that serialises itself says here what it puts on the wire, since its Go
+// fields are no longer the wire form. No type in this module does at present,
+// and the guard refuses to render one that is missing from here.
+var marshalers = map[reflect.Type]Marshaled{}
 
 // std is the table this module's types are rendered against.
 var std = Table{
