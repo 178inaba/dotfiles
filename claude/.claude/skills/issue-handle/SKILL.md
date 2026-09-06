@@ -47,7 +47,7 @@ disable-model-invocation: true
 
 ### Issue 階層の扱い（Issue番号指定時）
 
-Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し、その「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力の `kind` で分岐する（出力の読み方は `ccx issue tree --help`）。取得できていなければ `ccx issue tree <issue-number>` を実行する。この再実行が非ゼロ exit した場合は stderr を提示して停止する（冒頭の起動行は stderr を捨てて後回しにするだけなので、受け皿はここ。以下の分岐は `kind` と各フラグに全面的に依存しており、「取得できなかったので飛ばす」は選ばない）。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
+Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し、その「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力の `kind` で分岐する（出力の読み方は `ccx issue tree --help`）。取得できていなければ `ccx issue tree <issue-number>` を実行する。**本節が実行する `ccx issue tree`（この再実行、Sub 一覧の `--with-deps`、親の充足検証の `--with-prs`）はいずれも、非ゼロ exit したら stderr を提示して停止する**（冒頭の起動行は stderr を捨てて後回しにするだけなので、受け皿はここ。以下の分岐は `kind`・`blocked_by`・`prs` に全面的に依存しており、「取得できなかったので飛ばす」は選ばない）。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
 
 - **`standalone`**: 単独の Issue として進める
 - **`sub`（親あり・Sub なし）**: 実装対象。以下を要件確認に加える

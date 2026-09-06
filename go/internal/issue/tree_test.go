@@ -800,6 +800,25 @@ func TestTreeWithDeps(t *testing.T) {
 			notAsked: []string{"61/dependencies/blocked_by"},
 		},
 		{
+			// The second place blockers are read from. An empty list here is
+			// "nothing is blocking this child", which is what a caller picking
+			// the next Sub to start acts on.
+			name: "a child's blocker list cannot be read",
+			server: fixtures{
+				rest: map[string]string{
+					at("60"):            parent,
+					at("60/sub_issues"): list(sub(61, "open"), sub(62, "open", blockedBy(1))),
+				},
+				status: map[string]int{
+					at("60/parent"):                  http.StatusNotFound,
+					at("62/dependencies/blocked_by"): http.StatusInternalServerError,
+				},
+			},
+			number:  60,
+			opts:    issue.TreeOptions{WithDeps: true},
+			wantErr: "read what is blocking Sub #62",
+		},
+		{
 			name: "a child in another repository is asked about in its own",
 			server: fixtures{
 				rest: map[string]string{

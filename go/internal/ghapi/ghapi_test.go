@@ -319,6 +319,26 @@ func TestForbiddenNamesSSOAuthorisation(t *testing.T) {
 		})
 	}
 
+	// The paginating path builds its own requests rather than going through
+	// Get, and three of the five lookups ccx issue tree makes are on it.
+	t.Run("the paginating path", func(t *testing.T) {
+		t.Parallel()
+
+		c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, `{"message":"no"}`)
+		}))
+
+		_, err := ghapi.GetAll[issue](t.Context(), c, "repos/o/r/issues/1/sub_issues?per_page=100")
+		if err == nil {
+			t.Fatal("want an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "SSO authorisation") {
+			t.Errorf("error = %v, want the clause on a forbidden page", err)
+		}
+	})
+
 	// A failure that never reached a response has no status to judge, and must
 	// pass through rather than be guessed at.
 	t.Run("a network error", func(t *testing.T) {

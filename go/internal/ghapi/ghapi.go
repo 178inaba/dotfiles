@@ -197,8 +197,12 @@ func HTTPStatus(err error) (int, bool) {
 // Only 403 has one worth naming: the likeliest reason GitHub forbids a read the
 // token is otherwise entitled to is an organisation it has not been authorised
 // for, which is fixed somewhere other than the command that failed. A server
-// error or a rate limit has no such answer, and sending a reader to look at
-// their token over one would be worse than saying nothing.
+// error has no such answer, and sending a reader to look at their token over
+// one would be worse than saying nothing.
+//
+// An exhausted rate limit is answered with 403 as well, so the clause lands on
+// those too. It stays hedged for that reason, and GitHub's own message — which
+// says the rate limit was exceeded — is printed ahead of it.
 //
 // Here rather than at the call sites because the cause is a property of
 // GitHub's answer, not of the sentence a caller wraps it in — and because this
