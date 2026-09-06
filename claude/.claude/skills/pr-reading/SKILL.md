@@ -10,9 +10,9 @@ PR が何をしようとしていて何を変えたのかを、durable な記録
 
 呼び出し側は起動時に次の4つを名指す（値は「消費者ごとの割り当て」）:
 
-- **container**: Issue の入れ物となる配列
-- **文書**: container と `pr.body` / `commits[]` / `warnings[]` を読むファイルのパス
-- **差分・コミットの取得元**: その文書か、呼び出し側が指定するローカルコマンドか
+- **container**: Issue の入れ物となる配列と、その読めなかったものを説明する `warnings[]`。**どちらも呼び出し側が名指したものだけを使い、文書側に同名の配列があっても引かない**（`--issue` 等で container を差し替える消費者では、文書側の配列は照合すべきでない別の Issue 集合になる）
+- **文書**: `pr.body` と `commits[]` を読むファイルのパス
+- **差分・コミットの取得元**: その文書か、呼び出し側が指定するローカルコマンドか。文書が唯一の出典で、ローカルを名指せるのは文書がその変更を運べない状態（PR がまだ無い、文書の差分より先のローカル commit がある）に限る
 - **報告先**: 「報告」の1文をどの出力に載せるか
 
 ## ステートレス
@@ -55,13 +55,13 @@ PR が何をしようとしていて何を変えたのかを、durable な記録
 
 読めなかったものは報告して続ける（黙って落とさない）。要件の突き合わせにも押し返しの引用にも使わない:
 
-- `body` が null の container 要素 → `warnings[]` の該当行を添えて、読めなかった Issue として報告し、その Issue に対する要件充足の確認をせずに続行する
-- `parent` が null でも、`warnings[]` にその Issue の親の行があれば「親なし」ではなく**読めなかった親**。同じく報告した上で、横断ルールの確認を省く
+- `body` が null の container 要素 → `warnings[]` の該当行を添えて、読めなかった Issue として報告し、その Issue を要件の突き合わせから外して続行する
+- `parent` が null でも、`warnings[]` にその Issue の親の行があれば「親なし」ではなく**読めなかった親**。同じく報告した上で、親が持つ横断ルールの確認を省く
 - `comments_truncated` が真の要素（親のコメントも同じ） → 運ばれた範囲まで読み、打ち切りを報告に載せる。再取得の要否は呼び出し側が決める
 
 ## 報告
 
-差分を末尾まで読んだこと・読んだ件数（ファイル一覧の件数から generated の件数を引いた数）・generated として飛ばしたパスと行数を、呼び出し側が指定した報告先に、その出力の既存の項目より前に出す。
+差分を末尾まで読んだこと・読んだ件数（ファイル一覧の件数から generated の件数を引いた数）・generated として飛ばしたパスと行数を、呼び出し側が指定した報告先に出す。
 
 ## 消費者ごとの割り当て
 
@@ -70,7 +70,7 @@ PR が何をしようとしていて何を変えたのかを、durable な記録
 | 消費者 | container / 文書 | 差分・コミットの取得元 | 報告先 | 呼び出し側が持つもの |
 |---|---|---|---|---|
 | `review-response` | `linked_issues[]` / `ccx pr context` の作業ドキュメント | 文書（`ahead_own` でも文書側。理由は同スキルが持つ） | 「対応対象の指摘」「反応待ちスレッド」より前 | 判断対象の有無の確認によるゲート（「ステートレス」の唯一の省略経路）、会話を読解の**後**に置く順序とその例外、`comments_truncated` の上限引き上げ |
-| `deep-review` | `ccx pr prepare-review` の `issues` / `context_path` | `ok` / `synced` は文書（`diff.path` と `diff.files[]`、`commits[]`、`pr.body`）。`pr_exists: false` と `ahead_own` はローカル（`git log <base_branch>..HEAD` / `git diff <base_branch>...HEAD`。一覧は `--stat`、`generated` の印を持たない。`pr_exists: false` では `pr.body` も無い） | 「レビュー結果出力」の「確認した内容」 | 「PR コンテキストの読了」を container より**前**に置く順序、`pr_exists` / `freshness.status` による取得元の選択、container と差分の**間**に挟む `ccx issue tree` と役割分担、Issue の打ち切りを再取得しない判断 |
+| `deep-review` | `ccx pr prepare-review` の `issues` と同出力の `warnings[]` / `context_path` | 状態で分岐し、文書とローカルの両方を取りうる（分岐の正は同スキルが持つ） | 「レビュー結果出力」の「確認した内容」 | 「PR コンテキストの読了」を container より**前**に置く順序、`pr_exists` / `freshness.status` による取得元の選択、container の読解の**直後**に挟む `ccx issue tree` と役割分担、Issue の打ち切りを再取得しない判断 |
 | `understand-pr` | `linked_issues[]` / `ccx pr context` の文書 | 文書 | ブリーフの変更内容 | ブリーフの構成（配線は 178inaba/dotfiles#166） |
 
 `issue-handle` は消費者ではない。実装したセッションで動き、意図が文脈に残っているため組み立て直す必要がない（178inaba/dotfiles#163 の Out of scope）。
