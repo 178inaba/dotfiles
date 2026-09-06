@@ -102,9 +102,10 @@ func (r *publishRun) create(ctx context.Context) error {
 		body, left := r.plan.substitute(r.plan.set.body(row.key))
 
 		assignees := []string{r.plan.viewer}
-		got, err := r.client.CreateIssue(ctx, r.plan.set.repo, ghapi.IssueChange{
+		ch := ghapi.IssueChange{
 			Title: &row.title, Body: &body, Labels: &row.labels, Assignees: &assignees,
-		})
+		}
+		got, err := r.client.CreateIssue(ctx, r.plan.set.repo, ch)
 		if err != nil {
 			return r.abort("create %s: %v", row.key, err)
 		}
@@ -114,7 +115,7 @@ func (r *publishRun) create(ctx context.Context) error {
 			return err
 		}
 		r.out.Created = append(r.out.Created, PublishedIssue{Key: row.key, Number: got.Number, URL: got.URL})
-		r.reportDrops(row, got)
+		r.reportDrops(ch, got)
 
 		if err := r.readBack(row, row.draft, got.Body, false); err != nil {
 			return err
@@ -215,11 +216,7 @@ func (r *publishRun) patch(ctx context.Context, row publishRow) error {
 		return err
 	}
 	r.out.Edited = append(r.out.Edited, PublishedIssue{Key: row.key, Number: number, URL: got.URL})
-	if row.target() {
-		// Only a target: an issue this run created had its labels and its
-		// assignee checked at the create, and this write asks for neither.
-		r.reportDrops(row, got)
-	}
+	r.reportDrops(ch, got)
 	return r.readBack(row, row.draft, got.Body, true)
 }
 
@@ -340,20 +337,34 @@ func (r *publishRun) recordFreshness(key, updatedAt string) error {
 	return r.record().append(publishRecordLine{Step: stepFreshness, Key: key, UpdatedAt: updatedAt})
 }
 
-// reportDrops names what GitHub stored less of than was asked for.
-func (r *publishRun) reportDrops(row publishRow, got ghapi.Issue) {
-	for _, want := range row.labels {
-		if !slices.Contains(got.Labels, want) {
-			r.out.Degraded = append(r.out.Degraded,
-				fmt.Sprintf("#%d did not receive the label %q", got.Number, want))
+// reportDrops names what GitHub stored less of than was asked for, by reading
+// the request the response answers rather than the kind of row it came from.
+// That is what keeps a created issue's fill-in — a body and nothing else —
+// from reporting the labels its create already did.
+func (r *publishRun) reportDrops(ch ghapi.IssueChange, got ghapi.Issue) {
+	for _, want := range dropped(ch.Labels, got.Labels) {
+		r.out.Degraded = append(r.out.Degraded,
+			fmt.Sprintf("#%d did not receive the label %q", got.Number, want))
+	}
+	for _, want := range dropped(ch.Assignees, got.Assignees) {
+		r.out.Degraded = append(r.out.Degraded,
+			fmt.Sprintf("#%d was not assigned to %s", got.Number, want))
+	}
+}
+
+// dropped names what the request asked for that the response does not carry.
+// A nil field asked for nothing, so nothing of it can be missing.
+func dropped(asked *[]string, got []string) []string {
+	if asked == nil {
+		return nil
+	}
+	var out []string
+	for _, want := range *asked {
+		if !slices.Contains(got, want) {
+			out = append(out, want)
 		}
 	}
-	// Only a create asks for an assignee; an edit leaves whoever is on the
-	// issue alone, so it has nothing to have dropped.
-	if !row.target() && !slices.Contains(got.Assignees, r.plan.viewer) {
-		r.out.Degraded = append(r.out.Degraded,
-			fmt.Sprintf("#%d was not assigned to %s", got.Number, r.plan.viewer))
-	}
+	return out
 }
 
 // idOf is the integer GitHub addresses an issue by, which the link endpoints

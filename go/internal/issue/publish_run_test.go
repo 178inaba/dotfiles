@@ -649,6 +649,60 @@ func TestPublishReportsWhatGitHubDropped(t *testing.T) {
 	}
 }
 
+// TestPublishReportsALabelDroppedFromAnEdit is the drop the create path cannot
+// reach: a target asks for its whole label set in the same request as its
+// body, and the assignees it never asks for have nothing to report.
+func TestPublishReportsALabelDroppedFromAnEdit(t *testing.T) {
+	t.Parallel()
+
+	m := issue.PublishManifest{
+		Repo:   ptr("owner/repo"),
+		Issues: []issue.PublishManifestIssue{row("42", "42.md", withUpdatedAt(fresh))},
+	}
+	file := writeManifest(t, m, map[string]string{"42.md": leafDraft})
+	g := newFakeGitHub()
+	// Without the label the row asks for, so that the edit is what would have
+	// applied it.
+	g.existing(42, 4200, fresh)
+	g.dropLabels = true
+
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
+	if err != nil {
+		t.Fatalf("Publish failed over a drop, want it reported and exit 0: %v", err)
+	}
+	want := []string{`#42 did not receive the label "enhancement"`}
+	if diff := cmp.Diff(want, got.Degraded); diff != "" {
+		t.Errorf("Publish degraded (-want +got):\n%s", diff)
+	}
+}
+
+// TestPublishReportsACreatedIssuesDropOnce guards the drop against the second
+// write the same issue gets: a body holding a forward reference goes out at
+// the create and is filled in afterwards, and that fill-in asks for no labels,
+// so it has none to report as dropped.
+func TestPublishReportsACreatedIssuesDropOnce(t *testing.T) {
+	t.Parallel()
+
+	m := parentAndSubs()
+	file := writeManifest(t, m, parentAndSubFiles())
+	g := newFakeGitHub()
+	g.dropLabels = true
+
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
+	if err != nil {
+		t.Fatalf("Publish failed over a drop, want it reported and exit 0: %v", err)
+	}
+	// The parent and SUB_A are written twice; each issue is named once.
+	want := []string{
+		`#101 did not receive the label "enhancement"`,
+		`#102 did not receive the label "enhancement"`,
+		`#103 did not receive the label "enhancement"`,
+	}
+	if diff := cmp.Diff(want, got.Degraded); diff != "" {
+		t.Errorf("Publish degraded (-want +got):\n%s", diff)
+	}
+}
+
 func TestPublishFailsOnAForbiddenLink(t *testing.T) {
 	t.Parallel()
 
