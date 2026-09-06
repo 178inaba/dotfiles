@@ -2,11 +2,17 @@
 //
 // Two things in this module have to agree about that reading. The gh shim
 // refuses a body that numbers its items with bare #N, because GitHub autolinks
-// those and notifies unrelated issues; `ccx issue publish` writes issue bodies
-// in process, where the shim never sees them, so it has to reach the same
-// verdict about the same text. Neither of them owns the reading, so it lives
-// here rather than in one of them: what is shared is how a body reads, not
-// what either caller decides about it.
+// those and notifies unrelated issues; ghapi writes bodies in process, where
+// the shim never sees them, so it has to reach the same verdict about the same
+// text. Neither of them owns the reading, so it lives here rather than in one
+// of them: what is shared is how a body reads, not what either caller decides
+// about it. The words the refusal is written in are here for the same reason —
+// both refusers say the same thing about the same body.
+//
+// A notation whose meaning depends on that reading belongs here too, even
+// where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
+// means nothing inside a code span or a fenced block, and deciding that is
+// this package's job rather than its writer's.
 //
 // The scan is deliberately not a markdown parser. It knows the two things that
 // decide whether a reference is live — a fenced block and an inline code span —
@@ -15,17 +21,18 @@ package ghmd
 
 import (
 	"bytes"
+	"fmt"
 	"iter"
 	"regexp"
 	"strings"
 )
 
-// BareHashRefLimit is how many distinct bare references make a run of item
+// bareHashRefLimit is how many distinct bare references make a run of item
 // numbers rather than a mention of an issue.
 //
 // Three, because a body that means to cite an issue cites one or two, and the
 // mistake being caught is a numbered list written as #1 #2 #3.
-const BareHashRefLimit = 3
+const bareHashRefLimit = 3
 
 var (
 	fenceLine = regexp.MustCompile("^[[:space:]]*(```|~~~)")
@@ -115,7 +122,34 @@ func yieldProseAndSpans(yield func(Segment) bool, text string, line, start int) 
 	return yield(Segment{Kind: Prose, Line: line, Start: start + at, End: start + len(text)})
 }
 
-// BareHashRefs counts the distinct digits of the bare #1 to #9 in body,
+// RefuseBareHashRefs is what to say about a body that numbers its items with
+// bare #N, and the empty string for one that does not.
+//
+// The whole rule in one place, rather than a count and a threshold each caller
+// compares for itself: the gh shim and ghapi.NewBody both have to reach the
+// same verdict about the same body, and a third judge added later would be a
+// third copy of the comparison. Where the body came from is the caller's to
+// name, above or in front of this, since only the caller knows whether it is a
+// file, a field or a flag.
+func RefuseBareHashRefs(body string) string {
+	distinct := bareHashRefs(body)
+	if distinct < bareHashRefLimit {
+		return ""
+	}
+	return fmt.Sprintf(`%d distinct bare #N in #1 to #9 number the items of this body.
+
+GitHub autolinks a bare #number, so using one to number a list of remarks
+(#1, #2, ...) sends a reference notification to unrelated issues and pull
+requests. A notification cannot be taken back.
+
+Fix: if the numbering is the point, write it in a form without # — an
+ordered list (1. 2. ...), say. If an issue or a pull request is really
+being referenced, name it as OWNER/REPO#N:
+  178inaba/dotfiles#3
+That keeps the link and does not trip this guard.`, distinct)
+}
+
+// bareHashRefs counts the distinct digits of the bare #1 to #9 in body,
 // ignoring the places GitHub does not autolink.
 //
 // Distinct digits rather than distinct issues, because what it is looking for
@@ -126,7 +160,7 @@ func yieldProseAndSpans(yield func(Segment) bool, text string, line, start int) 
 // not have. That errs towards blocking, and a decision that does not move with
 // the locale is worth more than the agreement — macOS awk compares multibyte
 // text unreliably.
-func BareHashRefs(body string) int {
+func bareHashRefs(body string) int {
 	seen := map[byte]bool{}
 	// Per line, and with the spans taken out rather than skipped: text either
 	// side of a span joins into one token, which is what decides whether that

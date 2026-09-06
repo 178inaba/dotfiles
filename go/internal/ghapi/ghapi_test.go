@@ -1,9 +1,9 @@
 package ghapi_test
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,65 +49,82 @@ func TestGet(t *testing.T) {
 	}
 }
 
-func TestPost(t *testing.T) {
+// TestCreateIssue and TestEditIssue are what covers the request side of the
+// client: the verb, the JSON that goes out and the response that comes back.
+// They come through the typed writers because the raw ones are package-private
+// — a body may reach GitHub only as one that has been judged.
+func TestCreateIssue(t *testing.T) {
 	t.Parallel()
 
-	var gotMethod, gotBody string
+	var gotMethod, gotPath string
+	var sent map[string]any
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("read the request body: %v", err)
+		gotMethod, gotPath = r.Method, r.URL.Path
+		if err := json.UnmarshalRead(r.Body, &sent); err != nil {
+			t.Errorf("decode the request body: %v", err)
 			return
 		}
-		gotBody = string(b)
-		fmt.Fprint(w, `{"number":7,"title":"created"}`)
+		fmt.Fprint(w, `{"number":7,"title":"created","html_url":"https://github.com/owner/repo/issues/7"}`)
 	}))
 
-	var got issue
-	if err := c.Post(t.Context(), "repos/o/r/issues", issue{Number: 0, Title: "created"}, &got); err != nil {
-		t.Fatalf("Post: %v", err)
+	title, body, labels := "created", ghapitest.Body(t, "the body\n"), []string{"enhancement"}
+	got, err := c.CreateIssue(t.Context(), issueRepo, ghapi.IssueChange{
+		Title: &title, Body: &body, Labels: &labels,
+	})
+	if err != nil {
+		t.Fatalf("CreateIssue: %v", err)
 	}
 
 	if gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want %q", gotMethod, http.MethodPost)
 	}
-	if want := `{"number":0,"title":"created"}`; gotBody != want {
-		t.Errorf("body = %q, want %q", gotBody, want)
+	if want := "/repos/owner/repo/issues"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
 	}
-	if got.Number != 7 {
-		t.Errorf("Post decoded %+v, want number 7", got)
+	// Compared field by field rather than as encoded text: the request is
+	// built from a map, whose keys json/v2 does not promise in any order.
+	want := map[string]any{"title": "created", "body": "the body\n", "labels": []any{"enhancement"}}
+	if diff := cmp.Diff(want, sent); diff != "" {
+		t.Errorf("request body (-want +got):\n%s", diff)
+	}
+	if got.Number != 7 || got.Title != "created" {
+		t.Errorf("CreateIssue decoded %+v, want number 7 titled created", got)
 	}
 }
 
-func TestPatch(t *testing.T) {
+func TestEditIssue(t *testing.T) {
 	t.Parallel()
 
-	var gotMethod, gotBody string
+	var gotMethod, gotPath string
+	var sent map[string]any
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("read the request body: %v", err)
+		gotMethod, gotPath = r.Method, r.URL.Path
+		if err := json.UnmarshalRead(r.Body, &sent); err != nil {
+			t.Errorf("decode the request body: %v", err)
 			return
 		}
-		gotBody = string(b)
 		fmt.Fprint(w, `{"number":7,"title":"edited"}`)
 	}))
 
-	var got issue
-	if err := c.Patch(t.Context(), "repos/o/r/issues/7", issue{Number: 7, Title: "edited"}, &got); err != nil {
-		t.Fatalf("Patch: %v", err)
+	// Only the body: an edit says what to change and leaves the rest alone,
+	// which is what the pointers are for.
+	body := ghapitest.Body(t, "rewritten\n")
+	got, err := c.EditIssue(t.Context(), issueRepo, 7, ghapi.IssueChange{Body: &body})
+	if err != nil {
+		t.Fatalf("EditIssue: %v", err)
 	}
 
 	if gotMethod != http.MethodPatch {
 		t.Errorf("method = %q, want %q", gotMethod, http.MethodPatch)
 	}
-	if want := `{"number":7,"title":"edited"}`; gotBody != want {
-		t.Errorf("body = %q, want %q", gotBody, want)
+	if want := "/repos/owner/repo/issues/7"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+	if diff := cmp.Diff(map[string]any{"body": "rewritten\n"}, sent); diff != "" {
+		t.Errorf("request body (-want +got):\n%s", diff)
 	}
 	if got.Title != "edited" {
-		t.Errorf(`Patch decoded %+v, want title "edited"`, got)
+		t.Errorf(`EditIssue decoded %+v, want title "edited"`, got)
 	}
 }
 

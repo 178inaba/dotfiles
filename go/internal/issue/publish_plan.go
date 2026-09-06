@@ -99,7 +99,8 @@ func plan(ctx context.Context, c *ghapi.Client, wire PublishManifest, file strin
 		return publishPlan{}, err
 	}
 
-	if err := checkPublishSet(set); err != nil {
+	set.bodies, err = checkPublishSet(set)
+	if err != nil {
 		return publishPlan{}, err
 	}
 	ids, err := readPublishTargets(ctx, c, set, record)
@@ -191,9 +192,14 @@ func (p publishPlan) needsBlock(b publishBlock) bool { return !p.record.blocked[
 func (p publishPlan) isTarget(key string) bool { return p.set.byKey[key].target() }
 
 // checkPublishSet rejects what the manifest says about itself, with GitHub not
-// yet consulted.
-func checkPublishSet(set publishSet) error {
+// yet consulted, and answers with the bodies the run will send.
+//
+// It makes them rather than only judging them because those are the same act:
+// the stages send what came out of the judgement, so a body cannot be judged
+// at one moment and sent as it was at another.
+func checkPublishSet(set publishSet) (map[string]rowBodies, error) {
 	var bad violations
+	bodies := map[string]rowBodies{}
 
 	for _, row := range set.rows {
 		// Separate conditions rather than one switch, so that a row breaking
@@ -210,7 +216,9 @@ func checkPublishSet(set publishSet) error {
 		if row.parent != "" {
 			bad.addAll(checkPublishRef(set.byKey, row.key+": parent", row.parent))
 		}
-		bad.addAll(checkPublishBody(set.byKey, row))
+		judged, found := checkPublishBody(set.byKey, row)
+		bodies[row.key] = judged
+		bad.addAll(found)
 	}
 
 	for _, b := range set.blocks {
@@ -218,7 +226,10 @@ func checkPublishSet(set publishSet) error {
 		bad.addAll(checkPublishRef(set.byKey, "blocked_by: by", b.by))
 	}
 
-	return bad.err(set.file)
+	if err := bad.err(set.file); err != nil {
+		return nil, err
+	}
+	return bodies, nil
 }
 
 // checkPublishRef checks one reference to an issue by key.
@@ -245,8 +256,12 @@ func checkPublishRef(rows map[string]publishRow, where, key string) []string {
 }
 
 // checkPublishBody checks a row's draft, and the comment beside it, for what
-// must not reach GitHub.
-func checkPublishBody(rows map[string]publishRow, row publishRow) []string {
+// must not reach GitHub, and answers with what it made of them.
+//
+// Making them here is what holds the whole run to one judgement: the stages
+// send these values, so a body cannot be judged at one moment and sent as it
+// was at another.
+func checkPublishBody(rows map[string]publishRow, row publishRow) (rowBodies, []string) {
 	var found []string
 
 	vs, err := Check(row.body, row.locale, row.kind, row.mapping)
@@ -257,46 +272,46 @@ func checkPublishBody(rows map[string]publishRow, row publishRow) []string {
 		found = append(found, fmt.Sprintf("%s: %s", row.draft, v.Message))
 	}
 
-	for _, f := range []struct{ name, body string }{
-		{row.draft, row.body}, {row.commentFile, row.comment},
-	} {
-		if f.name == "" {
-			continue
-		}
-		// Scanned as written, before any substitution: what the gh shim would
-		// have refused had this gone out through it must be refused here too,
-		// from the same judgement rather than a copy of it.
-		if n := ghmd.BareHashRefs(f.body); n >= ghmd.BareHashRefLimit {
-			found = append(found, fmt.Sprintf(
-				"%s: %d distinct bare #N look like item numbering, which GitHub would autolink to unrelated issues"+
-					" (number the items with an ordered list)", f.name, n))
-		}
-		// A comment is substituted into and read back like a body, so a name
-		// no row defines has to stop the run here as well. Left to the write
-		// stage it would stop it after the edit that comment belongs to had
-		// already landed.
-		for _, s := range placeholdersIn(f.body) {
-			if rows[s.Name].key == "" {
-				found = append(found, fmt.Sprintf("%s line %d: no row defines the placeholder %s",
-					f.name, s.Line, s.Name))
-			}
-		}
+	var bodies rowBodies
+	bodies.body, found = judgePublishBody(rows, row.draft, row.body, found)
+	if row.commentFile != "" {
+		bodies.comment, found = judgePublishBody(rows, row.commentFile, row.comment, found)
 	}
-	return found
+	return bodies, found
 }
 
-// placeholdersIn finds the placeholders in a body, outside the code a draft
-// may quote them in: #{NAME} is string interpolation in Ruby and Elixir, and a
-// draft that shows some is not naming an issue.
+// judgePublishBody is one body: what the run will send, and what is wrong with
+// it added to found.
+func judgePublishBody(rows map[string]publishRow, name, text string, found []string) (ghapi.Body, []string) {
+	// Judged as written, before any substitution: what the gh shim would have
+	// refused had this gone out through it must be refused here too, from the
+	// same judgement rather than a copy of it.
+	body, err := ghapi.NewBody(text)
+	if err != nil {
+		found = append(found, fmt.Sprintf("%s: %v", name, err))
+	}
+	// A comment is substituted into and read back like a body, so a name no row
+	// defines has to stop the run here as well. Left to the write stage it
+	// would stop it after the edit that comment belongs to had already landed.
+	for _, s := range placeholdersIn(text) {
+		if rows[s.Name].key == "" {
+			found = append(found, fmt.Sprintf("%s line %d: no row defines the placeholder %s",
+				name, s.Line, s.Name))
+		}
+	}
+	return body, found
+}
+
+// placeholdersIn is ghmd's reading of a body in the shape a plan publishes.
 func placeholdersIn(body string) []PlannedSubstitution {
+	return planned(ghmd.Placeholders(body))
+}
+
+// planned turns what ghmd found into what a plan reports.
+func planned(found []ghmd.Placeholder) []PlannedSubstitution {
 	var out []PlannedSubstitution
-	for s := range ghmd.Segments(body) {
-		if s.Kind != ghmd.Prose {
-			continue
-		}
-		for _, m := range placeholderRef.FindAllStringSubmatch(body[s.Start:s.End], -1) {
-			out = append(out, PlannedSubstitution{Line: s.Line, Name: m[1]})
-		}
+	for _, p := range found {
+		out = append(out, PlannedSubstitution{Line: p.Line, Name: p.Name})
 	}
 	return out
 }

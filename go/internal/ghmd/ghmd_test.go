@@ -1,6 +1,7 @@
 package ghmd_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -8,43 +9,63 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
-func TestBareHashRefs(t *testing.T) {
+func TestRefuseBareHashRefs(t *testing.T) {
 	t.Parallel()
 
+	// An accepted case that is about the reading holds three candidates a
+	// coarser one would have counted, so that accepting it says something.
 	tests := []struct {
-		name string
-		body string
-		want int
+		name    string
+		body    string
+		refused bool
 	}{
-		{name: "empty", body: "", want: 0},
-		{name: "one reference", body: "see #1", want: 1},
-		{name: "three distinct", body: "#1 then #2 then #3", want: 3},
+		{name: "empty", body: ""},
+		{name: "a mention of one issue", body: "see #1"},
+		{name: "three distinct", body: "#1 then #2 then #3", refused: true},
+		{name: "punctuation around them still counts", body: "(#1) [#2] #3.", refused: true},
 		// The count is of distinct leading digits, not of distinct issues:
 		// what it is looking for is a run of item numbers.
-		{name: "repeats count once", body: "#1 and #1 and #1", want: 1},
-		{name: "ten and up are not bare item numbers", body: "#10 #11 #12", want: 0},
-		{name: "a suffix is not an item number", body: "#1a2b3c", want: 0},
-		{name: "a qualified reference is left alone", body: "owner/repo#1 owner/repo#2", want: 0},
-		{name: "punctuation around it still counts", body: "(#1) [#2] #3.", want: 3},
-		{name: "a fenced block hides its lines", body: "#1\n```\n#2 #3\n```\n", want: 1},
-		{name: "a tilde fence hides its lines too", body: "#1\n~~~\n#2 #3\n~~~\n", want: 1},
-		{name: "an indented fence still opens one", body: "#1\n  ```\n#2\n  ```\n", want: 1},
-		{name: "a code span hides what it holds", body: "`#1 #2` #3", want: 1},
+		{name: "repeats are one number", body: "#1 and #1 and #1"},
+		{name: "ten and up are not item numbers", body: "#10 #11 #12"},
+		{name: "a suffix is not an item number", body: "#1a2b3c #2d4e6f #3g5h7i"},
+		{name: "qualified references are left alone", body: "o/r#1 o/r#2 o/r#3"},
+		{name: "a fenced block hides its lines", body: "#1\n```\n#2 #3\n```\n"},
+		{name: "a tilde fence hides its lines too", body: "#1\n~~~\n#2 #3\n~~~\n"},
+		{name: "an indented fence still opens one", body: "#1\n  ```\n#2 #3\n  ```\n"},
+		{name: "a code span hides what it holds", body: "`#1 #2` #3"},
 		// The span is removed before the line is split, so the text either
 		// side of it joins into one token.
-		{name: "removing a span joins its neighbours", body: "a`x`#1", want: 0},
+		{name: "removing a span joins its neighbours", body: "a`x`#1 b`y`#2 c`z`#3"},
 		// A known limit, kept deliberately: the shell version behaved this
 		// way and a body with an unclosed fence is broken anyway.
-		{name: "an unclosed fence hides the rest", body: "#1\n```\n#2 #3\n", want: 1},
+		{name: "an unclosed fence hides the rest", body: "#1\n```\n#2 #3\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := ghmd.BareHashRefs(tt.body); got != tt.want {
-				t.Errorf("BareHashRefs(%q) = %d, want %d", tt.body, got, tt.want)
+			refusal := ghmd.RefuseBareHashRefs(tt.body)
+			if refused := refusal != ""; refused != tt.refused {
+				t.Errorf("RefuseBareHashRefs(%q) = %q, want refused = %v", tt.body, refusal, tt.refused)
 			}
 		})
+	}
+}
+
+func TestRefuseBareHashRefsSaysWhatWasFoundAndWhatToDo(t *testing.T) {
+	t.Parallel()
+
+	got := ghmd.RefuseBareHashRefs("#1 one #2 two #3 three")
+	for _, want := range []string{"3 distinct", "OWNER/REPO#N", "Fix:"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal = %q, want it to hold %q", got, want)
+		}
+	}
+	// Each caller puts its own lines above the refusal and ends the message
+	// itself, so a newline of its own at either end would show up as a gap in
+	// both of them.
+	if strings.HasPrefix(got, "\n") || strings.HasSuffix(got, "\n") {
+		t.Errorf("the refusal = %q, want no leading or trailing newline", got)
 	}
 }
 

@@ -1,6 +1,7 @@
-// Package ghapitest builds ghapi clients that cannot reach GitHub.
+// Package ghapitest builds the ghapi values a test cannot make for itself.
 //
-// It exists to be the only way a test constructs one. go-gh resolves whatever
+// Its first job is the client, and it exists to be the only way a test
+// constructs one. go-gh resolves whatever
 // its options leave empty by reading ~/.config/gh, and for a token it may exec
 // `gh auth token --secure-storage` — so a test that set the transport and
 // forgot the host would still be reading the developer's real credentials, and
@@ -13,6 +14,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 )
@@ -74,3 +77,22 @@ func (r redirect) RoundTrip(req *http.Request) (*http.Response, error) {
 	out.Host = ""
 	return http.DefaultTransport.RoundTrip(out)
 }
+
+// Body is a body a test knows GitHub will take, so that a case about something
+// else does not have to answer for the constructor.
+//
+// Here rather than in each test package for the reason the client is: two
+// packages already want one, and a third would otherwise write a third copy.
+func Body(t *testing.T, text string) ghapi.Body {
+	t.Helper()
+
+	body, err := ghapi.NewBody(text)
+	if err != nil {
+		t.Fatalf("ghapi.NewBody(%q): %v", text, err)
+	}
+	return body
+}
+
+// CmpBody lets go-cmp read a Body, whose field is unexported so that nothing
+// outside ghapi can make one holding text nobody judged.
+var CmpBody = cmp.AllowUnexported(ghapi.Body{})

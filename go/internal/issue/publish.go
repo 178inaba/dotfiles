@@ -76,10 +76,6 @@ var (
 	// placeholderKey and numberKey are the two spellings a key may take.
 	placeholderKey = regexp.MustCompile(`^[A-Z_]+$`)
 	numberKey      = regexp.MustCompile(`^[0-9]+$`)
-	// placeholderRef is how a body names an issue that has no number yet. The
-	// braces are what survives GitHub's renderer: a name in angle brackets is
-	// dropped as an unknown tag, leaving a bare # behind.
-	placeholderRef = regexp.MustCompile(`#\{([A-Z_]+)\}`)
 )
 
 // publishSet is a manifest with its files read and its values parsed.
@@ -92,10 +88,24 @@ type publishSet struct {
 	// followed. A row is absent for a key that names an issue this run does
 	// not write, which is the one thing every follower has to handle.
 	byKey map[string]publishRow
+	// bodies is what the pre-flight made of each row's draft and comment,
+	// keyed the same way, and is empty until checkPublishSet answers with it.
+	// A row's text is judged once, before the run's first write, and what the
+	// stages send is the value that judgement produced — there is no second
+	// construction that could reach a different verdict.
+	bodies map[string]rowBodies
 	// file is the manifest itself: named in refusals, and where the record of
 	// what has been written lives.
 	file string
 }
+
+// rowBodies is one row's two bodies. The comment is the zero Body for a row
+// that carries none, which nothing sends.
+type rowBodies struct{ body, comment ghapi.Body }
+
+// body and comment are what a stage writes for a key.
+func (s publishSet) body(key string) ghapi.Body    { return s.bodies[key].body }
+func (s publishSet) comment(key string) ghapi.Body { return s.bodies[key].comment }
 
 // publishRow is one row of the manifest, resolved.
 type publishRow struct {

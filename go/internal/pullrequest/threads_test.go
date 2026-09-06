@@ -284,6 +284,17 @@ func TestReplyRefuses(t *testing.T) {
 			wantErr: []string{"already replied to in an earlier run"},
 		},
 		{
+			// The body rule reaches a reply too, and the refusal lands with
+			// the selector refusals rather than after the first reply of the
+			// run has already been posted.
+			name: "a reply that numbers its items with bare #N",
+			actions: []pullrequest.ThreadAction{
+				{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true},
+				{Path: "src/b.go", Body: new("#1 one\n#2 two\n#3 three\n"), Resolve: true},
+			},
+			wantErr: []string{"src/b.go", "3 distinct bare #N"},
+		},
+		{
 			// A record written before the reply url was kept says only that
 			// something was posted, which is the conservative side.
 			name:    "a record from before the url was written down",

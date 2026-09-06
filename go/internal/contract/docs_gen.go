@@ -163,6 +163,7 @@ var genFields = map[string]string{
 
 // genTypes is every contract type's own doc comment, flattened to one line.
 var genTypes = map[string]string{
+	"github.com/178inaba/dotfiles/go/internal/ghapi.Body":                     "A markdown body GitHub will render, judged fit to send. The zero value is the empty body, which every judgement passes, so nothing is lost by it being constructible: what must not be constructible is a Body holding text nobody judged, and NewBody is the only way to get one.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Client":                   "Client reaches the GitHub REST and GraphQL APIs. A concrete type rather than an interface: the seam callers need is the transport, not a second implementation, and go.dev/wiki/CodeReviewComments asks that the interface be declared by whoever consumes one.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Issue":                    "A GitHub issue: what it says, and which repository it says it in. Here rather than in one of the packages that read issues because two of them do — the sub-issue tree and the pull request context — and a second implementation of the same endpoint is how they come to disagree about what a missing parent means.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.IssueChange":              "What a create or an edit asks for. Every field is a pointer because an edit says what to change and leaves the rest alone: an empty body and no body at all are different requests, and a nil label set is \"do not touch the labels\" where an empty one clears them.",
@@ -170,6 +171,8 @@ var genTypes = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Options":                  "The seams. The zero value is production: go-gh resolves the host and the token the way gh does.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.PullRequest":              "The metadata every command that starts from a pull request reads: the fields the shell asked `gh pr view --json` for, flattened the way the output contracts print them.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Repo":                     "Repo names a GitHub repository. It carries no host. Every command in this tree talks to the single host the Client resolved, and a second copy of that on every value could only ever disagree with it.",
+	"github.com/178inaba/dotfiles/go/internal/ghapi.ReviewComment":            "One remark anchored to a line of the diff.",
+	"github.com/178inaba/dotfiles/go/internal/ghapi.ReviewSubmission":         "A review ready to post.",
 	"github.com/178inaba/dotfiles/go/internal/issue.Found":                    "A section located in a body.",
 	"github.com/178inaba/dotfiles/go/internal/issue.Headings":                 "One section's heading in each locale. A struct rather than a map because the locales are a closed set — the check below needs per-locale script detection, which a table column cannot carry — and because a map would render its keys in sorted order, while the contract is the order they are declared in.",
 	"github.com/178inaba/dotfiles/go/internal/issue.Hierarchy":                "Where one issue sits among its parent, children and blockers. The keys are printed in the order below, which is part of the contract.",
@@ -236,8 +239,7 @@ var genTypes = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Seen":               "The record one pull request's state file holds.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.SeenRecord":         "Where the record went and what it now says.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Stored":             "Where a fetched context and the directory paired with it were written. The document itself never goes to standard output: on a pull request with a busy conversation it runs to hundreds of kilobytes, and the caller reads it with a tool that takes a path.",
-	"github.com/178inaba/dotfiles/go/internal/pullrequest.Submission":         "A review ready to post, with every body already resolved.",
-	"github.com/178inaba/dotfiles/go/internal/pullrequest.SubmissionComment":  "One comment anchored to a line of the diff.",
+	"github.com/178inaba/dotfiles/go/internal/pullrequest.Submission":         "A review ready to post, with every body already resolved and judged. The comments are ghapi's own rather than a shape of this package's that would have to be copied across a field at a time: what a remark anchored to a line of the diff is has one definition, and it is the writer's.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Target":             "The pull request a review is being posted to.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Thread":             "One conversation on the diff.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ThreadAction":       "One entry of ThreadsFile, with its body already read and its selector not yet resolved. What each field means is on ThreadsFileEntry, which is the half the contract publishes; the difference here is that body and body_file have collapsed into the text they named.",

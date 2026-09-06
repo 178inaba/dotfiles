@@ -71,7 +71,7 @@ func (c *Client) Issue(ctx context.Context, repo Repo, number int) (Issue, error
 // nil label set is "do not touch the labels" where an empty one clears them.
 type IssueChange struct {
 	Title     *string
-	Body      *string
+	Body      *Body
 	Labels    *[]string
 	Assignees *[]string
 }
@@ -82,7 +82,7 @@ func (ch IssueChange) request() map[string]any {
 		req["title"] = *ch.Title
 	}
 	if ch.Body != nil {
-		req["body"] = *ch.Body
+		req["body"] = ch.Body.String()
 	}
 	if ch.Labels != nil {
 		req["labels"] = *ch.Labels
@@ -99,7 +99,7 @@ func (ch IssueChange) request() map[string]any {
 // saved it, so what it declined to apply is visible without a second request.
 func (c *Client) CreateIssue(ctx context.Context, repo Repo, ch IssueChange) (Issue, error) {
 	var w issueWire
-	if err := c.Post(ctx, fmt.Sprintf("repos/%s/issues", repo), ch.request(), &w); err != nil {
+	if err := c.post(ctx, fmt.Sprintf("repos/%s/issues", repo), ch.request(), &w); err != nil {
 		return Issue{}, err
 	}
 	return w.issue(), nil
@@ -111,7 +111,7 @@ func (c *Client) CreateIssue(ctx context.Context, repo Repo, ch IssueChange) (Is
 // what the endpoint does; a caller adding one sends the existing ones too.
 func (c *Client) EditIssue(ctx context.Context, repo Repo, number int, ch IssueChange) (Issue, error) {
 	var w issueWire
-	if err := c.Patch(ctx, fmt.Sprintf("repos/%s/issues/%d", repo, number), ch.request(), &w); err != nil {
+	if err := c.patch(ctx, fmt.Sprintf("repos/%s/issues/%d", repo, number), ch.request(), &w); err != nil {
 		return Issue{}, err
 	}
 	return w.issue(), nil
@@ -127,7 +127,7 @@ func (c *Client) EditIssue(ctx context.Context, repo Repo, number int, ch IssueC
 func (c *Client) AddSubIssue(ctx context.Context, repo Repo, parent int, subID int64) (Issue, error) {
 	var w issueWire
 	path := fmt.Sprintf("repos/%s/issues/%d/sub_issues", repo, parent)
-	if err := c.Post(ctx, path, map[string]any{"sub_issue_id": subID}, &w); err != nil {
+	if err := c.post(ctx, path, map[string]any{"sub_issue_id": subID}, &w); err != nil {
 		return Issue{}, err
 	}
 	return w.issue(), nil
@@ -141,17 +141,21 @@ func (c *Client) AddSubIssue(ctx context.Context, repo Repo, parent int, subID i
 func (c *Client) AddBlockedBy(ctx context.Context, repo Repo, blocked int, byID int64) (Issue, error) {
 	var w issueWire
 	path := fmt.Sprintf("repos/%s/issues/%d/dependencies/blocked_by", repo, blocked)
-	if err := c.Post(ctx, path, map[string]any{"issue_id": byID}, &w); err != nil {
+	if err := c.post(ctx, path, map[string]any{"issue_id": byID}, &w); err != nil {
 		return Issue{}, err
 	}
 	return w.issue(), nil
 }
 
 // CreateIssueComment posts a comment on an issue and answers with its url.
-func (c *Client) CreateIssueComment(ctx context.Context, repo Repo, number int, body string) (string, error) {
+//
+// A pull request is an issue here: this is the endpoint a comment on either
+// one goes to, which is why a comment on a pull request comes through here
+// rather than through a writer of its own.
+func (c *Client) CreateIssueComment(ctx context.Context, repo Repo, number int, body Body) (string, error) {
 	var w issueCommentWire
 	path := fmt.Sprintf("repos/%s/issues/%d/comments", repo, number)
-	if err := c.Post(ctx, path, map[string]any{"body": body}, &w); err != nil {
+	if err := c.post(ctx, path, map[string]any{"body": body.String()}, &w); err != nil {
 		return "", err
 	}
 	return w.HTMLURL, nil

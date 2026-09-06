@@ -162,22 +162,18 @@ because reading stdin here would consume what gh is meant to read.`, what, what,
 }
 
 // bareHashRefsMessage is the third rule: numbering an argument list with #N.
-func bareHashRefsMessage(distinct int, source string) string {
+//
+// Everything below the label block is ghmd's, because ccx refuses the same
+// body in the same words; the count is in that shared sentence rather than in
+// a found: line of its own, so that the two refusals cannot come to say it
+// differently.
+func bareHashRefsMessage(refusal, source string) string {
 	return fmt.Sprintf(`Blocked: the body numbers its items with bare #N.
 
-  found:  %d distinct numbers in #1 to #9
   source: %s
 
-GitHub autolinks a bare #number, so using one to number a list of remarks
-(#1, #2, ...) sends a reference notification to unrelated issues and pull
-requests. A notification cannot be taken back.
-
-Fix: if the numbering is the point, write it in a form without # — an
-ordered list (1. 2. ...), say. If an issue or a pull request is really
-being referenced, name it as OWNER/REPO#N:
-  178inaba/dotfiles#3
-That keeps the link and does not trip this guard.
-`, distinct, source)
+%s
+`, source, refusal)
 }
 
 // replyThreadsRecovery is the way through for both of the fifth rule's

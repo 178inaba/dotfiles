@@ -64,10 +64,20 @@ func (a ThreadAction) selector() string {
 	return a.Path + ":" + strconv.Itoa(*a.Line)
 }
 
-// plannedAction is one entry with its thread found.
+// checkedAction is one entry with its reply judged: the body travels on the
+// entry rather than in a slice beside it, so that nothing has to keep two
+// lists in step to know whose reply is whose.
+type checkedAction struct {
+	ThreadAction
+	// reply is nil for an entry that only resolves. Not "body", which the
+	// embedded entry already has as the text it was read from.
+	reply *ghapi.Body
+}
+
+// plannedAction is one entry with its thread found and its reply judged.
 type plannedAction struct {
 	thread  KnownThread
-	body    *string
+	body    *ghapi.Body
 	resolve bool
 }
 
@@ -203,10 +213,11 @@ type ReplyRequest struct {
 // Shared whole by Reply and DryRun, which is what makes "the plan shown is the
 // plan executed" true rather than a claim.
 func plan(ctx context.Context, c *ghapi.Client, req ReplyRequest) ([]plannedAction, error) {
-	if err := checkEntries(req.Actions); err != nil {
+	checked, err := checkEntries(req.Actions)
+	if err != nil {
 		return nil, err
 	}
-	planned, err := resolveSelectors(req.Actions, req.Threads, req.ContextFile)
+	planned, err := resolveSelectors(checked, req.Threads, req.ContextFile)
 	if err != nil {
 		return nil, err
 	}
@@ -220,43 +231,63 @@ func plan(ctx context.Context, c *ghapi.Client, req ReplyRequest) ([]plannedActi
 }
 
 // checkEntries rejects what is wrong with an entry on its own, before any
-// thread is looked up.
-func checkEntries(actions []ThreadAction) error {
-	var blank, noop []string
+// thread is looked up, and answers with the reply each one would post — nil
+// where the entry only resolves.
+//
+// The replies are judged here, with the rest of what one entry can be wrong
+// about, so that a file holding one body GitHub would turn into notifications
+// on unrelated issues is refused before any of its replies has been sent.
+func checkEntries(actions []ThreadAction) ([]checkedAction, error) {
+	checked := make([]checkedAction, 0, len(actions))
+	var blank, noop, refused []string
 	for _, a := range actions {
-		if a.Body != nil && strings.TrimSpace(*a.Body) == "" {
+		entry := checkedAction{ThreadAction: a}
+		switch {
+		case a.Body == nil:
+			if !a.Resolve {
+				noop = append(noop, a.selector())
+			}
+		case strings.TrimSpace(*a.Body) == "":
 			blank = append(blank, a.selector())
+		default:
+			body, err := ghapi.NewBody(*a.Body)
+			if err != nil {
+				refused = append(refused, fmt.Sprintf("%s: %v", a.selector(), err))
+				break
+			}
+			entry.reply = &body
 		}
-		if a.Body == nil && !a.Resolve {
-			noop = append(noop, a.selector())
-		}
+		checked = append(checked, entry)
 	}
 	if len(blank) > 0 {
-		return fmt.Errorf("reply body is present but blank for thread(s): %s (omit body entirely to resolve without replying)",
+		return nil, fmt.Errorf("reply body is present but blank for thread(s): %s (omit body entirely to resolve without replying)",
 			strings.Join(blank, ", "))
 	}
 	if len(noop) > 0 {
-		return fmt.Errorf("thread(s) with neither a reply body nor resolve: true do nothing: %s", strings.Join(noop, ", "))
+		return nil, fmt.Errorf("thread(s) with neither a reply body nor resolve: true do nothing: %s", strings.Join(noop, ", "))
 	}
-	return nil
+	if len(refused) > 0 {
+		return nil, fmt.Errorf("reply body refused for thread(s):\n%s", strings.Join(refused, "\n"))
+	}
+	return checked, nil
 }
 
 // resolveSelectors turns each entry's path, line and id into the one thread it
 // names, or refuses with the threads it could have meant.
-func resolveSelectors(actions []ThreadAction, threads []KnownThread, contextFile string) ([]plannedAction, error) {
+func resolveSelectors(actions []checkedAction, threads []KnownThread, contextFile string) ([]plannedAction, error) {
 	out := make([]plannedAction, 0, len(actions))
 	for _, a := range actions {
-		candidates := matching(threads, a)
+		candidates := matching(threads, a.ThreadAction)
 		if a.ID != nil {
 			candidates = slices.DeleteFunc(candidates, func(t KnownThread) bool { return t.ID != *a.ID })
 			if len(candidates) == 0 {
-				return nil, wrongID(*a.ID, a, threads, contextFile)
+				return nil, wrongID(*a.ID, a.ThreadAction, threads, contextFile)
 			}
 		}
 
 		switch len(candidates) {
 		case 1:
-			out = append(out, plannedAction{thread: candidates[0], body: a.Body, resolve: a.Resolve})
+			out = append(out, plannedAction{thread: candidates[0], body: a.reply, resolve: a.Resolve})
 		case 0:
 			return nil, fmt.Errorf("no thread we may act on matches %s\n%s", a.selector(), atPath(threads, a.Path))
 		default:
@@ -454,20 +485,6 @@ func checkLive(ctx context.Context, c *ghapi.Client, planned []plannedAction, co
 // dir, so the record is bound to it too.
 func PostedLog(threadsFile string) string { return threadsFile + ".posted" }
 
-const replyMutation = `
-mutation($threadId: ID!, $body: String!) {
-  addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
-    comment { url }
-  }
-}`
-
-const resolveMutation = `
-mutation($threadId: ID!) {
-  resolveReviewThread(input: {threadId: $threadId}) {
-    thread { isResolved }
-  }
-}`
-
 // AbortedReply is a run that stopped partway through replying.
 //
 // It carries what was posted and what was not, because the way out is to run
@@ -515,21 +532,13 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 	for _, p := range planned {
 		id := p.thread.ID
 		if p.body != nil {
-			var reply struct {
-				AddPullRequestReviewThreadReply struct {
-					Comment struct {
-						URL string `json:"url"`
-					} `json:"comment"`
-				} `json:"addPullRequestReviewThreadReply"`
-			}
-			vars := map[string]any{"threadId": id, "body": *p.body}
-			if err := c.GraphQL(ctx, replyMutation, vars, &reply); err != nil {
+			url, err := c.ReplyToReviewThread(ctx, id, *p.body)
+			if err != nil {
 				return ThreadReplies{}, abort(p.thread, err.Error(), log, planned)
 			}
 			// Recorded before anything else can fail, so that a run which
 			// stops after this still refuses to resend it. A missing url is
 			// recorded as one, which is the unconditional refusal.
-			url := reply.AddPullRequestReviewThreadReply.Comment.URL
 			if err := record(log, id, url); err != nil {
 				return ThreadReplies{}, err
 			}
@@ -538,19 +547,12 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 			}
 			out.Replied = append(out.Replied, RepliedThread{
 				ID: id, Path: p.thread.Path, Line: p.thread.Line, OriginalLine: p.thread.OriginalLine,
-				URL: reply.AddPullRequestReviewThreadReply.Comment.URL,
+				URL: url,
 			})
 		}
 
 		if p.resolve {
-			var resolved struct {
-				ResolveReviewThread struct {
-					Thread struct {
-						IsResolved bool `json:"isResolved"`
-					} `json:"thread"`
-				} `json:"resolveReviewThread"`
-			}
-			if err := c.GraphQL(ctx, resolveMutation, map[string]any{"threadId": id}, &resolved); err != nil {
+			if err := c.ResolveReviewThread(ctx, id); err != nil {
 				out.ResolveFailed = append(out.ResolveFailed, FailedResolve{ID: id, Error: err.Error()})
 				continue
 			}

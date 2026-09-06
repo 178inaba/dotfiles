@@ -293,6 +293,12 @@ line that has moved into a refusal here rather than a 422 from GitHub. The
 review file has to sit in the work directory paired with the context file,
 which is what keeps parallel reviews of different pull requests apart.
 
+Every body the review would send — its own and each comment's — is judged
+before the first request, and one that numbers its items with bare #N refuses
+the whole review with nothing posted: GitHub autolinks such a run and notifies
+unrelated issues. Number the items with an ordered list, or write a real
+reference as OWNER/REPO#N.
+
 On a refusal the offending entries are listed on standard error. Put the line
 numbers right and run it again; a remark whose line cannot be found belongs in
 the body rather than dropped.`,
@@ -323,6 +329,10 @@ as ` + "`ccx pr reply-threads`" + ` takes one: prose written as a shell argument
 its meaning to one missed escape, and a path would reach round the directory
 binding that keeps parallel runs on different pull requests apart.
 
+The body is judged before anything is sent, as a review's is: one that numbers
+its items with bare #N is refused, because GitHub autolinks such a run and
+notifies unrelated issues.
+
 The local HEAD is confirmed to be the pull request's head first, as posting a
 review does. A report written against a checkout that has since moved is about
 code the pull request no longer holds, and nothing undoes it once published.`,
@@ -341,6 +351,10 @@ an id that belongs elsewhere stops the run before a single reply is posted,
 naming the threads it could have meant. Resolving a thread the context did not
 mark ` + "`resolvable_by_me`" + ` is refused too: a person's remark is closed by that
 person.
+
+Every reply is judged before the first one is posted, as a review's bodies
+are: one that numbers its items with bare #N refuses the whole run, because
+GitHub autolinks such a run and notifies unrelated issues.
 
 The local HEAD is confirmed to be the pull request's head, and then every
 target thread is re-read live: one that has been resolved or answered since the

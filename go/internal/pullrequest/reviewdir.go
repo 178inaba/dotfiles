@@ -174,6 +174,17 @@ func (c Context) Target() Target {
 	return Target{Repo: c.Repo, Number: c.PR.Number, BaseRef: c.PR.BaseRef, HeadOID: c.PR.HeadOID}
 }
 
+// repository is what the target names, in the shape the API writers address it
+// by. The context is a document, so owner/name is what it holds rather than
+// something already parsed.
+func (t Target) repository() (ghapi.Repo, error) {
+	repo, err := ghapi.ParseRepo(t.Repo)
+	if err != nil {
+		return ghapi.Repo{}, fmt.Errorf("the pull request context names %q as its repository: %v", t.Repo, err)
+	}
+	return repo, nil
+}
+
 // RequireHead checks that the checkout has not moved since the review was
 // prepared.
 //

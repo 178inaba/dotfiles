@@ -122,17 +122,23 @@ func (c *Client) GetCached(ctx context.Context, path string, ttl time.Duration, 
 	return c.cached.DoWithContext(ctx, http.MethodGet, path, nil, out)
 }
 
-// Post sends body as JSON to a REST path and decodes the response into out.
-func (c *Client) Post(ctx context.Context, path string, body, out any) error {
+// post sends body as JSON to a REST path and decodes the response into out.
+//
+// Package-private, along with patch, so that every request carrying a body
+// GitHub renders goes out through a writer of this package that takes a Body:
+// a caller reaching past them could send text nobody judged, which is the one
+// bypass the type exists to remove. Get stays exported because a read has
+// nothing to judge; what holds for GraphQL is on GraphQL.
+func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	return c.send(ctx, http.MethodPost, path, body, out)
 }
 
-// Patch sends body as JSON to a REST path and decodes the response into out.
+// patch sends body as JSON to a REST path and decodes the response into out.
 //
 // A method of its own rather than one that takes the verb, because go-gh
 // itself names them — Delete, Get, Patch, Post and Put sit above the DoWithContext
 // that takes a method — and a caller reads better for it.
-func (c *Client) Patch(ctx context.Context, path string, body, out any) error {
+func (c *Client) patch(ctx context.Context, path string, body, out any) error {
 	return c.send(ctx, http.MethodPatch, path, body, out)
 }
 
@@ -145,6 +151,13 @@ func (c *Client) send(ctx context.Context, method, path string, body, out any) e
 }
 
 // GraphQL runs one query or mutation and decodes the response into out.
+//
+// Exported, unlike post and patch, because the reads that need it are many and
+// have nothing to judge. The mutations are the ones to be careful with, and
+// they are all written in this package — see review.go — so that a mutation
+// carrying a body has to go past the Body type rather than round it. A caller
+// writing one out here would be the bypass the type exists to remove, and the
+// compiler cannot say so: this is what review looks for.
 func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any, out any) error {
 	return c.gql.DoWithContext(ctx, query, vars, out)
 }

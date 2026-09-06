@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
-	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
 // The order of the stages is forced by the bodies rather than chosen. A parent
@@ -95,7 +94,7 @@ func (r *publishRun) create(ctx context.Context) error {
 		}
 		// Whatever is numbered by now, which is the references back to issues
 		// created earlier in this same run.
-		body, left := r.plan.substitute(row.body)
+		body, left := r.plan.substitute(r.plan.set.body(row.key))
 
 		assignees := []string{r.plan.viewer}
 		got, err := r.client.CreateIssue(ctx, r.plan.set.repo, ghapi.IssueChange{
@@ -186,7 +185,7 @@ func (r *publishRun) patch(ctx context.Context, row publishRow) error {
 	// From the draft rather than from what the create sent: substitution only
 	// ever fills a placeholder in, so starting over reaches the same text, and
 	// a resumed run has nothing else to start from anyway.
-	body, left := r.plan.substitute(row.body)
+	body, left := r.plan.substitute(r.plan.set.body(row.key))
 	if err := r.unfilled(row.draft, left); err != nil {
 		return err
 	}
@@ -221,7 +220,7 @@ func (r *publishRun) comment(ctx context.Context, row publishRow) error {
 	if !r.plan.needsComment(row) {
 		return nil
 	}
-	body, left := r.plan.substitute(row.comment)
+	body, left := r.plan.substitute(r.plan.set.comment(row.key))
 	if err := r.unfilled(row.commentFile, left); err != nil {
 		return err
 	}
@@ -393,34 +392,31 @@ func plural(n int, word string) string {
 // It returns the names it could not replace, so that a caller can tell "not
 // yet" from "never": one before every issue exists is a forward reference, and
 // one after is a body that would go out broken.
-func (p publishPlan) substitute(body string) (string, []PlannedSubstitution) {
-	var b strings.Builder
-	var left []PlannedSubstitution
-	at := 0
-	for s := range ghmd.Segments(body) {
-		if s.Kind != ghmd.Prose {
-			continue
+func (p publishPlan) substitute(body ghapi.Body) (ghapi.Body, []PlannedSubstitution) {
+	out, left := body.Substitute(p.numbers())
+	return out, planned(left)
+}
+
+// numbers is every key this run can put a number in place of, right now.
+//
+// Built at each call rather than once, because the create stage numbers the
+// rows as it goes: what a body created halfway through the run may refer to is
+// what exists by then. A key with no number yet is left out, which is what
+// makes it one ghmd reports back as unfilled.
+func (p publishPlan) numbers() map[string]int {
+	out := make(map[string]int, len(p.set.byKey))
+	for key, row := range p.set.byKey {
+		// The row already knows whether its key was a number, so this asks it
+		// rather than putting numberOf's regexp in the loop.
+		n := row.number
+		if n == 0 {
+			n = p.record.numbered[key].number
 		}
-		text := body[s.Start:s.End]
-		for _, m := range placeholderRef.FindAllStringSubmatchIndex(text, -1) {
-			name := text[m[2]:m[3]]
-			number := p.numberOf(name)
-			if number == 0 {
-				left = append(left, PlannedSubstitution{Line: s.Line, Name: name})
-				continue
-			}
-			b.WriteString(body[at : s.Start+m[0]])
-			fmt.Fprintf(&b, "#%d", number)
-			at = s.Start + m[1]
+		if n != 0 {
+			out[key] = n
 		}
 	}
-	if at == 0 {
-		// Nothing was replaced, so the body is already what it should be and
-		// copying it through the builder would say the same thing.
-		return body, left
-	}
-	b.WriteString(body[at:])
-	return b.String(), left
+	return out
 }
 
 // append writes one completed step, before the run moves on to the next.
