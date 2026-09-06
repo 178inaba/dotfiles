@@ -205,6 +205,24 @@ func TestSegments(t *testing.T) {
 			},
 		},
 		{
+			// The other half of the rule above, and CommonMark's example 146:
+			// only a backtick fence's info string is restricted, so refusing a
+			// backtick in a tilde one would open no block here at all.
+			name: "a tilde fence's info string may hold a backtick",
+			body: "~~~ aa ``` ~~~\nx\n~~~\n",
+			want: []text{{Kind: ghmd.Fence, Line: 2, Text: "x\n"}},
+		},
+		{
+			// A closing fence carries no info string, but trailing whitespace
+			// is not one: the line still closes the block.
+			name: "whitespace after a closing run still closes the block",
+			body: "```\nx\n```   \ny\n",
+			want: []text{
+				{Kind: ghmd.Fence, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Prose, Line: 4, Text: "y\n"},
+			},
+		},
+		{
 			name: "a longer closing run still closes the block",
 			body: "````\nx\n`````\n",
 			want: []text{{Kind: ghmd.Fence, Line: 2, Text: "x\n"}},

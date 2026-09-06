@@ -126,7 +126,7 @@ type fence struct {
 //
 // A backtick fence is refused where the rest of the line holds a backtick,
 // which is CommonMark's rule that a backtick fence's info string may not
-// contain one — its example 145 is the line ``` ``` aa ``` ```, read as a code
+// contain one — its example 145 is the line "``` aa ```", read as a code
 // span and not as a block. A tilde fence's info string may hold either
 // character, so the rule is the backtick's alone.
 func opensFence(text string) (fence, bool) {
