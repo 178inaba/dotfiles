@@ -21,7 +21,7 @@ import (
 func newPRCmd(build selfbuild.State) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
 	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build),
-		prReplyThreadsCmd(build), prSeenCmd(build), prCommentCmd(build))
+		prReplyThreadsCmd(build), prSeenCmd(build), prCommentCmd(build), prBodyAppendCmd(build))
 	return c
 }
 
@@ -442,6 +442,61 @@ func prCommentCmd(build selfbuild.State) *cobra.Command {
 	// Discarded as the other required flags in this package are: the only way
 	// these fail is on a flag this function did not declare.
 	_ = cmd.MarkFlagRequired("mark")
+	_ = cmd.MarkFlagRequired("body-file")
+	return cmd
+}
+
+// prBodyAppendCmd builds `ccx pr body-append`, the write-down a skill makes
+// when a decision nothing records has to be recorded before it can be cited.
+//
+// The body file holds the new section alone. What it is appended to is read
+// from GitHub at the moment of the write, so a document fetched an hour ago
+// cannot undo an edit made since — and a file holding only the section cannot
+// wipe the rest of the body, which is what made the `gh pr edit` this replaces
+// a footgun.
+func prBodyAppendCmd(build selfbuild.State) *cobra.Command {
+	var bodyFile string
+	cmd := &cobra.Command{
+		Use:   "body-append <pr-context.json> --body-file <name>",
+		Short: "Append one section to the pull request's body",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			contextFile := args[0]
+			content, err := readFile(contextFile, "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			prContext, err := pullrequest.ParseContext([]byte(content), contextFile)
+			if err != nil {
+				return silent(err)
+			}
+			target := prContext.Target()
+			// Before the body is looked for, as the mark is for `ccx pr
+			// comment`: a run on somebody else's pull request would otherwise
+			// be told about a missing file, which is not its fault.
+			if err := target.RequireOwn(); err != nil {
+				return silent(err)
+			}
+			section, err := pullrequest.ParseCommentBody(pullrequest.WorkDir(contextFile), bodyFile)
+			if err != nil {
+				return silent(err)
+			}
+
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			appended, err := pullrequest.AppendBody(c.Context(), client, target, section)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), appended))
+		},
+	}
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "the name of a markdown file in the work dir holding the section")
+	// Discarded as the other required flags in this package are: the only way
+	// this fails is on a flag this function did not declare.
 	_ = cmd.MarkFlagRequired("body-file")
 	return cmd
 }

@@ -199,17 +199,25 @@ func RequireInWorkDir(file, field, contextFile string) error {
 	return nil
 }
 
-// Target is the pull request a review is being posted to.
+// Target is the pull request a run is writing to.
 type Target struct {
 	Repo    string
 	Number  int
 	BaseRef string
 	HeadOID string
+	// IsOwnPR is whether the pull request is the current user's, which is what
+	// decides whether its body may be edited at all. A field of the target
+	// rather than an argument beside it, so that a writer added later cannot
+	// be called without it.
+	IsOwnPR bool
 }
 
-// Target is what posting needs out of a pull request context.
+// Target is what writing needs out of a pull request context.
 func (c Context) Target() Target {
-	return Target{Repo: c.Repo, Number: c.PR.Number, BaseRef: c.PR.BaseRef, HeadOID: c.PR.HeadOID}
+	return Target{
+		Repo: c.Repo, Number: c.PR.Number, BaseRef: c.PR.BaseRef,
+		HeadOID: c.PR.HeadOID, IsOwnPR: c.IsOwnPR,
+	}
 }
 
 // repository is what the target names, in the shape the API writers address it
@@ -221,6 +229,21 @@ func (t Target) repository() (ghapi.Repo, error) {
 		return ghapi.Repo{}, fmt.Errorf("the pull request context names %q as its repository: %v", t.Repo, err)
 	}
 	return repo, nil
+}
+
+// RequireOwn checks that the pull request is one whose own text we may edit.
+//
+// A method rather than a check each caller writes, so that the wording and the
+// verdict stay one thing: a command refuses early, before it goes looking for
+// a body file, and the writer refuses again for a caller that came another
+// way.
+func (t Target) RequireOwn() error {
+	if t.IsOwnPR {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s#%d is not ours, so its body is not edited: leave a code comment instead, or escalate the decision",
+		t.Repo, t.Number)
 }
 
 // RequireHead checks that the checkout is still the exact state the document
