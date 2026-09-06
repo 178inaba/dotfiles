@@ -64,6 +64,15 @@ func (a ThreadAction) selector() string {
 	return a.Path + ":" + strconv.Itoa(*a.Line)
 }
 
+// checkedAction is one entry with its reply judged: the body travels on the
+// entry rather than in a slice beside it, so that nothing has to keep two
+// lists in step to know whose reply is whose.
+type checkedAction struct {
+	ThreadAction
+	// body is nil for an entry that only resolves.
+	body *ghapi.Body
+}
+
 // plannedAction is one entry with its thread found and its reply judged.
 type plannedAction struct {
 	thread  KnownThread
@@ -203,11 +212,11 @@ type ReplyRequest struct {
 // Shared whole by Reply and DryRun, which is what makes "the plan shown is the
 // plan executed" true rather than a claim.
 func plan(ctx context.Context, c *ghapi.Client, req ReplyRequest) ([]plannedAction, error) {
-	bodies, err := checkEntries(req.Actions)
+	checked, err := checkEntries(req.Actions)
 	if err != nil {
 		return nil, err
 	}
-	planned, err := resolveSelectors(req.Actions, bodies, req.Threads, req.ContextFile)
+	planned, err := resolveSelectors(checked, req.Threads, req.ContextFile)
 	if err != nil {
 		return nil, err
 	}
@@ -227,10 +236,11 @@ func plan(ctx context.Context, c *ghapi.Client, req ReplyRequest) ([]plannedActi
 // The replies are judged here, with the rest of what one entry can be wrong
 // about, so that a file holding one body GitHub would turn into notifications
 // on unrelated issues is refused before any of its replies has been sent.
-func checkEntries(actions []ThreadAction) ([]*ghapi.Body, error) {
-	bodies := make([]*ghapi.Body, len(actions))
+func checkEntries(actions []ThreadAction) ([]checkedAction, error) {
+	checked := make([]checkedAction, 0, len(actions))
 	var blank, noop, refused []string
-	for i, a := range actions {
+	for _, a := range actions {
+		entry := checkedAction{ThreadAction: a}
 		switch {
 		case a.Body == nil:
 			if !a.Resolve {
@@ -242,10 +252,11 @@ func checkEntries(actions []ThreadAction) ([]*ghapi.Body, error) {
 			body, err := ghapi.NewBody(*a.Body)
 			if err != nil {
 				refused = append(refused, fmt.Sprintf("%s: %v", a.selector(), err))
-				continue
+				break
 			}
-			bodies[i] = &body
+			entry.body = &body
 		}
+		checked = append(checked, entry)
 	}
 	if len(blank) > 0 {
 		return nil, fmt.Errorf("reply body is present but blank for thread(s): %s (omit body entirely to resolve without replying)",
@@ -257,25 +268,25 @@ func checkEntries(actions []ThreadAction) ([]*ghapi.Body, error) {
 	if len(refused) > 0 {
 		return nil, fmt.Errorf("reply body refused for thread(s):\n%s", strings.Join(refused, "\n"))
 	}
-	return bodies, nil
+	return checked, nil
 }
 
 // resolveSelectors turns each entry's path, line and id into the one thread it
 // names, or refuses with the threads it could have meant.
-func resolveSelectors(actions []ThreadAction, bodies []*ghapi.Body, threads []KnownThread, contextFile string) ([]plannedAction, error) {
+func resolveSelectors(actions []checkedAction, threads []KnownThread, contextFile string) ([]plannedAction, error) {
 	out := make([]plannedAction, 0, len(actions))
-	for i, a := range actions {
-		candidates := matching(threads, a)
+	for _, a := range actions {
+		candidates := matching(threads, a.ThreadAction)
 		if a.ID != nil {
 			candidates = slices.DeleteFunc(candidates, func(t KnownThread) bool { return t.ID != *a.ID })
 			if len(candidates) == 0 {
-				return nil, wrongID(*a.ID, a, threads, contextFile)
+				return nil, wrongID(*a.ID, a.ThreadAction, threads, contextFile)
 			}
 		}
 
 		switch len(candidates) {
 		case 1:
-			out = append(out, plannedAction{thread: candidates[0], body: bodies[i], resolve: a.Resolve})
+			out = append(out, plannedAction{thread: candidates[0], body: a.body, resolve: a.Resolve})
 		case 0:
 			return nil, fmt.Errorf("no thread we may act on matches %s\n%s", a.selector(), atPath(threads, a.Path))
 		default:
@@ -473,15 +484,6 @@ func checkLive(ctx context.Context, c *ghapi.Client, planned []plannedAction, co
 // dir, so the record is bound to it too.
 func PostedLog(threadsFile string) string { return threadsFile + ".posted" }
 
-// The reply's mutation is ghapi's, because it carries a body; this one carries
-// none, and stays where the thread it settles is reasoned about.
-const resolveMutation = `
-mutation($threadId: ID!) {
-  resolveReviewThread(input: {threadId: $threadId}) {
-    thread { isResolved }
-  }
-}`
-
 // AbortedReply is a run that stopped partway through replying.
 //
 // It carries what was posted and what was not, because the way out is to run
@@ -549,14 +551,7 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 		}
 
 		if p.resolve {
-			var resolved struct {
-				ResolveReviewThread struct {
-					Thread struct {
-						IsResolved bool `json:"isResolved"`
-					} `json:"thread"`
-				} `json:"resolveReviewThread"`
-			}
-			if err := c.GraphQL(ctx, resolveMutation, map[string]any{"threadId": id}, &resolved); err != nil {
+			if err := c.ResolveReviewThread(ctx, id); err != nil {
 				out.ResolveFailed = append(out.ResolveFailed, FailedResolve{ID: id, Error: err.Error()})
 				continue
 			}

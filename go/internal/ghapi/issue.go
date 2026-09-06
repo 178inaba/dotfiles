@@ -82,9 +82,6 @@ func (ch IssueChange) request() map[string]any {
 		req["title"] = *ch.Title
 	}
 	if ch.Body != nil {
-		// The text rather than the Body: an unexported field encodes as
-		// nothing at all, and a body silently dropped on the way to GitHub is
-		// worse than one refused.
 		req["body"] = ch.Body.String()
 	}
 	if ch.Labels != nil {

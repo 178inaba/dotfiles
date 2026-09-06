@@ -405,8 +405,14 @@ func (p publishPlan) substitute(body ghapi.Body) (ghapi.Body, []PlannedSubstitut
 // makes it one ghmd reports back as unfilled.
 func (p publishPlan) numbers() map[string]int {
 	out := make(map[string]int, len(p.set.byKey))
-	for key := range p.set.byKey {
-		if n := p.numberOf(key); n != 0 {
+	for key, row := range p.set.byKey {
+		// The row already knows whether its key was a number, so this asks it
+		// rather than putting numberOf's regexp in the loop.
+		n := row.number
+		if n == 0 {
+			n = p.record.numbered[key].number
+		}
+		if n != 0 {
 			out[key] = n
 		}
 	}

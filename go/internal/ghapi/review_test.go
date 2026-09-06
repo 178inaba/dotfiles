@@ -3,7 +3,6 @@ package ghapi_test
 import (
 	"encoding/json/v2"
 	"fmt"
-	"io"
 	"net/http"
 	"testing"
 
@@ -31,21 +30,16 @@ func TestSubmitReview(t *testing.T) {
 	}
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath, gotMethod = r.URL.Path, r.Method
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("read the request body: %v", err)
-			return
-		}
-		if err := json.Unmarshal(b, &sent); err != nil {
-			t.Errorf("decode the request body %s: %v", b, err)
+		if err := json.UnmarshalRead(r.Body, &sent); err != nil {
+			t.Errorf("decode the request body: %v", err)
 			return
 		}
 		fmt.Fprint(w, `{"html_url":"https://github.com/o/r/pull/7#pullrequestreview-1"}`)
 	}))
 
 	url, err := c.SubmitReview(t.Context(), reviewRepo, 7, ghapi.ReviewSubmission{
-		CommitID: "abc123", Event: "COMMENT", Body: mustBody(t, "the review\n"),
-		Comments: []ghapi.ReviewComment{{Path: "a.go", Line: 3, Body: mustBody(t, "a remark\n")}},
+		CommitID: "abc123", Event: "COMMENT", Body: ghapitest.Body(t, "the review\n"),
+		Comments: []ghapi.ReviewComment{{Path: "a.go", Line: 3, Body: ghapitest.Body(t, "a remark\n")}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitReview: %v", err)
@@ -86,20 +80,15 @@ func TestSubmitReviewWithNoComments(t *testing.T) {
 		Comments []struct{} `json:"comments"`
 	}
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("read the request body: %v", err)
-			return
-		}
-		if err := json.Unmarshal(b, &sent); err != nil {
-			t.Errorf("decode the request body %s: %v", b, err)
+		if err := json.UnmarshalRead(r.Body, &sent); err != nil {
+			t.Errorf("decode the request body: %v", err)
 			return
 		}
 		fmt.Fprint(w, `{"html_url":"https://example.com/r"}`)
 	}))
 
 	if _, err := c.SubmitReview(t.Context(), reviewRepo, 7, ghapi.ReviewSubmission{
-		CommitID: "abc123", Event: "APPROVE", Body: mustBody(t, "looks good\n"),
+		CommitID: "abc123", Event: "APPROVE", Body: ghapitest.Body(t, "looks good\n"),
 	}); err != nil {
 		t.Fatalf("SubmitReview: %v", err)
 	}
@@ -119,20 +108,15 @@ func TestReplyToReviewThread(t *testing.T) {
 		Query string `json:"query"`
 	}
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("read the request body: %v", err)
-			return
-		}
-		if err := json.Unmarshal(b, &sent); err != nil {
-			t.Errorf("decode the request body %s: %v", b, err)
+		if err := json.UnmarshalRead(r.Body, &sent); err != nil {
+			t.Errorf("decode the request body: %v", err)
 			return
 		}
 		fmt.Fprint(w, `{"data":{"addPullRequestReviewThreadReply":
 			{"comment":{"url":"https://github.com/o/r/pull/7#discussion_r1"}}}}`)
 	}))
 
-	url, err := c.ReplyToReviewThread(t.Context(), "PRRT_1", mustBody(t, "answered\n"))
+	url, err := c.ReplyToReviewThread(t.Context(), "PRRT_1", ghapitest.Body(t, "answered\n"))
 	if err != nil {
 		t.Fatalf("ReplyToReviewThread: %v", err)
 	}

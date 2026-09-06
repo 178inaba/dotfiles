@@ -10,18 +10,6 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
-// mustBody is a body a test knows GitHub will take, so that a case about
-// something else does not have to answer for the constructor.
-func mustBody(t *testing.T, text string) ghapi.Body {
-	t.Helper()
-
-	body, err := ghapi.NewBody(text)
-	if err != nil {
-		t.Fatalf("NewBody(%q): %v", text, err)
-	}
-	return body
-}
-
 func TestNewBody(t *testing.T) {
 	t.Parallel()
 
@@ -45,7 +33,8 @@ func TestNewBody(t *testing.T) {
 			case tt.refused && err == nil:
 				t.Fatalf("NewBody(%q) = %q, want a refusal", tt.text, body)
 			case tt.refused:
-				if want := ghmd.BareHashRefsRefusal(3); err.Error() != want {
+				// The gh shim's words for the same body, from the same place.
+				if want := ghmd.RefuseBareHashRefs(tt.text); err.Error() != want {
 					t.Errorf("NewBody(%q) error = %q, want %q", tt.text, err, want)
 				}
 			case err != nil:

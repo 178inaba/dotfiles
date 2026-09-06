@@ -30,13 +30,17 @@ type Body struct{ text string }
 // shim uses for the same body; where the text came from is the caller's to
 // add, since only the caller knows whether it is a file, a field or a flag.
 func NewBody(text string) (Body, error) {
-	if distinct := ghmd.BareHashRefs(text); distinct >= ghmd.BareHashRefLimit {
-		return Body{}, errors.New(ghmd.BareHashRefsRefusal(distinct))
+	if refusal := ghmd.RefuseBareHashRefs(text); refusal != "" {
+		return Body{}, errors.New(refusal)
 	}
 	return Body{text: text}, nil
 }
 
 // String is the text to send.
+//
+// Every payload in this package is built from this rather than from the Body
+// itself: an unexported field encodes as nothing at all, and a body silently
+// dropped on the way to GitHub is worse than one refused.
 func (b Body) String() string { return b.text }
 
 // Substitute fills in the #{NAME} placeholders numbers has a number for, and

@@ -157,8 +157,8 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 		return nil
 	}
 
-	if distinct := ghmd.BareHashRefs(body); distinct >= ghmd.BareHashRefLimit {
-		return &Block{Message: bareHashRefsMessage(distinct, source)}
+	if refusal := ghmd.RefuseBareHashRefs(body); refusal != "" {
+		return &Block{Message: bareHashRefsMessage(refusal, source)}
 	}
 	if c.noun == "pr" && (c.verb == "create" || c.verb == "edit") && hasQuotedClosingKeyword(body) {
 		return &Block{Message: quotedClosingKeywordMessage(source)}

@@ -28,17 +28,13 @@ type Placeholder struct {
 
 // Placeholders finds the placeholders in a body, outside the code it may quote
 // them in.
+//
+// A substitution with nothing to substitute, because the two readings must not
+// be able to disagree: what this reports is exactly what Substitute would leave
+// behind, which is what a caller comparing the two is entitled to assume.
 func Placeholders(body string) []Placeholder {
-	var out []Placeholder
-	for s := range Segments(body) {
-		if s.Kind != Prose {
-			continue
-		}
-		for _, m := range placeholderRef.FindAllStringSubmatch(body[s.Start:s.End], -1) {
-			out = append(out, Placeholder{Name: m[1], Line: s.Line})
-		}
-	}
-	return out
+	_, found := Substitute(body, nil)
+	return found
 }
 
 // Substitute replaces the placeholders numbers has a number for, leaving the

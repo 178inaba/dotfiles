@@ -19,22 +19,6 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// mustBody is a body a case knows GitHub will take, so that a case about
-// something else does not have to answer for the constructor.
-func mustBody(t *testing.T, text string) ghapi.Body {
-	t.Helper()
-
-	body, err := ghapi.NewBody(text)
-	if err != nil {
-		t.Fatalf("ghapi.NewBody(%q): %v", text, err)
-	}
-	return body
-}
-
-// bodies lets go-cmp read a Body, whose field is unexported so that nothing
-// outside ghapi can make one holding text nobody judged.
-var bodies = cmp.AllowUnexported(ghapi.Body{})
-
 func TestParseSubmission(t *testing.T) {
 	t.Parallel()
 
@@ -53,8 +37,8 @@ func TestParseSubmission(t *testing.T) {
 			name: "inline bodies",
 			in:   `{"assessment":"Approve可能","body":"looks good","comments":[{"path":"a.go","line":3,"body":"here"}]}`,
 			want: pullrequest.Submission{
-				Assessment: pullrequest.AssessmentApprove, Body: mustBody(t, "looks good"),
-				Comments: []pullrequest.SubmissionComment{{Path: "a.go", Line: 3, Body: mustBody(t, "here")}},
+				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "looks good"),
+				Comments: []ghapi.ReviewComment{{Path: "a.go", Line: 3, Body: ghapitest.Body(t, "here")}},
 			},
 		},
 		{
@@ -63,8 +47,8 @@ func TestParseSubmission(t *testing.T) {
 			name: "a named body",
 			in:   `{"assessment":"要議論","body_file":"body.md","comments":[]}`,
 			want: pullrequest.Submission{
-				Assessment: pullrequest.AssessmentDiscuss, Body: mustBody(t, "# From a file\n"),
-				Comments: []pullrequest.SubmissionComment{},
+				Assessment: pullrequest.AssessmentDiscuss, Body: ghapitest.Body(t, "# From a file\n"),
+				Comments: []ghapi.ReviewComment{},
 			},
 		},
 		{name: "no assessment", in: `{"body":"x","comments":[]}`, wantErr: "review.json is missing assessment"},
@@ -102,8 +86,8 @@ func TestParseSubmission(t *testing.T) {
 			name: "a zero line and an empty path",
 			in:   `{"assessment":"要議論","body":"x","comments":[{"path":"","line":0,"body":"y"}]}`,
 			want: pullrequest.Submission{
-				Assessment: pullrequest.AssessmentDiscuss, Body: mustBody(t, "x"),
-				Comments: []pullrequest.SubmissionComment{{Path: "", Line: 0, Body: mustBody(t, "y")}},
+				Assessment: pullrequest.AssessmentDiscuss, Body: ghapitest.Body(t, "x"),
+				Comments: []ghapi.ReviewComment{{Path: "", Line: 0, Body: ghapitest.Body(t, "y")}},
 			},
 		},
 		{
@@ -112,7 +96,7 @@ func TestParseSubmission(t *testing.T) {
 			name: "an empty assessment",
 			in:   `{"assessment":"","body":"x","comments":[]}`,
 			want: pullrequest.Submission{
-				Assessment: "", Body: mustBody(t, "x"), Comments: []pullrequest.SubmissionComment{},
+				Assessment: "", Body: ghapitest.Body(t, "x"), Comments: []ghapi.ReviewComment{},
 			},
 		},
 		{
@@ -121,8 +105,8 @@ func TestParseSubmission(t *testing.T) {
 			name: "a null body beside a named one",
 			in:   `{"assessment":"要議論","body":null,"body_file":"body.md","comments":[]}`,
 			want: pullrequest.Submission{
-				Assessment: pullrequest.AssessmentDiscuss, Body: mustBody(t, "# From a file\n"),
-				Comments: []pullrequest.SubmissionComment{},
+				Assessment: pullrequest.AssessmentDiscuss, Body: ghapitest.Body(t, "# From a file\n"),
+				Comments: []ghapi.ReviewComment{},
 			},
 		},
 		{name: "an assessment that is not a string", in: `{"assessment":5,"body":"x","comments":[]}`, wantErr: "assessment must be a string in review.json"},
@@ -148,7 +132,7 @@ func TestParseSubmission(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseSubmission: %v", err)
 			}
-			if diff := cmp.Diff(tc.want, got, bodies); diff != "" {
+			if diff := cmp.Diff(tc.want, got, ghapitest.CmpBody); diff != "" {
 				t.Errorf("ParseSubmission (-want +got):\n%s", diff)
 			}
 		})
@@ -232,8 +216,8 @@ func TestPostKeepsTheAPIsRefusal(t *testing.T) {
 
 	sub := pullrequest.Submission{
 		Assessment: pullrequest.AssessmentChanges,
-		Body:       mustBody(t, "needs work"),
-		Comments:   []pullrequest.SubmissionComment{{Path: "file.txt", Line: 4, Body: mustBody(t, "this one")}},
+		Body:       ghapitest.Body(t, "needs work"),
+		Comments:   []ghapi.ReviewComment{{Path: "file.txt", Line: 4, Body: ghapitest.Body(t, "this one")}},
 	}
 	_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target, sub)
 	if err == nil {
@@ -267,11 +251,11 @@ func TestPost(t *testing.T) {
 
 	sub := pullrequest.Submission{
 		Assessment: pullrequest.AssessmentChanges,
-		Body:       mustBody(t, "needs work"),
+		Body:       ghapitest.Body(t, "needs work"),
 		// Line 4 is the added "four", line 5 the one beginning with "++".
-		Comments: []pullrequest.SubmissionComment{
-			{Path: "file.txt", Line: 4, Body: mustBody(t, "this one")},
-			{Path: "file.txt", Line: 5, Body: mustBody(t, "and this")},
+		Comments: []ghapi.ReviewComment{
+			{Path: "file.txt", Line: 4, Body: ghapitest.Body(t, "this one")},
+			{Path: "file.txt", Line: 5, Body: ghapitest.Body(t, "and this")},
 		},
 	}
 	got, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target, sub)
@@ -342,7 +326,7 @@ func TestPostMapsTheAssessment(t *testing.T) {
 			}))
 
 			if _, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target,
-				pullrequest.Submission{Assessment: tc.assessment, Body: mustBody(t, "x")}); err != nil {
+				pullrequest.Submission{Assessment: tc.assessment, Body: ghapitest.Body(t, "x")}); err != nil {
 				t.Fatalf("Post: %v", err)
 			}
 			if event != tc.want {
@@ -367,7 +351,7 @@ func TestPostRefuses(t *testing.T) {
 		{
 			name:    "an assessment that is not one of the three",
 			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: at},
-			sub:     pullrequest.Submission{Assessment: "なんとなく", Body: mustBody(t, "x")},
+			sub:     pullrequest.Submission{Assessment: "なんとなく", Body: ghapitest.Body(t, "x")},
 			wantErr: "invalid assessment",
 		},
 		{
@@ -376,15 +360,15 @@ func TestPostRefuses(t *testing.T) {
 			// is already half made.
 			name:    "a head that has moved",
 			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: "0000000"},
-			sub:     pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: mustBody(t, "x")},
+			sub:     pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x")},
 			wantErr: "rerun the freshness check",
 		},
 		{
 			name:   "a comment on a line the diff does not have",
 			target: pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: at},
 			sub: pullrequest.Submission{
-				Assessment: pullrequest.AssessmentApprove, Body: mustBody(t, "x"),
-				Comments: []pullrequest.SubmissionComment{{Path: "file.txt", Line: 99, Body: mustBody(t, "y")}},
+				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"),
+				Comments: []ghapi.ReviewComment{{Path: "file.txt", Line: 99, Body: ghapitest.Body(t, "y")}},
 			},
 			wantErr: "file.txt:99",
 		},
@@ -394,8 +378,8 @@ func TestPostRefuses(t *testing.T) {
 			name:   "a comment on a file the diff does not have",
 			target: pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: at},
 			sub: pullrequest.Submission{
-				Assessment: pullrequest.AssessmentApprove, Body: mustBody(t, "x"),
-				Comments: []pullrequest.SubmissionComment{{Path: "other.txt", Line: 1, Body: mustBody(t, "y")}},
+				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"),
+				Comments: []ghapi.ReviewComment{{Path: "other.txt", Line: 1, Body: ghapitest.Body(t, "y")}},
 			},
 			wantErr: "other.txt:1",
 		},
@@ -432,7 +416,7 @@ func TestPostWithoutAURL(t *testing.T) {
 
 	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
 	_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target,
-		pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: mustBody(t, "x")})
+		pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x")})
 	if err == nil || !strings.Contains(err.Error(), "html_url missing") {
 		t.Errorf("Post error = %v, want it to report the missing url", err)
 	}

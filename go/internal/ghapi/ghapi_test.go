@@ -67,7 +67,7 @@ func TestCreateIssue(t *testing.T) {
 		fmt.Fprint(w, `{"number":7,"title":"created","html_url":"https://github.com/owner/repo/issues/7"}`)
 	}))
 
-	title, body, labels := "created", mustBody(t, "the body\n"), []string{"enhancement"}
+	title, body, labels := "created", ghapitest.Body(t, "the body\n"), []string{"enhancement"}
 	got, err := c.CreateIssue(t.Context(), issueRepo, ghapi.IssueChange{
 		Title: &title, Body: &body, Labels: &labels,
 	})
@@ -108,7 +108,7 @@ func TestEditIssue(t *testing.T) {
 
 	// Only the body: an edit says what to change and leaves the rest alone,
 	// which is what the pointers are for.
-	body := mustBody(t, "rewritten\n")
+	body := ghapitest.Body(t, "rewritten\n")
 	got, err := c.EditIssue(t.Context(), issueRepo, 7, ghapi.IssueChange{Body: &body})
 	if err != nil {
 		t.Fatalf("EditIssue: %v", err)

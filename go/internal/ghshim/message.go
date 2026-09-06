@@ -1,10 +1,6 @@
 package ghshim
 
-import (
-	"fmt"
-
-	"github.com/178inaba/dotfiles/go/internal/ghmd"
-)
+import "fmt"
 
 // The guidance the guard writes when it refuses.
 //
@@ -171,13 +167,13 @@ because reading stdin here would consume what gh is meant to read.`, what, what,
 // body in the same words; the count is in that shared sentence rather than in
 // a found: line of its own, so that the two refusals cannot come to say it
 // differently.
-func bareHashRefsMessage(distinct int, source string) string {
+func bareHashRefsMessage(refusal, source string) string {
 	return fmt.Sprintf(`Blocked: the body numbers its items with bare #N.
 
   source: %s
 
 %s
-`, source, ghmd.BareHashRefsRefusal(distinct))
+`, source, refusal)
 }
 
 // replyThreadsRecovery is the way through for both of the fifth rule's

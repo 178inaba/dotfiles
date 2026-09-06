@@ -37,15 +37,17 @@ func (c *Client) SubmitReview(ctx context.Context, repo Repo, number int, sub Re
 		Line int    `json:"line"`
 		Body string `json:"body"`
 	}
-	// The payload carries the text rather than the Body: an unexported field
-	// encodes as nothing at all, and a body silently dropped on the way to
-	// GitHub is worse than one refused.
 	payload := struct {
 		CommitID string    `json:"commit_id"`
 		Event    string    `json:"event"`
 		Body     string    `json:"body"`
 		Comments []comment `json:"comments"`
-	}{CommitID: sub.CommitID, Event: sub.Event, Body: sub.Body.String(), Comments: []comment{}}
+	}{
+		CommitID: sub.CommitID, Event: sub.Event, Body: sub.Body.String(),
+		// Empty rather than nil: GitHub takes either, and the shell version
+		// this replaces sent the empty one.
+		Comments: make([]comment, 0, len(sub.Comments)),
+	}
 	for _, s := range sub.Comments {
 		payload.Comments = append(payload.Comments,
 			comment{Path: s.Path, Line: s.Line, Body: s.Body.String()})
@@ -87,4 +89,28 @@ func (c *Client) ReplyToReviewThread(ctx context.Context, threadID string, body 
 		return "", err
 	}
 	return out.AddPullRequestReviewThreadReply.Comment.URL, nil
+}
+
+const resolveMutation = `
+mutation($threadId: ID!) {
+  resolveReviewThread(input: {threadId: $threadId}) {
+    thread { isResolved }
+  }
+}`
+
+// ResolveReviewThread marks a review thread resolved.
+//
+// It carries no body, so the type this package exists to enforce has nothing
+// to say about it. It is here anyway, beside the reply, so that "a mutation is
+// written in ghapi" is a rule a reader can check rather than one each caller
+// has to remember — which is the same reason the raw REST writers are private.
+func (c *Client) ResolveReviewThread(ctx context.Context, threadID string) error {
+	var out struct {
+		ResolveReviewThread struct {
+			Thread struct {
+				IsResolved bool `json:"isResolved"`
+			} `json:"thread"`
+		} `json:"resolveReviewThread"`
+	}
+	return c.GraphQL(ctx, resolveMutation, map[string]any{"threadId": threadID}, &out)
 }
