@@ -117,14 +117,16 @@ func TestSegments(t *testing.T) {
 			},
 		},
 		{
-			// The marker lines are neither: nothing reads them, and calling
-			// them prose would put a fence's own backticks in the text a
-			// substitution rewrites.
-			name: "a fence marker is not a segment",
+			// A marker line is Fence like the lines it delimits: no consumer
+			// needs the distinction, and calling it prose would put a fence's
+			// own backticks in the text a substitution rewrites.
+			name: "a fence marker is a Fence segment",
 			body: "a\n```\nb\n```\nc\n",
 			want: []text{
 				{Kind: ghmd.Prose, Line: 1, Text: "a\n"},
+				{Kind: ghmd.Fence, Line: 2, Text: "```\n"},
 				{Kind: ghmd.Fence, Line: 3, Text: "b\n"},
+				{Kind: ghmd.Fence, Line: 4, Text: "```\n"},
 				{Kind: ghmd.Prose, Line: 5, Text: "c\n"},
 			},
 		},
@@ -133,6 +135,7 @@ func TestSegments(t *testing.T) {
 			body: "a\n```\nb\nc\n",
 			want: []text{
 				{Kind: ghmd.Prose, Line: 1, Text: "a\n"},
+				{Kind: ghmd.Fence, Line: 2, Text: "```\n"},
 				{Kind: ghmd.Fence, Line: 3, Text: "b\n"},
 				{Kind: ghmd.Fence, Line: 4, Text: "c\n"},
 			},
@@ -200,8 +203,10 @@ func TestSegments(t *testing.T) {
 			name: "a tilde line inside a backtick block is content",
 			body: "```\n~~~\n#1 #2 #3\n```\n",
 			want: []text{
+				{Kind: ghmd.Fence, Line: 1, Text: "```\n"},
 				{Kind: ghmd.Fence, Line: 2, Text: "~~~\n"},
 				{Kind: ghmd.Fence, Line: 3, Text: "#1 #2 #3\n"},
+				{Kind: ghmd.Fence, Line: 4, Text: "```\n"},
 			},
 		},
 		{
@@ -210,7 +215,11 @@ func TestSegments(t *testing.T) {
 			// backtick in a tilde one would open no block here at all.
 			name: "a tilde fence's info string may hold a backtick",
 			body: "~~~ aa ``` ~~~\nx\n~~~\n",
-			want: []text{{Kind: ghmd.Fence, Line: 2, Text: "x\n"}},
+			want: []text{
+				{Kind: ghmd.Fence, Line: 1, Text: "~~~ aa ``` ~~~\n"},
+				{Kind: ghmd.Fence, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Fence, Line: 3, Text: "~~~\n"},
+			},
 		},
 		{
 			// A closing fence carries no info string, but trailing whitespace
@@ -218,14 +227,20 @@ func TestSegments(t *testing.T) {
 			name: "whitespace after a closing run still closes the block",
 			body: "```\nx\n```   \ny\n",
 			want: []text{
+				{Kind: ghmd.Fence, Line: 1, Text: "```\n"},
 				{Kind: ghmd.Fence, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Fence, Line: 3, Text: "```   \n"},
 				{Kind: ghmd.Prose, Line: 4, Text: "y\n"},
 			},
 		},
 		{
 			name: "a longer closing run still closes the block",
 			body: "````\nx\n`````\n",
-			want: []text{{Kind: ghmd.Fence, Line: 2, Text: "x\n"}},
+			want: []text{
+				{Kind: ghmd.Fence, Line: 1, Text: "````\n"},
+				{Kind: ghmd.Fence, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Fence, Line: 3, Text: "`````\n"},
+			},
 		},
 		{
 			// The deviation markerRun names: CommonMark stops at three spaces
@@ -234,7 +249,9 @@ func TestSegments(t *testing.T) {
 			name: "a fence marker indented past three spaces still opens a block",
 			body: "    ```\nx\n    ```\ny\n",
 			want: []text{
+				{Kind: ghmd.Fence, Line: 1, Text: "    ```\n"},
 				{Kind: ghmd.Fence, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Fence, Line: 3, Text: "    ```\n"},
 				{Kind: ghmd.Prose, Line: 4, Text: "y\n"},
 			},
 		},
@@ -242,8 +259,10 @@ func TestSegments(t *testing.T) {
 			name: "a run shorter than the opening one is content",
 			body: "````\n```\nx\n````\n",
 			want: []text{
+				{Kind: ghmd.Fence, Line: 1, Text: "````\n"},
 				{Kind: ghmd.Fence, Line: 2, Text: "```\n"},
 				{Kind: ghmd.Fence, Line: 3, Text: "x\n"},
+				{Kind: ghmd.Fence, Line: 4, Text: "````\n"},
 			},
 		},
 		{
@@ -252,8 +271,10 @@ func TestSegments(t *testing.T) {
 			name: "a closing-length run followed by text is content",
 			body: "```\n``` x\ny\n```\n",
 			want: []text{
+				{Kind: ghmd.Fence, Line: 1, Text: "```\n"},
 				{Kind: ghmd.Fence, Line: 2, Text: "``` x\n"},
 				{Kind: ghmd.Fence, Line: 3, Text: "y\n"},
+				{Kind: ghmd.Fence, Line: 4, Text: "```\n"},
 			},
 		},
 		{
@@ -275,25 +296,35 @@ func TestSegments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if diff := cmp.Diff(tt.want, segments(tt.body)); diff != "" {
+			got := segments(tt.body)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("Segments(%q) (-want +got):\n%s", tt.body, diff)
+			}
+			// The partition read off the table: what a case declares is
+			// yielded is also the whole of the body it was read from.
+			var whole strings.Builder
+			for _, s := range got {
+				whole.WriteString(s.Text)
+			}
+			if whole.String() != tt.body {
+				t.Errorf("the segments concatenate to %q, want the body itself", whole.String())
 			}
 		})
 	}
 }
 
-// TestSegmentsAreOrderedAndDisjoint is what lets a caller rewrite a body from
-// its segments: it can copy the bytes between them through untouched, which
-// only works if they arrive in order and never overlap.
-func TestSegmentsAreOrderedAndDisjoint(t *testing.T) {
+// TestSegmentsPartitionTheBody is what lets a caller account for every byte of
+// a body from its segments alone: they arrive in order, never overlap, and
+// leave no gap for a reader to forget.
+func TestSegmentsPartitionTheBody(t *testing.T) {
 	t.Parallel()
 
 	const body = "intro #1\n```go\nfmt.Println(\"#2\")\n```\ntail `#3` end\n"
 
 	end := 0
 	for s := range ghmd.Segments(body) {
-		if s.Start < end || s.End < s.Start || s.End > len(body) {
-			t.Errorf("segment [%d,%d) does not follow the one ending at %d, within %d bytes",
+		if s.Start != end || s.End < s.Start || s.End > len(body) {
+			t.Errorf("segment [%d,%d) does not continue the one ending at %d, within %d bytes",
 				s.Start, s.End, end, len(body))
 		}
 		end = s.End
@@ -326,8 +357,8 @@ func TestBlankCode(t *testing.T) {
 			want: "a     c\n",
 		},
 		{
-			// The marker lines are no segment at all, and blanking whatever
-			// Segments does not call prose is what takes them too.
+			// The marker lines are Fence like the content between them, so
+			// blanking whatever Segments does not call prose takes them too.
 			name: "a fence goes with its marker lines",
 			body: "a\n```\nb\n```\nc\n",
 			want: "a\n   \n \n   \nc\n",

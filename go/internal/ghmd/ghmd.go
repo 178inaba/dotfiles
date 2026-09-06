@@ -70,12 +70,11 @@ const (
 	// Prose is text GitHub renders as prose, where a reference is live and a
 	// substitution belongs.
 	Prose Kind = iota
-	// Fence is a line inside a fenced code block. The fence's own marker lines
-	// are no segment at all, because calling them prose would hand a rewriter
-	// the backticks that delimit the block. A caller that has to account for
-	// every byte reads them as the gap between segments — which is what
-	// BlankCode does, by writing the whole body out and copying the prose
-	// back.
+	// Fence is a line of a fenced code block, the lines that open and close it
+	// included. Nothing distinguishes a marker from the content it delimits:
+	// no consumer needs the distinction, and a kind of its own would grow a
+	// case in every switch over one. What a marker may not be is prose, which
+	// would hand a rewriter the backticks that delimit the block.
 	Fence
 	// Span is an inline code span, its backticks included, so that a caller
 	// matching against it sees what GitHub shows.
@@ -89,17 +88,23 @@ type Segment struct {
 	// about a body names.
 	Line int
 	// Start and End are the byte offsets into the body itself, not into the
-	// line, so that a rewriter can copy what lies between segments through
-	// untouched.
+	// line, so that a rewriter can splice its output out of the body at the
+	// offsets it was handed.
 	Start, End int
 }
 
-// Segments walks a body, yielding its runs in order and without overlap.
+// Segments partitions a body: the runs come in order, never overlap, and
+// cover every byte from the first to the last.
+//
+// The covering is what a caller is entitled to rely on rather than a property
+// of how this happens to be written. A caller that has to account for every
+// byte accounts for it by walking the segments, and a gap nobody yields is
+// where such a reader forgets one.
 //
 // A known limit, carried over from the shell version this replaces: an
-// unclosed fence hides everything after it. A body with one is broken in a way
-// the writer will see, and closing over it would make the reading disagree
-// with what the shim already decided.
+// unclosed fence hides everything after it, running to the end as Fence. A
+// body with one is broken in a way the writer will see, and closing over it
+// would make the reading disagree with what the shim already decided.
 func Segments(body string) iter.Seq[Segment] {
 	return func(yield func(Segment) bool) {
 		var open fence
@@ -115,11 +120,17 @@ func Segments(body string) iter.Seq[Segment] {
 			case open.n == 0:
 				if f, ok := opensFence(text); ok {
 					open = f
+					if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
+						return
+					}
 				} else if !yieldProseAndSpans(yield, text, line, start) {
 					return
 				}
 			case open.closedBy(text):
 				open = fence{}
+				if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
+					return
+				}
 			default:
 				if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
 					return
@@ -130,9 +141,8 @@ func Segments(body string) iter.Seq[Segment] {
 	}
 }
 
-// BlankCode returns body with every byte Segments does not yield as Prose —
-// a Fence segment, a Span segment, and the marker lines a fence is delimited
-// by, which are no segment at all — replaced by a space, and every newline
+// BlankCode returns body with every byte Segments does not yield as Prose — a
+// Fence segment or a Span segment — replaced by a space, and every newline
 // kept.
 //
 // Blanked rather than deleted, so that the result has the body's own length

@@ -279,7 +279,7 @@ type heading struct {
 // as prose and the substitution skipped as code.
 func headingsIn(lines []string) []heading {
 	// Which lines GitHub reads as prose. A line inside a fence has only Fence
-	// runs, and a fence's own marker line has none at all.
+	// runs, and so has the marker line that opens or closes it.
 	prose := make(map[int]bool, len(lines))
 	for s := range ghmd.Segments(strings.Join(lines, "\n")) {
 		if s.Kind == ghmd.Prose {
