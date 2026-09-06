@@ -19,7 +19,7 @@ func TestViewer(t *testing.T) {
 		fmt.Fprint(w, `{"login":"178inaba","id":12012186}`)
 	}))
 
-	got, err := c.Viewer(t.Context())
+	got, err := c.Viewer(t.Context(), 0)
 	if err != nil {
 		t.Fatalf("Viewer: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestViewerReportsAFailure(t *testing.T) {
 		fmt.Fprint(w, `{"message":"Bad credentials"}`)
 	}))
 
-	if _, err := c.Viewer(t.Context()); err == nil {
+	if _, err := c.Viewer(t.Context(), 0); err == nil {
 		t.Error("Viewer succeeded on bad credentials, want a failure")
 	} else if status, ok := ghapi.HTTPStatus(err); !ok || status != http.StatusUnauthorized {
 		t.Errorf("Viewer error carried status %d (%t), want 401", status, ok)

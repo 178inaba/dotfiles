@@ -144,17 +144,20 @@ func (g *fakeGitHub) serve(t *testing.T, w http.ResponseWriter, r *http.Request)
 		parent := subIssuePath.FindStringSubmatch(r.URL.Path)[1]
 		g.subIssues = append(g.subIssues, fmt.Sprintf("%s<-%d", parent, req.SubIssueID))
 		// GitHub moves the parent when it gains a sub, which is the move a
-		// re-run must not mistake for somebody else's edit.
+		// re-run must not mistake for somebody else's edit, and answers with
+		// the parent as it now stands.
 		g.touch(t, parent)
-		writeJSON(t, w, map[string]string{})
+		writeJSON(t, w, g.issues[atoi(t, parent)])
 	case blockedPath.MatchString(r.URL.Path):
 		var req struct {
 			IssueID int64 `json:"issue_id"`
 		}
 		decode(t, r, &req)
-		g.blockedBy = append(g.blockedBy,
-			fmt.Sprintf("%s<-%d", blockedPath.FindStringSubmatch(r.URL.Path)[1], req.IssueID))
-		writeJSON(t, w, map[string]string{})
+		blocked := blockedPath.FindStringSubmatch(r.URL.Path)[1]
+		g.blockedBy = append(g.blockedBy, fmt.Sprintf("%s<-%d", blocked, req.IssueID))
+		// Same shape: the issue in the path moves, and comes back.
+		g.touch(t, blocked)
+		writeJSON(t, w, g.issues[atoi(t, blocked)])
 	case commentPath.MatchString(r.URL.Path):
 		var req struct {
 			Body string `json:"body"`
@@ -308,16 +311,8 @@ func parentAndSubs() issue.PublishManifest {
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
 			row("PARENT", "parent.md"),
-			func() issue.PublishManifestIssue {
-				r := row("SUB_A", "sub-a.md")
-				r.Parent = ptr("PARENT")
-				return r
-			}(),
-			func() issue.PublishManifestIssue {
-				r := row("SUB_B", "sub-b.md")
-				r.Parent = ptr("PARENT")
-				return r
-			}(),
+			row("SUB_A", "sub-a.md", withParent("PARENT")),
+			row("SUB_B", "sub-b.md", withParent("PARENT")),
 		},
 		BlockedBy: []issue.PublishManifestBlockedBy{{Blocked: ptr("SUB_B"), By: ptr("SUB_A")}},
 	}
@@ -338,10 +333,10 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	t.Parallel()
 
 	m := parentAndSubs()
-	dir, file := manifestDir(t, m, parentAndSubFiles())
+	file := writeManifest(t, m, parentAndSubFiles())
 	g := newFakeGitHub()
 
-	got, err := issue.Publish(t.Context(), g.client(t), m, dir, file)
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -383,11 +378,11 @@ func TestPublishResumesAfterAnInterruptedCreate(t *testing.T) {
 	t.Parallel()
 
 	m := parentAndSubs()
-	dir, file := manifestDir(t, m, parentAndSubFiles())
+	file := writeManifest(t, m, parentAndSubFiles())
 	g := newFakeGitHub()
 	g.failAfter = 1 // the parent's create, and nothing after it
 
-	if _, err := issue.Publish(t.Context(), g.client(t), m, dir, file); err == nil {
+	if _, err := issue.Publish(t.Context(), g.client(t), m, file); err == nil {
 		t.Fatal("Publish succeeded, want the interruption to be reported")
 	}
 	if len(g.issues) != 1 {
@@ -395,7 +390,7 @@ func TestPublishResumesAfterAnInterruptedCreate(t *testing.T) {
 	}
 
 	g.failAfter = -1
-	got, err := issue.Publish(t.Context(), g.client(t), m, dir, file)
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("Publish (resumed): %v", err)
 	}
@@ -428,14 +423,10 @@ func TestPublishResumesAfterATargetWasEdited(t *testing.T) {
 	m := issue.PublishManifest{
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
-			func() issue.PublishManifestIssue {
-				r := row("42", "42.md")
-				r.UpdatedAt, r.Comment = ptr("2026-01-01T00:00:00Z"), ptr("42-comment.md")
-				return r
-			}(),
+			row("42", "42.md", withUpdatedAt("2026-01-01T00:00:00Z"), withComment("42-comment.md")),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"42.md":         leafDraft,
 		"42-comment.md": "The body was rewritten.\n",
 	})
@@ -443,12 +434,12 @@ func TestPublishResumesAfterATargetWasEdited(t *testing.T) {
 	g.existing(42, 4200, "2026-01-01T00:00:00Z", "enhancement")
 	g.failAfter = 1 // the PATCH, and not the comment after it
 
-	if _, err := issue.Publish(t.Context(), g.client(t), m, dir, file); err == nil {
+	if _, err := issue.Publish(t.Context(), g.client(t), m, file); err == nil {
 		t.Fatal("Publish succeeded, want the interruption to be reported")
 	}
 
 	g.failAfter = -1
-	got, err := issue.Publish(t.Context(), g.client(t), m, dir, file)
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("Publish (resumed) was refused over its own edit: %v", err)
 	}
@@ -469,19 +460,11 @@ func TestPublishResumesAfterLinkingToAnExistingParent(t *testing.T) {
 	m := issue.PublishManifest{
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
-			func() issue.PublishManifestIssue {
-				r := row("42", "42.md")
-				r.UpdatedAt, r.Kind = ptr("2026-01-01T00:00:00Z"), ptr("parent")
-				return r
-			}(),
-			func() issue.PublishManifestIssue {
-				r := row("SUB_A", "sub-a.md")
-				r.Parent = ptr("42")
-				return r
-			}(),
+			row("42", "42.md", withUpdatedAt("2026-01-01T00:00:00Z"), withKind("parent")),
+			row("SUB_A", "sub-a.md", withParent("42")),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"42.md":    parentDraft,
 		"sub-a.md": leafDraft,
 	})
@@ -490,7 +473,7 @@ func TestPublishResumesAfterLinkingToAnExistingParent(t *testing.T) {
 	// The create and the link land; the PATCH of the parent does not.
 	g.failAfter = 2
 
-	if _, err := issue.Publish(t.Context(), g.client(t), m, dir, file); err == nil {
+	if _, err := issue.Publish(t.Context(), g.client(t), m, file); err == nil {
 		t.Fatal("Publish succeeded, want the interruption to be reported")
 	}
 	if g.issues[42].UpdatedAt == "2026-01-01T00:00:00Z" {
@@ -498,7 +481,7 @@ func TestPublishResumesAfterLinkingToAnExistingParent(t *testing.T) {
 	}
 
 	g.failAfter = -1
-	if _, err := issue.Publish(t.Context(), g.client(t), m, dir, file); err != nil {
+	if _, err := issue.Publish(t.Context(), g.client(t), m, file); err != nil {
 		t.Fatalf("Publish (resumed) was refused over the move its own link made: %v", err)
 	}
 	if diff := cmp.Diff([]string{"42<-101000000000"}, g.subIssues); diff != "" {
@@ -539,11 +522,11 @@ func TestPublishReportsWhatGitHubDropped(t *testing.T) {
 	m := issue.PublishManifest{
 		Repo: ptr("owner/repo"), Issues: []issue.PublishManifestIssue{row("A", "a.md")},
 	}
-	dir, file := manifestDir(t, m, map[string]string{"a.md": leafDraft})
+	file := writeManifest(t, m, map[string]string{"a.md": leafDraft})
 	g := newFakeGitHub()
 	g.dropLabels, g.dropAssignees = true, true
 
-	got, err := issue.Publish(t.Context(), g.client(t), m, dir, file)
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("Publish failed over a drop, want it reported and exit 0: %v", err)
 	}
@@ -563,21 +546,17 @@ func TestPublishFailsOnAForbiddenLink(t *testing.T) {
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
 			row("PARENT", "parent.md"),
-			func() issue.PublishManifestIssue {
-				r := row("SUB_A", "sub-a.md")
-				r.Parent = ptr("PARENT")
-				return r
-			}(),
+			row("SUB_A", "sub-a.md", withParent("PARENT")),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"parent.md": leafDraft,
 		"sub-a.md":  leafDraft,
 	})
 	g := newFakeGitHub()
 	g.forbid = "/repos/owner/repo/issues/101/sub_issues"
 
-	if _, err := issue.Publish(t.Context(), g.client(t), m, dir, file); err == nil {
+	if _, err := issue.Publish(t.Context(), g.client(t), m, file); err == nil {
 		t.Fatal("Publish succeeded despite a forbidden link, want a failure")
 	} else if !strings.Contains(err.Error(), "link SUB_A to PARENT") {
 		t.Errorf("Publish failed with %q, want it to name the link", err)
@@ -597,7 +576,7 @@ func TestPublishFailsOnAMissedSubstitution(t *testing.T) {
 			row("B", "b.md"),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"a.md": leafDraft,
 		// B is created second, so A has a number by the time B goes out.
 		"b.md": leafDraft + "\nFollows on from #{A}.\n",
@@ -609,7 +588,7 @@ func TestPublishFailsOnAMissedSubstitution(t *testing.T) {
 		return strings.ReplaceAll(body, "#101", "#{A}")
 	}
 
-	_, err := issue.Publish(t.Context(), g.client(t), m, dir, file)
+	_, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err == nil {
 		t.Fatal("Publish succeeded with a placeholder left in a stored body, want a failure")
 	}
@@ -633,7 +612,7 @@ func TestPublishFailsOnAPlaceholderNoWriteCanFill(t *testing.T) {
 			row("B", "b.md"),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"a.md": leafDraft + "\nSee #{B}.\n",
 		"b.md": leafDraft,
 	})
@@ -644,7 +623,7 @@ func TestPublishFailsOnAPlaceholderNoWriteCanFill(t *testing.T) {
 		return strings.ReplaceAll(body, "#102", "#{B}")
 	}
 
-	_, err := issue.Publish(t.Context(), g.client(t), m, dir, file)
+	_, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err == nil {
 		t.Fatal("Publish succeeded with a placeholder left after every issue exists, want a failure")
 	}
@@ -662,21 +641,17 @@ func TestPublishLinksAnExistingIssueToItsParent(t *testing.T) {
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
 			row("PARENT", "parent.md"),
-			func() issue.PublishManifestIssue {
-				r := row("42", "42.md")
-				r.Parent, r.UpdatedAt = ptr("PARENT"), ptr("2026-01-01T00:00:00Z")
-				return r
-			}(),
+			row("42", "42.md", withParent("PARENT"), withUpdatedAt("2026-01-01T00:00:00Z")),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"parent.md": leafDraft,
 		"42.md":     leafDraft,
 	})
 	g := newFakeGitHub()
 	g.existing(42, 4200, "2026-01-01T00:00:00Z", "enhancement")
 
-	got, err := issue.Publish(t.Context(), g.client(t), m, dir, file)
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -698,11 +673,11 @@ func TestPublishRegistersADependencyOnAnIssueWithNoRow(t *testing.T) {
 		Issues:    []issue.PublishManifestIssue{row("A", "a.md")},
 		BlockedBy: []issue.PublishManifestBlockedBy{{Blocked: ptr("A"), By: ptr("42")}},
 	}
-	dir, file := manifestDir(t, m, map[string]string{"a.md": leafDraft})
+	file := writeManifest(t, m, map[string]string{"a.md": leafDraft})
 	g := newFakeGitHub()
 	before := g.existing(42, 4200, "2026-01-01T00:00:00Z", "enhancement")
 
-	if _, err := issue.Publish(t.Context(), g.client(t), m, dir, file); err != nil {
+	if _, err := issue.Publish(t.Context(), g.client(t), m, file); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
 	if diff := cmp.Diff([]string{"101<-4200"}, g.blockedBy); diff != "" {

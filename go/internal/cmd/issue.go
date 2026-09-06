@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -55,15 +54,14 @@ func newPublishCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			dir := filepath.Dir(file)
 			if dryRun {
-				planned, err := issue.PublishDryRun(c.Context(), client, m, dir, file)
+				planned, err := issue.PublishDryRun(c.Context(), client, m, file)
 				if err != nil {
 					return silent(err)
 				}
 				return silent(renderCompactJSON(c.OutOrStdout(), planned))
 			}
-			published, err := issue.Publish(c.Context(), client, m, dir, file)
+			published, err := issue.Publish(c.Context(), client, m, file)
 			if err != nil {
 				return silent(err)
 			}

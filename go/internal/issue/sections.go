@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
 // Locale is the language an issue body is written in.
@@ -267,20 +269,31 @@ type heading struct {
 // Only `## ` opens a section — a deeper heading belongs to the section it is
 // in — and a line inside a fenced block is text, so that a draft showing the
 // body template in an example does not appear to declare the sections it
-// mentions. Only backtick fences count, as they are the only ones the drafts
-// use.
+// mentions.
+//
+// What counts as a fence is ghmd's to say rather than this function's. It used
+// to be backticks alone, on the grounds that the drafts use nothing else; that
+// premise stopped being safe once `ccx issue publish` began substituting
+// placeholders through ghmd's reading, because a body the two disagreed about
+// would pass this check and go out with a placeholder in a line this one read
+// as prose and the substitution skipped as code.
 func headingsIn(lines []string) []heading {
+	// Which lines GitHub reads as prose. A line inside a fence has only Fence
+	// runs, and a fence's own marker line has none at all.
+	prose := make(map[int]bool, len(lines))
+	for s := range ghmd.Segments(strings.Join(lines, "\n")) {
+		if s.Kind == ghmd.Prose {
+			prose[s.Line-1] = true
+		}
+	}
+
 	var out []heading
-	fenced := false
 	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "```") {
-			fenced = !fenced
+		text, ok := strings.CutPrefix(line, "## ")
+		if !ok || !prose[i] {
 			continue
 		}
-		if fenced || !strings.HasPrefix(line, "## ") {
-			continue
-		}
-		out = append(out, heading{line: i, text: strings.Trim(line[len("## "):], " \t\r")})
+		out = append(out, heading{line: i, text: strings.Trim(text, " \t\r")})
 	}
 	return out
 }

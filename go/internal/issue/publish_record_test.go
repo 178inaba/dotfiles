@@ -27,20 +27,16 @@ func TestPublishResumesFromTheRecord(t *testing.T) {
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
 			row("PARENT", "parent.md"),
-			func() issue.PublishManifestIssue {
-				r := row("SUB_A", "sub-a.md")
-				r.Parent = ptr("PARENT")
-				return r
-			}(),
+			row("SUB_A", "sub-a.md", withParent("PARENT")),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"parent.md": leafDraft + "\nComposed of #{SUB_A}.\n",
 		"sub-a.md":  leafDraft,
 	})
 	writeRecord(t, file, `{"step":"create","key":"PARENT","number":100,"id":900}`)
 
-	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, dir, file)
+	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, file)
 	if err != nil {
 		t.Fatalf("PublishDryRun: %v", err)
 	}
@@ -64,10 +60,10 @@ func TestPublishIgnoresATornRecordLine(t *testing.T) {
 	m := issue.PublishManifest{
 		Repo: ptr("owner/repo"), Issues: []issue.PublishManifestIssue{row("A", "a.md")},
 	}
-	dir, file := manifestDir(t, m, map[string]string{"a.md": leafDraft})
+	file := writeManifest(t, m, map[string]string{"a.md": leafDraft})
 	writeRecord(t, file, `{"step":"create","key":"A","numb`)
 
-	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, dir, file)
+	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, file)
 	if err != nil {
 		t.Fatalf("PublishDryRun: %v", err)
 	}
@@ -83,20 +79,16 @@ func TestPublishChecksFreshnessAgainstTheRecord(t *testing.T) {
 	t.Parallel()
 
 	m := issue.PublishManifest{
-		Repo: ptr("owner/repo"),
-		Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-			r := row("42", "42.md")
-			r.UpdatedAt = ptr("2026-01-01T00:00:00Z")
-			return r
-		}()},
+		Repo:   ptr("owner/repo"),
+		Issues: []issue.PublishManifestIssue{row("42", "42.md", withUpdatedAt("2026-01-01T00:00:00Z"))},
 	}
-	dir, file := manifestDir(t, m, map[string]string{"42.md": leafDraft})
+	file := writeManifest(t, m, map[string]string{"42.md": leafDraft})
 	writeRecord(t, file, `{"step":"freshness","key":"42","updated_at":"2026-02-02T00:00:00Z"}`)
 
 	c := reading(t, map[string]string{
 		"/repos/owner/repo/issues/42": liveIssue(42, 900, "2026-02-02T00:00:00Z"),
 	})
-	if _, err := issue.PublishDryRun(t.Context(), c, m, dir, file); err != nil {
+	if _, err := issue.PublishDryRun(t.Context(), c, m, file); err != nil {
 		t.Errorf("PublishDryRun refused a move this run made itself: %v", err)
 	}
 }

@@ -87,6 +87,11 @@ type publishSet struct {
 	repo   ghapi.Repo
 	rows   []publishRow
 	blocks []publishBlock
+	// byKey is rows indexed by their key, which is how every reference in the
+	// manifest — a parent, a dependency, a placeholder in a body — is
+	// followed. A row is absent for a key that names an issue this run does
+	// not write, which is the one thing every follower has to handle.
+	byKey map[string]publishRow
 	// file is the manifest itself: named in refusals, and where the record of
 	// what has been written lives.
 	file string
@@ -124,15 +129,20 @@ type publishBlock struct{ blocked, by string }
 // names.
 //
 // The decoding itself is the caller's, through contract.Unmarshal, because
-// internal/contract reads this package for the two types that serialise
-// themselves and cannot be read by it in turn. That is no loss: internal/cmd
-// is where the JSON boundary belongs anyway, and the document is still decoded
-// against the same contract the help renders, so the two cannot drift.
+// internal/contract imports this package for the two types that serialise
+// themselves and so cannot be imported by it. The document still goes through
+// the same contract the help renders, so the two cannot drift; what it costs
+// is that the other document-taking commands decode inside their own domain
+// package and this one does not.
 //
 // Only what can be decided from the document itself is decided here; the
 // checks that need the whole set, or GitHub, are the plan's.
-func parsePublishManifest(wire PublishManifest, dir, file string) (publishSet, error) {
-	set := publishSet{file: file}
+//
+// The drafts are read from the manifest's own directory rather than one given
+// alongside it: the two would have to agree, and nothing would make them.
+func parsePublishManifest(wire PublishManifest, file string) (publishSet, error) {
+	dir := filepath.Dir(file)
+	set := publishSet{file: file, byKey: map[string]publishRow{}}
 	var bad violations
 	repo, err := ghapi.ParseRepo(*wire.Repo)
 	if err != nil {
@@ -146,7 +156,11 @@ func parsePublishManifest(wire PublishManifest, dir, file string) (publishSet, e
 			bad.add("issues[%d]: %v", i, err)
 			continue
 		}
+		if _, dup := set.byKey[row.key]; dup {
+			bad.add("key %s appears more than once", row.key)
+		}
 		set.rows = append(set.rows, row)
+		set.byKey[row.key] = row
 	}
 	for _, d := range wire.BlockedBy {
 		set.blocks = append(set.blocks, publishBlock{blocked: *d.Blocked, by: *d.By})

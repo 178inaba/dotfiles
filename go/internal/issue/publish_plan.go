@@ -63,25 +63,31 @@ type PlannedSubstitution struct {
 }
 
 // publishPlan is one run's whole intent, resolved.
+//
+// It answers "what is left to do" for the run and for a dry run alike, from
+// the record it read once. Nothing asks that question a second way: a plan
+// that reported one thing while the run did another would be a plan shown for
+// approval that does not describe what happens.
 type publishPlan struct {
 	set    publishSet
-	record publishRecord
-	// live is every issue the run reads before writing, by key: the targets it
-	// checks for freshness, and the existing issues it only needs an id for.
-	live map[string]ghapi.Issue
-	// targets is the keys a freshness check applies to — the rows that name an
-	// issue the run edits. An existing issue named only as a parent or a
-	// blocker is not one: nothing is written to it, so nothing about it can go
-	// stale under the run.
-	targets map[string]bool
-	viewer  string
+	record *publishRecord
+	// ids is the integer GitHub addresses each existing issue by — the targets
+	// and the issues named only as a parent or a blocker — which is what the
+	// two link endpoints take in place of the number.
+	ids map[string]int64
+	// forwardRefs is the rows this run creates whose bodies will still hold a
+	// placeholder afterwards, and so need a second write.
+	forwardRefs map[string]bool
+	// viewer is who the token authenticates, resolved only where an issue is
+	// created: it is the assignee, and nothing else wants it.
+	viewer string
 }
 
 // plan runs every check, up to but not including the first write.
 //
 // Shared whole by Publish and PublishDryRun.
-func plan(ctx context.Context, c *ghapi.Client, wire PublishManifest, dir, file string) (publishPlan, error) {
-	set, err := parsePublishManifest(wire, dir, file)
+func plan(ctx context.Context, c *ghapi.Client, wire PublishManifest, file string) (publishPlan, error) {
+	set, err := parsePublishManifest(wire, file)
 	if err != nil {
 		return publishPlan{}, err
 	}
@@ -90,36 +96,98 @@ func plan(ctx context.Context, c *ghapi.Client, wire PublishManifest, dir, file 
 	if err := checkPublishSet(set); err != nil {
 		return publishPlan{}, err
 	}
-	live, err := readPublishTargets(ctx, c, set, record)
+	ids, err := readPublishTargets(ctx, c, set, record)
 	if err != nil {
 		return publishPlan{}, err
 	}
-	viewer, err := c.Viewer(ctx)
-	if err != nil {
-		return publishPlan{}, fmt.Errorf("failed to resolve who the token authenticates: %v", err)
-	}
 
-	targets := map[string]bool{}
+	p := publishPlan{set: set, record: record, ids: ids, forwardRefs: forwardRefs(set, record)}
 	for _, row := range set.rows {
-		if row.target() {
-			targets[row.key] = true
+		if !p.needsCreate(row) {
+			continue
+		}
+		if p.viewer, err = c.Viewer(ctx, 0); err != nil {
+			return publishPlan{}, fmt.Errorf("failed to resolve who the token authenticates: %v", err)
+		}
+		break
+	}
+	return p, nil
+}
+
+// The five questions a run and a dry run both ask of every row, answered from
+// the record in one place. A stage skips what is already recorded, and the
+// plan lists what a stage would not skip.
+
+func (p publishPlan) needsCreate(row publishRow) bool {
+	return !row.target() && p.record.numbered[row.key].number == 0
+}
+
+func (p publishPlan) needsLink(row publishRow) bool {
+	return row.parent != "" && !p.record.linked[publishBlock{blocked: row.key, by: row.parent}]
+}
+
+// needsWrite covers a target's edit and the body of an issue this run creates
+// holding a forward reference. Both are the same request.
+//
+// An issue created with nothing left to fill in needs no second write, and is
+// recorded as final at the moment it is created. Before the run starts, which
+// of the two a created row will be is worked out by walking the rows in
+// creation order — the same walk the create stage makes — so that the plan a
+// dry run prints is the one that happens.
+func (p publishPlan) needsWrite(row publishRow) bool {
+	if p.record.final[row.key] {
+		return false
+	}
+	if row.target() || p.record.numbered[row.key].number != 0 {
+		// A target always gets its edit; an issue an earlier run created and
+		// did not record as final went out holding a forward reference, which
+		// is the whole of what "not final" says about it.
+		return true
+	}
+	return p.forwardRefs[row.key]
+}
+
+// forwardRefs marks each row this run creates whose body will still hold a
+// placeholder once it is created, by numbering the rows in the order the
+// create stage does.
+func forwardRefs(set publishSet, record *publishRecord) map[string]bool {
+	numbered := map[string]bool{}
+	for key, row := range set.byKey {
+		if row.target() || record.numbered[key].number != 0 {
+			numbered[key] = true
 		}
 	}
-	return publishPlan{set: set, record: record, live: live, targets: targets, viewer: viewer}, nil
+	out := map[string]bool{}
+	for _, row := range set.rows {
+		if numbered[row.key] {
+			continue
+		}
+		for _, s := range placeholdersIn(row.body) {
+			if !numbered[s.Name] {
+				out[row.key] = true
+				break
+			}
+		}
+		numbered[row.key] = true
+	}
+	return out
 }
+
+func (p publishPlan) needsComment(row publishRow) bool {
+	return row.commentFile != "" && !p.record.commented[row.key]
+}
+
+func (p publishPlan) needsBlock(b publishBlock) bool { return !p.record.blocked[b] }
+
+// isTarget reports whether a freshness check applies to a key. An existing
+// issue named only as a parent or a blocker is not one: nothing is written to
+// it, so nothing about it can go stale under the run.
+func (p publishPlan) isTarget(key string) bool { return p.set.byKey[key].target() }
 
 // checkPublishSet rejects what the manifest says about itself, with GitHub not
 // yet consulted.
 func checkPublishSet(set publishSet) error {
 	var bad violations
-
-	rows := map[string]publishRow{}
-	for _, row := range set.rows {
-		if _, dup := rows[row.key]; dup {
-			bad.add("key %s appears more than once", row.key)
-		}
-		rows[row.key] = row
-	}
 
 	for _, row := range set.rows {
 		switch {
@@ -131,14 +199,14 @@ func checkPublishSet(set publishSet) error {
 			bad.add("%s: an issue this run creates has no reader to notify, so it cannot carry a comment", row.key)
 		}
 		if row.parent != "" {
-			bad.addAll(checkPublishRef(rows, row.key+": parent", row.parent))
+			bad.addAll(checkPublishRef(set.byKey, row.key+": parent", row.parent))
 		}
-		bad.addAll(checkPublishBody(rows, row))
+		bad.addAll(checkPublishBody(set.byKey, row))
 	}
 
 	for _, b := range set.blocks {
-		bad.addAll(checkPublishRef(rows, "blocked_by: blocked", b.blocked))
-		bad.addAll(checkPublishRef(rows, "blocked_by: by", b.by))
+		bad.addAll(checkPublishRef(set.byKey, "blocked_by: blocked", b.blocked))
+		bad.addAll(checkPublishRef(set.byKey, "blocked_by: by", b.by))
 	}
 
 	return bad.err(set.file)
@@ -233,14 +301,14 @@ func substitutionsIn(row publishRow) []PlannedSubstitution {
 // readPublishTargets reads every issue the run has to know something about
 // before it writes: what a target's updated_at is now, and what integer id an
 // issue on either end of a link has.
-func readPublishTargets(ctx context.Context, c *ghapi.Client, set publishSet, record publishRecord) (map[string]ghapi.Issue, error) {
+//
+// Serially, which is what GitHub's own REST guidance asks for over concurrent
+// requests, and what the rest of this package does.
+func readPublishTargets(ctx context.Context, c *ghapi.Client, set publishSet, record *publishRecord) (map[string]int64, error) {
 	var bad violations
-	live := map[string]ghapi.Issue{}
+	ids := map[string]int64{}
 
 	read := func(key string) (ghapi.Issue, bool) {
-		if got, ok := live[key]; ok {
-			return got, true
-		}
 		n, err := strconv.Atoi(key)
 		if err != nil {
 			return ghapi.Issue{}, false
@@ -250,7 +318,7 @@ func readPublishTargets(ctx context.Context, c *ghapi.Client, set publishSet, re
 			bad.add("#%d could not be read: %v", n, err)
 			return ghapi.Issue{}, false
 		}
-		live[key] = got
+		ids[key] = got.ID
 		return got, true
 	}
 
@@ -271,13 +339,15 @@ func readPublishTargets(ctx context.Context, c *ghapi.Client, set publishSet, re
 	// An issue named only as a parent or a blocker is read for its id alone.
 	// Nothing is written to it, so nothing about it can be stale.
 	for _, key := range referencedNumbers(set) {
-		read(key)
+		if _, known := ids[key]; !known {
+			read(key)
+		}
 	}
 
 	if err := bad.err(set.file); err != nil {
 		return nil, err
 	}
-	return live, nil
+	return ids, nil
 }
 
 // referencedNumbers is every existing issue a link names, in a stable order so
@@ -307,16 +377,16 @@ func (v *violations) addAll(found []string) {
 
 // PublishDryRun runs every check, sends no write, and answers with what a run
 // would do.
-func PublishDryRun(ctx context.Context, c *ghapi.Client, m PublishManifest, dir, file string) (PublishPlan, error) {
-	p, err := plan(ctx, c, m, dir, file)
+func PublishDryRun(ctx context.Context, c *ghapi.Client, m PublishManifest, file string) (PublishPlan, error) {
+	p, err := plan(ctx, c, m, file)
 	if err != nil {
 		return PublishPlan{}, err
 	}
 	return p.render(), nil
 }
 
-// render projects the plan into what the command prints, leaving out the steps
-// the record says have already been taken.
+// render projects the plan into what the command prints, from the same
+// predicates the stages skip on: a step listed here is a step that will run.
 func (p publishPlan) render() PublishPlan {
 	out := PublishPlan{
 		Create: []PlannedIssue{}, Link: []PlannedLink{}, Substitute: []PlannedSubstitution{},
@@ -324,17 +394,26 @@ func (p publishPlan) render() PublishPlan {
 	}
 	for _, row := range p.set.rows {
 		planned := PlannedIssue{Key: row.key, Number: p.numberOf(row.key), Title: row.title, Labels: row.labels}
-		switch {
-		case !row.target() && p.record.numbered[row.key].number == 0:
+		if p.needsCreate(row) {
 			out.Create = append(out.Create, planned)
-		case row.target() && !p.record.patched[row.key]:
-			out.Edit = append(out.Edit, planned)
 		}
-		if row.parent != "" && !p.record.linked[row.key] {
+		if p.needsLink(row) {
 			out.Link = append(out.Link, PlannedLink{From: row.key, To: row.parent})
 		}
-		if row.commentFile != "" && !p.record.commented[row.key] {
+		// A created issue reaches this too, where its body went out holding a
+		// forward reference: the write that fills it in is the same request as
+		// a target's edit, and leaving it out was the plan claiming a run
+		// would do less than it does.
+		if p.needsWrite(row) {
+			out.Edit = append(out.Edit, planned)
+		}
+		if p.needsComment(row) {
 			out.Comment = append(out.Comment, row.number)
+		}
+		if !p.needsCreate(row) && !p.needsWrite(row) {
+			// Its body is where the manifest wants it, so nothing is left to
+			// substitute into it.
+			continue
 		}
 		for _, s := range substitutionsIn(row) {
 			s.Number = p.numberOf(s.Name)
@@ -342,7 +421,7 @@ func (p publishPlan) render() PublishPlan {
 		}
 	}
 	for _, b := range p.set.blocks {
-		if !p.record.blocked[b] {
+		if p.needsBlock(b) {
 			out.BlockedBy = append(out.BlockedBy, PlannedLink{From: b.blocked, To: b.by})
 		}
 	}
@@ -352,7 +431,11 @@ func (p publishPlan) render() PublishPlan {
 // numberOf is the issue a key names: the number it always had, or the one this
 // run has already given it, or 0 for one still to be created.
 func (p publishPlan) numberOf(key string) int {
-	if n, err := strconv.Atoi(key); err == nil {
+	// Only a numeric key can be a number, and the keys were classified when
+	// the manifest was parsed; asking strconv about a placeholder allocates an
+	// error to throw away, once per occurrence per scan.
+	if numberKey.MatchString(key) {
+		n, _ := strconv.Atoi(key)
 		return n
 	}
 	return p.record.numbered[key].number

@@ -75,6 +75,15 @@ func TestCheck(t *testing.T) {
 			locale: issue.JA, kind: issue.Leaf,
 		},
 		{
+			// The same for a tilde fence, which this check used not to see.
+			// It has to agree with the reading `ccx issue publish` substitutes
+			// placeholders by: a line one of them called prose and the other
+			// called code is how a placeholder ships unreplaced.
+			name:   "a tilde fence hides its headings too",
+			draft:  jaLeaf + "\n~~~\n## Out of scope\n## 存在しない見出し\n~~~\n",
+			locale: issue.JA, kind: issue.Leaf,
+		},
+		{
 			// Three classes at once, so that the order they are reported in and
 			// the status they collapse to are both pinned.
 			name: "every class is reported, missing first",

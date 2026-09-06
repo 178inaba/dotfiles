@@ -39,9 +39,9 @@ What.
 - Everything else.
 `
 
-// manifestDir writes a manifest and its files into a temporary directory and
-// answers with the directory and the manifest's path.
-func manifestDir(t *testing.T, m issue.PublishManifest, files map[string]string) (string, string) {
+// writeManifest writes a manifest and its files into a temporary directory and
+// answers with the manifest's path, which is all a caller passes on.
+func writeManifest(t *testing.T, m issue.PublishManifest, files map[string]string) string {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -58,18 +58,49 @@ func manifestDir(t *testing.T, m issue.PublishManifest, files map[string]string)
 	if err := os.WriteFile(file, b, 0o600); err != nil {
 		t.Fatalf("write the manifest: %v", err)
 	}
-	return dir, file
+	return file
 }
 
 func ptr[T any](v T) *T { return &v }
 
-// row is the shortest spelling of a manifest row a case can start from.
-func row(key, draft string) issue.PublishManifestIssue {
-	return issue.PublishManifestIssue{
+// row is the shortest spelling of a manifest row a case can start from, with
+// whatever else the case is about applied to it.
+func row(key, draft string, mods ...func(*issue.PublishManifestIssue)) issue.PublishManifestIssue {
+	r := issue.PublishManifestIssue{
 		Key: ptr(key), Draft: ptr(draft), Title: ptr("A title"),
 		Labels: []string{"enhancement"}, Locale: ptr("en"), Kind: ptr("leaf"),
 	}
+	for _, mod := range mods {
+		mod(&r)
+	}
+	return r
 }
+
+// The modifications the cases reach for, named so that a row reads as what is
+// different about it.
+func withParent(key string) func(*issue.PublishManifestIssue) {
+	return func(r *issue.PublishManifestIssue) { r.Parent = ptr(key) }
+}
+
+func withUpdatedAt(at string) func(*issue.PublishManifestIssue) {
+	return func(r *issue.PublishManifestIssue) { r.UpdatedAt = ptr(at) }
+}
+
+func withComment(file string) func(*issue.PublishManifestIssue) {
+	return func(r *issue.PublishManifestIssue) { r.Comment = ptr(file) }
+}
+
+func withLocale(l string) func(*issue.PublishManifestIssue) {
+	return func(r *issue.PublishManifestIssue) { r.Locale = ptr(l) }
+}
+
+func withKind(k string) func(*issue.PublishManifestIssue) {
+	return func(r *issue.PublishManifestIssue) { r.Kind = ptr(k) }
+}
+
+// fresh is the snapshot most target rows carry, since the case is usually
+// about something else.
+const fresh = "2026-01-01T00:00:00Z"
 
 // refusing is a client that fails the test if it is reached at all, which is
 // how "nothing is written before every check has passed" is held to
@@ -166,12 +197,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "a placeholder carries a snapshot",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("A", "a.md")
-					r.UpdatedAt = ptr("2026-01-01T00:00:00Z")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("A", "a.md", withUpdatedAt("2026-01-01T00:00:00Z"))},
 			},
 			files: map[string]string{"a.md": leafDraft},
 			want:  "cannot carry updated_at",
@@ -179,12 +206,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "a placeholder carries a comment",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("A", "a.md")
-					r.Comment = ptr("c.md")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("A", "a.md", withComment("c.md"))},
 			},
 			files: map[string]string{"a.md": leafDraft, "c.md": "changed"},
 			want:  "cannot carry a comment",
@@ -199,12 +222,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "a comment file is not there",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("42", "a.md")
-					r.UpdatedAt, r.Comment = ptr("2026-01-01T00:00:00Z"), ptr("missing.md")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("42", "a.md", withUpdatedAt("2026-01-01T00:00:00Z"), withComment("missing.md"))},
 			},
 			files: map[string]string{"a.md": leafDraft},
 			want:  "comment not found beside the manifest",
@@ -220,12 +239,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "an unsupported locale",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("A", "a.md")
-					r.Locale = ptr("fr")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("A", "a.md", withLocale("fr"))},
 			},
 			files: map[string]string{"a.md": leafDraft},
 			want:  "unsupported locale",
@@ -233,12 +248,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "an unsupported kind",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("A", "a.md")
-					r.Kind = ptr("epic")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("A", "a.md", withKind("epic"))},
 			},
 			files: map[string]string{"a.md": leafDraft},
 			want:  "unsupported kind",
@@ -254,12 +265,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "a comment numbers its items with bare #N",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("42", "a.md")
-					r.UpdatedAt, r.Comment = ptr("2026-01-01T00:00:00Z"), ptr("c.md")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("42", "a.md", withUpdatedAt("2026-01-01T00:00:00Z"), withComment("c.md"))},
 			},
 			files: map[string]string{"a.md": leafDraft, "c.md": "#1 one #2 two #3 three\n"},
 			want:  "look like item numbering",
@@ -275,12 +282,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "a parent names a placeholder no row defines",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("A", "a.md")
-					r.Parent = ptr("PARENT")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("A", "a.md", withParent("PARENT"))},
 			},
 			files: map[string]string{"a.md": leafDraft},
 			want:  "parent: no row defines the placeholder PARENT",
@@ -298,12 +301,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "a target has moved since the draft was written",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("42", "a.md")
-					r.UpdatedAt = ptr("2026-01-01T00:00:00Z")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("42", "a.md", withUpdatedAt("2026-01-01T00:00:00Z"))},
 			},
 			files: map[string]string{"a.md": leafDraft},
 			live:  map[string]string{"/repos/owner/repo/issues/42": liveIssue(42, 900, "2026-02-02T00:00:00Z")},
@@ -312,12 +311,8 @@ func TestPublishRefuses(t *testing.T) {
 		{
 			name: "an issue a link names is not there",
 			manifest: issue.PublishManifest{
-				Repo: ptr("owner/repo"),
-				Issues: []issue.PublishManifestIssue{func() issue.PublishManifestIssue {
-					r := row("A", "a.md")
-					r.Parent = ptr("77")
-					return r
-				}()},
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("A", "a.md", withParent("77"))},
 			},
 			files: map[string]string{"a.md": leafDraft},
 			live:  map[string]string{},
@@ -329,7 +324,7 @@ func TestPublishRefuses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			dir, file := manifestDir(t, tt.manifest, tt.files)
+			file := writeManifest(t, tt.manifest, tt.files)
 			c := refusing(t)
 			if tt.live != nil {
 				c = reading(t, tt.live)
@@ -337,7 +332,7 @@ func TestPublishRefuses(t *testing.T) {
 
 			// Both entry points refuse identically: a dry run that accepted
 			// what a run refuses would be showing a plan that cannot happen.
-			if _, err := issue.PublishDryRun(t.Context(), c, tt.manifest, dir, file); err == nil {
+			if _, err := issue.PublishDryRun(t.Context(), c, tt.manifest, file); err == nil {
 				t.Fatal("PublishDryRun succeeded, want a refusal")
 			} else if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("PublishDryRun refused with %q, want it to mention %q", err, tt.want)
@@ -360,19 +355,15 @@ func TestPublishRefusalNamesEveryViolation(t *testing.T) {
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
 			row("A", "a.md"),
-			func() issue.PublishManifestIssue {
-				r := row("B", "b.md")
-				r.Parent = ptr("PARENT")
-				return r
-			}(),
+			row("B", "b.md", withParent("PARENT")),
 		},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"a.md": leafDraft + "\nWaits for #{SUB_C}.\n",
 		"b.md": leafDraft,
 	})
 
-	_, err := issue.PublishDryRun(t.Context(), refusing(t), m, dir, file)
+	_, err := issue.PublishDryRun(t.Context(), refusing(t), m, file)
 	if err == nil {
 		t.Fatal("PublishDryRun succeeded, want a refusal")
 	}
@@ -390,21 +381,12 @@ func TestPublishDryRunPlansTheWholeSet(t *testing.T) {
 		Repo: ptr("owner/repo"),
 		Issues: []issue.PublishManifestIssue{
 			row("PARENT", "parent.md"),
-			func() issue.PublishManifestIssue {
-				r := row("SUB_A", "sub-a.md")
-				r.Parent = ptr("PARENT")
-				return r
-			}(),
-			func() issue.PublishManifestIssue {
-				r := row("42", "42.md")
-				r.Parent, r.UpdatedAt = ptr("PARENT"), ptr("2026-01-01T00:00:00Z")
-				r.Comment = ptr("42-comment.md")
-				return r
-			}(),
+			row("SUB_A", "sub-a.md", withParent("PARENT")),
+			row("42", "42.md", withParent("PARENT"), withUpdatedAt(fresh), withComment("42-comment.md")),
 		},
 		BlockedBy: []issue.PublishManifestBlockedBy{{Blocked: ptr("42"), By: ptr("SUB_A")}},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"parent.md":     leafDraft + "\nComposed of #{SUB_A}.\n",
 		"sub-a.md":      leafDraft,
 		"42.md":         leafDraft + "\nWaits for #{SUB_A}.\n",
@@ -414,7 +396,7 @@ func TestPublishDryRunPlansTheWholeSet(t *testing.T) {
 		"/repos/owner/repo/issues/42": liveIssue(42, 900, "2026-01-01T00:00:00Z"),
 	})
 
-	got, err := issue.PublishDryRun(t.Context(), c, m, dir, file)
+	got, err := issue.PublishDryRun(t.Context(), c, m, file)
 	if err != nil {
 		t.Fatalf("PublishDryRun: %v", err)
 	}
@@ -431,7 +413,13 @@ func TestPublishDryRunPlansTheWholeSet(t *testing.T) {
 			{In: "PARENT", Line: 21, Name: "SUB_A"},
 			{In: "42", Line: 21, Name: "SUB_A"},
 		},
-		Edit:      []issue.PlannedIssue{{Key: "42", Number: 42, Title: "A title", Labels: []string{"enhancement"}}},
+		// The parent is edited as well as created: its body names a sub that
+		// does not exist when it goes out, so a second write fills the number
+		// in. SUB_A's body is finished at creation and is not here.
+		Edit: []issue.PlannedIssue{
+			{Key: "PARENT", Title: "A title", Labels: []string{"enhancement"}},
+			{Key: "42", Number: 42, Title: "A title", Labels: []string{"enhancement"}},
+		},
 		Comment:   []int{42},
 		BlockedBy: []issue.PlannedLink{{From: "42", To: "SUB_A"}},
 	}
@@ -453,11 +441,11 @@ func TestPublishDryRunLeavesQuotedPlaceholdersAlone(t *testing.T) {
 	m := issue.PublishManifest{
 		Repo: ptr("owner/repo"), Issues: []issue.PublishManifestIssue{row("A", "a.md")},
 	}
-	dir, file := manifestDir(t, m, map[string]string{
+	file := writeManifest(t, m, map[string]string{
 		"a.md": leafDraft + "\nInline `#{NAME}` and fenced:\n\n```ruby\nputs \"#{NAME}\"\n```\n",
 	})
 
-	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, dir, file)
+	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, file)
 	if err != nil {
 		t.Fatalf("PublishDryRun: %v", err)
 	}

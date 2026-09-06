@@ -117,6 +117,46 @@ func (c *Client) EditIssue(ctx context.Context, repo Repo, number int, ch IssueC
 	return w.issue(), nil
 }
 
+// AddSubIssue makes one issue a sub-issue of another and answers with the
+// parent as it stands afterwards.
+//
+// The child is named by its integer id rather than its number, which is what
+// the endpoint takes. The response is the parent, so a caller tracking when
+// the parent last changed reads it here rather than fetching it again — the
+// link moves it.
+func (c *Client) AddSubIssue(ctx context.Context, repo Repo, parent int, subID int64) (Issue, error) {
+	var w issueWire
+	path := fmt.Sprintf("repos/%s/issues/%d/sub_issues", repo, parent)
+	if err := c.Post(ctx, path, map[string]any{"sub_issue_id": subID}, &w); err != nil {
+		return Issue{}, err
+	}
+	return w.issue(), nil
+}
+
+// AddBlockedBy records that an issue is waiting for another, and answers with
+// the waiting issue as it stands afterwards.
+//
+// Same shape as AddSubIssue: the issue waited for is named by its integer id,
+// and the response is the issue in the path.
+func (c *Client) AddBlockedBy(ctx context.Context, repo Repo, blocked int, byID int64) (Issue, error) {
+	var w issueWire
+	path := fmt.Sprintf("repos/%s/issues/%d/dependencies/blocked_by", repo, blocked)
+	if err := c.Post(ctx, path, map[string]any{"issue_id": byID}, &w); err != nil {
+		return Issue{}, err
+	}
+	return w.issue(), nil
+}
+
+// CreateIssueComment posts a comment on an issue and answers with its url.
+func (c *Client) CreateIssueComment(ctx context.Context, repo Repo, number int, body string) (string, error) {
+	var w issueCommentWire
+	path := fmt.Sprintf("repos/%s/issues/%d/comments", repo, number)
+	if err := c.Post(ctx, path, map[string]any{"body": body}, &w); err != nil {
+		return "", err
+	}
+	return w.HTMLURL, nil
+}
+
 // IssueParent reads the issue an issue is a sub-issue of.
 //
 // (nil, nil) is an issue that is nobody's child, which the endpoint reports as

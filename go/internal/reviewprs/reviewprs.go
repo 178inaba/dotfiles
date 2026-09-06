@@ -67,7 +67,7 @@ var pendingQuery = url.Values{
 // one — the two would stop matching, and every bot would start counting as a
 // person.
 func ListPending(ctx context.Context, c *ghapi.Client) (Pending, error) {
-	me, err := currentUser(ctx, c, userTTL)
+	me, err := c.Viewer(ctx, userTTL)
 	if err != nil {
 		return Pending{}, err
 	}
@@ -173,7 +173,7 @@ func VerifyPosted(ctx context.Context, c *ghapi.Client, specs []Spec) (Verificat
 	// Not the cached user: this runs once at the end of a loop iteration, and
 	// a day-old answer to who is posting is not worth the risk of verifying
 	// against the wrong login.
-	me, err := currentUser(ctx, c, 0)
+	me, err := c.Viewer(ctx, 0)
 	if err != nil {
 		return Verification{}, err
 	}
@@ -242,27 +242,6 @@ type review struct {
 // question that should be yes.
 func reviewsOf(ctx context.Context, c *ghapi.Client, owner, repo string, number int) ([]review, error) {
 	return ghapi.GetAll[review](ctx, c, fmt.Sprintf("repos/%s/%s/pulls/%d/reviews", owner, repo, number))
-}
-
-// currentUser returns the authenticated login, cached for ttl when ttl is
-// positive.
-func currentUser(ctx context.Context, c *ghapi.Client, ttl time.Duration) (string, error) {
-	var user struct {
-		Login string `json:"login"`
-	}
-	var err error
-	if ttl > 0 {
-		err = c.GetCached(ctx, "user", ttl, &user)
-	} else {
-		err = c.Get(ctx, "user", &user)
-	}
-	if err != nil {
-		return "", fmt.Errorf("fetch the authenticated user: %w", err)
-	}
-	if user.Login == "" {
-		return "", fmt.Errorf("the authenticated user has no login")
-	}
-	return user.Login, nil
 }
 
 // specPattern is the <owner>/<repo>#<number> the caller names a pull request

@@ -21,10 +21,16 @@ func PublishedLog(manifestFile string) string { return manifestFile + ".publishe
 type publishStep string
 
 const (
-	stepCreate    publishStep = "create"
-	stepLink      publishStep = "link"
-	stepPatch     publishStep = "patch"
-	stepComment   publishStep = "comment"
+	stepCreate  publishStep = "create"
+	stepLink    publishStep = "link"
+	stepComment publishStep = "comment"
+	// stepBodyFinal says the body on GitHub is the one the draft asks for and
+	// needs no further write. Not "a patch happened": an issue whose body went
+	// out complete at creation reaches this without a second request, and the
+	// run has to be able to tell that from one created holding a forward
+	// reference — which it cannot recompute after a restart, since by then
+	// every placeholder resolves either way.
+	stepBodyFinal publishStep = "body_final"
 	stepBlockedBy publishStep = "blocked_by"
 	// stepFreshness records what an issue's updated_at became after this run
 	// touched it. Not a write of its own: it is what a re-run compares
@@ -34,25 +40,34 @@ const (
 
 // publishRecordLine is one completed step.
 type publishRecordLine struct {
-	Step      publishStep `json:"step"`
-	Key       string      `json:"key,omitzero"`
-	Number    int         `json:"number,omitzero"`
-	ID        int64       `json:"id,omitzero"`
-	Parent    string      `json:"parent,omitzero"`
-	By        string      `json:"by,omitzero"`
-	URL       string      `json:"url,omitzero"`
-	UpdatedAt string      `json:"updated_at,omitzero"`
+	Step   publishStep `json:"step"`
+	Key    string      `json:"key,omitzero"`
+	Number int         `json:"number,omitzero"`
+	ID     int64       `json:"id,omitzero"`
+	// Other is the key at the far end of a link or a dependency: the parent,
+	// or the issue waited for. Recorded rather than implied, so that a
+	// manifest whose parent was changed after a partial run is linked again
+	// rather than read as done.
+	Other     string `json:"other,omitzero"`
+	URL       string `json:"url,omitzero"`
+	UpdatedAt string `json:"updated_at,omitzero"`
 }
 
 // publishRecord is what a manifest has already written.
+//
+// Held by pointer wherever a run carries it: the plan answers "what is left"
+// from these maps, and the stages append to them as they go, so a copy would
+// let the two disagree part-way through a run.
 type publishRecord struct {
 	file string
 	// numbered is the number and id each created placeholder received.
-	numbered  map[string]publishNumber
-	linked    map[string]bool
-	patched   map[string]bool
-	commented map[string]bool
+	numbered map[string]publishNumber
+	// linked and blocked are keyed by both ends, so that changing one end in
+	// the manifest is not read as already done.
+	linked    map[publishBlock]bool
 	blocked   map[publishBlock]bool
+	final     map[string]bool
+	commented map[string]bool
 	// fresh is the updated_at each touched issue has now, which is what a
 	// re-run checks a target against.
 	fresh map[string]string
@@ -69,11 +84,11 @@ type publishNumber struct {
 // A line that does not decode is dropped rather than reported: the only way to
 // produce one is to be interrupted mid-append, and the step it half-describes
 // is exactly the one the run should do again.
-func readPublishRecord(file string) publishRecord {
-	r := publishRecord{
+func readPublishRecord(file string) *publishRecord {
+	r := &publishRecord{
 		file: file, numbered: map[string]publishNumber{},
-		linked: map[string]bool{}, patched: map[string]bool{}, commented: map[string]bool{},
-		blocked: map[publishBlock]bool{}, fresh: map[string]string{},
+		linked: map[publishBlock]bool{}, blocked: map[publishBlock]bool{},
+		final: map[string]bool{}, commented: map[string]bool{}, fresh: map[string]string{},
 	}
 	b, err := os.ReadFile(file)
 	if err != nil {
@@ -99,13 +114,13 @@ func (r *publishRecord) remember(l publishRecordLine) {
 	case stepCreate:
 		r.numbered[l.Key] = publishNumber{number: l.Number, id: l.ID}
 	case stepLink:
-		r.linked[l.Key] = true
-	case stepPatch:
-		r.patched[l.Key] = true
+		r.linked[publishBlock{blocked: l.Key, by: l.Other}] = true
+	case stepBodyFinal:
+		r.final[l.Key] = true
 	case stepComment:
 		r.commented[l.Key] = true
 	case stepBlockedBy:
-		r.blocked[publishBlock{blocked: l.Key, by: l.By}] = true
+		r.blocked[publishBlock{blocked: l.Key, by: l.Other}] = true
 	case stepFreshness:
 		r.fresh[l.Key] = l.UpdatedAt
 	}

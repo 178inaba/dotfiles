@@ -14,6 +14,7 @@
 package ghmd
 
 import (
+	"bytes"
 	"iter"
 	"regexp"
 	"strings"
@@ -129,16 +130,17 @@ func BareHashRefs(body string) int {
 	seen := map[byte]bool{}
 	// Per line, and with the spans taken out rather than skipped: text either
 	// side of a span joins into one token, which is what decides whether that
-	// token opens with an alphanumeric.
-	var line strings.Builder
+	// token opens with an alphanumeric. The buffer is reused across lines
+	// because this runs on the gh shim's path, before every write it guards.
+	var line []byte
 	at := 0
 	flush := func() {
-		for token := range strings.FieldsSeq(line.String()) {
-			if bareHashToken.MatchString(token) {
-				seen[token[strings.IndexByte(token, '#')+1]] = true
+		for token := range bytes.FieldsSeq(line) {
+			if bareHashToken.Match(token) {
+				seen[token[bytes.IndexByte(token, '#')+1]] = true
 			}
 		}
-		line.Reset()
+		line = line[:0]
 	}
 	for s := range Segments(body) {
 		if s.Line != at {
@@ -146,7 +148,7 @@ func BareHashRefs(body string) int {
 			at = s.Line
 		}
 		if s.Kind == Prose {
-			line.WriteString(body[s.Start:s.End])
+			line = append(line, body[s.Start:s.End]...)
 		}
 	}
 	flush()
