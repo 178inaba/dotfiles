@@ -56,16 +56,14 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
   - **依存の確認**: 判定の根拠は `blocked_by[]`（運用規約「Sub 間の順序」）。open の blocker があれば、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。意図的な先行着手を妨げないため停止はしない
     - blocker が兄弟 Sub でなくても扱いは同じ（何が blocking かは GitHub の登録が正）。ただし stacked base に使える head branch が無い blocker では選択肢を続行 / 中断のみにする（兄弟でない blocker は PR を持たないことがある）。判定は `same_repo: false` か、`gh issue view <blocker.url> --json closedByPullRequestsReferences` が空か（`ccx issue tree --with-prs` が Sub の PR を引くのと同じ機構）
     - `blocked_by` が空 = 依存が 1 件も登録されていない → **散文へフォールバック**する（運用規約の例外）。本 Issue の `depends_on` 節（または親の `composition` 節。いずれも同手順で引く）にある先行 Sub が `siblings[]` で open かを見る
-    - `blocked_by: null`（取得失敗）は上記冒頭の `warnings[]` の規定どおり、自動判定に頼らずユーザー確認へ倒す
 - **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない（Sub が実装単位）
   - open の Sub が残る（`all_sub_issues_closed: false`）→ **停止**。`ccx issue tree <parent> --with-deps` で各 Sub の blocker を取り、Sub 一覧を番号・タイトル・状態で提示し、「次に着手できる Sub」を示して終了する。自動では着手しない（どの Sub をやるか・`--worktree` を使うかはユーザーの判断）
     - 対象は **open の Sub のみ**（closed の Sub は blocker がすべて closed でも着手可に含めない）。その上で Sub ごとに判定して 1 つの一覧にまとめる: `blocked_by` が空でない Sub は `blockers_closed: true` なら着手可、`blocked_by` が空の Sub（依存未登録）は親本文の `composition` 節（同手順で引く）の依存順で判定し、節が無い親では順序の制約なしとして着手可に含める。これにより一部の Sub だけリンク済みの親でも一覧が分裂しない
-    - `blocked_by: null` の Sub は着手可に含めず、取得に失敗した旨を添える
   - 全 Sub が closed（`all_sub_issues_closed: true`）→ **親の充足検証 → close** を行う（下記）。計画フェーズ・実装フェーズには進まない
 
 **親の充足検証 → close**（全 Sub 完了の親を渡されたとき）:
 1. 事前準備 Step 1〜2 と同じ規則でベースブランチを確定し（`--base` / 現在ブランチ）、`origin/<base>` を fetch する
-2. `ccx issue tree <parent> --with-prs` で各 Sub を閉じた PR の状態を取り（`sub_issues[].prs[]` の `merged` / `base_ref`）、未マージ・`base_ref` がベースブランチと異なる・`prs` が空か null の Sub があれば警告し、続行するか AskUserQuestion で確認する
+2. `ccx issue tree <parent> --with-prs` で各 Sub を閉じた PR の状態を取り（`sub_issues[].prs[]` の `merged` / `base_ref`）、未マージ・`base_ref` がベースブランチと異なる・`prs` が空の Sub があれば警告し、続行するか AskUserQuestion で確認する
 3. 親本文の受け入れ条件・横断ルール（と Sub の受け入れ条件のうち親に集約されているもの）を項目展開し、`origin/<base>` のコードと突き合わせて **充足 / 未実装 / 逸脱** に分類する（deep-review の「Issue 要件の充足状況」と同じ形式。差分ではなくベースブランチの現状を読む）
 4. 未実装・逸脱が 1 つでもあれば close せず、充足表と未充足の内容を報告して終了する（対応は新しい Sub の起票等、ユーザーの判断）
 5. 全充足なら `release_manual_steps` 節を確認する（同手順で引く）。「なし」マーカー（または節が無く手動作業も見当たらない）なら充足表を提示して close の承認を得てから閉じる: 充足表を scratchpad に Write して `gh issue comment <parent> -R <repo> --body-file <path>` で投稿（言語は Issue 本文に合わせる）→ `gh issue close <parent> -R <repo>`。手動作業ありなら、作業の完了をユーザーに確認できた場合のみ同じ手順で close し、未完了なら close せず作業一覧を提示して終了する

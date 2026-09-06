@@ -715,8 +715,8 @@ func TestTreeWithPRs(t *testing.T) {
 			wantErr: "read the pull requests closing Sub #31",
 		},
 		{
-			// The second lookup of the pair: the list arrived, and one of the
-			// pull requests it names could not be read.
+			// The second lookup of the pair: the list arrived, and GitHub
+			// declined one of the pull requests it names.
 			name: "a pull request the list names cannot be read",
 			server: fixtures{
 				rest:    map[string]string{at("30"): parent, at("30/sub_issues"): list(sub(31, "closed"), sub(32, "closed"))},
