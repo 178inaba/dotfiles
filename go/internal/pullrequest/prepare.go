@@ -302,12 +302,11 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, c *ghapi.Cl
 	}
 	p.WorkDir = &work.Dir
 
-	// Before the fetch and the diff below rather than after them: this is the
-	// one step on this path that stops the run rather than degrading, and
-	// stopping before a patch is written keeps the work dir from gaining one
-	// that nothing in the output names. What it degrades on and what it stops
-	// on are readIssues' own: an issue GitHub says is gone leaves a warning,
-	// and anything else is about the run rather than about the issue.
+	// Before the fetch and the diff below for the reason the detached head is
+	// asked about before either: a run that cannot be served does not pay for
+	// the rest of them first. What this degrades on and what it stops on are
+	// readIssues' own — an issue GitHub says is gone leaves a warning, and
+	// anything else is about the run rather than about the issue.
 	if o.Issue != 0 {
 		named, warnings, err := namedIssue(ctx, c, repo, o.Issue, nil, DefaultLimits.IssueComments)
 		if err != nil {
