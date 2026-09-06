@@ -60,12 +60,26 @@ Skill ツールで `pr-reading` を起動し、その手順に従って読む。
 
 ブリーフは毎回この読解を経て作る。「残作業・注意点」が読む待ち状態は、読解を省く条件ではない。
 
-### 現在の状態の確認
-8. `git status` で未コミットの変更を確認
-9. `gh pr checks` でCIの状態を確認
-10. `gh pr view --json reviewDecision,reviews,headRefOid` でレビュー状態と PR の最新 head を取得
-11. `git rev-parse HEAD` を `headRefOid` と比較し、不一致ならローカルが PR の最新 head と乖離していることを記録する（読み取り専用スキルのため fetch・同期はせず、報告への注記のみ）
-12. 乖離時、`git cat-file -e <headRefOid>` でオブジェクトがローカルに存在する場合のみ `git merge-base --is-ancestor` で方向（ahead: 未 push commit あり / behind: 未取得 commit あり / diverged）を判別して併記する（push/pull どちらが必要かの引き継ぎ情報になるため。オブジェクト不在なら方向不明のまま報告してよい — fetch はしない）
+### 現在の状態
+
+- PR: 番号と、自分の PR か他人の PR か（`is_own_pr` と `pr.author`）。下記「残作業・注意点」の待ち状態は実行しているユーザー側から見た値なので、他人の PR ではそれが「こちらに来ている分」だと読めるようにする
+- ブランチ: `pr.head_ref`
+- CI: PR コンテキストの取得で得た `gh pr checks` の結果
+- レビュー: `reviewers[]` の各要素を `author` と `state` で 1 行ずつ書く（実効状態はドキュメントが確定させているので、ここで導出しない）
+- 未コミット変更: `git status`
+- ローカルと PR head の整合: `git rev-parse HEAD` を `pr.head_oid` と比較し、一致しなければ `git merge-base --is-ancestor` で ahead（未 push commit あり）/ behind（未取得 commit あり）/ diverged を判別する。push・pull どちらが必要かの引き継ぎ情報になる。`pr.head_oid` は PR コンテキストの取得を終えた時点でローカルに存在する（同コマンドの契約）ので、判別できない場合は無い。`--worktree` 指定時は worktree 解決が同期済みのため通常は一致する
+
+**`<pr-number>` のみのモード**では、未コミット変更と整合の 2 項目を「ローカルの状態: checkout を見ていないため未確認」の 1 行に置き換える。その head branch を checkout 中の worktree が `git worktree list --porcelain` に見つかれば、そのパスを 1 行添える（読者の次の一手が通常そこへ行くため）。
+
+### 残作業・注意点
+
+- CI の失敗、TODO・FIXME 等の未処理、既知の問題。番号なし / `--worktree` のモードでは checkout から、`<pr-number>` のみのモードでは読解した差分から拾う
+- レビュー由来の未対応は `pending` の 3 つのリストから列挙する。本文を読んで数え直さない（何が待っているかはドキュメントが数え終えている）:
+  - `pending.threads[]`: `path:line`（`line` が null なら `original_line`）と `opened_by`
+  - `pending.reviews[]` / `pending.comments[]`: それぞれの author
+  - あわせて `pending.since` を書く（null ならその旨）。時刻を基準にする 2 つのリストはこのマシンで前回記録された時点から数えているため、書かないと別の場所の読者が短いリストを「静かな PR」と読み違える
+  - 解決済みスレッドは `ball` が `mine` にならないので現れない
+- 読解で読めなかった Issue、`warnings[]` の各行、コメントの打ち切り
 
 ### 報告
 以下の構造で報告する：
@@ -81,17 +95,21 @@ Skill ツールで `pr-reading` を起動し、その手順に従って読む。
  反映しており手元のコミットではない旨を添える）
 
 ## 現在の状態
+- PR: #<番号>（自分の PR / <author> の PR）
 - ブランチ: xxx
 - CI: 成功/失敗/未実行
-- レビュー: 承認/変更要求/未レビュー
+- レビュー: <author>: <state> を人数分
 - 未コミット変更: あり/なし
-- ローカルと PR head の整合: 一致 / 乖離（判別できた場合は ahead/behind/diverged を併記。乖離時: コミット履歴・差分の報告はローカル実体基準である旨を明記）
+- ローカルと PR head の整合: 一致 / 乖離（ahead/behind/diverged）
+（`<pr-number>` のみのモードでは下 2 項目を「ローカルの状態: checkout を
+ 見ていないため未確認」の 1 行に置き換え、既存 worktree があればパスを添える）
 
 ## 残作業・注意点
-（レビューコメントの未対応、TODO、既知の問題など）
+（CI 失敗・TODO・既知の問題と、待っているレビュー — スレッドは path:line と
+ 起こした人、レビュー・コメントは author。どの時点から数えた分かも併記）
 ```
 
 ## 注意事項
-1. PRの説明文だけでなく、実際の差分を読んで理解する
-2. レビューコメントがある場合は未対応のものを特定する
-3. CIが失敗している場合は失敗内容も確認する
+1. **読み取り専用**: checkout を動かすのは `--worktree` 指定時の worktree 解決だけ。ローカル branch の同期・fast-forward は行わず、実行の記録も残さない（本スキルは何も判断しないため。同期と記録はレビュー系スキルの責務）
+2. CIが失敗している場合は失敗内容も確認する
+3. `--worktree` 指定時の挙動は `worktree-resolution` の注意事項を参照
