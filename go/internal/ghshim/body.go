@@ -3,81 +3,31 @@ package ghshim
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
+
+	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
-// The three body rules, and the quoting the messages echo commands with. The
-// shell reached for awk here because it has no line scan of its own; what it
-// asked awk to decide is kept, the sub-language is not.
+// The three body rules, and the quoting the messages echo commands with. What
+// counts as prose and what counts as code is ghmd's to say, because `ccx issue
+// publish` writes bodies this shim never sees and has to reach the same
+// verdict about them; what is left here is what this shim decides once it has
+// been told.
 
-var (
-	fenceLine = regexp.MustCompile("^[[:space:]]*(```|~~~)")
-	codeSpan  = regexp.MustCompile("`[^`]*`")
-	// The trailing class is what excludes #12 and up, #1a2b3c and #1st; the
-	// leading one is what leaves OWNER/REPO#1 alone, by skipping any token
-	// that opens with an alphanumeric.
-	bareHashToken = regexp.MustCompile(`^[^[:alnum:]#]*#[1-9]([^[:alnum:]]|$)`)
-	// GitHub reads only the direct adjacency of keyword, optional colon, space
-	// and reference, so the detection is limited to it as well.
-	//
-	// The same knowledge is encoded in pullrequest.closingKeyword, which reads
-	// a body for the issues it closes; if GitHub ever changes the set, both
-	// have to move.
-	closingKeyword = regexp.MustCompile(
-		`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
-)
-
-// countBareHashRefs counts the distinct digits of the bare #1 to #9 in body,
-// ignoring the places GitHub does not autolink.
+// GitHub reads only the direct adjacency of keyword, optional colon, space and
+// reference, so the detection is limited to it as well.
 //
-// [[:alnum:]] is ASCII here while awk's was whatever the locale said, so a
-// digit followed by a multibyte letter counts where it might not have. That
-// errs towards blocking, and a decision that does not move with the locale is
-// worth more than the agreement — macOS awk compares multibyte text unreliably.
-//
-// A known limit carried over: an unclosed fence hides everything after it.
-func countBareHashRefs(body string) int {
-	seen := map[byte]bool{}
-	fence := false
-	for line := range strings.Lines(body) {
-		if fenceLine.MatchString(line) {
-			fence = !fence
-			continue
-		}
-		if fence {
-			continue
-		}
-		// The substitution allocates, and most lines hold no code span.
-		if strings.IndexByte(line, '`') >= 0 {
-			line = codeSpan.ReplaceAllString(line, "")
-		}
-		for token := range strings.FieldsSeq(line) {
-			if !bareHashToken.MatchString(token) {
-				continue
-			}
-			seen[token[strings.IndexByte(token, '#')+1]] = true
-		}
-	}
-	return len(seen)
-}
+// The same knowledge is encoded in pullrequest.closingKeyword, which reads a
+// body for the issues it closes; if GitHub ever changes the set, both have to
+// move.
+var closingKeyword = regexp.MustCompile(
+	`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
 
 // hasQuotedClosingKeyword reports whether body holds a closing keyword where
 // GitHub will not read it as one: inside a fence, or inside a code span.
 func hasQuotedClosingKeyword(body string) bool {
-	fence := false
-	for line := range strings.Lines(body) {
-		if fenceLine.MatchString(line) {
-			fence = !fence
-			continue
-		}
-		if fence {
-			if closingKeyword.MatchString(line) {
-				return true
-			}
-			continue
-		}
-		if slices.ContainsFunc(codeSpan.FindAllString(line, -1), closingKeyword.MatchString) {
+	for s := range ghmd.Segments(body) {
+		if s.Kind != ghmd.Prose && closingKeyword.MatchString(body[s.Start:s.End]) {
 			return true
 		}
 	}
