@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/issue"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -17,8 +19,59 @@ import (
 )
 
 func newIssueCmd(build selfbuild.State) *cobra.Command {
-	c := newParentCmd("issue", "Read GitHub issues")
-	c.AddCommand(newSectionsCmd(build), newTreeCmd(build))
+	c := newParentCmd("issue", "Read and write GitHub issues")
+	c.AddCommand(newSectionsCmd(build), newTreeCmd(build), newPublishCmd(build))
+	return c
+}
+
+// newPublishCmd builds `ccx issue publish`, which writes the set of issues a
+// manifest declares.
+//
+// The manifest is a positional argument rather than a set of flags because it
+// is what a re-run is repeated from: the record of what has already been
+// written sits beside it, and a run assembled from flags could differ between
+// the two without anybody noticing.
+func newPublishCmd(build selfbuild.State) *cobra.Command {
+	var dryRun bool
+	c := &cobra.Command{
+		Use:   "publish <manifest-file>",
+		Short: "Create, link and edit the issues a manifest declares",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, build)
+			file := args[0]
+			content, err := readFile(file, "manifest file")
+			if err != nil {
+				return silent(err)
+			}
+			// Decoded here rather than in internal/issue, which
+			// internal/contract reads and so cannot be read by.
+			var m issue.PublishManifest
+			if err := contract.Unmarshal([]byte(content), &m, file); err != nil {
+				return silent(err)
+			}
+
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			dir := filepath.Dir(file)
+			if dryRun {
+				planned, err := issue.PublishDryRun(c.Context(), client, m, dir, file)
+				if err != nil {
+					return silent(err)
+				}
+				return silent(renderCompactJSON(c.OutOrStdout(), planned))
+			}
+			published, err := issue.Publish(c.Context(), client, m, dir, file)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderCompactJSON(c.OutOrStdout(), published))
+		},
+	}
+	c.Flags().BoolVar(&dryRun, "dry-run", false,
+		"Run every check and print the plan without writing or recording anything")
 	return c
 }
 

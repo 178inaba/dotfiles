@@ -136,6 +136,47 @@ argument would put a whole issue on a command line.`,
 		statuses: with(sectionNotFound),
 	},
 
+	"issue publish": {
+		intro: `Create, link and edit the set of issues a manifest declares.
+
+A set of issues that name each other cannot be written one issue at a time: a
+parent's body names subs that do not exist when it is created. So every issue
+is created first, in the manifest's order, then linked to its parent, then the
+placeholders left in the bodies are replaced with the numbers they received and
+those bodies written. Dependencies are registered last, when everything they
+name exists. A body refers to an issue with no number yet as ` + "`#{NAME}`" + `, which is
+the spelling GitHub's renderer leaves intact; a run replaces every one of them,
+and fails rather than leaving one behind.
+
+Nothing is written until every check has passed. The manifest is checked
+against its contract; a placeholder no row defines, a missing draft, a heading
+the section schema does not know, and a body that numbers its items with bare
+#N are each refused, from the same judgement the gh shim applies to a body it
+sees on a command line. Every existing issue the run edits is re-read live, and
+one that has changed since its draft was written against it stops the run: fix
+that draft, update its ` + "`updated_at`" + `, and run the manifest again. A refusal names
+every violation it found rather than the first.
+
+Each write is recorded in a file beside the manifest as it lands, so running
+the same manifest again after a failure carries on from where it stopped
+instead of creating a second copy of what already exists. What the run itself
+moved is recorded too — linking a sub moves its parent — so a re-run is not
+refused over its own work.
+
+Drafts, comment bodies and a draft's optional ` + "`<draft>.mapping`" + ` are read from the
+manifest's own directory, by bare file name.
+
+--dry-run runs every one of those checks, the live re-read included, writes
+nothing, records nothing, and prints the plan instead. A refusal in a dry run
+is the same refusal with the same exit status.`,
+		blocks: []block{
+			reads("Input (the manifest file named as the argument)", reflect.TypeFor[issue.PublishManifest]()),
+			prints(reflect.TypeFor[issue.Published]()),
+			writes("Output with --dry-run", reflect.TypeFor[issue.PublishPlan]()),
+		},
+		statuses: with(),
+	},
+
 	"pr context": {
 		intro: `Fetch what a pull request is and what it changes into one file.
 
