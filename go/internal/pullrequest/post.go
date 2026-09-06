@@ -50,13 +50,14 @@ func (a Assessment) event() (string, error) {
 type SubmissionComment struct {
 	Path string
 	Line int
-	Body string
+	Body ghapi.Body
 }
 
-// Submission is a review ready to post, with every body already resolved.
+// Submission is a review ready to post, with every body already resolved and
+// judged.
 type Submission struct {
 	Assessment Assessment
-	Body       string
+	Body       ghapi.Body
 	Comments   []SubmissionComment
 }
 
@@ -110,18 +111,29 @@ func ParseSubmission(b []byte, workDir, file string) (Submission, error) {
 	if err := contract.Unmarshal(b, &wire, file); err != nil {
 		return Submission{}, err
 	}
-	body, err := resolveBody(wire.Body, wire.BodyFile, workDir)
+	text, err := resolveBody(wire.Body, wire.BodyFile, workDir)
 	if err != nil {
 		return Submission{}, err
+	}
+	// Judged here, before a single request is built, so that a review whose
+	// body or whose fourteenth remark GitHub would turn into notifications on
+	// unrelated issues is refused whole rather than half posted.
+	body, err := ghapi.NewBody(text)
+	if err != nil {
+		return Submission{}, fmt.Errorf("the review body: %w", err)
 	}
 
 	// Every field the loop below dereferences is one the declaration required,
 	// which is what Unmarshal has just held the document to.
 	out := Submission{Assessment: *wire.Assessment, Body: body, Comments: []SubmissionComment{}}
-	for _, c := range wire.Comments {
-		commentBody, err := resolveBody(c.Body, c.BodyFile, workDir)
+	for i, c := range wire.Comments {
+		text, err := resolveBody(c.Body, c.BodyFile, workDir)
 		if err != nil {
 			return Submission{}, err
+		}
+		commentBody, err := ghapi.NewBody(text)
+		if err != nil {
+			return Submission{}, fmt.Errorf("comments[%d] (%s:%d): %w", i, *c.Path, *c.Line, err)
 		}
 		out.Comments = append(out.Comments, SubmissionComment{Path: *c.Path, Line: *c.Line, Body: commentBody})
 	}
@@ -161,6 +173,10 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 	if err != nil {
 		return Posted{}, err
 	}
+	repo, err := target.repository()
+	if err != nil {
+		return Posted{}, err
+	}
 	if err := RequireHead(ctx, r, dir, target.HeadOID, "posting"); err != nil {
 		return Posted{}, err
 	}
@@ -168,31 +184,23 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 		return Posted{}, err
 	}
 
-	type comment struct {
-		Path string `json:"path"`
-		Line int    `json:"line"`
-		Body string `json:"body"`
+	submission := ghapi.ReviewSubmission{
+		CommitID: target.HeadOID, Event: event, Body: sub.Body,
+		Comments: make([]ghapi.ReviewComment, 0, len(sub.Comments)),
 	}
-	payload := struct {
-		CommitID string    `json:"commit_id"`
-		Event    string    `json:"event"`
-		Body     string    `json:"body"`
-		Comments []comment `json:"comments"`
-	}{CommitID: target.HeadOID, Event: event, Body: sub.Body, Comments: []comment{}}
 	for _, s := range sub.Comments {
-		payload.Comments = append(payload.Comments, comment(s))
+		submission.Comments = append(submission.Comments,
+			ghapi.ReviewComment{Path: s.Path, Line: s.Line, Body: s.Body})
 	}
 
-	var response struct {
-		HTMLURL string `json:"html_url"`
-	}
-	if err := c.Post(ctx, fmt.Sprintf("repos/%s/pulls/%d/reviews", target.Repo, target.Number), payload, &response); err != nil {
+	url, err := c.SubmitReview(ctx, repo, target.Number, submission)
+	if err != nil {
 		return Posted{}, fmt.Errorf("failed to post review (gh api): %v", err)
 	}
-	if response.HTMLURL == "" {
+	if url == "" {
 		return Posted{}, fmt.Errorf("review posted but html_url missing in the API response")
 	}
-	return Posted{URL: response.HTMLURL}, nil
+	return Posted{URL: url}, nil
 }
 
 // checkAnchors reports the comments that point at lines the diff does not have.

@@ -232,7 +232,7 @@ var genTypes = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Seen":               "The record one pull request's state file holds.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.SeenRecord":         "Where the record went and what it now says.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Stored":             "Where a fetched context and the directory paired with it were written. The document itself never goes to standard output: on a pull request with a busy conversation it runs to hundreds of kilobytes, and the caller reads it with a tool that takes a path.",
-	"github.com/178inaba/dotfiles/go/internal/pullrequest.Submission":         "A review ready to post, with every body already resolved.",
+	"github.com/178inaba/dotfiles/go/internal/pullrequest.Submission":         "A review ready to post, with every body already resolved and judged.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.SubmissionComment":  "One comment anchored to a line of the diff.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Target":             "The pull request a review is being posted to.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Thread":             "One conversation on the diff.",

@@ -55,10 +55,11 @@ type Commented struct {
 // context file.
 //
 // Here rather than at the command line so that every body a run posts — a
-// review's, a reply's, a comment's — is joined, read and refused in one place.
-// A bare name for the reason the two documents declare one: a path would reach
-// round the directory binding that keeps parallel runs on different pull
-// requests out of each other's files.
+// review's, a reply's, a comment's — is read the same way. What is in it is
+// judged where the marker has been prepended, since that is the text GitHub
+// renders. A bare name for the reason the two documents declare one: a path
+// would reach round the directory binding that keeps parallel runs on
+// different pull requests out of each other's files.
 func ParseCommentBody(workDir, bodyFile string) (string, error) {
 	if bodyFile == "" || bodyFile != filepath.Base(bodyFile) {
 		return "", fmt.Errorf("the body file must be a bare file name, not a path: %s", bodyFile)
@@ -72,12 +73,25 @@ func ParseCommentBody(workDir, bodyFile string) (string, error) {
 // markdown after it renders as it was written rather than being folded into
 // the comment's opening line.
 //
-// The mark is resolved before anything else, and the local head is confirmed
-// after that, as posting a review does: a report written against a checkout
-// that has since moved is about code the pull request no longer holds, and
-// there is nothing to be done about it once it is published.
+// The mark is resolved before anything else, then the joined text is judged,
+// and the local head is confirmed after that, as posting a review does: a
+// report written against a checkout that has since moved is about code the
+// pull request no longer holds, and there is nothing to be done about it once
+// it is published.
+//
+// What is judged is the joined text rather than what the caller wrote, because
+// that is what GitHub renders. The marker holds nothing the judgement is about,
+// so joining first costs the caller no accuracy in the refusal.
 func PostComment(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, target Target, mark Mark, body string) (Commented, error) {
 	marker, err := mark.marker()
+	if err != nil {
+		return Commented{}, err
+	}
+	marked, err := ghapi.NewBody(marker + "\n\n" + body)
+	if err != nil {
+		return Commented{}, fmt.Errorf("the comment body: %w", err)
+	}
+	repo, err := target.repository()
 	if err != nil {
 		return Commented{}, err
 	}
@@ -85,15 +99,9 @@ func PostComment(ctx context.Context, r runner.Runner, c *ghapi.Client, dir stri
 		return Commented{}, err
 	}
 
-	req := struct {
-		Body string `json:"body"`
-	}{Body: marker + "\n\n" + body}
-	var out struct {
-		HTMLURL string `json:"html_url"`
-	}
-	path := fmt.Sprintf("repos/%s/issues/%d/comments", target.Repo, target.Number)
-	if err := c.Post(ctx, path, req, &out); err != nil {
+	url, err := c.CreateIssueComment(ctx, repo, target.Number, marked)
+	if err != nil {
 		return Commented{}, fmt.Errorf("failed to post the comment: %v", err)
 	}
-	return Commented{URL: out.HTMLURL}, nil
+	return Commented{URL: url}, nil
 }

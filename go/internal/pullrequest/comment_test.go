@@ -120,6 +120,27 @@ func TestPostCommentRefusesAnUnknownMark(t *testing.T) {
 	}
 }
 
+// A body GitHub would autolink into notifications on unrelated issues is
+// refused before the head is even confirmed, so nothing is posted.
+func TestPostCommentRefusesABodyThatNumbersItsItems(t *testing.T) {
+	t.Parallel()
+
+	repo := diffRepo(t)
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	c := ghapitest.New(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("something was posted despite the bare #N numbering")
+	}))
+
+	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
+		target, pullrequest.MarkReviewResponse, "#1 one\n#2 two\n#3 three\n")
+	if err == nil {
+		t.Fatal("PostComment with bare #N numbering succeeded, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "3 distinct bare #N") {
+		t.Errorf("error = %q, want it to name what was found", err)
+	}
+}
+
 // A checkout that has moved on is a run whose report is about code the pull
 // request no longer holds, so nothing is posted.
 func TestPostCommentRefusesAMovedHead(t *testing.T) {
