@@ -80,6 +80,37 @@ func TestPost(t *testing.T) {
 	}
 }
 
+func TestPatch(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotBody string
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+			return
+		}
+		gotBody = string(b)
+		fmt.Fprint(w, `{"number":7,"title":"edited"}`)
+	}))
+
+	var got issue
+	if err := c.Patch(t.Context(), "repos/o/r/issues/7", issue{Number: 7, Title: "edited"}, &got); err != nil {
+		t.Fatalf("Patch: %v", err)
+	}
+
+	if gotMethod != http.MethodPatch {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPatch)
+	}
+	if want := `{"number":7,"title":"edited"}`; gotBody != want {
+		t.Errorf("body = %q, want %q", gotBody, want)
+	}
+	if got.Title != "edited" {
+		t.Errorf(`Patch decoded %+v, want title "edited"`, got)
+	}
+}
+
 func TestGetAllFollowsLinkHeader(t *testing.T) {
 	t.Parallel()
 

@@ -69,6 +69,32 @@ func TestIssue(t *testing.T) {
 	}
 }
 
+// TestIssueReadsTheIDAndUpdatedAt covers the two fields the number cannot
+// stand in for: the sub-issue and dependency endpoints address an issue by its
+// integer id, and a freshness check compares the timestamp.
+func TestIssueReadsTheIDAndUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	c := issues(t, map[string]string{
+		"/repos/owner/repo/issues/10": `{"id":5359302143,"number":10,"title":"Issue 10","body":"","state":"open",
+			"updated_at":"2026-09-05T16:28:42Z",
+			"html_url":"https://github.com/owner/repo/issues/10",
+			"repository_url":"https://api.github.com/repos/owner/repo"}`,
+	}, nil)
+
+	got, err := c.Issue(t.Context(), issueRepo, 10)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	// Larger than an int32, which is why the field is an int64.
+	if want := int64(5359302143); got.ID != want {
+		t.Errorf("Issue.ID = %d, want %d", got.ID, want)
+	}
+	if want := "2026-09-05T16:28:42Z"; got.UpdatedAt != want {
+		t.Errorf("Issue.UpdatedAt = %q, want %q", got.UpdatedAt, want)
+	}
+}
+
 // TestIssueReadsTheCommentCount is the reason the count is decoded here rather
 // than counted: it arrives with the body the enrichment already fetches, so the
 // total a truncated comment list is measured against costs no request.

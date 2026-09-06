@@ -124,11 +124,24 @@ func (c *Client) GetCached(ctx context.Context, path string, ttl time.Duration, 
 
 // Post sends body as JSON to a REST path and decodes the response into out.
 func (c *Client) Post(ctx context.Context, path string, body, out any) error {
+	return c.send(ctx, http.MethodPost, path, body, out)
+}
+
+// Patch sends body as JSON to a REST path and decodes the response into out.
+//
+// A method of its own rather than one that takes the verb, because go-gh
+// itself names them — Delete, Get, Patch, Post and Put sit above the DoWithContext
+// that takes a method — and a caller reads better for it.
+func (c *Client) Patch(ctx context.Context, path string, body, out any) error {
+	return c.send(ctx, http.MethodPatch, path, body, out)
+}
+
+func (c *Client) send(ctx context.Context, method, path string, body, out any) error {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("ghapi: encode request body: %w", err)
 	}
-	return c.rest.DoWithContext(ctx, http.MethodPost, path, bytes.NewReader(b), out)
+	return c.rest.DoWithContext(ctx, method, path, bytes.NewReader(b), out)
 }
 
 // GraphQL runs one query or mutation and decodes the response into out.

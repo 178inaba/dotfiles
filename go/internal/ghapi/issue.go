@@ -13,10 +13,19 @@ import (
 // a missing parent means.
 type Issue struct {
 	Number int
-	Title  string
-	Body   string
-	State  string
-	URL    string
+	// ID is GitHub's own integer for the issue, which is not the number: the
+	// sub-issue and dependency endpoints address an issue by this and reject
+	// the number. Wide enough for what GitHub issues today, which has passed
+	// what an int32 holds.
+	ID    int64
+	Title string
+	Body  string
+	State string
+	URL   string
+	// UpdatedAt is when the issue last changed, in GitHub's own spelling, so
+	// that a caller holding a snapshot can tell whether it still describes the
+	// issue by comparing the strings.
+	UpdatedAt string
 	// Repo is the repository the issue lives in, which need not be the one it
 	// was asked about: a sub-issue may cross repositories within an owner. The
 	// zero value is a repository url that could not be read, which each caller
@@ -99,11 +108,13 @@ func (c *Client) IssueComments(ctx context.Context, repo Repo, number, limit int
 // same shape arrives from the issue endpoint, the parent endpoint and both
 // list endpoints.
 type issueWire struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	Body    string `json:"body"`
-	State   string `json:"state"`
-	HTMLURL string `json:"html_url"`
+	Number    int    `json:"number"`
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	State     string `json:"state"`
+	UpdatedAt string `json:"updated_at"`
+	HTMLURL   string `json:"html_url"`
 	// RepositoryURL rather than the repository object, because only this one is
 	// required by the issue schema.
 	RepositoryURL string `json:"repository_url"`
@@ -115,8 +126,9 @@ func (w issueWire) issue() Issue {
 	// Issue.Repo.
 	repo, _ := RepoFromAPIURL(w.RepositoryURL)
 	return Issue{
-		Number: w.Number, Title: w.Title, Body: w.Body,
-		State: w.State, URL: w.HTMLURL, Repo: repo, Comments: w.Comments,
+		Number: w.Number, ID: w.ID, Title: w.Title, Body: w.Body,
+		State: w.State, UpdatedAt: w.UpdatedAt, URL: w.HTMLURL,
+		Repo: repo, Comments: w.Comments,
 	}
 }
 
