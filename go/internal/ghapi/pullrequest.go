@@ -144,6 +144,55 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 	return out.Repository.PullRequest.pullRequest(), nil
 }
 
+// AppendToPullRequestBody adds one section to the end of a pull request's
+// body and answers with the pull request's url.
+//
+// The body it appends to is read here rather than taken from the caller, and
+// that is the whole point of the writer: the caller holds a snapshot fetched
+// minutes or hours ago, and sending it back would silently undo whatever
+// somebody typed into the description since. Nothing about the body read
+// leaves this function, so no caller can substitute one.
+//
+// The current body is not judged. It is what a person wrote, and refusing it
+// would lose it rather than protect anybody; only the section is judged, which
+// is what NewPullRequestBody has already done.
+//
+// A section already in the body is refused rather than written twice, which is
+// what a retry of the same escalation looks like. What cannot be guarded
+// against is an edit made between the read and the write: GitHub's REST API
+// supports conditional requests on reads only — no If-Match on a PATCH — so
+// there is no mechanism to lose the race with, and the window is one round
+// trip.
+func (c *Client) AppendToPullRequestBody(ctx context.Context, repo Repo, number int, section PullRequestBody) (string, error) {
+	pr, err := c.PullRequest(ctx, repo, number)
+	if err != nil {
+		return "", err
+	}
+
+	// GitHub stores a body with CRLF line endings, and the section was read
+	// from a file written with LF, so neither the search nor the join can go
+	// by the bytes as they arrive.
+	current := strings.ReplaceAll(pr.Body, "\r\n", "\n")
+	text := strings.TrimSpace(section.String())
+	if text != "" && strings.Contains(current, text) {
+		return "", fmt.Errorf("the section is already in the body of %s#%d, so nothing was appended", repo, number)
+	}
+
+	body := section.String()
+	if trimmed := strings.TrimRight(current, "\n"); trimmed != "" {
+		body = trimmed + "\n\n" + body
+	}
+
+	var w struct {
+		HTMLURL string `json:"html_url"`
+	}
+	path := fmt.Sprintf("repos/%s/pulls/%d", repo, number)
+	if err := c.patch(ctx, path, map[string]any{"body": body}, &w); err != nil {
+		return "", err
+	}
+	return w.HTMLURL, nil
+}
+
 // PullRequestForCurrentBranch is `gh pr view` with no argument: the pull
 // request whose head is the branch checked out in dir.
 //

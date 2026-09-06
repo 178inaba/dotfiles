@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -366,5 +367,127 @@ func TestPullRequestForBranch(t *testing.T) {
 				t.Errorf("headRefName = %v, want %q", got, tc.wantRef)
 			}
 		})
+	}
+}
+
+// edit is what reached the pull request endpoint, so that a case asserts the
+// body GitHub was asked to store without a second copy of the join.
+type edit struct {
+	path string
+	body string
+}
+
+// appendServer answers the read with live as the pull request's body and
+// captures the edit that follows it.
+//
+// One handler for both halves, because the append is one function's
+// read-modify-write: a case that stubbed them apart could not tell that the
+// body sent was built from the body read.
+func appendServer(t *testing.T, live string, sent *edit) http.Handler {
+	t.Helper()
+
+	read := graphQL(t, fmt.Sprintf(
+		`{"data":{"repository":{"pullRequest":{"number":7,"body":%s,"url":"https://github.com/178inaba/dotfiles/pull/7"}}}}`,
+		strconv.Quote(live)), nil)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			read.ServeHTTP(w, r)
+			return
+		}
+		var req struct {
+			Body string `json:"body"`
+		}
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+			return
+		}
+		if err := json.Unmarshal(b, &req); err != nil {
+			t.Errorf("decode the request body: %v", err)
+			return
+		}
+		*sent = edit{path: r.URL.Path, body: req.Body}
+		fmt.Fprint(w, `{"html_url":"https://github.com/178inaba/dotfiles/pull/7"}`)
+	})
+}
+
+func TestAppendToPullRequestBody(t *testing.T) {
+	t.Parallel()
+
+	const section = "## The decision\n\nKept as it is.\n"
+	for _, tt := range []struct {
+		name, live, want string
+	}{
+		// The body the document was fetched with is not what is appended to:
+		// somebody edited the pull request in between, and what they wrote is
+		// still there afterwards.
+		{
+			name: "onto the body GitHub holds",
+			live: "The original description.\n",
+			want: "The original description.\n\n" + section,
+		},
+		// A body with nothing in it takes the section alone, rather than
+		// opening with the blank line a join would leave.
+		{name: "onto an empty body", want: section},
+		// The current body is kept whatever it says: it is what a person
+		// typed, and refusing it would lose it rather than protect anybody.
+		{
+			name: "onto a body that would fail the numbering rule itself",
+			live: "#1 one\n#2 two\n#3 three\n",
+			want: "#1 one\n#2 two\n#3 three\n\n" + section,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sent edit
+			c := ghapitest.New(t, appendServer(t, tt.live, &sent))
+
+			body, err := ghapi.NewPullRequestBody(section)
+			if err != nil {
+				t.Fatalf("NewPullRequestBody: %v", err)
+			}
+			url, err := c.AppendToPullRequestBody(t.Context(), repo, 7, body)
+			if err != nil {
+				t.Fatalf("AppendToPullRequestBody: %v", err)
+			}
+
+			if want := "https://github.com/178inaba/dotfiles/pull/7"; url != want {
+				t.Errorf("url = %q, want %q", url, want)
+			}
+			if want := "/repos/178inaba/dotfiles/pulls/7"; sent.path != want {
+				t.Errorf("edited %q, want %q", sent.path, want)
+			}
+			if sent.body != tt.want {
+				t.Errorf("body sent = %q, want %q", sent.body, tt.want)
+			}
+		})
+	}
+}
+
+// A second run of the same escalation would otherwise write the section twice,
+// which is what a retry after a reply that never reached GitHub looks like.
+// The stored body comes back with CRLF line endings, so the comparison cannot
+// be of the bytes as they arrive.
+func TestAppendToPullRequestBodyRefusesASectionAlreadyThere(t *testing.T) {
+	t.Parallel()
+
+	const section = "## The decision\n\nKept as it is.\n"
+
+	var sent edit
+	c := ghapitest.New(t, appendServer(t, "Original.\r\n\r\n## The decision\r\n\r\nKept as it is.\r\n", &sent))
+
+	body, err := ghapi.NewPullRequestBody(section)
+	if err != nil {
+		t.Fatalf("NewPullRequestBody: %v", err)
+	}
+	if _, err := c.AppendToPullRequestBody(t.Context(), repo, 7, body); err == nil {
+		t.Fatal("AppendToPullRequestBody appended a section already there, want a refusal")
+	} else if !strings.Contains(err.Error(), "already") {
+		t.Errorf("error = %q, want it to say the section is already in the body", err)
+	}
+	if sent != (edit{}) {
+		t.Errorf("an edit was sent: %+v", sent)
 	}
 }
