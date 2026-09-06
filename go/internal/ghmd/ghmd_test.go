@@ -31,6 +31,9 @@ func TestRefuseBareHashRefs(t *testing.T) {
 		{name: "qualified references are left alone", body: "o/r#1 o/r#2 o/r#3"},
 		{name: "a fenced block hides its lines", body: "#1\n```\n#2 #3\n```\n"},
 		{name: "a tilde fence hides its lines too", body: "#1\n~~~\n#2 #3\n~~~\n"},
+		// The tilde line does not close the backtick block, so the numbers on
+		// the line after it are still inside it.
+		{name: "a tilde line does not close a backtick block", body: "```\n~~~\n#1 #2 #3\n```\n"},
 		{name: "an indented fence still opens one", body: "#1\n  ```\n#2 #3\n  ```\n"},
 		{name: "a code span hides what it holds", body: "`#1 #2` #3"},
 		// The span is removed before the line is split, so the text either
@@ -179,6 +182,49 @@ func TestSegments(t *testing.T) {
 				{Kind: ghmd.Prose, Line: 1, Text: "x "},
 				{Kind: ghmd.Span, Line: 1, Text: "```a`b```"},
 				{Kind: ghmd.Prose, Line: 1, Text: " y\n"},
+			},
+		},
+		{
+			// CommonMark's example 145: a backtick fence's info string may not
+			// hold a backtick, so this opens no block and the line is read as
+			// prose with a span in it. A tilde fence's info string may hold
+			// both characters, which is why the rule is the backtick's alone.
+			name: "a backtick run whose remainder holds a backtick opens no fence",
+			body: "``` x ` y ```",
+			want: []text{{Kind: ghmd.Span, Line: 1, Text: "``` x ` y ```"}},
+		},
+		{
+			// The misreading this replaces: a fence used to toggle on any
+			// marker line, so the tilde line closed the backtick block and
+			// left the rest of the body as prose.
+			name: "a tilde line inside a backtick block is content",
+			body: "```\n~~~\n#1 #2 #3\n```\n",
+			want: []text{
+				{Kind: ghmd.Fence, Line: 2, Text: "~~~\n"},
+				{Kind: ghmd.Fence, Line: 3, Text: "#1 #2 #3\n"},
+			},
+		},
+		{
+			name: "a longer closing run still closes the block",
+			body: "````\nx\n`````\n",
+			want: []text{{Kind: ghmd.Fence, Line: 2, Text: "x\n"}},
+		},
+		{
+			name: "a run shorter than the opening one is content",
+			body: "````\n```\nx\n````\n",
+			want: []text{
+				{Kind: ghmd.Fence, Line: 2, Text: "```\n"},
+				{Kind: ghmd.Fence, Line: 3, Text: "x\n"},
+			},
+		},
+		{
+			// A closing fence carries no info string, so a run of the right
+			// length followed by text closes nothing.
+			name: "a closing-length run followed by text is content",
+			body: "```\n``` x\ny\n```\n",
+			want: []text{
+				{Kind: ghmd.Fence, Line: 2, Text: "``` x\n"},
+				{Kind: ghmd.Fence, Line: 3, Text: "y\n"},
 			},
 		},
 		{

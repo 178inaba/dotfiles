@@ -16,7 +16,11 @@
 //
 // The scan is deliberately not a markdown parser. It knows the two things that
 // decide whether a reference is live — a fenced block and an inline code span —
-// and nothing else, because that is the whole of what the callers ask.
+// and nothing else, because that is the whole of what the callers ask. The two
+// it does know it reads by CommonMark's rules rather than by an approximation
+// of them: both are delimited by the length of a run of one character, and a
+// reading that only looks for the character puts a boundary where GitHub shows
+// none.
 package ghmd
 
 import (
@@ -35,7 +39,6 @@ import (
 const bareHashRefLimit = 3
 
 var (
-	fenceLine = regexp.MustCompile("^[[:space:]]*(```|~~~)")
 	// The trailing class is what excludes #12 and up, #1a2b3c and #1st; the
 	// leading one is what leaves OWNER/REPO#1 alone, by skipping any token
 	// that opens with an alphanumeric.
@@ -78,26 +81,89 @@ type Segment struct {
 // with what the shim already decided.
 func Segments(body string) iter.Seq[Segment] {
 	return func(yield func(Segment) bool) {
-		fence := false
+		var open fence
 		line, offset := 1, 0
 		for text := range strings.Lines(body) {
 			start := offset
 			offset += len(text)
 			switch {
-			case fenceLine.MatchString(text):
-				fence = !fence
-			case fence:
-				if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
+			// Whether a line opens a block is asked only outside one, and
+			// whether it closes one only inside: a marker of the other
+			// character, or a shorter one, is content rather than a nested
+			// block, and that is the difference from the toggle this replaces.
+			case open.n == 0:
+				if f, ok := opensFence(text); ok {
+					open = f
+				} else if !yieldProseAndSpans(yield, text, line, start) {
 					return
 				}
+			case open.closedBy(text):
+				open = fence{}
 			default:
-				if !yieldProseAndSpans(yield, text, line, start) {
+				if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
 					return
 				}
 			}
 			line++
 		}
 	}
+}
+
+// fence is the block a body is currently inside, or the zero value outside
+// one. Both the marker's character and the length of its run are carried,
+// because both decide what closes it.
+type fence struct {
+	char byte
+	n    int
+}
+
+// opensFence reports whether a line outside a block opens one.
+//
+// A backtick fence is refused where the rest of the line holds a backtick,
+// which is CommonMark's rule that a backtick fence's info string may not
+// contain one — its example 145 is the line ``` ``` aa ``` ```, read as a code
+// span and not as a block. A tilde fence's info string may hold either
+// character, so the rule is the backtick's alone.
+func opensFence(text string) (fence, bool) {
+	char, n, rest := markerRun(text)
+	if n < 3 {
+		return fence{}, false
+	}
+	if char == '`' && strings.IndexByte(rest, '`') >= 0 {
+		return fence{}, false
+	}
+	return fence{char: char, n: n}, true
+}
+
+// closedBy reports whether a line closes the block f opens.
+//
+// A closing fence carries no info string, so a run of the right character and
+// length still closes nothing if anything but whitespace follows it.
+func (f fence) closedBy(text string) bool {
+	char, n, rest := markerRun(text)
+	return char == f.char && n >= f.n && strings.TrimSpace(rest) == ""
+}
+
+// markerRun reads the fence marker a line opens with: its character, the
+// length of its run, and what follows the run.
+//
+// The leading whitespace it skips is any amount, where CommonMark allows three
+// spaces. Nothing here depends on the difference, and the tolerance is what
+// the expression this replaces already had.
+func markerRun(text string) (char byte, n int, rest string) {
+	i := 0
+	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+		i++
+	}
+	if i == len(text) || (text[i] != '`' && text[i] != '~') {
+		return 0, 0, text[i:]
+	}
+	char = text[i]
+	j := i
+	for j < len(text) && text[j] == char {
+		j++
+	}
+	return char, j - i, text[j:]
 }
 
 // yieldProseAndSpans splits one prose line around the code spans in it.
