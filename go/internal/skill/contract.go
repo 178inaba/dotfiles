@@ -3,7 +3,6 @@ package skill
 import (
 	_ "embed"
 	"fmt"
-	"iter"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -151,7 +150,10 @@ func contractFindings(file, content string, commands []string, published map[str
 	known := allowed()
 
 	var out []ContractFinding
-	for line, span := range spans(content) {
+	// A span is scanned with its delimiters on. They are not identifier
+	// characters, so notIdentifier drops them along with the spaces and the
+	// punctuation, and taking them off first would change nothing.
+	scan := func(line int, span string) {
 		for _, token := range notIdentifier.Split(span, -1) {
 			if !contractIdentifier.MatchString(token) || known[token] || published[token] {
 				continue
@@ -159,57 +161,27 @@ func contractFindings(file, content string, commands []string, published map[str
 			out = append(out, ContractFinding{Type: UnknownContractField, File: file, Line: line, Ref: token})
 		}
 	}
-	return out
-}
 
-// spans yields the content of every code span in body, with the line it sits
-// on.
-//
-// Where a span is, is ghmd's reading in full, deviations included. What is
-// this check's own is that a fenced block stays in: a field named in an
-// example is as much a reference as one named in a sentence, and Segments
-// yields a fenced line whole rather than as the spans inside it. So each Fence
-// segment is read again — a line carrying no marker of its own comes back as
-// prose and spans — and what is found there is reported at the fenced line's
-// number. That policy is this check's rather than part of how GitHub reads a
-// body, which is why it is here and not an API of ghmd's.
-func spans(body string) iter.Seq2[int, string] {
-	return func(yield func(int, string) bool) {
-		for s := range ghmd.Segments(body) {
-			text := body[s.Start:s.End]
-			switch s.Kind {
-			case ghmd.Span:
-				if !yield(s.Line, spanContent(text)) {
-					return
+	// Where a span is, is ghmd's reading in full, deviations included. What is
+	// this check's own is that a fenced block stays in: a field named in an
+	// example is as much a reference as one named in a sentence, and Segments
+	// yields a fenced line whole rather than as the spans inside it. So each
+	// Fence segment is read again — a line carrying no marker of its own comes
+	// back as prose and spans — and what is found there is reported at the
+	// fenced line's number. That policy is this check's rather than part of how
+	// GitHub reads a body, which is why it is here and not an API of ghmd's.
+	for s := range ghmd.Segments(content) {
+		text := content[s.Start:s.End]
+		switch s.Kind {
+		case ghmd.Span:
+			scan(s.Line, text)
+		case ghmd.Fence:
+			for inner := range ghmd.Segments(text) {
+				if inner.Kind == ghmd.Span {
+					scan(s.Line, text[inner.Start:inner.End])
 				}
-			case ghmd.Fence:
-				for inner := range ghmd.Segments(text) {
-					if inner.Kind != ghmd.Span {
-						continue
-					}
-					if !yield(s.Line, spanContent(text[inner.Start:inner.End])) {
-						return
-					}
-				}
-			case ghmd.Prose:
 			}
 		}
 	}
-}
-
-// spanContent is what a span holds, its delimiting backtick runs taken off.
-// The two runs are of equal length, so counting the opening one measures both.
-//
-// No length check guards the slice, because a span cannot be all delimiter:
-// the closing run is searched for from the byte after the opening one, and
-// that byte is not a backtick or the opening run would not have ended there.
-//
-// CommonMark also strips a space from each end where both are present, and
-// nothing here depends on it: notIdentifier splits on spaces anyway.
-func spanContent(span string) string {
-	n := 0
-	for n < len(span) && span[n] == '`' {
-		n++
-	}
-	return span[n : len(span)-n]
+	return out
 }
