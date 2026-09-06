@@ -56,7 +56,7 @@
       "title": "Sub 122",
       "state": "open",
       "url": "https://github.com/178inaba/dotfiles/issues/122",
-      "prs": null,
+      "prs": [],
       "blocked_by": [],
       "blockers_closed": true
     }

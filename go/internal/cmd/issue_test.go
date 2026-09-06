@@ -291,9 +291,9 @@ func TestScriptSubcommandReportsABrokenBuildOnStderr(t *testing.T) {
 // what a golden can hold that they cannot is the JSON.
 //
 // Two of them, because the annotated and unannotated sub-issues are different
-// objects: prs and blocked_by are absent without their flags, null when the
-// lookup failed, and a list otherwise, and only a rendered file shows the
-// three apart.
+// objects: prs and blocked_by are absent without their flags and a list with
+// them — an empty one where there is nothing to report — and only a rendered
+// file shows absent apart from empty.
 func TestRenderIssueTree(t *testing.T) {
 	t.Parallel()
 
@@ -301,27 +301,29 @@ func TestRenderIssueTree(t *testing.T) {
 		Repo: "178inaba/dotfiles", Number: 121, Title: "Port the scripts", State: "open",
 		URL:  "https://github.com/178inaba/dotfiles/issues/121",
 		Kind: issue.KindSub,
-		// Null both because the lookup failed and because there is nothing to
-		// report; the warning is what tells a reader which.
-		Parent:           nil,
-		BlockedBy:        issue.RefList{Unknown: true},
+		// Null because the issue is nobody's child, which is the only reason
+		// left for a null here.
+		Parent: nil,
+		// Nothing is blocking it: an empty array, never a null.
+		BlockedBy:        nil,
 		SubIssues:        []issue.SubIssue{},
 		SubIssuesSummary: issue.Summary{},
 		Siblings:         []issue.SubIssue{},
 		Warnings: []string{
-			"parent lookup failed for #121: HTTP 500",
-			"blocked_by lookup failed for #121",
+			"parent #3 is in another repository (178inaba/other); siblings unknown",
 		},
 	}
 
 	closed := true
-	prs := issue.PRList{PRs: []issue.PR{
+	prs := []issue.PR{
 		{Number: 124, State: "MERGED", BaseRef: "main", Merged: true, URL: "https://github.com/178inaba/dotfiles/pull/124"},
-	}}
-	unknownPRs := issue.PRList{Unknown: true}
-	blockers := issue.RefList{Refs: []issue.Ref{
+	}
+	// A sub-issue nobody closed with a pull request: an empty list, which is
+	// what the reader acts on.
+	noPRs := []issue.PR{}
+	blockers := []issue.Ref{
 		{Number: 7, Title: "Blocker", State: "closed", URL: "https://github.com/178inaba/other/issues/7", Repo: "178inaba/other", SameRepo: false},
-	}}
+	}
 	annotated := issue.Hierarchy{
 		Repo: "178inaba/dotfiles", Number: 119, Title: "Move the extensions to Go", State: "open",
 		URL:            "https://github.com/178inaba/dotfiles/issues/119",
@@ -333,7 +335,7 @@ func TestRenderIssueTree(t *testing.T) {
 			{Number: 123, Title: "Sub 123", State: "closed", URL: "https://github.com/178inaba/dotfiles/issues/123",
 				PRs: &prs, BlockedBy: &blockers, BlockersClosed: &closed},
 			{Number: 122, Title: "Sub 122", State: "open", URL: "https://github.com/178inaba/dotfiles/issues/122",
-				PRs: &unknownPRs, BlockedBy: &issue.RefList{}, BlockersClosed: &closed},
+				PRs: &noPRs, BlockedBy: &[]issue.Ref{}, BlockersClosed: &closed},
 		},
 		SubIssuesSummary: issue.Summary{Total: 2, Completed: 1},
 		Siblings:         []issue.SubIssue{},

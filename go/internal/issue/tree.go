@@ -2,8 +2,6 @@ package issue
 
 import (
 	"context"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -55,39 +53,6 @@ type PR struct {
 	URL     string        `json:"url"`
 }
 
-// RefList is a list of references GitHub may have declined to supply.
-//
-// The contract prints null for the refusal rather than an empty list, because
-// "nothing is blocking this" and "what is blocking this could not be read" are
-// different answers to the question a caller is asking.
-type RefList struct {
-	Refs    []Ref
-	Unknown bool
-}
-
-// MarshalJSONTo implements json.MarshalerTo.
-func (l RefList) MarshalJSONTo(enc *jsontext.Encoder) error {
-	if l.Unknown {
-		return enc.WriteToken(jsontext.Null)
-	}
-	return json.MarshalEncode(enc, l.Refs)
-}
-
-// PRList is the pull requests closing one sub-issue, with the same distinction
-// between none and not known that RefList makes.
-type PRList struct {
-	PRs     []PR
-	Unknown bool
-}
-
-// MarshalJSONTo implements json.MarshalerTo.
-func (l PRList) MarshalJSONTo(enc *jsontext.Encoder) error {
-	if l.Unknown {
-		return enc.WriteToken(jsontext.Null)
-	}
-	return json.MarshalEncode(enc, l.PRs)
-}
-
 // SubIssue is one child of the issue being resolved.
 type SubIssue struct {
 	Number int    `json:"number"`
@@ -95,10 +60,10 @@ type SubIssue struct {
 	State  string `json:"state"`
 	URL    string `json:"url"`
 	// Absent unless --with-prs, which costs a round trip per sub-issue.
-	PRs *PRList `json:"prs,omitzero"`
+	PRs *[]PR `json:"prs,omitzero"`
 	// Absent unless --with-deps, which costs a round trip per sub-issue that
 	// has blockers.
-	BlockedBy *RefList `json:"blocked_by,omitzero"`
+	BlockedBy *[]Ref `json:"blocked_by,omitzero"`
 	// Absent unless --with-deps. False whenever the answer is not known, the
 	// same safe direction the other closed flags take.
 	BlockersClosed *bool `json:"blockers_closed,omitzero"`
@@ -120,10 +85,12 @@ type Hierarchy struct {
 	State  string   `json:"state"`
 	URL    string   `json:"url"`
 	Kind   TreeKind `json:"kind"`
-	// Null for an issue that is nobody's child, and also for one whose parent
-	// could not be read — the warning tells those apart.
-	Parent    *Ref    `json:"parent"`
-	BlockedBy RefList `json:"blocked_by"`
+	// Null for an issue that is nobody's child. A parent in a repository the
+	// token cannot read is answered as no parent by GitHub, which this cannot
+	// tell from having none; every other refusal stops the resolution, so a
+	// null here is never a lookup that failed.
+	Parent    *Ref  `json:"parent"`
+	BlockedBy []Ref `json:"blocked_by"`
 	// False whenever the answer is not known, the same safe direction
 	// all_sub_issues_closed and all_siblings_closed take: all three gate
 	// closing an issue.
@@ -150,10 +117,16 @@ type TreeOptions struct {
 
 // Tree resolves one issue's hierarchy.
 //
-// Only failing to read the issue itself is an error. Everything else degrades:
-// a lookup that fails leaves its field null or empty and adds a line to
-// Warnings, because a skill that has already been given an issue number is
-// better served by a partial answer than by nothing.
+// A lookup that fails is an error. Each of these fields answers a question
+// whose other answers are facts — has no parent, is blocked by nothing, was
+// closed by no pull request — and a caller acts on those, so a failed request
+// arriving as one of them is worse than no answer at all.
+//
+// What stays in Warnings is what is true of the data rather than of the run: a
+// parent in another repository, whose children this one cannot list, and a
+// summary the children or the blockers disagree with. Each of those also
+// clears the flag that gates closing an issue, so a partial answer cannot pass
+// for a complete one.
 func Tree(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number int, o TreeOptions) (Hierarchy, error) {
 	r := &resolver{c: c, repo: repo, opts: o}
 	return r.tree(ctx, number)
@@ -180,10 +153,22 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 		return Hierarchy{}, fmt.Errorf("fetch issue #%d in %s: %w", number, r.repo, err)
 	}
 
-	parent := r.parent(ctx, number)
-	subs, subsFetched := r.subIssues(ctx, base, number, self.SubIssuesSummary.Total)
-	blockers := r.blockers(ctx, base, self.Dependencies.TotalBlockedBy, fmt.Sprintf("#%d", number))
-	siblings, siblingsFetched := r.siblings(ctx, number, parent)
+	parent, err := r.parent(ctx, number)
+	if err != nil {
+		return Hierarchy{}, err
+	}
+	subs, err := r.subIssues(ctx, base, number, self.SubIssuesSummary.Total)
+	if err != nil {
+		return Hierarchy{}, err
+	}
+	blockers, err := r.blockers(ctx, base, self.Dependencies.TotalBlockedBy, fmt.Sprintf("#%d", number))
+	if err != nil {
+		return Hierarchy{}, err
+	}
+	siblings, siblingsFetched, err := r.siblings(ctx, number, parent)
+	if err != nil {
+		return Hierarchy{}, err
+	}
 
 	out := make([]SubIssue, 0, len(subs))
 	for _, s := range subs {
@@ -191,7 +176,10 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 	}
 	if r.opts.WithPRs {
 		for i, s := range subs {
-			prs := r.closingPRs(ctx, s)
+			prs, err := r.closingPRs(ctx, s)
+			if err != nil {
+				return Hierarchy{}, err
+			}
 			out[i].PRs = &prs
 		}
 	}
@@ -200,23 +188,27 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 			path, err := issuePath(s.HTMLURL)
 			if err != nil {
 				// Unreachable through the API, which always returns an html
-				// url; reported rather than dropped so it cannot hide.
-				r.warn("blocked_by lookup failed for Sub #%d", s.Number)
-				out[i].BlockedBy = &RefList{Unknown: true}
-				out[i].BlockersClosed = new(bool)
-				continue
+				// url; returned rather than dropped so it cannot hide.
+				return Hierarchy{}, fmt.Errorf("read the url of Sub #%d: %w", s.Number, err)
 			}
-			b := r.blockers(ctx, path, s.Dependencies.TotalBlockedBy, fmt.Sprintf("Sub #%d", s.Number))
+			b, err := r.blockers(ctx, path, s.Dependencies.TotalBlockedBy, fmt.Sprintf("Sub #%d", s.Number))
+			if err != nil {
+				return Hierarchy{}, err
+			}
 			out[i].BlockedBy = &b.list
 			out[i].BlockersClosed = &b.closed
 		}
 	}
 
 	// After the annotations, so that a count that does not match reads as the
-	// last thing that went wrong rather than the first.
-	if subsFetched && self.SubIssuesSummary.Total != len(out) {
+	// last thing that went wrong rather than the first. A summary the children
+	// disagree with is a fact about the data rather than a failed request, so
+	// it stays a warning — and the flag it clears is what keeps a caller from
+	// closing a parent over a child that never arrived.
+	subsComplete := true
+	if self.SubIssuesSummary.Total != len(out) {
 		r.warn("sub_issues count mismatch for #%d: summary=%d fetched=%d", number, self.SubIssuesSummary.Total, len(out))
-		subsFetched = false
+		subsComplete = false
 	}
 
 	return Hierarchy{
@@ -231,63 +223,71 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 		BlockersClosed:     blockers.closed,
 		SubIssues:          out,
 		SubIssuesSummary:   Summary{Total: self.SubIssuesSummary.Total, Completed: self.SubIssuesSummary.Completed},
-		AllSubIssuesClosed: subsFetched && len(out) > 0 && allClosed(out),
+		AllSubIssuesClosed: subsComplete && len(out) > 0 && allClosed(out),
 		Siblings:           siblings,
 		AllSiblingsClosed:  parent != nil && siblingsFetched && allClosed(siblings),
 		Warnings:           r.warnings,
 	}, nil
 }
 
-// parent reads the parent, degrading to none where the lookup fails: an issue
-// whose parent could not be read is better answered without one than not at
-// all, and the warning is what keeps that from passing as "has none".
-func (r *resolver) parent(ctx context.Context, number int) *Ref {
+// parent reads the parent, which is null only where the issue has none.
+//
+// GitHub answers 404 both for an issue that is nobody's child and for a parent
+// in a repository this token cannot see, and IssueParent has already turned
+// both into no parent. Every other refusal is about the run rather than about
+// the issue, and answering it with a null would make "has no parent" also mean
+// "could not be asked" — which is the one thing a caller gating on a parent
+// must not be told.
+func (r *resolver) parent(ctx context.Context, number int) (*Ref, error) {
 	parent, err := r.c.IssueParent(ctx, r.repo, number)
 	if err != nil {
-		r.warn("parent lookup failed for #%d: %v", number, err)
-		return nil
+		return nil, fmt.Errorf("read the parent of #%d in %s%s: %w", number, r.repo, ghapi.SSOHint(err), err)
 	}
 	if parent == nil {
-		return nil
+		return nil, nil
 	}
 	ref := refOf(*parent, r.repo)
-	return &ref
+	return &ref, nil
 }
 
-// subIssues reads the children, reporting whether the list is complete.
-func (r *resolver) subIssues(ctx context.Context, base string, number, total int) ([]issueWire, bool) {
+// subIssues reads the children.
+func (r *resolver) subIssues(ctx context.Context, base string, number, total int) ([]issueWire, error) {
 	// The summary comes with the issue, so an issue with no children costs no
 	// round trip — and most issues have none, while this runs on every skill
 	// startup.
 	if total == 0 {
-		return nil, true
+		return nil, nil
 	}
 	subs, err := ghapi.GetAll[issueWire](ctx, r.c, base+"/sub_issues?per_page=100")
 	if err != nil {
-		r.warn("sub_issues lookup failed for #%d", number)
-		return nil, false
+		return nil, fmt.Errorf("read the children of #%d in %s%s: %w", number, r.repo, ghapi.SSOHint(err), err)
 	}
-	return subs, true
+	return subs, nil
 }
 
 // siblings reads the parent's other children, which is how a caller learns
 // whether this issue is the last one left.
-func (r *resolver) siblings(ctx context.Context, number int, parent *Ref) ([]SubIssue, bool) {
+//
+// The bool is whether the answer covers them all. It is false for a parent
+// elsewhere, whose children this repository cannot list — a fact about where
+// the parent lives rather than a failed request — and that false is what stops
+// all_siblings_closed from reading as yes over children nobody checked.
+func (r *resolver) siblings(ctx context.Context, number int, parent *Ref) ([]SubIssue, bool, error) {
 	if parent == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	if !parent.SameRepo {
 		// Following a parent into another repository would mean listing
 		// children this repository's caller cannot act on anyway.
 		r.warn("parent #%d is in another repository (%s); siblings unknown", parent.Number, parent.Repo)
-		return nil, false
+		return nil, false, nil
 	}
 
 	path := fmt.Sprintf("repos/%s/issues/%d/sub_issues?per_page=100", r.repo, parent.Number)
 	subs, err := ghapi.GetAll[issueWire](ctx, r.c, path)
 	if err != nil {
-		r.warn("sub_issues lookup failed for parent #%d (siblings unknown)", parent.Number)
-		return nil, false
+		return nil, false, fmt.Errorf("read the children of #%d in %s, the parent of #%d%s: %w",
+			parent.Number, r.repo, number, ghapi.SSOHint(err), err)
 	}
 
 	out := make([]SubIssue, 0, len(subs))
@@ -297,13 +297,13 @@ func (r *resolver) siblings(ctx context.Context, number int, parent *Ref) ([]Sub
 		}
 		out = append(out, s.subIssue())
 	}
-	return out, true
+	return out, true, nil
 }
 
 // blockerResult is the pair of fields a blocker lookup produces, which appear
 // side by side both on the issue itself and on each annotated sub-issue.
 type blockerResult struct {
-	list   RefList
+	list   []Ref
 	closed bool
 }
 
@@ -313,15 +313,14 @@ type blockerResult struct {
 // counts only the open ones and would read an issue whose blockers have all
 // been closed as having none — which is the opposite of what the caller needs
 // to know.
-func (r *resolver) blockers(ctx context.Context, base string, total int, label string) blockerResult {
+func (r *resolver) blockers(ctx context.Context, base string, total int, label string) (blockerResult, error) {
 	if total == 0 {
-		return blockerResult{closed: true}
+		return blockerResult{closed: true}, nil
 	}
 
 	list, err := ghapi.GetAll[issueWire](ctx, r.c, base+"/dependencies/blocked_by?per_page=100")
 	if err != nil {
-		r.warn("blocked_by lookup failed for %s", label)
-		return blockerResult{list: RefList{Unknown: true}}
+		return blockerResult{}, fmt.Errorf("read what is blocking %s in %s%s: %w", label, r.repo, ghapi.SSOHint(err), err)
 	}
 
 	refs := make([]Ref, 0, len(list))
@@ -330,7 +329,7 @@ func (r *resolver) blockers(ctx context.Context, base string, total int, label s
 	}
 	if total != len(refs) {
 		r.warn("blocked_by count mismatch for %s: summary=%d fetched=%d", label, total, len(refs))
-		return blockerResult{list: RefList{Refs: refs}}
+		return blockerResult{list: refs}, nil
 	}
 
 	closed := true
@@ -340,7 +339,7 @@ func (r *resolver) blockers(ctx context.Context, base string, total int, label s
 			break
 		}
 	}
-	return blockerResult{list: RefList{Refs: refs}, closed: closed}
+	return blockerResult{list: refs, closed: closed}, nil
 }
 
 // closingPRs reads the pull requests that close one sub-issue.
@@ -348,7 +347,7 @@ func (r *resolver) blockers(ctx context.Context, base string, total int, label s
 // Both lookups go by url rather than by number: a sub-issue may live in another
 // repository of the same owner, and so may a pull request closing it, and a
 // number resolved against this repository would silently name something else.
-func (r *resolver) closingPRs(ctx context.Context, sub issueWire) PRList {
+func (r *resolver) closingPRs(ctx context.Context, sub issueWire) ([]PR, error) {
 	var refs struct {
 		Resource *struct {
 			ClosedBy struct {
@@ -358,9 +357,11 @@ func (r *resolver) closingPRs(ctx context.Context, sub issueWire) PRList {
 			} `json:"closedByPullRequestsReferences"`
 		} `json:"resource"`
 	}
-	if err := r.c.GraphQL(ctx, closingPRsQuery, map[string]any{"url": sub.HTMLURL}, &refs); err != nil || refs.Resource == nil {
-		r.warn("closing PR lookup failed for Sub #%d", sub.Number)
-		return PRList{Unknown: true}
+	if err := r.c.GraphQL(ctx, closingPRsQuery, map[string]any{"url": sub.HTMLURL}, &refs); err != nil {
+		return nil, fmt.Errorf("read the pull requests closing Sub #%d%s: %w", sub.Number, ghapi.SSOHint(err), err)
+	}
+	if refs.Resource == nil {
+		return nil, fmt.Errorf("read the pull requests closing Sub #%d: %s names no issue", sub.Number, sub.HTMLURL)
 	}
 
 	prs := make([]PR, 0, len(refs.Resource.ClosedBy.Nodes))
@@ -373,9 +374,11 @@ func (r *resolver) closingPRs(ctx context.Context, sub issueWire) PRList {
 				URL         string        `json:"url"`
 			} `json:"resource"`
 		}
-		if err := r.c.GraphQL(ctx, prByURLQuery, map[string]any{"url": n.URL}, &out); err != nil || out.Resource == nil {
-			r.warn("pr lookup failed for %s (closing Sub #%d)", n.URL, sub.Number)
-			return PRList{Unknown: true}
+		if err := r.c.GraphQL(ctx, prByURLQuery, map[string]any{"url": n.URL}, &out); err != nil {
+			return nil, fmt.Errorf("read %s, which closes Sub #%d%s: %w", n.URL, sub.Number, ghapi.SSOHint(err), err)
+		}
+		if out.Resource == nil {
+			return nil, fmt.Errorf("read %s, which closes Sub #%d: it names no pull request", n.URL, sub.Number)
 		}
 		p := out.Resource
 		prs = append(prs, PR{
@@ -386,7 +389,7 @@ func (r *resolver) closingPRs(ctx context.Context, sub issueWire) PRList {
 			URL:     p.URL,
 		})
 	}
-	return PRList{PRs: prs}
+	return prs, nil
 }
 
 // closingPRsQuery asks which pull requests close an issue.

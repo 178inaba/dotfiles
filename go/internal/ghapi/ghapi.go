@@ -191,6 +191,23 @@ func HTTPStatus(err error) (int, bool) {
 	return 0, false
 }
 
+// SSOHint is the clause a forbidden answer earns, and nothing else does.
+//
+// The likeliest reason GitHub forbids a read the token is otherwise entitled
+// to is an organisation it has not been authorised for, which is fixed
+// somewhere other than the command that failed — so it is worth naming in the
+// error. A server error or a rate limit is not, and sending a reader to look
+// at their token over one would be worse than saying nothing.
+//
+// Empty where it does not apply, so that a caller writes it into the message
+// unconditionally rather than branching on the status a second time.
+func SSOHint(err error) string {
+	if status, ok := HTTPStatus(err); ok && status == http.StatusForbidden {
+		return " (the token may lack SSO authorisation for the organisation)"
+	}
+	return ""
+}
+
 // bodyOf reads a response body, which the paginating path needs because it
 // keeps the response rather than letting go-gh decode and close it.
 func bodyOf(resp *http.Response) ([]byte, error) {

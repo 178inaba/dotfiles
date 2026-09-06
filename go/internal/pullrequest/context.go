@@ -786,7 +786,7 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 		parent, err := c.IssueParent(ctx, in, linked.Number)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to read the parent of %s#%d%s: %v",
-				in, linked.Number, sso(err), err)
+				in, linked.Number, ghapi.SSOHint(err), err)
 		}
 		if parent == nil {
 			continue
@@ -853,20 +853,6 @@ func unreadable(err error) (int, bool) {
 		return status, true
 	}
 	return status, false
-}
-
-// sso is the clause a forbidden answer earns, and nothing else does.
-//
-// The likeliest reason GitHub forbids a read this token is otherwise entitled
-// to is an organisation the token has not been authorised for, which is fixed
-// somewhere other than the command — so it is worth naming. A server error or
-// a rate limit is not, and sending their reader to look at their token would
-// be worse than saying nothing.
-func sso(err error) string {
-	if status, ok := ghapi.HTTPStatus(err); ok && status == http.StatusForbidden {
-		return " (the token may lack SSO authorisation for the organisation)"
-	}
-	return ""
 }
 
 // elsewhere names a repository only when it is not the one being read, which
