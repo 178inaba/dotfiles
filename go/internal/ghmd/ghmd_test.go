@@ -189,6 +189,20 @@ func TestClosingReferences(t *testing.T) {
 				{Number: 10, Kind: ghmd.Prose},
 			},
 		},
+		{
+			// The case each consumer actually meets: one body holding both
+			// the references it means and the ones it quotes. Each keeps one
+			// kind and drops the rest, so what they are handed has to tell
+			// them apart within a body rather than about one.
+			name: "one body holds the meant and the quoted alike",
+			body: "Closes #10\nas in `Closes #11`\n```\nCloses #12\n```\nFixes other/repo#13\n",
+			want: []ghmd.ClosingReference{
+				{Number: 10, Kind: ghmd.Prose},
+				{Number: 11, Kind: ghmd.Span},
+				{Number: 12, Kind: ghmd.Fence},
+				{Repo: "other/repo", Number: 13, Kind: ghmd.Prose},
+			},
+		},
 		// The forms that name no issue to close.
 		{name: "a line break separates the keyword from the reference", body: "Closes\n#5\n"},
 		{name: "a placeholder names no issue", body: "docs update: `Closes #N` placeholder\n"},

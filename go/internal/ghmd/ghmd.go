@@ -83,8 +83,8 @@ const (
 // Segment is one run of a body, and where it is.
 type Segment struct {
 	Kind Kind
-	// Line is the 1-based line the segment starts on, which is what a report
-	// about a body names.
+	// Line is the 1-based line the segment is on, which is what a report about
+	// a body names. A segment never spans more than one line.
 	Line int
 	// Start and End are the byte offsets into the body itself, not into the
 	// line, so that a rewriter can splice its output out of the body at the
@@ -92,13 +92,21 @@ type Segment struct {
 	Start, End int
 }
 
-// Segments partitions a body: the runs come in order, never overlap, and
-// cover every byte from the first to the last.
+// Segments partitions a body: the runs come in order, never overlap, cover
+// every byte from the first to the last, and none of them spans a line end.
 //
 // The covering is what a caller is entitled to rely on rather than a property
 // of how this happens to be written. A caller that has to account for every
 // byte accounts for it by walking the segments, and a gap nobody yields is
 // where such a reader forgets one.
+//
+// The line is promised for the same reason, rather than left as a consequence
+// of walking a body a line at a time: a caller matching a pattern against a
+// segment is matching within a line, and one mapping a segment onto a line
+// index is entitled to the single answer Line gives. Both would break quietly
+// on the day a run were allowed to grow past a newline — issue's section check
+// maps segments onto lines, and ClosingReferences below reads a keyword and
+// its reference as adjacent only within one.
 //
 // A known limit, carried over from the shell version this replaces: an
 // unclosed fence hides everything after it, running to the end as Fence. A
@@ -324,8 +332,20 @@ type ClosingReference struct {
 func ClosingReferences(body string) []ClosingReference {
 	var out []ClosingReference
 	for s := range Segments(body) {
-		for _, m := range closingKeyword.FindAllStringSubmatch(body[s.Start:s.End], -1) {
-			out = append(out, ClosingReference{Repo: m[1], Number: atoi(m[2]), Kind: s.Kind})
+		text := body[s.Start:s.End]
+		// The pattern ends in a literal #, so a run without one cannot hold a
+		// reference however it is spelled. Skipping those is what keeps this
+		// off the gh shim's write path as a cost — a body is mostly runs with
+		// no # in them at all, and the match is what the scan spends.
+		if strings.IndexByte(text, '#') < 0 {
+			continue
+		}
+		for _, m := range closingKeyword.FindAllStringSubmatch(text, -1) {
+			// The pattern matched digits, so this cannot fail on anything
+			// that reaches it; a number too long for an int comes back as
+			// the largest one rather than as a reason to abandon the body.
+			n, _ := strconv.Atoi(m[2])
+			out = append(out, ClosingReference{Repo: m[1], Number: n, Kind: s.Kind})
 		}
 	}
 	return out
@@ -340,16 +360,6 @@ func hasQuotedClosingKeyword(body string) bool {
 		}
 	}
 	return false
-}
-
-// atoi reads the digits of a reference.
-//
-// The pattern matched digits, so this cannot fail on anything that reaches it;
-// a number too large for an int comes back as zero rather than as a reason to
-// abandon the whole body.
-func atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
 }
 
 // RefuseQuotedClosingKeyword is what to say about a pull request body that
