@@ -191,7 +191,7 @@ Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解
 4. `reviews[]` に submit 済みのレビューがある（タイムラインコメントだけを書いた人はレビュアーに追加しない）
 5. 有効な approve を持っていない。`reviews[]` は提出日時の昇順なので、そのレビュアーの `state` が `APPROVED` / `CHANGES_REQUESTED` のレビューのうち**最後のもの**が `APPROVED` なら対象外とする（`COMMENTED` は有効状態を変えないため、approve の後に `COMMENTED` が続いていても approve は有効なまま）
 
-`reviews_truncated: true`（レビューが取得窓の最新50件からあふれている）のときは条件5を確定できないため、再依頼を行わずその旨を最終報告に載せる。窓外に残った `APPROVED` を見落とすと、条件5がまさに避けようとしている「approve 済みレビュアーへの再依頼」が起きるため、判定不能側は保守的に倒す（`reviews` には打ち切り上限を引き上げる環境変数が無い）。
+`reviews_truncated: true`（レビューが取得窓からあふれ、古い側が落ちている）のときは条件5を確定できないため、再依頼を行わずその旨を最終報告に載せる。窓外に残った `APPROVED` を見落とすと、条件5がまさに避けようとしている「approve 済みレビュアーへの再依頼」が起きるため、判定不能側は保守的に倒す（`MAX_REVIEWS` を引き上げて再実行すれば解消する）。
 
 **実行タイミングと失敗時**: 返信の投稿とスレッドの解決の後・ユーザーへの最終報告の前に、対象 login をまとめて1回だけ呼ぶ（コマンドは「レビューの再依頼（REST）」）。API が失敗しても（レビュアーの離脱・権限不足等）リトライせず、失敗した旨を最終報告に載せて正常終了する（/loop の停止条件にはしない）。対象が0件なら呼び出さず、最終報告に対象なしと1行書く。ここでの「最終報告」はユーザーへの出力を指し、GitHub へ投稿する「修正完了報告フォーマット」とは別物。
 
@@ -212,6 +212,7 @@ ccx pr context <scratchpadディレクトリ> [<pr-number>]
 | 対象 | 打ち切りフラグ | 環境変数（既定） |
 |---|---|---|
 | 通常コメント | `comments_truncated` | `MAX_COMMENTS`（500） |
+| レビュー本文 | `reviews_truncated` | `MAX_REVIEWS`（200、落ちるのは古い側） |
 | レビュースレッド | `threads_truncated` | `MAX_THREADS`（300） |
 | スレッド内コメント | `review_threads[].comments_truncated` | `MAX_THREAD_COMMENTS`（200、スレッドごと） |
 | Issue のコメント | `linked_issues[].comments_truncated`（`parent` 側も同名） | `MAX_ISSUE_COMMENTS`（200、Issue ごと） |

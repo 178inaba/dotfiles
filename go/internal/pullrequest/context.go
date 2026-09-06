@@ -545,8 +545,8 @@ func Reviewers(reviews []Review) []Reviewer {
 			at[key] = i
 			out = append(out, Reviewer{Author: r.Author, AuthorType: r.AuthorType, State: ReviewerCommented})
 		}
-		switch ReviewerState(r.State) {
-		case ReviewerApproved, ReviewerChangesRequested:
+		switch r.State {
+		case string(ReviewerApproved), string(ReviewerChangesRequested):
 			out[i].State, out[i].SubmittedAt = ReviewerState(r.State), r.SubmittedAt
 		default:
 			// Only where no verdict has been passed: a comment after an
@@ -930,8 +930,11 @@ func pagesBefore[T any](ctx context.Context, limit int, first []T, info pageInfo
 // window is how many elements one request asks for: what the limit has left,
 // capped at the hundred GraphQL allows in one page.
 //
-// A limit of zero or less is no limit at all rather than a request for
-// nothing, which is how the REST side reads one too (ghapi.IssueComments).
+// A limit of zero or less asks for a whole page rather than for nothing, which
+// with the walk's own guard leaves the opening window and nothing after it —
+// what a limit of zero means on the REST side too (ghapi.GetUpTo). The clamp
+// is written here rather than borrowed from there because the two hundreds are
+// separate limits of separate APIs.
 func window(limit, have int) int {
 	const page = 100
 	if want := limit - have; limit > 0 && want < page {

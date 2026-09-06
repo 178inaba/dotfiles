@@ -954,7 +954,7 @@ const pagedBody = `{"data":{
         "pageInfo": {"hasNextPage": true, "endCursor": "c1"},
         "nodes": [{"author": {"login": "first", "__typename": "User"}, "body": "first", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/first"}]
       },
-      "reviews": {"totalCount": 0, "nodes": []},
+      "reviews": %s,
       "reviewThreads": {
         "totalCount": 3,
         "pageInfo": {"hasNextPage": true, "endCursor": "t1"},
@@ -989,7 +989,10 @@ func pagedFixture() pages {
 			"c1": commentPage(true, "c2", "second"),
 			"c2": commentPage(false, "c3", "third", "fourth"),
 		},
-		threads: map[string]string{"t1": threadsPage2},
+		// One more review than a single window carries, so this connection is
+		// walked too — backwards, which is the direction the others are not.
+		reviewList: manyReviews(101),
+		threads:    map[string]string{"t1": threadsPage2},
 		threadComments: map[string]string{
 			"A/ac1": threadCommentPage(true, "ac2", "a2"),
 			"A/ac2": threadCommentPage(false, "ac3", "a3"),
@@ -1012,6 +1015,16 @@ func TestFetchFollowsEveryConnection(t *testing.T) {
 	}
 	if got.CommentsTruncated {
 		t.Error("comments_truncated = true, want false once every page arrived")
+	}
+
+	// The reviews are walked from the newest end, and the pages are put back
+	// together oldest first — so the whole reads in one order however many
+	// round trips it took.
+	if len(got.Reviews) != 101 || got.ReviewsTruncated {
+		t.Fatalf("reviews = %d, truncated %v; want all 101", len(got.Reviews), got.ReviewsTruncated)
+	}
+	if first, last := *got.Reviews[0].Author, *got.Reviews[100].Author; first != "reviewer000" || last != "reviewer100" {
+		t.Errorf("reviews across pages run %s..%s, want reviewer000..reviewer100", first, last)
 	}
 
 	var ids []string
@@ -1290,45 +1303,12 @@ func TestFetchPagesTheReviewsFromTheNewestEnd(t *testing.T) {
 		}
 	})
 
-	t.Run("a connection longer than one page", func(t *testing.T) {
-		t.Parallel()
-
-		// Longer than the hundred one round trip can carry, so the walk
-		// backwards has to prepend two pages and keep the whole ascending.
-		list := make([]string, 0, 150)
-		for i := range 150 {
-			list = append(list, reviewNodeJSON(fmt.Sprintf("reviewer%03d", i), "COMMENTED",
-				fmt.Sprintf("2026-01-01T00:%02d:%02dZ", i/60, i%60)))
-		}
-
-		got := fetch(t, pages{body: reviewsBody, reviewList: list}, bare, pullrequest.Limits{Reviews: 150})
-		if len(got.Reviews) != 150 || got.ReviewsTruncated {
-			t.Fatalf("reviews = %d, truncated %v; want all 150", len(got.Reviews), got.ReviewsTruncated)
-		}
-		if first, last := *got.Reviews[0].Author, *got.Reviews[149].Author; first != "reviewer000" || last != "reviewer149" {
-			t.Errorf("reviews run %s..%s, want reviewer000..reviewer149", first, last)
-		}
-	})
-
-	t.Run("a page that cannot be reached", func(t *testing.T) {
-		t.Parallel()
-
-		list := make([]string, 0, 150)
-		for range 150 {
-			list = append(list, reviewNodeJSON("reviewer", "COMMENTED", "2026-01-01T00:00:00Z"))
-		}
-		p := pages{body: reviewsBody, reviewList: list, failAfter: "reviews"}
-		if got, err := pullrequest.Fetch(t.Context(), serve(t, p), repo, bare,
-			pullrequest.Limits{Reviews: 150}, noChange(), t.TempDir()); err == nil {
-			t.Fatalf("Fetch = %+v, want a failure when the reviews query fails", got)
-		}
-	})
 }
 
 func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 	t.Parallel()
 
-	for _, query := range []string{"body", "comments", "threads", "threadComments"} {
+	for _, query := range []string{"body", "comments", "reviews", "threads", "threadComments"} {
 		t.Run(query, func(t *testing.T) {
 			t.Parallel()
 

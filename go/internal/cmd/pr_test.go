@@ -129,6 +129,32 @@ func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
 	}
 }
 
+// TestContextLimitsBindEachVariableToItsOwnCap pins the pairing a positional
+// list makes easy to get wrong: the variable names and the caps they raise are
+// two lists kept aligned by hand, and a swapped pair would quietly raise the
+// wrong collection.
+func TestContextLimitsBindEachVariableToItsOwnCap(t *testing.T) {
+	for name, raised := range map[string]func(pullrequest.Limits) int{
+		"MAX_COMMENTS":        func(l pullrequest.Limits) int { return l.Comments },
+		"MAX_REVIEWS":         func(l pullrequest.Limits) int { return l.Reviews },
+		"MAX_THREADS":         func(l pullrequest.Limits) int { return l.Threads },
+		"MAX_THREAD_COMMENTS": func(l pullrequest.Limits) int { return l.ThreadComments },
+		"MAX_ISSUE_COMMENTS":  func(l pullrequest.Limits) int { return l.IssueComments },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "7")
+
+			got, err := contextLimits()
+			if err != nil {
+				t.Fatalf("contextLimits: %v", err)
+			}
+			if raised(got) != 7 {
+				t.Errorf("%s left %+v, want it to raise its own cap to 7", name, got)
+			}
+		})
+	}
+}
+
 // TestStateHome pins where a judged pull request is recorded. Not parallel,
 // and here rather than in pullrequest, for the reason the clone workspace's
 // equivalent is: t.Setenv changes the whole process, so the package that keeps

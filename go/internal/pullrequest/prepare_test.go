@@ -51,7 +51,7 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues, prepareIssueComments)
+	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues, prepareIssueComments, nil)
 }
 
 // prepareGitHubReviewing is prepareGitHub with the reviews answered by a
@@ -60,27 +60,18 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 func prepareGitHubReviewing(t *testing.T, headOID, author string, reviews reviewsAnswer) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubServing(t, headOID, author, noThreads, prepareIssues, prepareIssueComments, reviews)
-}
-
-// prepareGitHubKnowing is prepareGitHub with the issues and comments it knows
-// about named, so that a test can leave one out, or make one longer than a
-// limit, and see what the run makes of that.
-func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
-	issues map[string]string, comments map[string][]string,
-) *ghapi.Client {
-	t.Helper()
-
-	return prepareGitHubServing(t, headOID, author, threads, issues, comments, nil)
+	return prepareGitHubKnowing(t, headOID, author, noThreads, prepareIssues, prepareIssueComments, reviews)
 }
 
 // reviewsAnswer is one reviews connection, asked for a window of n reviews
-// before a cursor — the empty one where a test says nothing about reviews.
+// before a cursor. A nil one is a pull request nobody has reviewed, which is
+// what a test saying nothing about reviews passes.
 type reviewsAnswer func(n int, before string) string
 
-// prepareGitHubServing is the fake underneath both, with every collection it
-// answers named.
-func prepareGitHubServing(t *testing.T, headOID, author, threads string,
+// prepareGitHubKnowing is prepareGitHub with the issues, comments and reviews
+// it knows about named, so that a test can leave one out, or make one longer
+// than a limit, and see what the run makes of that.
+func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 	issues map[string]string, comments map[string][]string, reviews reviewsAnswer,
 ) *ghapi.Client {
 	t.Helper()
@@ -493,7 +484,7 @@ func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
 				known = maps.Clone(prepareIssues)
 				delete(known, issuePath("owner/repo", 10))
 			}
-			gh := prepareGitHubKnowing(t, head, "me", noThreads, known, prepareIssueComments)
+			gh := prepareGitHubKnowing(t, head, "me", noThreads, known, prepareIssueComments, nil)
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
@@ -701,7 +692,7 @@ func TestPrepareRaisesTheIssueCommentLimit(t *testing.T) {
 			repo, head := prepareRepo(t)
 			var seen []pullrequest.Context
 			var paths []string
-			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, comments),
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, comments, nil),
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 				pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 			if err != nil {
@@ -739,7 +730,7 @@ func TestPrepareReportsIssueCommentsStillTruncated(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, prepareIssueComments),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, prepareIssueComments, nil),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err != nil {
