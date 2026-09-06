@@ -60,18 +60,17 @@ func isLocked(t *testing.T, repo, wt string) bool {
 func branchExists(t *testing.T, repo, branch string) bool {
 	t.Helper()
 
-	_, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
-	return err == nil
+	return hasRef(t.Context(), runner.Exec{}, repo, "refs/heads/"+branch)
 }
 
-// sweepFixture builds a repository holding one of every outcome a sweep can
-// have, and returns it.
+// resolvedRepo makes an empty repository with one commit in it, at a path git
+// will print back unchanged.
 //
 // The temporary directory is resolved first: git prints resolved paths, so an
 // expectation built from an unresolved one would differ on macOS alone, where
 // /var is a symlink into /private/var. Delete needed none of this, echoing back
 // the paths it was handed.
-func sweepFixture(t *testing.T) string {
+func resolvedRepo(t *testing.T) string {
 	t.Helper()
 	gittest.SkipWithoutGit(t)
 
@@ -82,6 +81,15 @@ func sweepFixture(t *testing.T) string {
 	repo := filepath.Join(base, "repo")
 	gittest.Init(t, repo, "-b", "main")
 	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	return repo
+}
+
+// sweepFixture builds a repository holding one of every outcome a sweep can
+// have, and returns it.
+func sweepFixture(t *testing.T) string {
+	t.Helper()
+
+	repo := resolvedRepo(t)
 
 	// A leftover, dirty the way an agent that failed to restore its tree
 	// leaves one: only --force removes it.
@@ -245,16 +253,8 @@ func TestSweepAgainstTheCallersHead(t *testing.T) {
 	// main, with a leftover agent worktree at that commit.
 	fixture := func(t *testing.T) (repo, linked, agent string) {
 		t.Helper()
-		gittest.SkipWithoutGit(t)
 
-		base, err := filepath.EvalSymlinks(t.TempDir())
-		if err != nil {
-			t.Fatalf("EvalSymlinks: %v", err)
-		}
-		repo = filepath.Join(base, "repo")
-		gittest.Init(t, repo, "-b", "main")
-		gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
-
+		repo = resolvedRepo(t)
 		linked = filepath.Join(repo, ".claude", "worktrees", "feature-1-x")
 		gittest.Run(t, repo, "worktree", "add", "-q", linked, "-b", "feature/1-x", "main")
 		gittest.Run(t, linked, "commit", "-q", "--allow-empty", "-m", "the session's own commit")

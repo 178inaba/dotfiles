@@ -50,12 +50,12 @@ const (
 	KeptBranchBeyondHead KeptReason = "branch_beyond_head"
 )
 
-// keptDetails are what the reasons that need no particulars look like in the
-// list a person reads.
-var keptDetails = map[KeptReason]string{
-	KeptLocked:           "実行中のエージェントがロック中（理由なし）",
-	KeptBranchBeyondHead: "HEAD に含まれない commit を持つ",
-}
+// What the reasons that need no particulars of their own look like in the list
+// a person reads, in the language the rule that runs this speaks.
+const (
+	lockedWithoutReason = "実行中のエージェントがロック中（理由なし）"
+	beyondHead          = "HEAD に含まれない commit を持つ"
+)
 
 // Swept is one thing the sweep removed.
 type Swept struct {
@@ -144,8 +144,11 @@ func Sweep(ctx context.Context, r runner.Runner, dir string) (SweepReport, error
 		s.sweepWorktree(ctx, e)
 	}
 	for branch := range strings.SplitSeq(branches, "\n") {
-		if branch != "" && !checkedOut[branch] {
-			s.deleteBranch(ctx, KindBranch, branch, "")
+		if branch == "" || checkedOut[branch] {
+			continue
+		}
+		if s.deleteBranch(ctx, branch) {
+			s.out.Removed = append(s.out.Removed, Swept{Type: KindBranch, Branch: branch, BranchDeleted: true})
 		}
 	}
 	return s.out, nil
@@ -157,15 +160,16 @@ func Sweep(ctx context.Context, r runner.Runner, dir string) (SweepReport, error
 // The path is matched on its last three segments, which holds for an agent
 // launched from the main worktree and for one launched from a linked worktree
 // — measured for issue #251, both land directly under the main worktree's
-// .claude/worktrees — and would hold for a nested placement too.
+// .claude/worktrees — and would hold for a nested placement too. The two
+// directory names are spelled out here rather than taken from the constant
+// that says where ccx puts its own worktrees: they name the same place today,
+// but this is a match on what the harness does, and a rename on the ccx side
+// should not silently change what a sweep recognises.
 func isAgentWorktree(e Entry) bool {
-	if !strings.HasPrefix(e.Branch, agentBranchPrefix) {
-		return false
-	}
-	rest, dir := filepath.Split(filepath.Clean(e.Path))
-	rest, worktrees := filepath.Split(filepath.Clean(rest))
-	_, claude := filepath.Split(filepath.Clean(rest))
-	return claude == ".claude" && worktrees == "worktrees" && strings.HasPrefix(dir, agentDirPrefix)
+	dir := filepath.Dir(e.Path)
+	return strings.HasPrefix(e.Branch, agentBranchPrefix) &&
+		strings.HasPrefix(filepath.Base(e.Path), agentDirPrefix) &&
+		filepath.Base(dir) == "worktrees" && filepath.Base(filepath.Dir(dir)) == ".claude"
 }
 
 type sweeper struct {
@@ -179,7 +183,7 @@ type sweeper struct {
 // is being left alone.
 func (s *sweeper) sweepWorktree(ctx context.Context, e Entry) {
 	if e.Locked {
-		detail := keptDetails[KeptLocked]
+		detail := lockedWithoutReason
 		if e.LockReason != "" {
 			detail = "実行中のエージェントがロック中: " + e.LockReason
 		}
@@ -204,38 +208,38 @@ func (s *sweeper) sweepWorktree(ctx context.Context, e Entry) {
 	}
 	// Only once the worktree is gone: a branch checked out in one cannot be
 	// deleted, whatever it is deleted with.
-	s.deleteBranch(ctx, KindWorktree, e.Branch, e.Path)
+	s.out.Removed = append(s.out.Removed, Swept{
+		Type: KindWorktree, Path: e.Path, Branch: e.Branch,
+		BranchDeleted: s.deleteBranch(ctx, e.Branch),
+	})
 }
 
 // deleteBranch deletes a branch the working directory's head already holds,
-// and keeps one it does not.
+// keeps one it does not, and says which of those happened.
+//
+// It records nothing about a worktree: what became of the branch is all it
+// knows, and each caller adds that to the removal it is itself reporting.
 //
 // -D rather than -d because these branches were never merged anywhere; the
 // ancestor test is what stands in for git's own check, and it is exact: a
 // branch at or behind this head has no commit that deleting it would be the
 // end of.
-func (s *sweeper) deleteBranch(ctx context.Context, kind TargetKind, branch, worktree string) {
+func (s *sweeper) deleteBranch(ctx context.Context, branch string) bool {
 	// refs/heads/ spelled out: git resolves a tag before a branch of the same
 	// name, and the tag's commit would be compared instead.
 	if !IsAncestor(ctx, s.r, s.dir, "refs/heads/"+branch, "HEAD") {
 		head, _ := runner.Git(ctx, s.r, s.dir, "rev-parse", "refs/heads/"+branch)
 		s.keep(Kept{
 			Type: KindBranch, Target: branch, Reason: KeptBranchBeyondHead,
-			Detail: keptDetails[KeptBranchBeyondHead], Head: head,
+			Detail: beyondHead, Head: head,
 		})
-		if kind == KindWorktree {
-			s.out.Removed = append(s.out.Removed, Swept{Type: kind, Path: worktree, Branch: branch})
-		}
-		return
+		return false
 	}
 	if err := s.git(ctx, "branch", "-D", branch); err != nil {
 		s.fail(KindBranch, branch, err.Error())
-		if kind == KindWorktree {
-			s.out.Removed = append(s.out.Removed, Swept{Type: kind, Path: worktree, Branch: branch})
-		}
-		return
+		return false
 	}
-	s.out.Removed = append(s.out.Removed, Swept{Type: kind, Path: worktree, Branch: branch, BranchDeleted: true})
+	return true
 }
 
 func (s *sweeper) keep(k Kept) {
