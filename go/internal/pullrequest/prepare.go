@@ -52,10 +52,22 @@ type Preparation struct {
 	ContextPath *string `json:"context_path"`
 	// work_dir, review_path and threads_path are handed out rather than left
 	// to the caller to name, which is what binds a review's working files to
-	// one pull request.
+	// one pull request — or, where there is no pull request, to the branch,
+	// which is the only thing left to tell two runs apart. review_path and
+	// threads_path are null in that state, since there is nothing to post to.
 	WorkDir     *string `json:"work_dir"`
 	ReviewPath  *string `json:"review_path"`
 	ThreadsPath *string `json:"threads_path"`
+	// The change this checkout holds that the document does not
+	// carry: the commits of <base>..HEAD and the diff of <base>...HEAD, in the
+	// document's own shape and with the same generated flag on its files.
+	// <base> is the base branch's remote-tracking ref, or the local branch of
+	// that name where there is no remote-tracking ref — warnings says which.
+	// Present only where there is no pull request and where the checkout is
+	// the author's own with commits not pushed yet (freshness ahead_own); null
+	// otherwise. Not the document's diff, which is taken at pr.head_oid and
+	// stays there.
+	LocalChange *Change `json:"local_change"`
 	// The branch to diff against, already prefixed with origin/.
 	BaseBranch *string `json:"base_branch"`
 	Modes      *Modes  `json:"modes"`
@@ -66,9 +78,11 @@ type Preparation struct {
 	// else the ones the pull request body's closing keywords point at.
 	Issues []LinkedIssue `json:"issues"`
 	// The degradations that did not stop the preparation: an issue
-	// that could not be read, named as owner/repo#N, and anything that was
-	// still cut short after the limits were raised. Empty rather than null
-	// when there was nothing to report.
+	// that could not be read, named as owner/repo#N, anything that was still
+	// cut short after the limits were raised, and a base branch the local
+	// change had to be taken against locally because there was no
+	// remote-tracking ref for it. Empty rather than null when there was
+	// nothing to report.
 	Warnings []string `json:"warnings"`
 }
 
@@ -126,7 +140,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	}
 
 	if !p.PRExists {
-		return p.localOnly(ctx, r, dir, o), nil
+		return p.localOnly(ctx, r, repo, dir, o)
 	}
 
 	// Only where the number was given and no worktree was resolved: the
@@ -167,6 +181,18 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 
 	base := "origin/" + fetched.PR.BaseRef
 	p.BaseBranch = &base
+	// Read only where the checkout runs past the document, and after the check
+	// that says whether it does. The document itself is left alone: its diff
+	// is taken at head_oid, and one whose head_oid and diff disagree is
+	// something no reader could detect. No fallback for the base ref here —
+	// reading the change has already fetched it.
+	if freshness.Status == worktree.FreshnessAheadOwn {
+		change, err := ReadLocalChange(ctx, r, dir, base, doc.Work.LocalDiffPath)
+		if err != nil {
+			return Preparation{}, err
+		}
+		p.LocalChange = &change
+	}
 	// The reasons an issue could not be read belong here as well: this is the
 	// only output the caller of prepare-review reads, and a title that came
 	// back null with no word of why is unexplainable from it alone.
@@ -230,7 +256,12 @@ func probe(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Rep
 
 // localOnly is the degradation to reviewing against the default branch, which
 // is what a branch with no pull request gets.
-func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string, o Options) Preparation {
+//
+// The change itself is read here rather than left to the caller: this is the
+// one state with no document at all, and a review that had to compose its own
+// range would read a diff with no file list and no generated flag, which is
+// the exclusion the whole reading rests on.
+func (p Preparation) localOnly(ctx context.Context, r runner.Runner, repo ghapi.Repo, dir string, o Options) (Preparation, error) {
 	branch := worktree.DefaultBranch(ctx, r, dir)
 	if branch == "" {
 		branch = "main"
@@ -244,9 +275,64 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, dir string,
 	}
 	base := "origin/" + branch
 	p.BaseBranch = &base
+
+	// The work dir is bound to the branch, since there is no number to bind it
+	// to and a fixed name in the shared scratch directory is what a parallel
+	// run on another branch writes over. A detached head has no name to bind
+	// it to at all, which is the one checkout this state cannot serve.
+	head, err := runner.Git(ctx, r, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return Preparation{}, fmt.Errorf("failed to read the current branch in %s: %v", dir, err)
+	}
+	if head == "HEAD" {
+		return Preparation{}, fmt.Errorf(
+			"%s is on a detached head, and a review with no pull request is bound to a branch; check out a branch and run this again", dir)
+	}
+	work, err := EnsureBranchWorkFiles(o.OutDir, repo, head)
+	if err != nil {
+		return Preparation{}, err
+	}
+	p.WorkDir = &work.Dir
+
+	ref, warning, err := localBase(ctx, r, dir, branch)
+	if err != nil {
+		return Preparation{}, err
+	}
+	if warning != "" {
+		p.Warnings = append(p.Warnings, warning)
+	}
+	change, err := ReadLocalChange(ctx, r, dir, ref, work.LocalDiffPath)
+	if err != nil {
+		return Preparation{}, err
+	}
+	p.LocalChange = &change
+
 	p.Modes = modesFor(false, false, o)
 	p.Status = "ok"
-	return p
+	return p, nil
+}
+
+// localBase is the ref the local change is taken against, and what to say
+// about it where that is not the remote-tracking one.
+//
+// A repository nobody has pushed has no origin/<branch> at all, and refusing
+// there would be refusing the local review this whole path exists to give. The
+// fallback is only for that: where the remote-tracking ref is present but
+// behind, it is still what the range is taken against, so that a fetch which
+// failed for being offline keeps meaning what the warning above says it means.
+func localBase(ctx context.Context, r runner.Runner, dir, branch string) (ref, warning string, err error) {
+	remote := "origin/" + branch
+	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--verify", "--quiet", remote+"^{commit}"); err == nil {
+		return remote, "", nil
+	}
+	// refs/heads/ rather than the bare name: git resolves a tag of the same
+	// name first, and a tag is not the branch the review means.
+	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}"); err != nil {
+		return "", "", fmt.Errorf(
+			"neither %s nor the local branch %s is in %s, so there is nothing to diff against; fetch the base branch or name it with a pull request", remote, branch, dir)
+	}
+	return branch, fmt.Sprintf(
+		"%s is not in this repository; the local change was taken against the local branch %s, which may be behind what has been pushed", remote, branch), nil
 }
 
 // fetch reads the context, and reads it once more where something was cut
