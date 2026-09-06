@@ -291,3 +291,58 @@ func TestSegmentsAreOrderedAndDisjoint(t *testing.T) {
 		t.Errorf("the last segment ends at %d, want the end of the body at %d", end, len(body))
 	}
 }
+
+// TestBlankCode reads the results as literals rather than as a length and a
+// count, because what a caller depends on is not only that the code is gone
+// but that everything else sits where the body put it: the widths below are
+// the offsets a match against the result reports.
+func TestBlankCode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "empty", body: "", want: ""},
+		{name: "prose is what comes back", body: "one\ntwo\n", want: "one\ntwo\n"},
+		{
+			// The backticks go with the span, so what follows keeps the
+			// character in front of it: an import written after a span is
+			// still preceded by a space, and still an import.
+			name: "a span goes, backticks and all",
+			body: "a `b` c\n",
+			want: "a     c\n",
+		},
+		{
+			// The marker lines are no segment at all, and blanking whatever
+			// Segments does not call prose is what takes them too.
+			name: "a fence goes with its marker lines",
+			body: "a\n```\nb\n```\nc\n",
+			want: "a\n   \n \n   \nc\n",
+		},
+		{
+			// A backtick fence's info string may not hold a backtick, so this
+			// line opens no block and is prose down to its last byte.
+			name: "a backtick in an info string leaves a paragraph",
+			body: "```a` [x](x.md)",
+			want: "```a` [x](x.md)",
+		},
+		{
+			// Only the newline is kept, so the \r of a marker line is blanked
+			// like any other byte of code while the one in prose is not.
+			name: "CRLF keeps its newline and loses the rest",
+			body: "```\r\n@a.md\r\n```\r\n@c.md\r\n",
+			want: "    \n      \n    \n@c.md\r\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, ghmd.BlankCode(tt.body)); diff != "" {
+				t.Errorf("BlankCode(%q) (-want +got):\n%s", tt.body, diff)
+			}
+		})
+	}
+}

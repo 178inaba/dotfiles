@@ -114,6 +114,34 @@ func Segments(body string) iter.Seq[Segment] {
 	}
 }
 
+// BlankCode returns body with every byte Segments does not yield as Prose —
+// a Fence segment, a Span segment, and the marker lines a fence is delimited
+// by, which are no segment at all — replaced by a space, and every newline
+// kept.
+//
+// Blanked rather than deleted, so that the result has the body's own length
+// and line structure and each remaining character sits at its original
+// offset. That is what a caller matching a pattern against the result asks
+// for: an import written after a code span is still preceded by a space, and
+// still an import. A \r is a byte like any other, so one inside code goes and
+// one in prose stays.
+func BlankCode(body string) string {
+	out := make([]byte, len(body))
+	for i := range len(body) {
+		if body[i] == '\n' {
+			out[i] = '\n'
+			continue
+		}
+		out[i] = ' '
+	}
+	for s := range Segments(body) {
+		if s.Kind == Prose {
+			copy(out[s.Start:s.End], body[s.Start:s.End])
+		}
+	}
+	return string(out)
+}
+
 // fence is the block a body is currently inside, or the zero value outside
 // one. Both the marker's character and the length of its run are carried,
 // because both decide what closes it.
