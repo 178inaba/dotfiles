@@ -55,9 +55,16 @@ func fastForwardOrDirty(ctx context.Context, r runner.Runner, dir, target string
 	return FreshnessSynced, nil
 }
 
-// isAncestor reports whether one commit is reachable from another, which is how
+// IsAncestor reports whether one commit is reachable from another, which is how
 // behind and ahead are told apart.
-func isAncestor(ctx context.Context, r runner.Runner, dir, ancestor, descendant string) bool {
+//
+// A commit the repository does not hold answers false rather than raising:
+// `git merge-base --is-ancestor` exits 128 on a name it cannot resolve, and to
+// every caller here a commit that is not there is one nothing is reachable
+// from. That makes the direction a caller asks in load-bearing — the pull
+// request check phrases its question so that an unfetched head falls on the
+// side that tells the operator to sync.
+func IsAncestor(ctx context.Context, r runner.Runner, dir, ancestor, descendant string) bool {
 	_, err := r.Run(ctx, runner.Command{
 		Name: "git",
 		Args: []string{"-C", dir, "merge-base", "--is-ancestor", ancestor, descendant},

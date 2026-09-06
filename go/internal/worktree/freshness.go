@@ -97,10 +97,10 @@ func CheckFreshness(ctx context.Context, r runner.Runner, dir string, pr PullReq
 		return report(FreshnessOK)
 	}
 
-	if pr.IsOwnPR && isAncestor(ctx, r, dir, pr.HeadOID, "HEAD") {
+	if pr.IsOwnPR && IsAncestor(ctx, r, dir, pr.HeadOID, "HEAD") {
 		return report(FreshnessAheadOwn)
 	}
-	if isAncestor(ctx, r, dir, "HEAD", pr.HeadOID) {
+	if IsAncestor(ctx, r, dir, "HEAD", pr.HeadOID) {
 		status, err := fastForwardOrDirty(ctx, r, dir, pr.HeadOID)
 		if err != nil {
 			return FreshnessReport{}, err

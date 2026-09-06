@@ -1,6 +1,8 @@
 package pullrequest_test
 
 import (
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +11,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
+	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
+	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
@@ -139,4 +144,118 @@ func TestContextCheckout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// prHandler serves the pull request lookup RequirePushedHead makes, and fails
+// the test on anything else: the check is all these cases exercise, so another
+// endpoint being reached is the test's own mistake.
+func prHandler(t *testing.T, liveHead string) http.Handler {
+	t.Helper()
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/graphql" {
+			t.Errorf("unexpected request to %s", r.URL.Path)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":{"number":5,"headRefOid":%q}}}}`, liveHead)
+	})
+}
+
+// TestRequirePushedHead is the check the two reply commands make now that a run
+// fetches the document once: the push landed, and what the replies were written
+// against is behind where the checkout stands.
+func TestRequirePushedHead(t *testing.T) {
+	t.Parallel()
+
+	repo := diffRepo(t)
+	head := gittest.Rev(t, repo, "HEAD")
+	previous := gittest.Rev(t, repo, "HEAD~")
+	target := func(docHead string) pullrequest.Target {
+		return pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: docHead}
+	}
+
+	// The pushed-fixes case, and the whole point of the check: the run
+	// committed and pushed, so the checkout is what GitHub holds and the
+	// document it judged from is behind it. No second fetch was needed.
+	t.Run("the push landed", func(t *testing.T) {
+		t.Parallel()
+
+		c := ghapitest.New(t, prHandler(t, head))
+		if err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(previous), "replying"); err != nil {
+			t.Errorf("RequirePushedHead on a pushed checkout = %v, want it to accept", err)
+		}
+	})
+
+	// The run's own commits sit on top of what GitHub holds, so a reply would
+	// be about code nobody else can see.
+	t.Run("a commit is unpushed", func(t *testing.T) {
+		t.Parallel()
+
+		c := ghapitest.New(t, prHandler(t, previous))
+		err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(previous), "replying")
+		if err == nil {
+			t.Fatal("RequirePushedHead with an unpushed commit succeeded, want a refusal")
+		}
+		for _, want := range []string{head, previous, "push"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to mention %q", err, want)
+			}
+		}
+		if strings.Contains(err.Error(), "sync") {
+			t.Errorf("error = %q, want it to ask for a push rather than a sync", err)
+		}
+	})
+
+	// The live head is one the author pushed during the run, so it is not in
+	// this repository at all. That absence is the ordinary shape of this case,
+	// and the reason the ancestry is tested in the direction it is: asked the
+	// other way round, a missing commit reads as "not an ancestor" and a
+	// reviewer who cannot push is told to push.
+	t.Run("the checkout is behind", func(t *testing.T) {
+		t.Parallel()
+
+		elsewhere := gittest.Rev(t, gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "elsewhere")), "HEAD")
+		c := ghapitest.New(t, prHandler(t, elsewhere))
+		err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(head), "replying")
+		if err == nil {
+			t.Fatal("RequirePushedHead behind the live head succeeded, want a refusal")
+		}
+		for _, want := range []string{head, elsewhere, "sync"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to mention %q", err, want)
+			}
+		}
+	})
+
+	// A rebase or a force-push: the checkout is the live head, but nothing the
+	// replies were written against is on the way to it.
+	t.Run("the document's head is not an ancestor", func(t *testing.T) {
+		t.Parallel()
+
+		aside := gittest.Rev(t, gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "aside")), "HEAD")
+		c := ghapitest.New(t, prHandler(t, head))
+		err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(aside), "replying")
+		if err == nil {
+			t.Fatal("RequirePushedHead with an unrelated document head succeeded, want a refusal")
+		}
+		for _, want := range []string{aside, head, "ccx pr context"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to mention %q", err, want)
+			}
+		}
+	})
+
+	// Fail closed: a live head that cannot be read is not a live head that
+	// matches, and nothing undoes a reply posted on the guess.
+	t.Run("the live head cannot be read", func(t *testing.T) {
+		t.Parallel()
+
+		c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		if err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(previous), "replying"); err == nil {
+			t.Error("RequirePushedHead with an unreadable live head succeeded, want a refusal")
+		}
+	})
 }
