@@ -20,10 +20,12 @@ import (
 
 // Seen is the record one pull request's state file holds.
 type Seen struct {
-	// The fetched_at of the document the run judged from. The
-	// count on the next run measures everything against it, so it is the
-	// document's own instant rather than the moment the record was written:
-	// anything arriving during the run is dated after it and counts next time.
+	// The fetched_at of the document the run judged from, which is the one
+	// document the run fetched: the commands that post verify the checkout
+	// against GitHub, so nothing is fetched again to satisfy them. The count on
+	// the next run measures everything against this, so it is the document's
+	// own instant rather than the moment the record was written: anything
+	// arriving during the run is dated after it and counts next time.
 	SeenAt string `json:"seen_at" contract:"required,nonempty"`
 }
 

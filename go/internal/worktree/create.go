@@ -140,7 +140,7 @@ func startRefFor(ctx context.Context, r runner.Runner, root, base string) (strin
 	switch {
 	case remote:
 		var warnings []string
-		if local && !isAncestor(ctx, r, root, "refs/heads/"+base, "refs/remotes/origin/"+base) {
+		if local && !IsAncestor(ctx, r, root, "refs/heads/"+base, "refs/remotes/origin/"+base) {
 			warnings = append(warnings, fmt.Sprintf(
 				"local branch %s has commits not on origin/%s; worktree starts from origin/%s", base, base, base))
 		}

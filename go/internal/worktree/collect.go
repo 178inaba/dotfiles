@@ -395,7 +395,7 @@ const maxBeyond = 5
 func (c *collector) judgeMerged(ctx context.Context, branch string, pr branchPR) judgement {
 	// refs/heads/ spelled out: git resolves a tag before a branch of the same
 	// name, and the tag's commit would be compared instead.
-	if pr.HeadRefOID != "" && isAncestor(ctx, c.r, c.dir, "refs/heads/"+branch, pr.HeadRefOID) {
+	if pr.HeadRefOID != "" && IsAncestor(ctx, c.r, c.dir, "refs/heads/"+branch, pr.HeadRefOID) {
 		return judgement{verdict: VerdictPRMerged, detail: fmt.Sprintf("PR #%d MERGED", pr.Number)}
 	}
 

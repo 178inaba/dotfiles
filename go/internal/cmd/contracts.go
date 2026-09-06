@@ -333,9 +333,12 @@ The body is judged before anything is sent, as a review's is: one that numbers
 its items with bare #N is refused, because GitHub autolinks such a run and
 notifies unrelated issues.
 
-The local HEAD is confirmed to be the pull request's head first, as posting a
-review does. A report written against a checkout that has since moved is about
-code the pull request no longer holds, and nothing undoes it once published.`,
+The head is confirmed before anything is sent, and against GitHub rather than
+against the document, exactly as ` + "`ccx pr reply-threads`" + ` confirms it: the local
+HEAD has to be the pull request's head as GitHub holds it now, with the
+document's head an ancestor of it. That is what lets a run push its fixes and
+comment without fetching the document a second time. A refusal names both heads
+and the step that is missing.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.Commented]())},
 		statuses: with(),
 	},
@@ -356,10 +359,16 @@ Every reply is judged before the first one is posted, as a review's bodies
 are: one that numbers its items with bare #N refuses the whole run, because
 GitHub autolinks such a run and notifies unrelated issues.
 
-The local HEAD is confirmed to be the pull request's head, and then every
-target thread is re-read live: one that has been resolved or answered since the
-context was fetched stops the whole run, since the replies were written as one
-judgement of one view.
+The local HEAD is confirmed to be the pull request's head as GitHub holds it
+now, with the document's head an ancestor of it — so a run may commit and push
+its fixes and reply from the document it already has. A refusal names both heads
+and the step that is missing: to push, when the run's own commits are on top; to
+sync, when the checkout is behind the live head or diverged from it; to sync and
+fetch the document again, when a rebase or a force-push has taken the document's
+head off the branch. A live head that cannot be read refuses too, in a dry run
+as well. Then every target thread is re-read live: one that has been resolved or
+answered since the context was fetched stops the whole run, since the replies
+were written as one judgement of one view.
 
 Each reply that lands is recorded beside the threads file, so a re-run after a
 partial failure cannot post the same reply twice — it refuses instead. On a

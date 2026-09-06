@@ -185,29 +185,98 @@ func (t Target) repository() (ghapi.Repo, error) {
 	return repo, nil
 }
 
-// RequireHead checks that the checkout has not moved since the review was
-// prepared.
+// RequireHead checks that the checkout is still the exact state the document
+// describes, which is what posting a review is held to.
 //
-// Posting from a head that has moved is how a comment lands on a line number
-// that no longer means what it did, which GitHub rejects outright — and a
-// thread resolved against a diff that has since been undone is worse, because
-// nothing rejects that.
+// A review is written against one document and is posted on that document's
+// head, and the tie is mechanical: checkAnchors matches every remark against
+// the diff it reads out of this very checkout, so the local tree has to be the
+// state the remarks were written against or the anchoring check is judging the
+// wrong diff. The commands that reply to and comment on a pull request are held
+// to something different, since their run pushes between fetching the document
+// and posting: see RequirePushedHead.
 func RequireHead(ctx context.Context, r runner.Runner, dir, headOID, before string) error {
-	// Two calls rather than one, as the shell version had: reading HEAD fails
-	// both for a directory that is no repository and for a repository with no
-	// commits, and answering the second with the first's wording sends the
-	// reader somewhere there is nothing to find.
-	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--git-dir"); err != nil {
-		return fmt.Errorf("not inside a git repository")
-	}
-	local, err := runner.Git(ctx, r, dir, "rev-parse", "HEAD")
+	local, err := localHead(ctx, r, dir)
 	if err != nil {
-		return fmt.Errorf("failed to read HEAD in %s: %v", dir, err)
+		return err
 	}
 	if local != headOID {
 		return fmt.Errorf("local HEAD (%s) differs from PR head (%s); rerun the freshness check before %s", local, headOID, before)
 	}
 	return nil
+}
+
+// RequirePushedHead checks that the run's push landed and that the document it
+// posts from is behind where the checkout now stands.
+//
+// This is what replying and commenting need, and it is deliberately not what
+// RequireHead asks. Such a run fetches the document, judges, pushes its fixes,
+// and only then posts; holding it to the document's own head would mean
+// fetching the whole document a second time to satisfy a check about one
+// commit. What matters instead is that the local HEAD is the pull request's
+// head as GitHub holds it now — so a reply is about code the pull request
+// really has — and that the document the replies were written against is on
+// the way to it.
+//
+// The live head is read here rather than taken as an argument so that the two
+// callers cannot disagree about what an unreadable one means: it refuses,
+// dry runs included, because a head that could not be read is not a head that
+// matched, and nothing undoes a published reply.
+func RequirePushedHead(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, target Target, before string) error {
+	local, err := localHead(ctx, r, dir)
+	if err != nil {
+		return err
+	}
+	repo, err := target.repository()
+	if err != nil {
+		return err
+	}
+	pr, err := c.PullRequest(ctx, repo, target.Number)
+	if err != nil {
+		return fmt.Errorf("failed to read the pull request's current head, so %s is refused: %v", before, err)
+	}
+
+	if local != pr.HeadRefOid {
+		// Asked in this direction on purpose. The live head is usually not in
+		// this repository at all — nothing fetches it between the document and
+		// the post — and a commit it cannot resolve answers false, which here
+		// means "the checkout does not contain it" and lands on the sync side.
+		// Asked the other way round, that same absence would read as "the
+		// local HEAD is not behind" and tell a reviewer who cannot push to
+		// push.
+		if worktree.IsAncestor(ctx, r, dir, pr.HeadRefOid, local) {
+			return fmt.Errorf(
+				"local HEAD (%s) is ahead of the pull request's head on GitHub (%s); push before %s",
+				local, pr.HeadRefOid, before)
+		}
+		return fmt.Errorf(
+			"local HEAD (%s) is not the pull request's head on GitHub (%s); sync the checkout before %s",
+			local, pr.HeadRefOid, before)
+	}
+	if !worktree.IsAncestor(ctx, r, dir, target.HeadOID, local) {
+		return fmt.Errorf(
+			"the document was fetched at %s, which is not an ancestor of local HEAD (%s) — the branch was rebased or force-pushed; "+
+				"sync the checkout and fetch the document again with `ccx pr context` before %s",
+			target.HeadOID, local, before)
+	}
+	return nil
+}
+
+// localHead is the commit the checkout stands on.
+//
+// Two calls rather than one, as the shell version had: reading HEAD fails both
+// for a directory that is no repository and for a repository with no commits,
+// and answering the second with the first's wording sends the reader somewhere
+// there is nothing to find.
+func localHead(ctx context.Context, r runner.Runner, dir string) (string, error) {
+	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--git-dir"); err != nil {
+		return "", fmt.Errorf("not inside a git repository")
+	}
+	local, err := runner.Git(ctx, r, dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to read HEAD in %s: %v", dir, err)
+	}
+	return local, nil
 }
 
 // Checkout is what the freshness check needs out of a pull request context.

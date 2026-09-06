@@ -74,10 +74,9 @@ func ParseCommentBody(workDir, bodyFile string) (string, error) {
 // the comment's opening line.
 //
 // The mark is resolved before anything else, then the joined text is judged,
-// and the local head is confirmed after that, as posting a review does: a
-// report written against a checkout that has since moved is about code the
-// pull request no longer holds, and there is nothing to be done about it once
-// it is published.
+// and the head is confirmed after that — see RequirePushedHead for what it
+// compares. A report published from a checkout the pull request does not have
+// is about code nobody else can see, and nothing undoes it.
 //
 // What is judged is the joined text rather than what the caller wrote, because
 // that is what GitHub renders. The marker holds nothing the judgement is about,
@@ -95,7 +94,7 @@ func PostComment(ctx context.Context, r runner.Runner, c *ghapi.Client, dir stri
 	if err != nil {
 		return Commented{}, err
 	}
-	if err := RequireHead(ctx, r, dir, target.HeadOID, "commenting"); err != nil {
+	if err := RequirePushedHead(ctx, r, c, dir, target, "commenting"); err != nil {
 		return Commented{}, err
 	}
 

@@ -471,7 +471,15 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 			if err := pullrequest.RequireInWorkDir(threadsFile, "threads_path", contextFile); err != nil {
 				return silent(err)
 			}
-			if err := pullrequest.RequireHead(c.Context(), runner.Exec{}, ".", prContext.PR.HeadOID, "replying or resolving"); err != nil {
+			// The check keeps its place ahead of parsing the threads file, so a
+			// run with nothing to post still checks: that costs one round trip
+			// on a rare path and leaves nothing to reason about.
+			client, err := ghapi.New(ghapi.Options{})
+			if err != nil {
+				return silent(err)
+			}
+			if err := pullrequest.RequirePushedHead(c.Context(), runner.Exec{}, client, ".",
+				prContext.Target(), "replying or resolving"); err != nil {
 				return silent(err)
 			}
 
@@ -493,10 +501,6 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 				}))
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
-			if err != nil {
-				return silent(err)
-			}
 			req := pullrequest.ReplyRequest{
 				Actions: actions, Threads: prContext.KnownThreads(), ContextFile: contextFile, ThreadsFile: threadsFile,
 			}
