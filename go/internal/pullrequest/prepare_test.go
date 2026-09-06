@@ -176,15 +176,15 @@ var prepareIssues = func() map[string]string {
 	return m
 }()
 
-// preparePages is the pair as the handler takes them.
-var preparePages = pages{issues: prepareIssues, issueComments: prepareIssueComments}
-
 // prepareIssueComments is what those issues have been commented with.
 var prepareIssueComments = func() map[string][]string {
 	m := maps.Clone(linkedIssueComments)
 	m[commentsPath("owner/repo", 42)] = []string{commentJSON(6, "reviewer1", "on the overriding issue")}
 	return m
 }()
+
+// preparePages is the two of them as the handler takes them.
+var preparePages = pages{issues: prepareIssues, issueComments: prepareIssueComments}
 
 // issue42Comments is what the issue --issue names carries; what the issues the
 // body closes carry is declared beside the fixtures themselves.
@@ -811,6 +811,11 @@ func TestPrepareReadsTheNamedIssueWithoutAPullRequest(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, got.Issues); diff != "" {
 				t.Errorf("issues (-want +got):\n%s", diff)
+			}
+			// Nothing degraded, so nothing is said: the test below that
+			// expects exactly one warning is only meaningful against this.
+			if len(got.Warnings) != 0 {
+				t.Errorf("warnings = %q, want none on a run where nothing degraded", got.Warnings)
 			}
 		})
 	}
