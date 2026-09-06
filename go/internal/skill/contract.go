@@ -3,11 +3,14 @@ package skill
 import (
 	_ "embed"
 	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
 // ContractViolation is one thing wrong with the contract identifiers a skill
@@ -148,26 +151,65 @@ func contractFindings(file, content string, commands []string, published map[str
 	known := allowed()
 
 	var out []ContractFinding
-	for i, line := range strings.Split(content, "\n") {
-		for _, span := range backticked(line) {
-			for _, token := range notIdentifier.Split(span, -1) {
-				if !contractIdentifier.MatchString(token) || known[token] || published[token] {
-					continue
-				}
-				out = append(out, ContractFinding{Type: UnknownContractField, File: file, Line: i + 1, Ref: token})
+	for line, span := range spans(content) {
+		for _, token := range notIdentifier.Split(span, -1) {
+			if !contractIdentifier.MatchString(token) || known[token] || published[token] {
+				continue
 			}
+			out = append(out, ContractFinding{Type: UnknownContractField, File: file, Line: line, Ref: token})
 		}
 	}
 	return out
 }
 
-// backticked keeps fenced blocks in: a field named in an example is as much a
-// reference as one named in a sentence.
-func backticked(line string) []string {
-	parts := strings.Split(line, "`")
-	var out []string
-	for i := 1; i < len(parts); i += 2 {
-		out = append(out, parts[i])
+// spans yields the content of every code span in body, with the line it sits
+// on.
+//
+// Where a span is, is ghmd's reading in full, deviations included. What is
+// this check's own is that a fenced block stays in: a field named in an
+// example is as much a reference as one named in a sentence, and Segments
+// yields a fenced line whole rather than as the spans inside it. So each Fence
+// segment is read again — a line carrying no marker of its own comes back as
+// prose and spans — and what is found there is reported at the fenced line's
+// number. That policy is this check's rather than part of how GitHub reads a
+// body, which is why it is here and not an API of ghmd's.
+func spans(body string) iter.Seq2[int, string] {
+	return func(yield func(int, string) bool) {
+		for s := range ghmd.Segments(body) {
+			text := body[s.Start:s.End]
+			switch s.Kind {
+			case ghmd.Span:
+				if !yield(s.Line, spanContent(text)) {
+					return
+				}
+			case ghmd.Fence:
+				for inner := range ghmd.Segments(text) {
+					if inner.Kind != ghmd.Span {
+						continue
+					}
+					if !yield(s.Line, spanContent(text[inner.Start:inner.End])) {
+						return
+					}
+				}
+			case ghmd.Prose:
+			}
+		}
 	}
-	return out
+}
+
+// spanContent is what a span holds, its delimiting backtick runs taken off.
+// The two runs are of equal length, so counting the opening one measures both.
+//
+// No length check guards the slice, because a span cannot be all delimiter:
+// the closing run is searched for from the byte after the opening one, and
+// that byte is not a backtick or the opening run would not have ended there.
+//
+// CommonMark also strips a space from each end where both are present, and
+// nothing here depends on it: notIdentifier splits on spaces anyway.
+func spanContent(span string) string {
+	n := 0
+	for n < len(span) && span[n] == '`' {
+		n++
+	}
+	return span[n : len(span)-n]
 }
