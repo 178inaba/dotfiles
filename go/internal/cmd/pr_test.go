@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -224,28 +225,45 @@ func TestStateHome(t *testing.T) {
 	})
 }
 
-// headCheckRepo is the checkout the two posting commands run in: two commits,
-// so that a document can name one while the checkout stands on the other.
-func headCheckRepo(t *testing.T) (dir, first, second string) {
-	t.Helper()
+// The commits a head check case is written against: the two the checkout
+// stands on, and one it cannot resolve at all.
+const (
+	refFirst = iota
+	refSecond
+	refElsewhere
+)
 
-	dir = gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "repo"))
-	first = gittest.Rev(t, dir, "HEAD")
-	gittest.Write(t, filepath.Join(dir, "file.txt"), "second\n")
-	gittest.Run(t, dir, "commit", "-aqm", "second")
-	return dir, first, gittest.Rev(t, dir, "HEAD")
+// headCheckFixture is the checkout the two posting commands run in, and the
+// commits their cases name. Built once per test rather than per case: nothing
+// a case does writes to the checkout, and building it each time is four git
+// processes for three strings that never differ.
+type headCheckFixture struct {
+	repo string
+	oid  [3]string
 }
 
-// elsewhereCommit is a commit no checkout of headCheckRepo can resolve: what a
-// head belonging to a branch nothing here ever fetched looks like. Its content
-// differs from headCheckRepo's so that the two cannot hash alike.
-func elsewhereCommit(t *testing.T) string {
+func newHeadCheckFixture(t *testing.T) headCheckFixture {
 	t.Helper()
 
-	dir := gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "elsewhere"))
-	gittest.Write(t, filepath.Join(dir, "file.txt"), "elsewhere\n")
-	gittest.Run(t, dir, "commit", "-aqm", "elsewhere")
-	return gittest.Rev(t, dir, "HEAD")
+	gittest.SkipWithoutGit(t)
+	repo := gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "repo"))
+	first := gittest.Rev(t, repo, "HEAD")
+	gittest.Write(t, filepath.Join(repo, "file.txt"), "second\n")
+	gittest.Run(t, repo, "commit", "-aqm", "second")
+
+	// A commit in a repository of its own, so that it names a head this
+	// checkout cannot resolve. Its content differs from the one above because
+	// two repositories built from the same content, the same identity and the
+	// same message within one second hash alike.
+	other := gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "elsewhere"))
+	gittest.Write(t, filepath.Join(other, "file.txt"), "elsewhere\n")
+	gittest.Run(t, other, "commit", "-aqm", "elsewhere")
+
+	return headCheckFixture{repo: repo, oid: [3]string{
+		refFirst:     first,
+		refSecond:    gittest.Rev(t, repo, "HEAD"),
+		refElsewhere: gittest.Rev(t, other, "HEAD"),
+	}}
 }
 
 // prHandler answers the live head lookup, and the comment a run that passes
@@ -270,11 +288,12 @@ func prHandler(t *testing.T, liveHead string, posted *int) http.Handler {
 
 // headCheckCase is one of the five states RequirePushedHead tells apart, named
 // by what the checkout, the pull request's live head and the document's head
-// are to each other. The two heads are chosen from the fixture's commits, which
-// is why they arrive as functions rather than as strings.
+// are to each other.
 type headCheckCase struct {
-	name          string
-	live, docHead func(first, second, elsewhere string) string
+	name string
+	// live is the head GitHub reports and docHead the one the document was
+	// fetched at, each naming one of the fixture's commits.
+	live, docHead int
 	// liveFails serves the lookup a 500 instead, since a head that could not
 	// be read is not a head that matched.
 	liveFails bool
@@ -286,58 +305,53 @@ func headCheckCases() []headCheckCase {
 	return []headCheckCase{
 		{
 			name:    "the local commit has not been pushed",
-			live:    func(first, _, _ string) string { return first },
-			docHead: func(first, _, _ string) string { return first },
+			live:    refFirst,
+			docHead: refFirst,
 			wantErr: "push before",
 		},
 		{
 			name:    "the live head is not in this checkout",
-			live:    func(_, _, elsewhere string) string { return elsewhere },
-			docHead: func(first, _, _ string) string { return first },
+			live:    refElsewhere,
+			docHead: refFirst,
 			wantErr: "sync the checkout before",
 		},
 		{
 			name:    "the document's head was rewritten away",
-			live:    func(_, second, _ string) string { return second },
-			docHead: func(_, _, elsewhere string) string { return elsewhere },
+			live:    refSecond,
+			docHead: refElsewhere,
 			wantErr: "not an ancestor",
 		},
 		{
 			name:      "the live head cannot be read",
-			live:      func(_, second, _ string) string { return second },
-			docHead:   func(first, _, _ string) string { return first },
+			live:      refSecond,
+			docHead:   refFirst,
 			liveFails: true,
 			wantErr:   "failed to read the pull request's current head",
 		},
 		{
 			name:    "the push landed with the document behind it",
-			live:    func(_, second, _ string) string { return second },
-			docHead: func(first, _, _ string) string { return first },
+			live:    refSecond,
+			docHead: refFirst,
 		},
 	}
 }
 
-// runHeadCheckCase drives one command through one case and answers with the
-// exit code, what went to stderr, and how many comments reached the server.
+// run drives one command through one case and answers with the exit code, what
+// went to stderr, and how many comments reached the server.
 //
 // args is given the document and the work dir the case implies, so that the two
 // commands differ only in what they are asked to do once the check has passed.
-func runHeadCheckCase(t *testing.T, tt headCheckCase, args func(contextFile, workDir string) []string) (int, string, int) {
+// It has to write whatever it names into the work dir, which is what brings
+// that directory into being.
+func (f headCheckFixture) run(t *testing.T, tt headCheckCase,
+	args func(contextFile, workDir string) []string) (int, string, int) {
 	t.Helper()
 
-	gittest.SkipWithoutGit(t)
-	repo, first, second := headCheckRepo(t)
-	elsewhere := elsewhereCommit(t)
-	t.Chdir(repo)
-
-	contextFile := contextDocument(t, "2026-01-11T00:00:00Z", true, tt.docHead(first, second, elsewhere))
-	workDir := pullrequest.WorkDir(contextFile)
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll %s: %v", workDir, err)
-	}
+	t.Chdir(f.repo)
+	contextFile := contextDocument(t, "2026-01-11T00:00:00Z", true, f.oid[tt.docHead])
 
 	posted := 0
-	h := prHandler(t, tt.live(first, second, elsewhere), &posted)
+	h := prHandler(t, f.oid[tt.live], &posted)
 	if tt.liveFails {
 		h = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -345,77 +359,80 @@ func runHeadCheckCase(t *testing.T, tt headCheckCase, args func(contextFile, wor
 	}
 	deps := Deps{NewClient: func() (*ghapi.Client, error) { return ghapitest.New(t, h), nil }}
 
-	var out, errOut bytes.Buffer
-	code := run(t.Context(), args(contextFile, workDir), strings.NewReader(""), &out, &errOut, deps)
+	var errOut bytes.Buffer
+	code := run(t.Context(), args(contextFile, pullrequest.WorkDir(contextFile)),
+		strings.NewReader(""), io.Discard, &errOut, deps)
 	return code, errOut.String(), posted
 }
 
-// TestPRCommentChecksTheLiveHead is the check at the boundary a skill calls
-// it from: the command is driven through run with the network and the checkout
+// assertHeadCheck holds one run to what its case expects: an acceptance, or a
+// refusal that names its own reason — and either way, exactly the requests the
+// command had to make.
+func assertHeadCheck(t *testing.T, cmd string, tt headCheckCase, code int, stderr string, posted, wantPosted int) {
+	t.Helper()
+
+	if tt.wantErr == "" {
+		if code != 0 {
+			t.Fatalf("`ccx %s` = %d, want 0: %s", cmd, code, stderr)
+		}
+	} else {
+		if code == 0 {
+			t.Fatalf("`ccx %s` = 0, want a refusal", cmd)
+		}
+		if !strings.Contains(stderr, tt.wantErr) {
+			t.Errorf("stderr = %q, want it to mention %q", stderr, tt.wantErr)
+		}
+	}
+	if posted != wantPosted {
+		t.Errorf("%d comments reached the server, want %d", posted, wantPosted)
+	}
+}
+
+// TestPRCommentChecksTheLiveHead is the check at the boundary a skill calls it
+// from: the command is driven through run with the network and the checkout
 // both standing in, and the five states are told apart by what each refuses.
+//
+// The accepted case goes all the way to the posting path and the request
+// arrives at the handler, which is the property the injected client is for.
 //
 // Not parallel, because these commands read the checkout out of the working
 // directory rather than a flag, and t.Chdir moves the whole process.
 func TestPRCommentChecksTheLiveHead(t *testing.T) {
+	f := newHeadCheckFixture(t)
+
 	for _, tt := range headCheckCases() {
 		t.Run(tt.name, func(t *testing.T) {
-			code, stderr, posted := runHeadCheckCase(t, tt, func(contextFile, workDir string) []string {
+			code, stderr, posted := f.run(t, tt, func(contextFile, workDir string) []string {
 				gittest.Write(t, filepath.Join(workDir, "body.md"), "The fixes are in.\n")
 				return []string{"pr", "comment", contextFile,
 					"--mark", string(pullrequest.MarkReviewResponse), "--body-file", "body.md"}
 			})
 
+			wantPosted := 0
 			if tt.wantErr == "" {
-				if code != 0 {
-					t.Fatalf("`ccx pr comment` = %d, want 0: %s", code, stderr)
-				}
-				// What the seam is for: the run went through to the posting
-				// path, and what it posted arrived where a test can see it.
-				if posted != 1 {
-					t.Errorf("%d comments reached the server, want the one the run posted", posted)
-				}
-				return
+				wantPosted = 1
 			}
-			if code == 0 {
-				t.Fatal("`ccx pr comment` = 0, want a refusal")
-			}
-			if !strings.Contains(stderr, tt.wantErr) {
-				t.Errorf("stderr = %q, want it to mention %q", stderr, tt.wantErr)
-			}
-			if posted != 0 {
-				t.Errorf("%d comments reached the server, want none from a refused run", posted)
-			}
+			assertHeadCheck(t, "pr comment", tt, code, stderr, posted, wantPosted)
 		})
 	}
 }
 
 // TestPRReplyThreadsChecksTheLiveHead is the same five states for the other
-// command. Its accepted case posts nothing: the check keeps its place ahead of
-// the threads file, so a run with nothing to say still makes it.
+// command. Nothing is posted in any of them, the accepted case included: the
+// check keeps its place ahead of the threads file, so a run with nothing to
+// say still makes it and then has nothing to send.
 func TestPRReplyThreadsChecksTheLiveHead(t *testing.T) {
+	f := newHeadCheckFixture(t)
+
 	for _, tt := range headCheckCases() {
 		t.Run(tt.name, func(t *testing.T) {
-			code, stderr, posted := runHeadCheckCase(t, tt, func(contextFile, workDir string) []string {
+			code, stderr, posted := f.run(t, tt, func(contextFile, workDir string) []string {
 				threadsFile := filepath.Join(workDir, "threads.json")
 				gittest.Write(t, threadsFile, `{"threads":[]}`+"\n")
 				return []string{"pr", "reply-threads", contextFile, threadsFile}
 			})
 
-			if tt.wantErr == "" {
-				if code != 0 {
-					t.Fatalf("`ccx pr reply-threads` = %d, want 0: %s", code, stderr)
-				}
-				return
-			}
-			if code == 0 {
-				t.Fatal("`ccx pr reply-threads` = 0, want a refusal")
-			}
-			if !strings.Contains(stderr, tt.wantErr) {
-				t.Errorf("stderr = %q, want it to mention %q", stderr, tt.wantErr)
-			}
-			if posted != 0 {
-				t.Errorf("%d comments reached the server, want none from a refused run", posted)
-			}
+			assertHeadCheck(t, "pr reply-threads", tt, code, stderr, posted, 0)
 		})
 	}
 }

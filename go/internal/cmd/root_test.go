@@ -97,13 +97,11 @@ func TestRun(t *testing.T) {
 	}
 }
 
-// clientDirs are the directories the one-client rule covers: the command tree,
-// and the statusline package its detached refreshes call into.
-//
-// Read rather than walked, because the rule is about these two packages and
-// not the subpackages below them: prinfo and fxrate are handed a constructor
-// and build nothing, which is the arrangement this test exists to keep.
-var clientDirs = []string{".", filepath.Join("..", "statusline")}
+// clientPatterns reach the two packages the rule is about: the command tree,
+// and the statusline package the detached refreshes are wired in. Not the
+// subpackages below the latter — prinfo and fxrate are handed a constructor
+// and are held to building nothing by their own tests, not by this one.
+var clientPatterns = []string{"*.go", filepath.Join("..", "statusline", "*.go")}
 
 // TestOnlyExecuteBuildsTheClient holds the whole tree to one construction of
 // the GitHub client, in Execute, where the dependency is assembled.
@@ -113,26 +111,23 @@ var clientDirs = []string{".", filepath.Join("..", "statusline")}
 // root.go goes on importing ghapi. "One call in one file" is not something it
 // can say.
 //
-// The text is scanned rather than parsed. What is held here is exactly what a
-// reader greps for, and a walk of the syntax would not catch an aliased import
-// either without resolving the imports of every file it reads. The price is
-// that no non-test source may write the call with its parenthesis in a
-// comment, which is why the ones that talk about it leave the parenthesis off.
+// The text is scanned rather than parsed, because the call written out is what
+// the rule is about and what a reader greps for. Two things it therefore does
+// not see: an aliased import, and the call named inside a comment — which is
+// why the comments that talk about it leave the parenthesis off.
 func TestOnlyExecuteBuildsTheClient(t *testing.T) {
 	t.Parallel()
 
 	var found []string
-	for _, dir := range clientDirs {
-		entries, err := os.ReadDir(dir)
+	for _, pattern := range clientPatterns {
+		paths, err := filepath.Glob(pattern)
 		if err != nil {
-			t.Fatalf("ReadDir %s: %v", dir, err)
+			t.Fatalf("Glob %s: %v", pattern, err)
 		}
-		for _, e := range entries {
-			name := e.Name()
-			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		for _, path := range paths {
+			if strings.HasSuffix(path, "_test.go") {
 				continue
 			}
-			path := filepath.Join(dir, name)
 			b, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("ReadFile %s: %v", path, err)

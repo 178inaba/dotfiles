@@ -41,16 +41,18 @@ func silent(err error) error {
 //
 // Every constructor takes the whole of it, including the ones that need no
 // client today, so that a command which later does needs nothing rethreaded to
-// reach GitHub.
+// reach GitHub. A helper that runs rather than builds takes the field it uses:
+// reportBuild, buildFailure and runHook report the build, and handing them a
+// client they have no business reaching would be the wider signature, not the
+// consistent one.
 type Deps struct {
 	// Build is the self-rebuild outcome, which each subcommand reports in
 	// whatever way suits its own output contract.
 	Build selfbuild.State
-	// NewClient is a constructor rather than a client for the reason
-	// prinfo.Refresh documents: ghapi.New resolves go-gh's options and, for a
-	// token in the system keyring, execs `gh auth token` — a cost a run that
-	// never reaches GitHub should not pay. The commands call it where they
-	// used to construct one, which is to say late.
+	// NewClient is a constructor rather than a client, for the reason
+	// prinfo.Refresh documents: building one costs an exec that a run never
+	// reaching GitHub should not pay. The commands call it where they used to
+	// construct one, which is to say late.
 	NewClient func() (*ghapi.Client, error)
 }
 
