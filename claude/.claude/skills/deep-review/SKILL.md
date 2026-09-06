@@ -72,7 +72,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 1. **俯瞰**: `jq '[.comments[] | {author, author_type, created_at, body: .body[0:120]}]'` で全件を一覧し、誰がいつ何を書いたかを把握する
 2. **精読**: `author_type != "Bot"` のコメントは全文読む（`null`（削除済みユーザー）や `"Mannequin"` 等の未知タイプは人間由来の可能性があるため読む側に倒す）。Bot（CI 通知・自動生成差分等）は俯瞰での種別確認だけで精読不要。ただし AI レビュー投稿と、人間のコメントが参照している Bot コメントは読む
-3. **自分の既存レビューがある場合**: `reviews[]` に current_user のレビューがあれば、その `submitted_at` 以降の comments[] とスレッド返信を必ず時系列で読む（作者の対応報告はここに集中し、見逃すと対応済み指摘を再提起する誤レビューになる）。既知の限界: `reviews_truncated: true` の場合は自分のレビュー自体が取得窓の外（古い側）に欠落している可能性があるため、`reviews[]` に無いことをもって過去レビュー無しと判断しない
+3. **自分の既存レビューがある場合**: `reviewers[]` に `author` が current_user の要素があれば、その `submitted_at` 以降の comments[] とスレッド返信を必ず時系列で読む（作者の対応報告はここに集中し、見逃すと対応済み指摘を再提起する誤レビューになる）。この `submitted_at` は自分の最新レビューより前に遡ることがあるが、読む範囲が広がるだけなので `reviews[]` から取り直さない。既知の限界: `reviews_truncated: true` の場合は自分のレビュー自体が取得窓の外（古い側）に欠落している可能性があるため、`reviewers[]` に無いことをもって過去レビュー無しと判断しない
 
 ### 3. Issue情報取得
 
