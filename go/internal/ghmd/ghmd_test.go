@@ -208,6 +208,10 @@ func TestClosingReferences(t *testing.T) {
 		{name: "a placeholder names no issue", body: "docs update: `Closes #N` placeholder\n"},
 		{name: "a longer word merely ends in the keyword", body: "word `discloses #656` here\n"},
 		{name: "the keyword without a reference", body: "call `closes the stream` explicitly\n"},
+		// The one form that reaches the pattern and is turned away by it
+		// rather than by the run holding no # at all. GitHub links a bare
+		// reference and closes on none.
+		{name: "a reference without a keyword", body: "See #5\n"},
 		{name: "a url is not a reference GitHub closes on", body: "Fixes https://github.com/owner/repo/issues/14\n"},
 	}
 	for _, tt := range tests {
