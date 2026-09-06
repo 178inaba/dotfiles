@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
 // ContractViolation is one thing wrong with the contract identifiers a skill
@@ -148,26 +150,38 @@ func contractFindings(file, content string, commands []string, published map[str
 	known := allowed()
 
 	var out []ContractFinding
-	for i, line := range strings.Split(content, "\n") {
-		for _, span := range backticked(line) {
-			for _, token := range notIdentifier.Split(span, -1) {
-				if !contractIdentifier.MatchString(token) || known[token] || published[token] {
-					continue
-				}
-				out = append(out, ContractFinding{Type: UnknownContractField, File: file, Line: i + 1, Ref: token})
+	// A span is scanned with its delimiters on. They are not identifier
+	// characters, so notIdentifier drops them along with the spaces and the
+	// punctuation, and taking them off first would change nothing.
+	scan := func(line int, span string) {
+		for _, token := range notIdentifier.Split(span, -1) {
+			if !contractIdentifier.MatchString(token) || known[token] || published[token] {
+				continue
 			}
+			out = append(out, ContractFinding{Type: UnknownContractField, File: file, Line: line, Ref: token})
 		}
 	}
-	return out
-}
 
-// backticked keeps fenced blocks in: a field named in an example is as much a
-// reference as one named in a sentence.
-func backticked(line string) []string {
-	parts := strings.Split(line, "`")
-	var out []string
-	for i := 1; i < len(parts); i += 2 {
-		out = append(out, parts[i])
+	// Where a span is, is ghmd's reading in full, deviations included. What is
+	// this check's own is that a fenced block stays in: a field named in an
+	// example is as much a reference as one named in a sentence, and Segments
+	// yields a fenced line whole rather than as the spans inside it. So each
+	// Fence segment is read again — a line carrying no marker of its own comes
+	// back as prose and spans — and what is found there is reported at the
+	// fenced line's number. That policy is this check's rather than part of how
+	// GitHub reads a body, which is why it is here and not an API of ghmd's.
+	for s := range ghmd.Segments(content) {
+		text := content[s.Start:s.End]
+		switch s.Kind {
+		case ghmd.Span:
+			scan(s.Line, text)
+		case ghmd.Fence:
+			for inner := range ghmd.Segments(text) {
+				if inner.Kind == ghmd.Span {
+					scan(s.Line, text[inner.Start:inner.End])
+				}
+			}
+		}
 	}
 	return out
 }

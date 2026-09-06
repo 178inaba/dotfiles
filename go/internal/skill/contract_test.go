@@ -21,8 +21,9 @@ var published = skill.Published{
 func TestCheckContract(t *testing.T) {
 	t.Parallel()
 
-	// Every body is one line, and the frontmatter written around it puts that
-	// line at 6.
+	// The frontmatter written around a body takes the first five lines, so a
+	// body starts at 6. One that runs to more than one line counts on from
+	// there.
 	const bodyLine = 6
 
 	tests := []struct {
@@ -41,6 +42,36 @@ func TestCheckContract(t *testing.T) {
 			want: []skill.ContractFinding{{
 				Type: skill.UnknownContractField, File: "sample/SKILL.md",
 				Line: bodyLine, Ref: "head_sha",
+			}},
+		},
+		{
+			// The two cases above with the span's delimiters doubled, which
+			// CommonMark reads the same way. A reading that splits a line on
+			// the backtick without measuring the run drops the content of one
+			// into an even-numbered part and scans neither, so this one passed
+			// before the reading moved to ghmd and the next one did not. It is
+			// here to hold that ground rather than because it once failed.
+			name: "a field that exists, in a span delimited by a run of two",
+			body: "Run `ccx worktree collect` and keep ``head_oid`` when you thin the list.\n",
+		},
+		{
+			name: "a field that no longer exists, in a span delimited by a run of two",
+			body: "Run `ccx worktree collect` and keep ``head_sha`` when you thin the list.\n",
+			want: []skill.ContractFinding{{
+				Type: skill.UnknownContractField, File: "sample/SKILL.md",
+				Line: bodyLine, Ref: "head_sha",
+			}},
+		},
+		{
+			// A fenced example is a reference like any other, and the finding
+			// names the line the example is on rather than the block's. This
+			// held before the reading moved to ghmd too, and is here so that
+			// the move does not quietly take it away.
+			name: "a field that no longer exists, inside a fenced block",
+			body: "Run `ccx worktree collect` like this:\n\n```sh\nkeep `head_sha` when you thin the list\n```\n",
+			want: []skill.ContractFinding{{
+				Type: skill.UnknownContractField, File: "sample/SKILL.md",
+				Line: bodyLine + 3, Ref: "head_sha",
 			}},
 		},
 		{
