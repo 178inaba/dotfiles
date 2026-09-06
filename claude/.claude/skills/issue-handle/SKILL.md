@@ -30,7 +30,7 @@ disable-model-invocation: true
 - `--base BRANCH`: ベースブランチを明示指定。省略時は起動時の現在ブランチ
 - `--worktree`: 実装作業を専用の git worktree で隔離（並列開発時に推奨）。作成は同梱スクリプト、切替は `EnterWorktree(path:)`（詳細は事前準備 Step 3/5/6・注意事項）
 - `--delegate-impl`: 実装フェーズの Step 3〜4（実装・テスト・コミットのループ）と Step 7-2 の決定済み修正の適用を `model: "sonnet"` の実装エージェントに委譲する。判断（計画・レビュー指摘の要否・修正方針）と外向き操作（Issue コメント・PR 作成・PR 説明更新・PR の Ready 化）は親セッションに残る（レビュー修正フェーズの push のみ実装エージェントが行う）
-- `--no-plan-review`: 計画フェーズの計画検証（deep-plan-review）をスキップする。ドキュメント・spec の小修正や単一ファイルの軽微な変更など、計画に blocker の出る余地がほぼなく検証コストが見合わない Issue 向け。完了時の独立セッション `/deep-review` は省略されず、安全網として残る
+- `--no-plan-review`: 計画フェーズの計画検証（deep-plan-review）をスキップする。ドキュメント・spec の小修正や単一ファイルの軽微な変更など、計画に blocker も decision も出る余地がほぼなく検証コストが見合わない Issue 向け（`deep-plan-review` は両方で収束する）。完了時の独立セッション `/deep-review` は省略されず、安全網として残る
 
 ## 前提条件
 - Gitリポジトリ内で実行すること
