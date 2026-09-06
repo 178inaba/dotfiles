@@ -35,15 +35,22 @@ type Stored struct {
 	ThreadsPath string `json:"threads_path"`
 }
 
-// ContextFileName is what a fetched context is stored as.
+// repoToken is how a repository is spelled inside one of these names.
 //
 // The owner and the name are separated by an @, which neither may contain:
 // with a hyphen, a-b/c and a/b-c would collapse onto one name, and the
-// uniqueness the file's whole purpose rests on would have a hole in it.
+// uniqueness these names' whole purpose rests on would have a hole in it. One
+// owner for that rule, since both names below carry it.
+func repoToken(repo ghapi.Repo) string {
+	return repo.Owner + "@" + repo.Name
+}
+
+// ContextFileName is what a fetched context is stored as.
+//
 // Composed here rather than where the file is written, because WorkDir below
 // takes the name apart again — one format, one owner.
 func ContextFileName(repo ghapi.Repo, number int) string {
-	return fmt.Sprintf("pr-context-%s@%s-%d.json", repo.Owner, repo.Name, number)
+	return fmt.Sprintf("pr-context-%s-%d.json", repoToken(repo), number)
 }
 
 // ContextPath is where one pull request's context file goes under outDir.
@@ -78,7 +85,7 @@ func WorkDir(contextFile string) string {
 func BranchWorkDir(outDir string, repo ghapi.Repo, branch string) string {
 	// branch- rather than pr-: a branch may be named after a number, and the
 	// shared prefix would put it in that pull request's directory.
-	return filepath.Join(outDir, fmt.Sprintf("branch-%s@%s-%s", repo.Owner, repo.Name, strings.ReplaceAll(branch, "/", "-")))
+	return filepath.Join(outDir, "branch-"+repoToken(repo)+"-"+strings.ReplaceAll(branch, "/", "-"))
 }
 
 // WorkFiles is the directory a run works in and the four files handed out with
@@ -97,27 +104,21 @@ type WorkFiles struct {
 	LocalDiffPath string
 }
 
-// workFilesIn names the documents inside a directory.
+// ensureWorkFiles creates dir and names what goes in it.
 //
-// Apart from creating it so that both callers below name them the same way: a
-// second spelling of the four names is how the commands that hand the
-// directory out would come to disagree about where a caller should write.
-func workFilesIn(dir string) WorkFiles {
+// The one place the four names are spelled, so that the commands handing a
+// directory out cannot come to disagree about where a caller should write.
+func ensureWorkFiles(dir string) (WorkFiles, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return WorkFiles{}, fmt.Errorf("failed to create the work dir: %s", dir)
+	}
 	return WorkFiles{
 		Dir:           dir,
 		ReviewPath:    filepath.Join(dir, "review.json"),
 		ThreadsPath:   filepath.Join(dir, "threads.json"),
 		DiffPath:      filepath.Join(dir, "diff.patch"),
 		LocalDiffPath: filepath.Join(dir, "local.patch"),
-	}
-}
-
-// ensureWorkFiles creates dir and names what goes in it.
-func ensureWorkFiles(dir string) (WorkFiles, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return WorkFiles{}, fmt.Errorf("failed to create the work dir: %s", dir)
-	}
-	return workFilesIn(dir), nil
+	}, nil
 }
 
 // EnsureWorkFiles creates the directory paired with a context file and names

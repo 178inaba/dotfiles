@@ -117,8 +117,10 @@ func TestEnsureBranchWorkFiles(t *testing.T) {
 		t.Fatalf("EnsureBranchWorkFiles: %v", err)
 	}
 	dir := filepath.Join(scratch, "branch-owner@repo-feature-x")
-	// The same four names as a pull request's, so that a run works the same
-	// way whichever of the two it is in.
+	// The same four names as a pull request's, because one function names
+	// them. Only Dir and LocalDiffPath are read in this state — there is
+	// nothing to post a review to and no document to write a patch for — and
+	// pinning all four is what would catch a second spelling appearing.
 	want := pullrequest.WorkFiles{
 		Dir:           dir,
 		ReviewPath:    filepath.Join(dir, "review.json"),

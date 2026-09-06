@@ -64,12 +64,12 @@
                             Null except for a rename or a copy, where it is the path the
                             file came from.
         status              string, one of:
-          added             A file the pull request creates.
+          added             A file the range creates.
           modified          A file whose content changed. A file whose type changed — a
                             regular file replaced by a symlink, say — is reported as
                             this: it is a modification, and there is no third answer to
                             give.
-          deleted           A file the pull request removes.
+          deleted           A file the range removes.
           renamed           A file that moved, and is the reason previous_path exists:
                             the patch shows the two paths, and a reader matching the
                             file list against it needs both.

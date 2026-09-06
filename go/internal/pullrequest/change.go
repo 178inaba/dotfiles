@@ -25,13 +25,13 @@ type Commit struct {
 type FileStatus string
 
 const (
-	// StatusAdded is a file the pull request creates.
+	// StatusAdded is a file the range creates.
 	StatusAdded FileStatus = "added"
 	// StatusModified is a file whose content changed. A file whose type
 	// changed — a regular file replaced by a symlink, say — is reported as
 	// this: it is a modification, and there is no third answer to give.
 	StatusModified FileStatus = "modified"
-	// StatusDeleted is a file the pull request removes.
+	// StatusDeleted is a file the range removes.
 	StatusDeleted FileStatus = "deleted"
 	// StatusRenamed is a file that moved, and is the reason previous_path
 	// exists: the patch shows the two paths, and a reader matching the file
@@ -115,14 +115,6 @@ type Change struct {
 //
 // git runs against dir, which is the checkout the command was invoked in.
 func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, diffPath string) (Change, error) {
-	// Absolute before it reaches git: -C moves git's own working directory, so
-	// a relative --output would land under dir rather than beside the
-	// document. It is also what diff.path promises its reader.
-	patch, err := filepath.Abs(diffPath)
-	if err != nil {
-		return Change{}, fmt.Errorf("failed to resolve the diff path %s: %v", diffPath, err)
-	}
-
 	head := fmt.Sprintf("refs/pull/%d/head", pr.Number)
 	if _, err := r.Run(ctx, runner.Command{
 		Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", pr.BaseRefName, head},
@@ -143,18 +135,7 @@ func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullR
 		return Change{}, fmt.Errorf("failed to find the merge base of origin/%s and %s: %v", pr.BaseRefName, pr.HeadRefOid, err)
 	}
 
-	commits, err := readCommits(ctx, r, dir, base+".."+pr.HeadRefOid)
-	if err != nil {
-		return Change{}, err
-	}
-	diff, err := readDiff(ctx, r, dir, base+"..."+pr.HeadRefOid, patch)
-	if err != nil {
-		return Change{}, err
-	}
-	if err := readGenerated(ctx, r, dir, pr.HeadRefOid, diff.Files); err != nil {
-		return Change{}, err
-	}
-	return Change{Commits: commits, Diff: diff}, nil
+	return readRange(ctx, r, dir, base, pr.HeadRefOid, diffPath)
 }
 
 // ReadLocalChange reads the change a checkout holds over a base branch.
@@ -176,26 +157,39 @@ func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullR
 // commit this describes — the same rule the document's reading follows, so
 // that the local diff carries the flag the document's does.
 func ReadLocalChange(ctx context.Context, r runner.Runner, dir, base, diffPath string) (Change, error) {
-	// Absolute for the reason ReadChange gives: -C moves git's own working
-	// directory, and diff.path promises its reader an absolute name.
+	// No merge base found by hand: unlike ReadChange, which has to name an
+	// object git would not find on the other side, both ends here are refs git
+	// resolves itself, and the three dots readRange uses are that merge base.
+	return readRange(ctx, r, dir, base, "HEAD", diffPath)
+}
+
+// readRange is what both readings are once the two ends are settled: the
+// commits of base..tip, the diff of base...tip, and the generated attribute as
+// the repository declares it at tip.
+//
+// One implementation, because the two rules it carries are the same for either
+// end — the attribute is read at the commit the range describes rather than at
+// whatever is checked out, and three dots keep the diff against the merge base
+// rather than against wherever the base branch has since moved to. What differs
+// between the callers is only how they arrive at the two ends.
+func readRange(ctx context.Context, r runner.Runner, dir, base, tip, diffPath string) (Change, error) {
+	// Absolute before it reaches git: -C moves git's own working directory, so
+	// a relative --output would land under dir rather than beside the
+	// document. It is also what diff.path promises its reader.
 	patch, err := filepath.Abs(diffPath)
 	if err != nil {
 		return Change{}, fmt.Errorf("failed to resolve the diff path %s: %v", diffPath, err)
 	}
 
-	commits, err := readCommits(ctx, r, dir, base+"..HEAD")
+	commits, err := readCommits(ctx, r, dir, base+".."+tip)
 	if err != nil {
 		return Change{}, err
 	}
-	// Three dots, so that the diff is against the merge base and not against
-	// wherever the base branch has since moved to. No merge-base call of its
-	// own: unlike ReadChange, which has to name an object git would not find
-	// on the other side, both ends here are refs git resolves itself.
-	diff, err := readDiff(ctx, r, dir, base+"...HEAD", patch)
+	diff, err := readDiff(ctx, r, dir, base+"..."+tip, patch)
 	if err != nil {
 		return Change{}, err
 	}
-	if err := readGenerated(ctx, r, dir, "HEAD", diff.Files); err != nil {
+	if err := readGenerated(ctx, r, dir, tip, diff.Files); err != nil {
 		return Change{}, err
 	}
 	return Change{Commits: commits, Diff: diff}, nil
