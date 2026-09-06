@@ -1,9 +1,11 @@
 package worktree
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -308,6 +310,61 @@ func TestSweepAgainstTheCallersHead(t *testing.T) {
 			t.Error("the branch was deleted, though the caller's head does not hold its commit")
 		}
 	})
+}
+
+// unlockedToSweep hides git's locked lines from the sweep, and nothing else.
+//
+// The one way to reach a git command that refuses without standing a fake git
+// up: the sweep believes the worktree is free, and the lock it then runs into
+// is a real one git is really holding.
+type unlockedToSweep struct{ runner.Runner }
+
+func (u unlockedToSweep) Run(ctx context.Context, c runner.Command) ([]byte, error) {
+	out, err := u.Runner.Run(ctx, c)
+	if err != nil || !slices.Contains(c.Args, "--porcelain") {
+		return out, err
+	}
+	var lines []string
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if !strings.HasPrefix(line, "locked") {
+			lines = append(lines, line)
+		}
+	}
+	return []byte(strings.Join(lines, "\n")), nil
+}
+
+// TestSweepWhenGitRefusesTheRemoval covers the third list, and the reason
+// --force is passed once rather than twice: a lock taken between the listing
+// and the removal is caught by git itself, which is what a second --force
+// would step over. The branch of a worktree that could not be removed is left
+// alone, since it is still checked out in it.
+func TestSweepWhenGitRefusesTheRemoval(t *testing.T) {
+	t.Parallel()
+
+	repo := resolvedRepo(t)
+	wt := agentWorktree(t, repo, "raced", "main")
+	lockAsHarness(t, repo, wt, "raced")
+
+	got, err := Sweep(t.Context(), unlockedToSweep{runner.Exec{}}, repo)
+	if err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+
+	if len(got.Failures) != 1 {
+		t.Fatalf("failures = %+v, want the one refusal", got.Failures)
+	}
+	if f := got.Failures[0]; f.Type != KindWorktree || f.Target != wt || f.Error == "" {
+		t.Errorf("failure = %+v, want the worktree %s with git's own message", f, wt)
+	}
+	if len(got.Removed) != 0 || len(got.Kept) != 0 {
+		t.Errorf("removed = %+v, kept = %+v, want both empty", got.Removed, got.Kept)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("the worktree went despite the refusal: %v", err)
+	}
+	if !branchExists(t, repo, "worktree-agent-raced") {
+		t.Error("the branch of a worktree that could not be removed was deleted")
+	}
 }
 
 // TestSweepOutsideARepository pins the one premise that fails the command
