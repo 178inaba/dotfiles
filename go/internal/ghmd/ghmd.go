@@ -112,29 +112,12 @@ func Segments(body string) iter.Seq[Segment] {
 		for text := range strings.Lines(body) {
 			start := offset
 			offset += len(text)
-			switch {
-			// Whether a line opens a block is asked only outside one, and
-			// whether it closes one only inside: a marker of the other
-			// character, or a shorter one, is content rather than a nested
-			// block, and that is the difference from the toggle this replaces.
-			case open.n == 0:
-				if f, ok := opensFence(text); ok {
-					open = f
-					if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
-						return
-					}
-				} else if !yieldProseAndSpans(yield, text, line, start) {
-					return
-				}
-			case open.closedBy(text):
-				open = fence{}
+			if open.covers(text) {
 				if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
 					return
 				}
-			default:
-				if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
-					return
-				}
+			} else if !yieldProseAndSpans(yield, text, line, start) {
+				return
 			}
 			line++
 		}
@@ -156,22 +139,26 @@ func Segments(body string) iter.Seq[Segment] {
 // Segments' covering the body that makes that true — a run yielded by nobody
 // would be a run missing from here.
 func BlankCode(body string) string {
-	out := make([]byte, 0, len(body))
+	var b strings.Builder
+	// Exactly len(body) bytes are written, because the segments cover the
+	// body and each is written at its own length, so this is the only
+	// allocation the builder makes.
+	b.Grow(len(body))
 	for s := range Segments(body) {
 		text := body[s.Start:s.End]
 		if s.Kind == Prose {
-			out = append(out, text...)
+			b.WriteString(text)
 			continue
 		}
 		for i := range len(text) {
 			if text[i] == '\n' {
-				out = append(out, '\n')
+				b.WriteByte('\n')
 				continue
 			}
-			out = append(out, ' ')
+			b.WriteByte(' ')
 		}
 	}
-	return string(out)
+	return b.String()
 }
 
 // fence is the block a body is currently inside, or the zero value outside
@@ -180,6 +167,28 @@ func BlankCode(body string) string {
 type fence struct {
 	char byte
 	n    int
+}
+
+// covers advances f over one line and reports whether that line belongs to a
+// fenced block — the markers that open and close it included, since they are
+// Fence like the content between them.
+//
+// Whether a line opens a block is asked only outside one, and whether it
+// closes one only inside: a marker of the other character, or a shorter one,
+// is content rather than a nested block, and that is the difference from the
+// toggle this replaces.
+func (f *fence) covers(text string) bool {
+	switch {
+	case f.n == 0:
+		opened, ok := opensFence(text)
+		if ok {
+			*f = opened
+		}
+		return ok
+	case f.closedBy(text):
+		*f = fence{}
+	}
+	return true
 }
 
 // opensFence reports whether a line outside a block opens one.
