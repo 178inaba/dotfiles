@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -91,5 +94,59 @@ func TestRun(t *testing.T) {
 				t.Errorf("stderr = %q, want empty", stderr.String())
 			}
 		})
+	}
+}
+
+// clientDirs are the directories the one-client rule covers: the command tree,
+// and the statusline package its detached refreshes call into.
+//
+// Read rather than walked, because the rule is about these two packages and
+// not the subpackages below them: prinfo and fxrate are handed a constructor
+// and build nothing, which is the arrangement this test exists to keep.
+var clientDirs = []string{".", filepath.Join("..", "statusline")}
+
+// TestOnlyExecuteBuildsTheClient holds the whole tree to one construction of
+// the GitHub client, in Execute, where the dependency is assembled.
+//
+// A test rather than a depguard rule in .golangci.yml, which is where this
+// repository puts its package-boundary rules: depguard works per import, and
+// root.go goes on importing ghapi. "One call in one file" is not something it
+// can say.
+//
+// The text is scanned rather than parsed. What is held here is exactly what a
+// reader greps for, and a walk of the syntax would not catch an aliased import
+// either without resolving the imports of every file it reads. The price is
+// that no non-test source may write the call with its parenthesis in a
+// comment, which is why the ones that talk about it leave the parenthesis off.
+func TestOnlyExecuteBuildsTheClient(t *testing.T) {
+	t.Parallel()
+
+	var found []string
+	for _, dir := range clientDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("ReadDir %s: %v", dir, err)
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			path := filepath.Join(dir, name)
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile %s: %v", path, err)
+			}
+			for i, line := range strings.Split(string(b), "\n") {
+				if strings.Contains(line, "ghapi.New(") {
+					found = append(found, fmt.Sprintf("%s:%d", path, i+1))
+				}
+			}
+		}
+	}
+
+	if len(found) != 1 || !strings.HasPrefix(found[0], "root.go:") {
+		t.Errorf("a client is built at %v, want only the one in root.go that Execute puts in Deps; "+
+			"a command takes its client from Deps rather than building its own", found)
 	}
 }
