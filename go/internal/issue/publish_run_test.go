@@ -336,6 +336,23 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	file := writeManifest(t, m, parentAndSubFiles())
 	g := newFakeGitHub()
 
+	// What the run says it will write before it writes anything, so that the
+	// same case pins both halves of the promise that the two are one set.
+	plan, err := issue.PublishDryRun(t.Context(), g.client(t), m, file)
+	if err != nil {
+		t.Fatalf("PublishDryRun: %v", err)
+	}
+	// The parent and SUB_A go out holding a forward reference, so the write
+	// stage fills each of them in; SUB_B names only the issue created before
+	// it, so its body is finished at its create and it is written once.
+	wantEdit := []issue.PlannedIssue{
+		{Key: "PARENT", Title: "A title", Labels: []string{"enhancement"}},
+		{Key: "SUB_A", Title: "A title", Labels: []string{"enhancement"}},
+	}
+	if diff := cmp.Diff(wantEdit, plan.Edit); diff != "" {
+		t.Errorf("PublishDryRun planned to edit (-want +got):\n%s", diff)
+	}
+
 	got, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
@@ -348,6 +365,16 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got.Created); diff != "" {
 		t.Errorf("Publish created (-want +got):\n%s", diff)
+	}
+
+	// The issues the plan listed under edit, and no others, now carrying the
+	// numbers they were given.
+	wantEdited := []issue.PublishedIssue{
+		{Key: "PARENT", Number: 101, URL: "https://github.com/owner/repo/issues/101"},
+		{Key: "SUB_A", Number: 102, URL: "https://github.com/owner/repo/issues/102"},
+	}
+	if diff := cmp.Diff(wantEdited, got.Edited); diff != "" {
+		t.Errorf("Publish edited (-want +got):\n%s", diff)
 	}
 
 	// Every body ends up carrying real numbers, forward references included.
@@ -368,6 +395,32 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	}
 	if len(got.Degraded) != 0 {
 		t.Errorf("Publish reported %v as degraded, want none", got.Degraded)
+	}
+}
+
+// TestPublishLeavesAFinishedBodyAlone guards the gate rather than the append:
+// an issue created with nothing left to fill in is never written a second
+// time, so a run that reports it as edited is reporting a write it did not
+// make.
+func TestPublishLeavesAFinishedBodyAlone(t *testing.T) {
+	t.Parallel()
+
+	m := issue.PublishManifest{
+		Repo:   ptr("owner/repo"),
+		Issues: []issue.PublishManifestIssue{row("SOLO", "solo.md")},
+	}
+	file := writeManifest(t, m, map[string]string{"solo.md": leafDraft})
+	g := newFakeGitHub()
+
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if len(got.Created) != 1 {
+		t.Fatalf("Publish created %+v, want the one issue", got.Created)
+	}
+	if len(got.Edited) != 0 {
+		t.Errorf("Publish edited %+v, want nothing — its body went out finished", got.Edited)
 	}
 }
 
@@ -453,6 +506,15 @@ func TestPublishResumesAfterAnInterruptedCreate(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got.Created); diff != "" {
 		t.Errorf("the resumed run created (-want +got):\n%s", diff)
+	}
+	// The parent was created by the run before this one and left holding its
+	// forward references, so this run owes it a body it never created.
+	wantEdited := []issue.PublishedIssue{
+		{Key: "PARENT", Number: 101, URL: "https://github.com/owner/repo/issues/101"},
+		{Key: "SUB_A", Number: 102, URL: "https://github.com/owner/repo/issues/102"},
+	}
+	if diff := cmp.Diff(wantEdited, got.Edited); diff != "" {
+		t.Errorf("the resumed run edited (-want +got):\n%s", diff)
 	}
 	if body := g.issues[101].Body; !strings.Contains(body, "Composed of #102 then #103.") {
 		t.Errorf("the parent's forward references were never filled in:\n%s", body)
@@ -716,6 +778,14 @@ func TestPublishLinksAnExistingIssueToItsParent(t *testing.T) {
 	}
 	if diff := cmp.Diff([]issue.PlannedLink{{From: "42", To: "PARENT"}}, got.Linked); diff != "" {
 		t.Errorf("Publish linked (-want +got):\n%s", diff)
+	}
+	// The target end of the same rule the created issues test: an issue the
+	// manifest refines is written and said to have been.
+	wantEdited := []issue.PublishedIssue{
+		{Key: "42", Number: 42, URL: "https://github.com/owner/repo/issues/42"},
+	}
+	if diff := cmp.Diff(wantEdited, got.Edited); diff != "" {
+		t.Errorf("Publish edited (-want +got):\n%s", diff)
 	}
 }
 

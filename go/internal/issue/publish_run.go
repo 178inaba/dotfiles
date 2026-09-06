@@ -21,7 +21,12 @@ import (
 type Published struct {
 	// The issues created, in creation order.
 	Created []PublishedIssue `json:"created"`
-	// The issues whose body, title and labels were written.
+	// The issues whose bodies were written: a target's edit, and the fill-in
+	// of an issue created for this manifest — by this run or by one it
+	// resumes — whose body went out holding a forward reference. A run that
+	// finishes writes the keys the plan listed under edit and no others; one
+	// that stops writes a prefix of them. A target's title and labels go out
+	// with its body.
 	Edited []PublishedIssue `json:"edited"`
 	// The sub-issue links made, by manifest key.
 	Linked []PlannedLink `json:"linked"`
@@ -209,8 +214,10 @@ func (r *publishRun) patch(ctx context.Context, row publishRow) error {
 	if err := r.recordFreshness(row.key, got.UpdatedAt); err != nil {
 		return err
 	}
+	r.out.Edited = append(r.out.Edited, PublishedIssue{Key: row.key, Number: number, URL: got.URL})
 	if row.target() {
-		r.out.Edited = append(r.out.Edited, PublishedIssue{Key: row.key, Number: number, URL: got.URL})
+		// Only a target: an issue this run created had its labels and its
+		// assignee checked at the create, and this write asks for neither.
 		r.reportDrops(row, got)
 	}
 	return r.readBack(row, row.draft, got.Body, true)

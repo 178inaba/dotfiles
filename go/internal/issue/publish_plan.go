@@ -24,7 +24,11 @@ type PublishPlan struct {
 	// The substitutions that would be made in the bodies, once the numbers are
 	// known. A number of 0 is one this run would assign.
 	Substitute []PlannedSubstitution `json:"substitute"`
-	// The issues whose body, title and labels would be written.
+	// The issues whose bodies would be written: a target's edit, and the
+	// fill-in of an issue created for this manifest — by this run or by one
+	// it resumes — whose body goes out holding a forward reference. The same
+	// keys the result reports as edited. A target's title and labels go out
+	// with its body.
 	Edit []PlannedIssue `json:"edit"`
 	// The issues that would receive an edit-notification comment.
 	Comment []int `json:"comment"`
