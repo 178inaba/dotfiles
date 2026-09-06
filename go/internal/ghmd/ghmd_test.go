@@ -12,8 +12,8 @@ import (
 func TestRefuseBareHashRefs(t *testing.T) {
 	t.Parallel()
 
-	// Every accepted case holds three candidates that a reading GitHub does not
-	// make would have counted, so that accepting it says something.
+	// An accepted case that is about the reading holds three candidates a
+	// coarser one would have counted, so that accepting it says something.
 	tests := []struct {
 		name    string
 		body    string

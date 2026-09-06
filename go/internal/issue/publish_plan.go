@@ -99,7 +99,8 @@ func plan(ctx context.Context, c *ghapi.Client, wire PublishManifest, file strin
 		return publishPlan{}, err
 	}
 
-	if err := checkPublishSet(set); err != nil {
+	set.bodies, err = checkPublishSet(set)
+	if err != nil {
 		return publishPlan{}, err
 	}
 	ids, err := readPublishTargets(ctx, c, set, record)
@@ -191,9 +192,14 @@ func (p publishPlan) needsBlock(b publishBlock) bool { return !p.record.blocked[
 func (p publishPlan) isTarget(key string) bool { return p.set.byKey[key].target() }
 
 // checkPublishSet rejects what the manifest says about itself, with GitHub not
-// yet consulted.
-func checkPublishSet(set publishSet) error {
+// yet consulted, and answers with the bodies the run will send.
+//
+// It makes them rather than only judging them because those are the same act:
+// the stages send what came out of the judgement, so a body cannot be judged
+// at one moment and sent as it was at another.
+func checkPublishSet(set publishSet) (map[string]rowBodies, error) {
 	var bad violations
+	bodies := map[string]rowBodies{}
 
 	for _, row := range set.rows {
 		// Separate conditions rather than one switch, so that a row breaking
@@ -210,8 +216,8 @@ func checkPublishSet(set publishSet) error {
 		if row.parent != "" {
 			bad.addAll(checkPublishRef(set.byKey, row.key+": parent", row.parent))
 		}
-		bodies, found := checkPublishBody(set.byKey, row)
-		set.bodies[row.key] = bodies
+		judged, found := checkPublishBody(set.byKey, row)
+		bodies[row.key] = judged
 		bad.addAll(found)
 	}
 
@@ -220,7 +226,10 @@ func checkPublishSet(set publishSet) error {
 		bad.addAll(checkPublishRef(set.byKey, "blocked_by: by", b.by))
 	}
 
-	return bad.err(set.file)
+	if err := bad.err(set.file); err != nil {
+		return nil, err
+	}
+	return bodies, nil
 }
 
 // checkPublishRef checks one reference to an issue by key.

@@ -89,9 +89,10 @@ type publishSet struct {
 	// not write, which is the one thing every follower has to handle.
 	byKey map[string]publishRow
 	// bodies is what the pre-flight made of each row's draft and comment,
-	// keyed the same way. A row's text is judged once, before the run's first
-	// write, and what the stages send is the value that judgement produced —
-	// there is no second construction that could reach a different verdict.
+	// keyed the same way, and is empty until checkPublishSet answers with it.
+	// A row's text is judged once, before the run's first write, and what the
+	// stages send is the value that judgement produced — there is no second
+	// construction that could reach a different verdict.
 	bodies map[string]rowBodies
 	// file is the manifest itself: named in refusals, and where the record of
 	// what has been written lives.
@@ -151,7 +152,7 @@ type publishBlock struct{ blocked, by string }
 // alongside it: the two would have to agree, and nothing would make them.
 func parsePublishManifest(wire PublishManifest, file string) (publishSet, error) {
 	dir := filepath.Dir(file)
-	set := publishSet{file: file, byKey: map[string]publishRow{}, bodies: map[string]rowBodies{}}
+	set := publishSet{file: file, byKey: map[string]publishRow{}}
 	var bad violations
 	repo, err := ghapi.ParseRepo(*wire.Repo)
 	if err != nil {

@@ -69,8 +69,9 @@ func (a ThreadAction) selector() string {
 // lists in step to know whose reply is whose.
 type checkedAction struct {
 	ThreadAction
-	// body is nil for an entry that only resolves.
-	body *ghapi.Body
+	// reply is nil for an entry that only resolves. Not "body", which the
+	// embedded entry already has as the text it was read from.
+	reply *ghapi.Body
 }
 
 // plannedAction is one entry with its thread found and its reply judged.
@@ -254,7 +255,7 @@ func checkEntries(actions []ThreadAction) ([]checkedAction, error) {
 				refused = append(refused, fmt.Sprintf("%s: %v", a.selector(), err))
 				break
 			}
-			entry.body = &body
+			entry.reply = &body
 		}
 		checked = append(checked, entry)
 	}
@@ -286,7 +287,7 @@ func resolveSelectors(actions []checkedAction, threads []KnownThread, contextFil
 
 		switch len(candidates) {
 		case 1:
-			out = append(out, plannedAction{thread: candidates[0], body: a.body, resolve: a.Resolve})
+			out = append(out, plannedAction{thread: candidates[0], body: a.reply, resolve: a.Resolve})
 		case 0:
 			return nil, fmt.Errorf("no thread we may act on matches %s\n%s", a.selector(), atPath(threads, a.Path))
 		default:
