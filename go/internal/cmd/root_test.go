@@ -99,8 +99,8 @@ func TestRun(t *testing.T) {
 
 // clientPatterns reach the two packages the rule is about: the command tree,
 // and the statusline package the detached refreshes are wired in. Not the
-// subpackages below the latter — prinfo and fxrate are handed a constructor
-// and are held to building nothing by their own tests, not by this one.
+// subpackages below the latter — prinfo and fxrate are handed a constructor,
+// so building one is not something their code is in a position to do.
 var clientPatterns = []string{"*.go", filepath.Join("..", "statusline", "*.go")}
 
 // TestOnlyExecuteBuildsTheClient holds the whole tree to one construction of

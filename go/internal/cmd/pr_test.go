@@ -225,12 +225,16 @@ func TestStateHome(t *testing.T) {
 	})
 }
 
-// The commits a head check case is written against: the two the checkout
-// stands on, and one it cannot resolve at all.
+// commitRef names one of the commits a head check case is written against:
+// the two the checkout stands on, and one it cannot resolve at all. A type of
+// its own so that a case cannot name a commit the fixture does not hold.
+type commitRef int
+
 const (
-	refFirst = iota
+	refFirst commitRef = iota
 	refSecond
 	refElsewhere
+	numCommitRefs
 )
 
 // headCheckFixture is the checkout the two posting commands run in, and the
@@ -239,7 +243,7 @@ const (
 // processes for three strings that never differ.
 type headCheckFixture struct {
 	repo string
-	oid  [3]string
+	oid  [numCommitRefs]string
 }
 
 func newHeadCheckFixture(t *testing.T) headCheckFixture {
@@ -252,9 +256,11 @@ func newHeadCheckFixture(t *testing.T) headCheckFixture {
 	gittest.Run(t, repo, "commit", "-aqm", "second")
 
 	// A commit in a repository of its own, so that it names a head this
-	// checkout cannot resolve. Its content differs from the one above because
-	// two repositories built from the same content, the same identity and the
-	// same message within one second hash alike.
+	// checkout cannot resolve. It is the second commit, and its content
+	// differs from the one above, because two repositories built from the same
+	// content, the same identity and the same message within one second hash
+	// alike — the first commits of these two do, and taking one of them here
+	// would make the case about an unresolvable head into a case about first.
 	other := gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "elsewhere"))
 	gittest.Write(t, filepath.Join(other, "file.txt"), "elsewhere\n")
 	gittest.Run(t, other, "commit", "-aqm", "elsewhere")
@@ -266,10 +272,10 @@ func newHeadCheckFixture(t *testing.T) headCheckFixture {
 	}}
 }
 
-// prHandler answers the live head lookup, and the comment a run that passes
+// headCheckHandler answers the live head lookup, and the comment a run that passes
 // the check goes on to post. posted counts what arrived there, which is how a
 // run that was accepted is told from one that only failed later.
-func prHandler(t *testing.T, liveHead string, posted *int) http.Handler {
+func headCheckHandler(t *testing.T, liveHead string, posted *int) http.Handler {
 	t.Helper()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -293,7 +299,7 @@ type headCheckCase struct {
 	name string
 	// live is the head GitHub reports and docHead the one the document was
 	// fetched at, each naming one of the fixture's commits.
-	live, docHead int
+	live, docHead commitRef
 	// liveFails serves the lookup a 500 instead, since a head that could not
 	// be read is not a head that matched.
 	liveFails bool
@@ -351,7 +357,7 @@ func (f headCheckFixture) run(t *testing.T, tt headCheckCase,
 	contextFile := contextDocument(t, "2026-01-11T00:00:00Z", true, f.oid[tt.docHead])
 
 	posted := 0
-	h := prHandler(t, f.oid[tt.live], &posted)
+	h := headCheckHandler(t, f.oid[tt.live], &posted)
 	if tt.liveFails {
 		h = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
