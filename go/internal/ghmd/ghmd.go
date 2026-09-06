@@ -17,10 +17,15 @@
 // The scan is deliberately not a markdown parser. It knows the two things that
 // decide whether a reference is live — a fenced block and an inline code span —
 // and nothing else, because that is the whole of what the callers ask. The two
-// it does know it reads by CommonMark's rules rather than by an approximation
-// of them: both are delimited by the length of a run of one character, and a
-// reading that only looks for the character puts a boundary where GitHub shows
-// none.
+// it does know it delimits by CommonMark's measurement rather than by an
+// approximation of it: both are marked by a run of one character, and a
+// reading that looks at the character without its length puts a boundary where
+// GitHub shows none.
+//
+// Two deviations remain, both deliberate and both named where they are made: a
+// fence marker may be indented by any amount rather than by three spaces
+// (markerRun), and a code span does not continue across a line end
+// (nextCodeSpan). The second is the one that can still misread a body.
 package ghmd
 
 import (
@@ -156,30 +161,27 @@ func markerRun(text string) (char byte, n int, rest string) {
 		i++
 	}
 	if i == len(text) || (text[i] != '`' && text[i] != '~') {
-		return 0, 0, text[i:]
+		return 0, 0, ""
 	}
-	char = text[i]
-	j := i
-	for j < len(text) && text[j] == char {
-		j++
-	}
-	return char, j - i, text[j:]
+	n = runLength(text, i)
+	return text[i], n, text[i+n:]
 }
 
 // yieldProseAndSpans splits one prose line around the code spans in it.
 func yieldProseAndSpans(yield func(Segment) bool, text string, line, start int) bool {
 	at := 0
-	// The scan walks every byte, and most lines hold no code span.
-	if strings.IndexByte(text, '`') >= 0 {
-		for _, span := range codeSpans(text) {
-			if span[0] > at && !yield(Segment{Kind: Prose, Line: line, Start: start + at, End: start + span[0]}) {
-				return false
-			}
-			if !yield(Segment{Kind: Span, Line: line, Start: start + span[0], End: start + span[1]}) {
-				return false
-			}
-			at = span[1]
+	for {
+		i, j, ok := nextCodeSpan(text, at)
+		if !ok {
+			break
 		}
+		if i > at && !yield(Segment{Kind: Prose, Line: line, Start: start + at, End: start + i}) {
+			return false
+		}
+		if !yield(Segment{Kind: Span, Line: line, Start: start + i, End: start + j}) {
+			return false
+		}
+		at = j
 	}
 	if at >= len(text) {
 		return true
@@ -214,8 +216,8 @@ being referenced, name it as OWNER/REPO#N:
 That keeps the link and does not trip this guard.`, distinct)
 }
 
-// codeSpans returns the byte ranges of the code spans in one line, backticks
-// included, in order and without overlap.
+// nextCodeSpan returns the bounds of the first code span at or after from,
+// backticks included.
 //
 // CommonMark pairs a span by the length of its backtick run: a run of N opens
 // a span that the next run of exactly N closes, which is how text that itself
@@ -224,51 +226,55 @@ That keeps the link and does not trip this guard.`, distinct)
 // resumes just after it rather than after the runs it searched past, so that
 // those runs are still free to pair with each other.
 //
-// What CommonMark does beyond this — stripping a space from each end of the
-// content, and allowing a span to continue across a soft line break — changes
-// what a span reads as but not where one starts or ends, and only the
-// boundaries are asked for here. Staying within the line is also what keeps
-// Segment.Line meaning what it says.
-func codeSpans(text string) [][2]int {
-	var out [][2]int
-	for i := 0; i < len(text); {
-		if text[i] != '`' {
-			i++
-			continue
+// Where this departs from CommonMark is the line: a span there may continue
+// across a soft break, and one that does is missed here — the text either side
+// comes back as prose, so a bare reference inside it is counted and a
+// placeholder inside it is substituted. That is the deviation and not a
+// simplification of one. It is kept because the line is the unit every caller
+// reads in: BareHashRefs tokenises per line, and the section check maps a
+// segment's line onto a line index. No draft has written such a span, and the
+// day one does the fix is a wider change than this reader.
+//
+// The one thing CommonMark does that genuinely does not move a boundary is
+// stripping a space from each end of a span's content, and only the boundaries
+// are asked for here.
+func nextCodeSpan(text string, from int) (start, end int, ok bool) {
+	for i := from; ; {
+		k := strings.IndexByte(text[i:], '`')
+		if k < 0 {
+			return 0, 0, false
 		}
-		n := backtickRun(text, i)
-		j, ok := closingRun(text, i+n, n)
-		if !ok {
-			i += n
-			continue
+		i += k
+		n := runLength(text, i)
+		if j, found := closingRun(text, i+n, n); found {
+			return i, j + n, true
 		}
-		out = append(out, [2]int{i, j + n})
-		i = j + n
+		i += n
 	}
-	return out
 }
 
 // closingRun finds the run of exactly n backticks that closes a span opened at
 // from, skipping over the runs of any other length between.
 func closingRun(text string, from, n int) (int, bool) {
-	for i := from; i < len(text); {
-		if text[i] != '`' {
-			i++
-			continue
+	for i := from; ; {
+		k := strings.IndexByte(text[i:], '`')
+		if k < 0 {
+			return 0, false
 		}
-		m := backtickRun(text, i)
+		i += k
+		m := runLength(text, i)
 		if m == n {
 			return i, true
 		}
 		i += m
 	}
-	return 0, false
 }
 
-// backtickRun is the length of the run of backticks starting at i.
-func backtickRun(text string, i int) int {
+// runLength is the length of the run of text[i] starting at i. It is the one
+// measurement both constructs are delimited by.
+func runLength(text string, i int) int {
 	j := i
-	for j < len(text) && text[j] == '`' {
+	for j < len(text) && text[j] == text[i] {
 		j++
 	}
 	return j - i
