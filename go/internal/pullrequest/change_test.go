@@ -436,6 +436,83 @@ func TestReadChangeRefusesAGitWithoutCheckAttrSource(t *testing.T) {
 	}
 }
 
+// TestReadLocalChange reads the range out of the checkout it is given rather
+// than out of a pull request, which is what the two states with a change the
+// document cannot carry are reviewed from.
+//
+// Run against the author's own clone, since that is where the commits are: a
+// branch with no pull request has pushed nothing, and an author ahead of the
+// pull request has pushed only part.
+func TestReadLocalChange(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, history(t))
+	patch := filepath.Join(t.TempDir(), "local.patch")
+
+	got, err := pullrequest.ReadLocalChange(t.Context(), runner.Exec{}, r.author, "origin/main", patch)
+	if err != nil {
+		t.Fatalf("ReadLocalChange: %v", err)
+	}
+
+	// The same range the pull request's own reading covers, taken from the
+	// remote-tracking ref rather than from a merge base found by hand: the
+	// three-dot form is the merge base.
+	want := strings.Fields(gittest.Run(t, r.author, "log", "--format=%H", "origin/main..HEAD"))
+	slices.Reverse(want)
+	oids := make([]string, 0, len(got.Commits))
+	for _, c := range got.Commits {
+		oids = append(oids, c.OID)
+	}
+	if diff := cmp.Diff(want, oids); diff != "" {
+		t.Errorf("commits (-want +got):\n%s", diff)
+	}
+
+	content, err := os.ReadFile(patch)
+	if err != nil {
+		t.Fatalf("read the patch: %v", err)
+	}
+	if wantPatch := gittest.Run(t, r.author, "diff", "origin/main...HEAD"); string(content) != wantPatch {
+		t.Errorf("the patch differs from the same range read by hand:\n%s", cmp.Diff(wantPatch, string(content)))
+	}
+	if got.Diff.Path != patch {
+		t.Errorf("diff.path = %q, want %q", got.Diff.Path, patch)
+	}
+
+	old := "old.txt"
+	wantFiles := []pullrequest.DiffFile{
+		{Path: "added.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
+		{Path: "base.txt", Status: pullrequest.StatusDeleted, Additions: new(0), Deletions: new(1)},
+		{Path: "bin.dat", Status: pullrequest.StatusModified},
+		{Path: "new.txt", PreviousPath: &old, Status: pullrequest.StatusRenamed, Additions: new(1), Deletions: new(0)},
+		{Path: "side.txt", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
+	}
+	if diff := cmp.Diff(wantFiles, got.Diff.Files); diff != "" {
+		t.Errorf("diff.files (-want +got):\n%s", diff)
+	}
+}
+
+// TestReadLocalChangeFlagsGeneratedFiles is the reason the range is read here
+// rather than by whoever asks for it: the local diff carries the same flag the
+// document's does, so the one exclusion a reader of the whole diff is given
+// applies to both alike.
+//
+// The attribute is read at HEAD, which for a local range is the commit whose
+// change is being described — the same rule the document's reading follows.
+func TestReadLocalChangeFlagsGeneratedFiles(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, generatedHistory(t))
+
+	got, err := pullrequest.ReadLocalChange(
+		t.Context(), runner.Exec{}, r.author, "origin/main", filepath.Join(t.TempDir(), "local.patch"))
+	if err != nil {
+		t.Fatalf("ReadLocalChange: %v", err)
+	}
+	if diff := cmp.Diff(wantGenerated(), got.Diff.Files); diff != "" {
+		t.Errorf("diff.files (-want +got):\n%s", diff)
+	}
+}
+
 // runnerFunc is a Runner made of one function, so that a test can let every
 // call through and stand in for a single one.
 type runnerFunc func(context.Context, runner.Command) ([]byte, error)
