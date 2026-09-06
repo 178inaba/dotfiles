@@ -93,7 +93,7 @@
 - diff を渡さず、**ベース ref を渡して各自の worktree で `git diff <base>...HEAD` を取らせる**（隔離 worktree はそのエージェント専用で、親の diff をそのまま貼っても対象が一致しない）
 - **未コミットの変更があるときは隔離しない**。起動前に `git status --porcelain -uno` で tracked な変更を見て、あれば従来どおり隔離なしで起動し、その旨を要約に書く（組み込み `/simplify` はコミット前に走ることが多く `git diff HEAD` をスコープに畳み込む。何も見えていないレビューは干渉より悪く、いつコミットするかはユーザーの領分）
 - finding が名指しするパスは `.claude/worktrees/<name>/` 配下になる。親は自分のツリーのパスへ読み替えて適用する（`ccx hook worktree-edit-guard` は worktree 側からの流出しか見ないので、メインツリーの親では止まらない）
-- **後始末**: 変更のなかった worktree はハーネスがブランチごと削除するが、エージェントが復元に失敗した worktree は dirty のまま残る。実行後に `git worktree list` を見て `git worktree remove --force` で除去し、**続けて `git branch -D` でブランチも消す**（`git worktree remove` はブランチを消さない）。`/cleanup-merged` はマージ済みのブランチしか候補にしないので、PR を持たず未マージのこれらは worktree もブランチも拾われない
+- **後始末**: 実行後に **`ccx worktree sweep`** を実行し、`kept` と `failures` を要約に持ち込む。変更のなかった worktree はハーネスがブランチごと削除するが、エージェントが復元に失敗した worktree は dirty のまま残り、`/cleanup-merged` はマージ済みのブランチしか候補にしないので PR を持たず未マージのこれらを拾わない。実行中のエージェントの worktree は、自セッションのものも他セッションのものもハーネスのロックで判別され sweep は触れない。`kept` に残ったブランチはユーザーに委ねる（実行中に確認は取らない）
 
 ## 計画立案原則
 
