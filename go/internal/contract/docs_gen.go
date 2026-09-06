@@ -157,6 +157,7 @@ var genFields = map[string]string{
 
 // genTypes is every contract type's own doc comment, flattened to one line.
 var genTypes = map[string]string{
+	"github.com/178inaba/dotfiles/go/internal/ghapi.Body":                     "A markdown body GitHub will render, judged fit to send. The zero value is the empty body, which every judgement passes, so nothing is lost by it being constructible: what must not be constructible is a Body holding text nobody judged, and NewBody is the only way to get one.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Client":                   "Client reaches the GitHub REST and GraphQL APIs. A concrete type rather than an interface: the seam callers need is the transport, not a second implementation, and go.dev/wiki/CodeReviewComments asks that the interface be declared by whoever consumes one.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Issue":                    "A GitHub issue: what it says, and which repository it says it in. Here rather than in one of the packages that read issues because two of them do — the sub-issue tree and the pull request context — and a second implementation of the same endpoint is how they come to disagree about what a missing parent means.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.IssueChange":              "What a create or an edit asks for. Every field is a pointer because an edit says what to change and leaves the rest alone: an empty body and no body at all are different requests, and a nil label set is \"do not touch the labels\" where an empty one clears them.",
@@ -164,6 +165,8 @@ var genTypes = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Options":                  "The seams. The zero value is production: go-gh resolves the host and the token the way gh does.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.PullRequest":              "The metadata every command that starts from a pull request reads: the fields the shell asked `gh pr view --json` for, flattened the way the output contracts print them.",
 	"github.com/178inaba/dotfiles/go/internal/ghapi.Repo":                     "Repo names a GitHub repository. It carries no host. Every command in this tree talks to the single host the Client resolved, and a second copy of that on every value could only ever disagree with it.",
+	"github.com/178inaba/dotfiles/go/internal/ghapi.ReviewComment":            "One remark anchored to a line of the diff.",
+	"github.com/178inaba/dotfiles/go/internal/ghapi.ReviewSubmission":         "A review ready to post.",
 	"github.com/178inaba/dotfiles/go/internal/issue.Found":                    "A section located in a body.",
 	"github.com/178inaba/dotfiles/go/internal/issue.Headings":                 "One section's heading in each locale. A struct rather than a map because the locales are a closed set — the check below needs per-locale script detection, which a table column cannot carry — and because a map would render its keys in sorted order, while the contract is the order they are declared in.",
 	"github.com/178inaba/dotfiles/go/internal/issue.Hierarchy":                "Where one issue sits among its parent, children and blockers. The keys are printed in the order below, which is part of the contract.",
