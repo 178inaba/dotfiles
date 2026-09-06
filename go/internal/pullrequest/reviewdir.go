@@ -66,8 +66,23 @@ func WorkDir(contextFile string) string {
 	return filepath.Join(filepath.Dir(contextFile), "pr-"+token)
 }
 
-// WorkFiles is the directory a run works in and the three files handed out
-// with it.
+// BranchWorkDir is the directory a run works in where there is no pull request
+// to pair one with.
+//
+// Beside WorkDir rather than composed by the command that needs it, so that
+// the work dir has one owner whichever of the two states a run is in. The
+// branch stands where the number does, and its slashes are folded onto hyphens
+// because a directory name is one path segment: two branches whose names
+// differ only in that — feature/x and feature-x — share a directory, which is
+// the one hole left in what the directory is for.
+func BranchWorkDir(outDir string, repo ghapi.Repo, branch string) string {
+	// branch- rather than pr-: a branch may be named after a number, and the
+	// shared prefix would put it in that pull request's directory.
+	return filepath.Join(outDir, fmt.Sprintf("branch-%s@%s-%s", repo.Owner, repo.Name, strings.ReplaceAll(branch, "/", "-")))
+}
+
+// WorkFiles is the directory a run works in and the four files handed out with
+// it.
 type WorkFiles struct {
 	Dir         string
 	ReviewPath  string
@@ -76,26 +91,48 @@ type WorkFiles struct {
 	// by whoever writes it, for the reason above: a name composed at the point
 	// of use is one two runs on two pull requests can share.
 	DiffPath string
+	// LocalDiffPath is where the patch of the change in this checkout goes,
+	// which is a second patch rather than the same one: the document's diff is
+	// taken at the pull request's head, and the local one runs past it.
+	LocalDiffPath string
+}
+
+// workFilesIn names the documents inside a directory.
+//
+// Apart from creating it so that both callers below name them the same way: a
+// second spelling of the four names is how the commands that hand the
+// directory out would come to disagree about where a caller should write.
+func workFilesIn(dir string) WorkFiles {
+	return WorkFiles{
+		Dir:           dir,
+		ReviewPath:    filepath.Join(dir, "review.json"),
+		ThreadsPath:   filepath.Join(dir, "threads.json"),
+		DiffPath:      filepath.Join(dir, "diff.patch"),
+		LocalDiffPath: filepath.Join(dir, "local.patch"),
+	}
+}
+
+// ensureWorkFiles creates dir and names what goes in it.
+func ensureWorkFiles(dir string) (WorkFiles, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return WorkFiles{}, fmt.Errorf("failed to create the work dir: %s", dir)
+	}
+	return workFilesIn(dir), nil
 }
 
 // EnsureWorkFiles creates the directory paired with a context file and names
 // the documents inside it.
 //
 // One implementation for both commands that hand the directory out: fetching a
-// context and preparing a review each produce it, and a second spelling of the
-// two file names is how the two would come to disagree about where a caller
-// should write.
+// context and preparing a review each produce it.
 func EnsureWorkFiles(contextFile string) (WorkFiles, error) {
-	dir := WorkDir(contextFile)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return WorkFiles{}, fmt.Errorf("failed to create the work dir: %s", dir)
-	}
-	return WorkFiles{
-		Dir:         dir,
-		ReviewPath:  filepath.Join(dir, "review.json"),
-		ThreadsPath: filepath.Join(dir, "threads.json"),
-		DiffPath:    filepath.Join(dir, "diff.patch"),
-	}, nil
+	return ensureWorkFiles(WorkDir(contextFile))
+}
+
+// EnsureBranchWorkFiles is the same for a branch with no pull request, whose
+// run has no context file to pair a directory with.
+func EnsureBranchWorkFiles(outDir string, repo ghapi.Repo, branch string) (WorkFiles, error) {
+	return ensureWorkFiles(BranchWorkDir(outDir, repo, branch))
 }
 
 // Document is where one pull request's context file and working files go, and

@@ -45,6 +45,30 @@ func TestWorkDir(t *testing.T) {
 	}
 }
 
+func TestBranchWorkDir(t *testing.T) {
+	t.Parallel()
+
+	// A slash is not a path segment, so the branch is folded onto one. The
+	// price is that feature/x and feature-x collapse, which two branches of
+	// those names in one scratch directory would notice and nothing else does.
+	got := pullrequest.BranchWorkDir("/scratch", ghapi.Repo{Owner: "owner", Name: "repo"}, "feature/x")
+	if want := "/scratch/branch-owner@repo-feature-x"; got != want {
+		t.Errorf("BranchWorkDir = %q, want %q", got, want)
+	}
+	// The prefix is what keeps a branch out of a pull request's directory: a
+	// branch may be named after a number, and pr- would put the two together.
+	numeric := pullrequest.BranchWorkDir("/scratch", ghapi.Repo{Owner: "owner", Name: "repo"}, "5")
+	if pr := pullrequest.WorkDir("/scratch/pr-context-owner@repo-5.json"); numeric == pr {
+		t.Errorf("the branch named 5 and pull request 5 both answer %q", pr)
+	}
+	// The @ separating the owner from the name, for the reason ContextFileName
+	// gives: with a hyphen, a-b/c and a/b-c would collapse onto one directory.
+	other := pullrequest.BranchWorkDir("/scratch", ghapi.Repo{Owner: "a", Name: "b-c"}, "x")
+	if same := pullrequest.BranchWorkDir("/scratch", ghapi.Repo{Owner: "a-b", Name: "c"}, "x"); same == other {
+		t.Errorf("a-b/c and a/b-c both answer %q", other)
+	}
+}
+
 func TestEnsureWorkFiles(t *testing.T) {
 	t.Parallel()
 
@@ -56,10 +80,11 @@ func TestEnsureWorkFiles(t *testing.T) {
 		t.Fatalf("EnsureWorkFiles: %v", err)
 	}
 	want := pullrequest.WorkFiles{
-		Dir:         filepath.Join(scratch, "pr-owner@repo-5"),
-		ReviewPath:  filepath.Join(scratch, "pr-owner@repo-5", "review.json"),
-		ThreadsPath: filepath.Join(scratch, "pr-owner@repo-5", "threads.json"),
-		DiffPath:    filepath.Join(scratch, "pr-owner@repo-5", "diff.patch"),
+		Dir:           filepath.Join(scratch, "pr-owner@repo-5"),
+		ReviewPath:    filepath.Join(scratch, "pr-owner@repo-5", "review.json"),
+		ThreadsPath:   filepath.Join(scratch, "pr-owner@repo-5", "threads.json"),
+		DiffPath:      filepath.Join(scratch, "pr-owner@repo-5", "diff.patch"),
+		LocalDiffPath: filepath.Join(scratch, "pr-owner@repo-5", "local.patch"),
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("EnsureWorkFiles (-want +got):\n%s", diff)
@@ -78,6 +103,42 @@ func TestEnsureWorkFiles(t *testing.T) {
 	}
 	if diff := cmp.Diff(got, again); diff != "" {
 		t.Errorf("EnsureWorkFiles is not idempotent (-first +second):\n%s", diff)
+	}
+}
+
+func TestEnsureBranchWorkFiles(t *testing.T) {
+	t.Parallel()
+
+	scratch := t.TempDir()
+	repo := ghapi.Repo{Owner: "owner", Name: "repo"}
+
+	got, err := pullrequest.EnsureBranchWorkFiles(scratch, repo, "feature/x")
+	if err != nil {
+		t.Fatalf("EnsureBranchWorkFiles: %v", err)
+	}
+	dir := filepath.Join(scratch, "branch-owner@repo-feature-x")
+	// The same four names as a pull request's, so that a run works the same
+	// way whichever of the two it is in.
+	want := pullrequest.WorkFiles{
+		Dir:           dir,
+		ReviewPath:    filepath.Join(dir, "review.json"),
+		ThreadsPath:   filepath.Join(dir, "threads.json"),
+		DiffPath:      filepath.Join(dir, "diff.patch"),
+		LocalDiffPath: filepath.Join(dir, "local.patch"),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("EnsureBranchWorkFiles (-want +got):\n%s", diff)
+	}
+	if info, err := os.Stat(got.Dir); err != nil || !info.IsDir() {
+		t.Errorf("work dir %s was named but not created (%v)", got.Dir, err)
+	}
+
+	again, err := pullrequest.EnsureBranchWorkFiles(scratch, repo, "feature/x")
+	if err != nil {
+		t.Fatalf("EnsureBranchWorkFiles on an existing dir: %v", err)
+	}
+	if diff := cmp.Diff(got, again); diff != "" {
+		t.Errorf("EnsureBranchWorkFiles is not idempotent (-first +second):\n%s", diff)
 	}
 }
 
