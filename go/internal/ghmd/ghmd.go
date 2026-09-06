@@ -151,18 +151,24 @@ func Segments(body string) iter.Seq[Segment] {
 // for: an import written after a code span is still preceded by a space, and
 // still an import. A \r is a byte like any other, so one inside code goes and
 // one in prose stays.
+//
+// Writing the segments out in turn is what keeps the length, and it is
+// Segments' covering the body that makes that true — a run yielded by nobody
+// would be a run missing from here.
 func BlankCode(body string) string {
-	out := make([]byte, len(body))
-	for i := range len(body) {
-		if body[i] == '\n' {
-			out[i] = '\n'
+	out := make([]byte, 0, len(body))
+	for s := range Segments(body) {
+		text := body[s.Start:s.End]
+		if s.Kind == Prose {
+			out = append(out, text...)
 			continue
 		}
-		out[i] = ' '
-	}
-	for s := range Segments(body) {
-		if s.Kind == Prose {
-			copy(out[s.Start:s.End], body[s.Start:s.End])
+		for i := range len(text) {
+			if text[i] == '\n' {
+				out = append(out, '\n')
+				continue
+			}
+			out = append(out, ' ')
 		}
 	}
 	return string(out)
