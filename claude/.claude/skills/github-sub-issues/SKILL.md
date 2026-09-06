@@ -97,6 +97,8 @@ Sub-Issueのリンク完了後、親Issue本文の子Issueへの言及を新し�
 1. 親Issue本文を取得: `gh issue view PARENT_NUMBER -R "$REPO" --json body -q .body`
 2. 子Issueを列挙している箇所（タスクリスト・箇条書き・表等）があるか確認
 3. **あれば**: 同じ形式・同じ粒度で新しいSub-Issueを追記し、本文全体をファイルに書き出して `gh issue edit PARENT_NUMBER -R "$REPO" --body-file <path>` で更新
+   - Sub-Issue を `issue-draft` で作成した場合、この同期は行わない — 親の `composition` 節は承認済みドラフトに載っており、`ccx issue publish` が `updated_at` の照合付きで書く（規則は `issue-draft` の手順 9 が持つ）
+   - 手で追う場合は、`gh issue edit` の直前に本文を取り直し、その写しに追記する（手順 1 の取得から書き込みまでの間に入った編集が、本文全体の置き換えで巻き戻るため）
 4. **無ければ**: 本文は変更しない（GitHubがSub-Issuesパネルを標準表示するため本文リストの新設は不要。既存の書き方を尊重する）
 
 ## 注意事項
