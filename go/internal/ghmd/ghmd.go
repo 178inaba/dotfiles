@@ -15,9 +15,12 @@
 // caller drifts the next time this one is corrected, which is what plandocs'
 // own scanner had done in six places by the time it was retired.
 //
-// One reader is deliberately not here. skill's backticked wants the content
-// of a code span rather than the prose around it, fenced examples included,
-// which is the complement of what Segments yields and not a copy of it.
+// One reader is still outside, and left there rather than argued out of the
+// rule: skill's backticked reads the same notation more coarsely, splitting a
+// line on backticks without measuring the run, and it wants what is inside a
+// span rather than the prose around it — fenced examples included, where Span
+// stops at the block. Moving it is a change to what that check finds, which
+// is why it is a separate decision and not an oversight of this one.
 //
 // A notation whose meaning depends on that reading belongs here too, even
 // where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go

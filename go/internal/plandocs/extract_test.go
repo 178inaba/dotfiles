@@ -106,7 +106,7 @@ func TestReferences(t *testing.T) {
 		"a closing run followed by text closes nothing": {
 			text: "```\n[a](a.md)\n``` x\n[b](b.md)\n",
 		},
-		"a fence marker may be indented past four spaces": {
+		"a fence marker may be indented past three spaces": {
 			text: "    ```\n[a](a.md)\n    ```\n",
 		},
 	}
