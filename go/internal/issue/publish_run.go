@@ -339,26 +339,32 @@ func (r *publishRun) recordFreshness(key, updatedAt string) error {
 
 // reportDrops names what GitHub stored less of than was asked for, by reading
 // the request the response answers rather than the kind of row it came from.
-// A nil field asked for nothing, so it has nothing to have dropped, which is
-// what keeps a created issue's fill-in — a body and nothing else — from
-// reporting the labels its create already did.
+// That is what keeps a created issue's fill-in — a body and nothing else —
+// from reporting the labels its create already did.
 func (r *publishRun) reportDrops(ch ghapi.IssueChange, got ghapi.Issue) {
-	if ch.Labels != nil {
-		for _, want := range *ch.Labels {
-			if !slices.Contains(got.Labels, want) {
-				r.out.Degraded = append(r.out.Degraded,
-					fmt.Sprintf("#%d did not receive the label %q", got.Number, want))
-			}
+	for _, want := range dropped(ch.Labels, got.Labels) {
+		r.out.Degraded = append(r.out.Degraded,
+			fmt.Sprintf("#%d did not receive the label %q", got.Number, want))
+	}
+	for _, want := range dropped(ch.Assignees, got.Assignees) {
+		r.out.Degraded = append(r.out.Degraded,
+			fmt.Sprintf("#%d was not assigned to %s", got.Number, want))
+	}
+}
+
+// dropped names what the request asked for that the response does not carry.
+// A nil field asked for nothing, so nothing of it can be missing.
+func dropped(asked *[]string, got []string) []string {
+	if asked == nil {
+		return nil
+	}
+	var out []string
+	for _, want := range *asked {
+		if !slices.Contains(got, want) {
+			out = append(out, want)
 		}
 	}
-	if ch.Assignees != nil {
-		for _, want := range *ch.Assignees {
-			if !slices.Contains(got.Assignees, want) {
-				r.out.Degraded = append(r.out.Degraded,
-					fmt.Sprintf("#%d was not assigned to %s", got.Number, want))
-			}
-		}
-	}
+	return out
 }
 
 // idOf is the integer GitHub addresses an issue by, which the link endpoints
