@@ -336,17 +336,36 @@ func TestPrepareRefusesADetachedHeadWithoutAPullRequest(t *testing.T) {
 	}
 }
 
+// singleBranch narrows the fixture to what `git clone --single-branch` leaves
+// behind: a remote that is there, and no remote-tracking ref for the base
+// branch — which a `git fetch origin <base>` does not restore, since the
+// configured refspec decides which remote-tracking branch an explicit fetch
+// updates.
+func singleBranch(t *testing.T, repo string) {
+	t.Helper()
+
+	gittest.Run(t, repo, "config", "remote.origin.fetch", "+refs/heads/feature/x:refs/remotes/origin/feature/x")
+	gittest.Run(t, repo, "update-ref", "-d", "refs/remotes/origin/main")
+	// origin/HEAD goes with it, which is what leaves the default branch to be
+	// guessed at — the way this state is reached in the first place.
+	gittest.Run(t, repo, "update-ref", "-d", "refs/remotes/origin/HEAD")
+}
+
 // TestPrepareFallsBackToALocalBaseBranch covers a checkout whose base branch
-// has no remote-tracking ref: being offline, or having no remote at all, is no
-// reason to refuse a local review.
+// has no remote-tracking ref: refusing there would be refusing the local
+// review this whole path exists to give.
+//
+// A tag named after the base branch stands beside it, since the fallback names
+// a branch git would otherwise resolve to the tag first.
 func TestPrepareFallsBackToALocalBaseBranch(t *testing.T) {
 	t.Parallel()
 
 	repo, _ := prepareRepo(t)
 	localWork(t, repo)
-	// The remote goes entirely, which is what a repository nobody has pushed
-	// looks like. main is still here as a local branch.
-	gittest.Run(t, repo, "remote", "remove", "origin")
+	// A tag on the branch's own head, so that resolving it instead of the
+	// branch would give an empty diff rather than an error.
+	gittest.Run(t, repo, "tag", "main", "HEAD")
+	singleBranch(t, repo)
 
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
@@ -357,9 +376,30 @@ func TestPrepareFallsBackToALocalBaseBranch(t *testing.T) {
 		t.Fatalf("local_change = %+v, want the branch's diff against the local main", got.LocalChange)
 	}
 	// Which of the two refs the range was taken against is something the
-	// reader has to be told: one of them may be behind what has been pushed.
-	if !slices.ContainsFunc(got.Warnings, func(w string) bool { return strings.Contains(w, "origin/main") }) {
-		t.Errorf("warnings = %q, want one naming the remote-tracking ref that was not there", got.Warnings)
+	// reader has to be told, and told once: the fetch that failed and the
+	// remote-tracking ref that is not there are the same event.
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "origin/main") {
+		t.Errorf("warnings = %q, want exactly one naming the remote-tracking ref that was not there", got.Warnings)
+	}
+}
+
+// TestPrepareRefusesAMissingBaseBranch is the end of the fallback: with
+// neither ref there is nothing to compare against, and the two names the
+// reader could fix are both said.
+func TestPrepareRefusesAMissingBaseBranch(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	singleBranch(t, repo)
+	gittest.Run(t, repo, "branch", "-qD", "main")
+
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
+	if err == nil {
+		t.Fatal("Prepare succeeded with no base branch of either kind, want it to refuse")
+	}
+	if !strings.Contains(err.Error(), "the local branch main") {
+		t.Errorf("Prepare error = %v, want it to name the local branch it looked for as well", err)
 	}
 }
 

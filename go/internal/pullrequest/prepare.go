@@ -258,26 +258,21 @@ func probe(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Rep
 // range would read a diff with no file list and no generated flag, which is
 // the exclusion the whole reading rests on.
 func (p Preparation) localOnly(ctx context.Context, r runner.Runner, repo ghapi.Repo, dir string, o Options) (Preparation, error) {
-	branch := worktree.DefaultBranch(ctx, r, dir)
-	if branch == "" {
-		branch = "main"
-	}
-	// Fetched even here: a diff against a stale remote-tracking ref reports
-	// changes that are already on the base branch. Being offline is no reason
-	// to refuse a local review, so it is only a warning.
-	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", branch}}); err != nil {
-		p.Warnings = append(p.Warnings,
-			fmt.Sprintf("git fetch origin %s failed; diff may be computed against a stale remote tracking ref", branch))
-	}
 	// The work dir is bound to the branch, since there is no number to bind it
 	// to and a fixed name in the shared scratch directory is what a parallel
 	// run on another branch writes over. A detached head has no name to bind
-	// it to at all, which is the one checkout this state cannot serve.
-	head, err := runner.Git(ctx, r, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	// it to at all, which is the one checkout this state cannot serve — asked
+	// before the fetch below, so that a run which cannot be served does not
+	// pay for a round trip first.
+	//
+	// --show-current rather than rev-parse --abbrev-ref: the latter answers
+	// heads/<name> where a tag shares the branch's name, and that spelling
+	// would go into the directory name.
+	head, err := runner.Git(ctx, r, dir, "branch", "--show-current")
 	if err != nil {
 		return Preparation{}, fmt.Errorf("failed to read the current branch in %s: %v", dir, err)
 	}
-	if head == "HEAD" {
+	if head == "" {
 		return Preparation{}, fmt.Errorf(
 			"%s is on a detached head, and a review with no pull request is bound to a branch; check out a branch and run this again", dir)
 	}
@@ -287,7 +282,16 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, repo ghapi.
 	}
 	p.WorkDir = &work.Dir
 
-	ref, warning, err := localBase(ctx, r, dir, branch)
+	branch := worktree.DefaultBranch(ctx, r, dir)
+	if branch == "" {
+		branch = "main"
+	}
+	fetched := true
+	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", branch}}); err != nil {
+		fetched = false
+	}
+
+	ref, warning, err := localBase(ctx, r, dir, branch, fetched)
 	if err != nil {
 		return Preparation{}, err
 	}
@@ -305,26 +309,38 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, repo ghapi.
 	return p, nil
 }
 
-// localBase is the ref the local change is taken against, and what to say
-// about it where that is not the remote-tracking one.
+// localBase is the ref the local change is taken against, and the one thing to
+// say about how it was arrived at.
 //
-// A repository nobody has pushed has no origin/<branch> at all, and refusing
-// there would be refusing the local review this whole path exists to give. The
-// fallback is only for that: where the remote-tracking ref is present but
-// behind, it is still what the range is taken against, so that a fetch which
-// failed for being offline keeps meaning what the warning above says it means.
-func localBase(ctx context.Context, r runner.Runner, dir, branch string) (ref, warning string, err error) {
+// The remote-tracking ref comes first, fetched or not: a diff against a stale
+// one reports changes the base branch already has, but being offline is no
+// reason to refuse a local review. Where there is no remote-tracking ref at
+// all — a single-branch clone, or a default branch this could only guess at —
+// the local branch of that name stands in, which is the difference the reader
+// has to be told about.
+//
+// One warning rather than two, decided here: a failed fetch and a missing
+// remote-tracking ref are the same event seen twice, and saying both would say
+// the range was taken against a stale ref that is not there.
+func localBase(ctx context.Context, r runner.Runner, dir, branch string, fetched bool) (ref, warning string, err error) {
 	remote := "origin/" + branch
-	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--verify", "--quiet", remote+"^{commit}"); err == nil {
-		return remote, "", nil
+	// refs/remotes/ and refs/heads/ rather than the bare names: git resolves a
+	// tag of the same name first, and a tag is not the branch the review means.
+	// The full ref is what comes back for the same reason.
+	remoteRef := "refs/remotes/" + remote
+	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--verify", "--quiet", remoteRef+"^{commit}"); err == nil {
+		if fetched {
+			return remoteRef, "", nil
+		}
+		return remoteRef, fmt.Sprintf(
+			"git fetch origin %s failed; the local change was taken against %s, which may be behind what has been pushed", branch, remote), nil
 	}
-	// refs/heads/ rather than the bare name: git resolves a tag of the same
-	// name first, and a tag is not the branch the review means.
-	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}"); err != nil {
+	localRef := "refs/heads/" + branch
+	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--verify", "--quiet", localRef+"^{commit}"); err != nil {
 		return "", "", fmt.Errorf(
-			"neither %s nor the local branch %s is in %s, so there is nothing to diff against; fetch the base branch or name it with a pull request", remote, branch, dir)
+			"neither %s nor the local branch %s is in %s, so there is nothing to diff against; fetch the base branch, or name a pull request whose base branch says what to compare with", remote, branch, dir)
 	}
-	return branch, fmt.Sprintf(
+	return localRef, fmt.Sprintf(
 		"%s is not in this repository; the local change was taken against the local branch %s, which may be behind what has been pushed", remote, branch), nil
 }
 
