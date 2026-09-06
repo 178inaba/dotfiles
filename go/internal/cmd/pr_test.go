@@ -44,15 +44,19 @@ func TestStoreSeen(t *testing.T) {
 
 // contextDocument is the smallest document `ccx pr seen` can be given: what
 // Context declares, and the two fields the command reads out of it.
-func contextDocument(t *testing.T, fetchedAt string) string {
+//
+// isOwnPR is a parameter because it is a gate rather than a detail: the body
+// of somebody else's pull request is not edited, and a case about that refusal
+// says so where it is read.
+func contextDocument(t *testing.T, fetchedAt string, isOwnPR bool) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "pr-context-owner@repo-5.json")
 	doc := fmt.Sprintf(`{"fetched_at":%q,
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
-		"repo":"owner/repo","is_own_pr":true,
+		"repo":"owner/repo","is_own_pr":%t,
 		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123"},
-		"reviewers":[],"review_threads":[]}`, fetchedAt)
+		"reviewers":[],"review_threads":[]}`, fetchedAt, isOwnPR)
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -67,7 +71,7 @@ func TestPRSeen(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", state)
 
 	var out, errOut bytes.Buffer
-	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z")},
+	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true)},
 		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code != 0 {
 		t.Fatalf("`ccx pr seen` = %d, want 0: %s", code, errOut.String())
 	}
@@ -82,7 +86,7 @@ func TestPRSeen(t *testing.T) {
 
 	out.Reset()
 	errOut.Reset()
-	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-10T00:00:00Z")},
+	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-10T00:00:00Z", true)},
 		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code == 0 {
 		t.Error("`ccx pr seen` on an older document = 0, want a refusal")
 	}
@@ -98,7 +102,7 @@ func TestPRSeenWithoutTheVariable(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "")
 
 	var out, errOut bytes.Buffer
-	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z")},
+	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true)},
 		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code != 0 {
 		t.Fatalf("`ccx pr seen` = %d, want 0: %s", code, errOut.String())
 	}
@@ -117,7 +121,7 @@ func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code := run(t.Context(), []string{
-		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z"),
+		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z", true),
 		"--mark", "other", "--body-file", "nowhere.md",
 	}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
 
@@ -126,6 +130,42 @@ func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "unknown mark") {
 		t.Errorf("stderr = %q, want it to name the mark as the fault", errOut.String())
+	}
+}
+
+// The two refusals `ccx pr body-append` makes before it could reach GitHub,
+// which is why they can be run without a server: the document says whose pull
+// request it is, and the file name says whether it is in the work dir. Both
+// come before the body is read, so a run at fault for one is not told about
+// the other.
+func TestPRBodyAppendRefusesBeforeItReachesGitHub(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name     string
+		isOwnPR  bool
+		bodyFile string
+		wantErr  string
+	}{
+		{name: "somebody else's pull request", bodyFile: "section.md", wantErr: "is not ours"},
+		{name: "a body file outside the work dir", isOwnPR: true, bodyFile: "sub/section.md", wantErr: "bare file name"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out, errOut bytes.Buffer
+			code := run(t.Context(), []string{
+				"pr", "body-append", contextDocument(t, "2026-01-11T00:00:00Z", tt.isOwnPR),
+				"--body-file", tt.bodyFile,
+			}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
+
+			if code == 0 {
+				t.Fatalf("`ccx pr body-append` = 0, want a refusal")
+			}
+			if !strings.Contains(errOut.String(), tt.wantErr) {
+				t.Errorf("stderr = %q, want it to mention %q", errOut.String(), tt.wantErr)
+			}
+		})
 	}
 }
 

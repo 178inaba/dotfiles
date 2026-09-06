@@ -2,37 +2,13 @@ package ghshim
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
-
-	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
-// The three body rules, and the quoting the messages echo commands with. What
-// counts as prose and what counts as code is ghmd's to say, because `ccx issue
-// publish` writes bodies this shim never sees and has to reach the same
-// verdict about them; what is left here is what this shim decides once it has
-// been told.
-
-// GitHub reads only the direct adjacency of keyword, optional colon, space and
-// reference, so the detection is limited to it as well.
-//
-// The same knowledge is encoded in pullrequest.closingKeyword, which reads a
-// body for the issues it closes; if GitHub ever changes the set, both have to
-// move.
-var closingKeyword = regexp.MustCompile(
-	`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
-
-// hasQuotedClosingKeyword reports whether body holds a closing keyword where
-// GitHub will not read it as one: inside a fence, or inside a code span.
-func hasQuotedClosingKeyword(body string) bool {
-	for s := range ghmd.Segments(body) {
-		if s.Kind != ghmd.Prose && closingKeyword.MatchString(body[s.Start:s.End]) {
-			return true
-		}
-	}
-	return false
-}
+// The quoting the messages echo commands with, which is all this file is:
+// every body rule the shim applies is judged in ghmd, because `ccx issue
+// publish` and `ccx pr body-append` write bodies this shim never sees and have
+// to reach the same verdict about them.
 
 // attemptedCommand echoes the command that was refused, in a form that can be
 // pasted back into a shell.

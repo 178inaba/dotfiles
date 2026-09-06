@@ -46,6 +46,53 @@ func TestNewBody(t *testing.T) {
 	}
 }
 
+func TestNewPullRequestBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		text    string
+		refusal func(string) string
+	}{
+		{name: "empty"},
+		{name: "prose", text: "## The decision\n\nKept as it is.\n"},
+		// A pull request body is judged by the rule every body is judged by...
+		{
+			name:    "item numbering",
+			text:    "#1 first #2 second #3 third\n",
+			refusal: ghmd.RefuseBareHashRefs,
+		},
+		// ...and by the one only a pull request body can fail: a keyword
+		// GitHub will not read closes nothing when the pull request merges.
+		{
+			name:    "a closing keyword inside code",
+			text:    "as agreed: `Closes #656`\n",
+			refusal: ghmd.RefuseQuotedClosingKeyword,
+		},
+		{name: "a closing keyword in prose is the point", text: "Closes #656\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := ghapi.NewPullRequestBody(tt.text)
+			switch {
+			case tt.refusal != nil && err == nil:
+				t.Fatalf("NewPullRequestBody(%q) = %q, want a refusal", tt.text, body)
+			case tt.refusal != nil:
+				// The gh shim's words for the same body, from the same place.
+				if want := tt.refusal(tt.text); err.Error() != want {
+					t.Errorf("NewPullRequestBody(%q) error = %q, want %q", tt.text, err, want)
+				}
+			case err != nil:
+				t.Fatalf("NewPullRequestBody(%q): %v", tt.text, err)
+			case body.String() != tt.text:
+				t.Errorf("NewPullRequestBody(%q).String() = %q", tt.text, body.String())
+			}
+		})
+	}
+}
+
 func TestBodySubstitute(t *testing.T) {
 	t.Parallel()
 

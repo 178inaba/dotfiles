@@ -346,6 +346,38 @@ and the step that is missing.`,
 		statuses: with(),
 	},
 
+	"pr body-append": {
+		intro: `Append one section to the pull request's body.
+
+For a decision nothing else records — one a reviewer contested, settled with
+the author, and written where the next reader of the pull request will find
+it. Everything else that belongs in the conversation goes to
+` + "`ccx pr comment`" + ` or to a thread reply instead.
+
+--body-file is a bare file name in the work dir paired with the context file,
+as ` + "`ccx pr comment`" + ` takes one, and it holds the new section alone. What the
+section is added to is read from GitHub at the moment of the write rather than
+taken from the document: a body has no version to compare, so a document
+fetched an hour ago would silently undo whatever was typed into the
+description since. The body already there is kept whatever it says — it is
+what a person wrote, and only its line endings are normalised — and the two
+are joined by one blank line, or the section stands alone where the body was
+empty.
+
+The section is judged before the body is read: one that numbers its items with
+bare #N is refused, because GitHub autolinks such a run and notifies unrelated
+issues, and so is one hiding a closing keyword in a code span or a fence,
+which GitHub does not read and which would leave the issue open on the merge.
+A section already in the body is refused rather than written twice, which is
+what a retry looks like.
+
+The body of a pull request that is not ours is not edited at all, and that is
+settled from the document before the body file is looked for. There is no
+dry run: nothing is sent until the section is on disk and named.`,
+		blocks:   []block{prints(reflect.TypeFor[pullrequest.Appended]())},
+		statuses: with(),
+	},
+
 	"pr reply-threads": {
 		intro: `Reply to and resolve the review threads it is our move on.
 

@@ -144,6 +144,59 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 	return out.Repository.PullRequest.pullRequest(), nil
 }
 
+// AppendToPullRequestBody adds one section to the end of a pull request's
+// body and answers with the pull request's url.
+//
+// The body it appends to is read here rather than taken from the caller, and
+// that is the whole point of the writer: the caller holds a snapshot fetched
+// minutes or hours ago, and sending it back would silently undo whatever
+// somebody typed into the description since. Nothing about the body read
+// leaves this function, so no caller can substitute one.
+//
+// The current body is not judged. It is what a person wrote, and refusing it
+// would lose it rather than protect anybody; only the section is judged, which
+// is what NewPullRequestBody has already done.
+//
+// A section already in the body is refused rather than written twice, which is
+// what a retry of the same escalation looks like. What cannot be guarded
+// against is an edit made between the read and the write: GitHub's REST API
+// supports conditional requests on reads only — no If-Match on a PATCH — so
+// there is no mechanism to lose the race with, and the window is one round
+// trip.
+func (c *Client) AppendToPullRequestBody(ctx context.Context, repo Repo, number int, section PullRequestBody) (string, error) {
+	pr, err := c.PullRequest(ctx, repo, number)
+	if err != nil {
+		return "", err
+	}
+
+	// GitHub stores a body with CRLF line endings, and the section was read
+	// from a file written with LF, so neither the search nor the join can go
+	// by the bytes as they arrive.
+	current := strings.ReplaceAll(pr.Body, "\r\n", "\n")
+	// Trimmed on both sides of the join as well as of the search, so that the
+	// one blank line between them holds for a section file that opens or ends
+	// with blank lines of its own.
+	text := strings.TrimSpace(section.String())
+	if text != "" && strings.Contains(current, text) {
+		return "", fmt.Errorf("the section is already in the body of %s#%d, so nothing was appended", repo, number)
+	}
+
+	body := text + "\n"
+	if trimmed := strings.TrimRight(current, "\n"); trimmed != "" {
+		body = trimmed + "\n\n" + body
+	}
+
+	path := fmt.Sprintf("repos/%s/pulls/%d", repo, number)
+	// The response is discarded rather than read back, unlike the writers that
+	// answer with what GitHub stored: the one thing a caller wants from it is
+	// the url, and the read above already has that one — from GraphQL, which
+	// is where this package's pull request fields come from.
+	if err := c.patch(ctx, path, map[string]any{"body": body}, &struct{}{}); err != nil {
+		return "", err
+	}
+	return pr.URL, nil
+}
+
 // PullRequestForCurrentBranch is `gh pr view` with no argument: the pull
 // request whose head is the branch checked out in dir.
 //

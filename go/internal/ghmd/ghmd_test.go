@@ -72,6 +72,55 @@ func TestRefuseBareHashRefsSaysWhatWasFoundAndWhatToDo(t *testing.T) {
 	}
 }
 
+func TestRefuseQuotedClosingKeyword(t *testing.T) {
+	t.Parallel()
+
+	// GitHub reads a closing keyword only where it renders as prose, so what
+	// is refused is one written where it will not be read: the merge then
+	// leaves the issue open and nobody is told.
+	tests := []struct {
+		name    string
+		body    string
+		refused bool
+	}{
+		{name: "empty", body: ""},
+		{name: "a code span holds one", body: "Related\n\n`Closes #656`\n", refused: true},
+		{name: "a fenced block holds one", body: "before\n```\ncloses #656\n```\nafter\n", refused: true},
+		{name: "a qualified reference in a span", body: "see `Resolves foo/bar#12` here\n", refused: true},
+		// The three GitHub does read, or does not read as a keyword at all.
+		{name: "prose is where it works", body: "Closes #656\n"},
+		{name: "a placeholder names no issue", body: "docs update: `Closes #N` placeholder\n"},
+		{name: "the keyword without a reference", body: "call `closes the stream` explicitly\n"},
+		{name: "a longer word merely ends in one", body: "word `discloses #656` here\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			refusal := ghmd.RefuseQuotedClosingKeyword(tt.body)
+			if refused := refusal != ""; refused != tt.refused {
+				t.Errorf("RefuseQuotedClosingKeyword(%q) = %q, want refused = %v", tt.body, refusal, tt.refused)
+			}
+		})
+	}
+}
+
+func TestRefuseQuotedClosingKeywordSaysWhyAndWhatToDo(t *testing.T) {
+	t.Parallel()
+
+	got := ghmd.RefuseQuotedClosingKeyword("Related\n\n`Closes #656`\n")
+	for _, want := range []string{"leaves the issue open", "Fix:", "placeholder"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal = %q, want it to hold %q", got, want)
+		}
+	}
+	// As the other refusal does: each caller puts its own lines above this one
+	// and ends the message itself.
+	if strings.HasPrefix(got, "\n") || strings.HasSuffix(got, "\n") {
+		t.Errorf("the refusal = %q, want no leading or trailing newline", got)
+	}
+}
+
 // text is one segment rendered as the caller sees it: its kind, its line and
 // the bytes it covers, so a case reads as the body it describes.
 type text struct {

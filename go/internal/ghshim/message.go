@@ -168,12 +168,21 @@ because reading stdin here would consume what gh is meant to read.`, what, what,
 // a found: line of its own, so that the two refusals cannot come to say it
 // differently.
 func bareHashRefsMessage(refusal, source string) string {
-	return fmt.Sprintf(`Blocked: the body numbers its items with bare #N.
+	return bodyRuleMessage("the body numbers its items with bare #N", refusal, source)
+}
+
+// bodyRuleMessage frames what ghmd found: the headline this shim writes for
+// the rule, where the body came from, and the refusal itself.
+//
+// One frame because both body rules are refused the same way, and a third
+// judged in ghmd would be too.
+func bodyRuleMessage(headline, refusal, source string) string {
+	return fmt.Sprintf(`Blocked: %s.
 
   source: %s
 
 %s
-`, source, refusal)
+`, headline, source, refusal)
 }
 
 // replyThreadsRecovery is the way through for both of the fifth rule's
@@ -233,19 +242,7 @@ here loses no command that would otherwise have succeeded.
 `, attemptedCommand(argv), source, reason, unreadableFileFix("the query", "input"))
 }
 
-// quotedClosingKeywordMessage is the fourth rule. It is written as an
-// interpreted string because it quotes a backtick, which a raw one cannot hold.
-func quotedClosingKeywordMessage(source string) string {
-	return fmt.Sprintf("Blocked: the pull request body holds a closing keyword inside backticks.\n"+
-		"\n"+
-		"  source: %s\n"+
-		"\n"+
-		"GitHub does not read Closes/Fixes/Resolves #N as a closing keyword inside a\n"+
-		"code span or a code block, so merging the pull request leaves the issue open.\n"+
-		"\n"+
-		"Fix: if the issue is meant to close on the merge, write the keyword bare:\n"+
-		"  Closes #656\n"+
-		"To quote or document the keyword instead, replace the real number with a\n"+
-		"placeholder (`Closes #N` — without a number it is not detected).\n",
-		source)
+// quotedClosingKeywordMessage is the fourth rule.
+func quotedClosingKeywordMessage(refusal, source string) string {
+	return bodyRuleMessage("the pull request body holds a closing keyword inside backticks", refusal, source)
 }

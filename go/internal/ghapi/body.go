@@ -55,3 +55,35 @@ func (b Body) Substitute(numbers map[string]int) (Body, []ghmd.Placeholder) {
 	text, left := ghmd.Substitute(b.text, numbers)
 	return Body{text: text}, left
 }
+
+// PullRequestBody is a body GitHub will render as a pull request's own, judged
+// fit to send.
+//
+// A type of its own rather than a Body, because a pull request body is judged
+// by one rule more: a closing keyword written where GitHub will not read it
+// closes nothing when the pull request merges, and nothing says so. That rule
+// could have been a call each writer makes, which is exactly the arrangement
+// the Body type exists to replace — a judgement a path has to remember is one
+// the next path forgets. So the second writer of a pull request body has no
+// way to skip it either.
+type PullRequestBody struct{ body Body }
+
+// NewPullRequestBody judges text as a pull request body and answers with the
+// body to send, or with what is wrong with it.
+//
+// The rule every body is judged by comes first, so that a body failing both is
+// answered as the gh shim answers it.
+func NewPullRequestBody(text string) (PullRequestBody, error) {
+	body, err := NewBody(text)
+	if err != nil {
+		return PullRequestBody{}, err
+	}
+	if refusal := ghmd.RefuseQuotedClosingKeyword(text); refusal != "" {
+		return PullRequestBody{}, errors.New(refusal)
+	}
+	return PullRequestBody{body: body}, nil
+}
+
+// String is the text to send. See Body.String for why every payload is built
+// from this.
+func (b PullRequestBody) String() string { return b.body.String() }
