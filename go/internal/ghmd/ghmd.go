@@ -2,11 +2,17 @@
 //
 // Two things in this module have to agree about that reading. The gh shim
 // refuses a body that numbers its items with bare #N, because GitHub autolinks
-// those and notifies unrelated issues; `ccx issue publish` writes issue bodies
-// in process, where the shim never sees them, so it has to reach the same
-// verdict about the same text. Neither of them owns the reading, so it lives
-// here rather than in one of them: what is shared is how a body reads, not
-// what either caller decides about it.
+// those and notifies unrelated issues; ghapi writes bodies in process, where
+// the shim never sees them, so it has to reach the same verdict about the same
+// text. Neither of them owns the reading, so it lives here rather than in one
+// of them: what is shared is how a body reads, not what either caller decides
+// about it. The words the refusal is written in are here for the same reason —
+// both refusers say the same thing about the same body.
+//
+// A notation whose meaning depends on that reading belongs here too, even
+// where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
+// means nothing inside a code span or a fenced block, and deciding that is
+// this package's job rather than its writer's.
 //
 // The scan is deliberately not a markdown parser. It knows the two things that
 // decide whether a reference is live — a fenced block and an inline code span —
@@ -15,6 +21,7 @@ package ghmd
 
 import (
 	"bytes"
+	"fmt"
 	"iter"
 	"regexp"
 	"strings"
@@ -153,4 +160,26 @@ func BareHashRefs(body string) int {
 	}
 	flush()
 	return len(seen)
+}
+
+// BareHashRefsRefusal is what to say about a body BareHashRefs has counted too
+// many bare references in: how many were found, why that matters, and what to
+// write instead.
+//
+// Here rather than in either refuser because both say the same thing about the
+// same body. What differs is where the body came from — a flag on a gh command
+// line, a draft beside a manifest, an entry of a review file — so that is the
+// caller's to name, above or in front of this.
+func BareHashRefsRefusal(distinct int) string {
+	return fmt.Sprintf(`%d distinct bare #N in #1 to #9 number the items of this body.
+
+GitHub autolinks a bare #number, so using one to number a list of remarks
+(#1, #2, ...) sends a reference notification to unrelated issues and pull
+requests. A notification cannot be taken back.
+
+Fix: if the numbering is the point, write it in a form without # — an
+ordered list (1. 2. ...), say. If an issue or a pull request is really
+being referenced, name it as OWNER/REPO#N:
+  178inaba/dotfiles#3
+That keeps the link and does not trip this guard.`, distinct)
 }

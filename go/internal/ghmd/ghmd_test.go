@@ -1,6 +1,7 @@
 package ghmd_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -45,6 +46,23 @@ func TestBareHashRefs(t *testing.T) {
 				t.Errorf("BareHashRefs(%q) = %d, want %d", tt.body, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBareHashRefsRefusal(t *testing.T) {
+	t.Parallel()
+
+	got := ghmd.BareHashRefsRefusal(3)
+	for _, want := range []string{"3 distinct", "OWNER/REPO#N", "Fix:"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("BareHashRefsRefusal(3) = %q, want it to hold %q", got, want)
+		}
+	}
+	// Each caller puts its own lines above the refusal and ends the message
+	// itself, so a newline of its own at either end would show up as a gap in
+	// both of them.
+	if strings.HasPrefix(got, "\n") || strings.HasSuffix(got, "\n") {
+		t.Errorf("BareHashRefsRefusal(3) = %q, want no leading or trailing newline", got)
 	}
 }
 

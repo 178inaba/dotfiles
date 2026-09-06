@@ -394,33 +394,24 @@ func plural(n int, word string) string {
 // yet" from "never": one before every issue exists is a forward reference, and
 // one after is a body that would go out broken.
 func (p publishPlan) substitute(body string) (string, []PlannedSubstitution) {
-	var b strings.Builder
-	var left []PlannedSubstitution
-	at := 0
-	for s := range ghmd.Segments(body) {
-		if s.Kind != ghmd.Prose {
-			continue
-		}
-		text := body[s.Start:s.End]
-		for _, m := range placeholderRef.FindAllStringSubmatchIndex(text, -1) {
-			name := text[m[2]:m[3]]
-			number := p.numberOf(name)
-			if number == 0 {
-				left = append(left, PlannedSubstitution{Line: s.Line, Name: name})
-				continue
-			}
-			b.WriteString(body[at : s.Start+m[0]])
-			fmt.Fprintf(&b, "#%d", number)
-			at = s.Start + m[1]
+	out, left := ghmd.Substitute(body, p.numbers())
+	return out, planned(left)
+}
+
+// numbers is every key this run can put a number in place of, right now.
+//
+// Built at each call rather than once, because the create stage numbers the
+// rows as it goes: what a body created halfway through the run may refer to is
+// what exists by then. A key with no number yet is left out, which is what
+// makes it one ghmd reports back as unfilled.
+func (p publishPlan) numbers() map[string]int {
+	out := make(map[string]int, len(p.set.byKey))
+	for key := range p.set.byKey {
+		if n := p.numberOf(key); n != 0 {
+			out[key] = n
 		}
 	}
-	if at == 0 {
-		// Nothing was replaced, so the body is already what it should be and
-		// copying it through the builder would say the same thing.
-		return body, left
-	}
-	b.WriteString(body[at:])
-	return b.String(), left
+	return out
 }
 
 // append writes one completed step, before the run moves on to the next.

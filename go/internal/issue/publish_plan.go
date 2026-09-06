@@ -285,18 +285,16 @@ func checkPublishBody(rows map[string]publishRow, row publishRow) []string {
 	return found
 }
 
-// placeholdersIn finds the placeholders in a body, outside the code a draft
-// may quote them in: #{NAME} is string interpolation in Ruby and Elixir, and a
-// draft that shows some is not naming an issue.
+// placeholdersIn is ghmd's reading of a body in the shape a plan publishes.
 func placeholdersIn(body string) []PlannedSubstitution {
+	return planned(ghmd.Placeholders(body))
+}
+
+// planned turns what ghmd found into what a plan reports.
+func planned(found []ghmd.Placeholder) []PlannedSubstitution {
 	var out []PlannedSubstitution
-	for s := range ghmd.Segments(body) {
-		if s.Kind != ghmd.Prose {
-			continue
-		}
-		for _, m := range placeholderRef.FindAllStringSubmatch(body[s.Start:s.End], -1) {
-			out = append(out, PlannedSubstitution{Line: s.Line, Name: m[1]})
-		}
+	for _, p := range found {
+		out = append(out, PlannedSubstitution{Line: p.Line, Name: p.Name})
 	}
 	return out
 }

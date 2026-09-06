@@ -76,10 +76,6 @@ var (
 	// placeholderKey and numberKey are the two spellings a key may take.
 	placeholderKey = regexp.MustCompile(`^[A-Z_]+$`)
 	numberKey      = regexp.MustCompile(`^[0-9]+$`)
-	// placeholderRef is how a body names an issue that has no number yet. The
-	// braces are what survives GitHub's renderer: a name in angle brackets is
-	// dropped as an unknown tag, leaving a bare # behind.
-	placeholderRef = regexp.MustCompile(`#\{([A-Z_]+)\}`)
 )
 
 // publishSet is a manifest with its files read and its values parsed.
