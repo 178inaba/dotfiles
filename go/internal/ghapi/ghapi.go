@@ -122,17 +122,24 @@ func (c *Client) GetCached(ctx context.Context, path string, ttl time.Duration, 
 	return c.cached.DoWithContext(ctx, http.MethodGet, path, nil, out)
 }
 
-// Post sends body as JSON to a REST path and decodes the response into out.
-func (c *Client) Post(ctx context.Context, path string, body, out any) error {
+// post sends body as JSON to a REST path and decodes the response into out.
+//
+// Package-private, along with patch, so that every request carrying a body
+// GitHub renders goes out through a writer of this package that takes a Body:
+// a caller reaching past them could send text nobody judged, which is the one
+// bypass the type exists to remove. Get and GraphQL stay exported because a
+// read has nothing to judge, and nothing outside builds a mutation with a body
+// in it.
+func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	return c.send(ctx, http.MethodPost, path, body, out)
 }
 
-// Patch sends body as JSON to a REST path and decodes the response into out.
+// patch sends body as JSON to a REST path and decodes the response into out.
 //
 // A method of its own rather than one that takes the verb, because go-gh
 // itself names them — Delete, Get, Patch, Post and Put sit above the DoWithContext
 // that takes a method — and a caller reads better for it.
-func (c *Client) Patch(ctx context.Context, path string, body, out any) error {
+func (c *Client) patch(ctx context.Context, path string, body, out any) error {
 	return c.send(ctx, http.MethodPatch, path, body, out)
 }
 

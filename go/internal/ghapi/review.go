@@ -55,7 +55,7 @@ func (c *Client) SubmitReview(ctx context.Context, repo Repo, number int, sub Re
 		HTMLURL string `json:"html_url"`
 	}
 	path := fmt.Sprintf("repos/%s/pulls/%d/reviews", repo, number)
-	if err := c.Post(ctx, path, payload, &response); err != nil {
+	if err := c.post(ctx, path, payload, &response); err != nil {
 		return "", err
 	}
 	return response.HTMLURL, nil
