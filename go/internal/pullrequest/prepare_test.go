@@ -245,6 +245,11 @@ func TestPrepareWithoutAPullRequest(t *testing.T) {
 			if got.ContextPath != nil || got.Freshness != nil {
 				t.Errorf("prepare = %+v, want the fetched fields left null", got)
 			}
+			// Nothing degraded, so nothing is said: the two tests that expect
+			// exactly one warning are only meaningful against this.
+			if len(got.Warnings) != 0 {
+				t.Errorf("warnings = %q, want none on a run where nothing degraded", got.Warnings)
+			}
 			if len(seen) != 0 {
 				t.Errorf("a context was fetched for a branch with no pull request")
 			}
@@ -383,6 +388,31 @@ func TestPrepareFallsBackToALocalBaseBranch(t *testing.T) {
 	}
 }
 
+// TestPrepareWarnsOnceWhenTheFetchFailed is the other half of the one-warning
+// rule: the remote-tracking ref is there and is still what the range is taken
+// against, and the reader is told once that it may be behind.
+func TestPrepareWarnsOnceWhenTheFetchFailed(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	localWork(t, repo)
+	// The remote is still configured and origin/main is still here; only the
+	// fetch cannot reach anything, which is what being offline looks like.
+	gittest.Run(t, repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if got.LocalChange == nil || len(got.LocalChange.Diff.Files) != 3 {
+		t.Fatalf("local_change = %+v, want the branch's diff against origin/main", got.LocalChange)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "failed") {
+		t.Errorf("warnings = %q, want exactly one saying the fetch failed", got.Warnings)
+	}
+}
+
 // TestPrepareRefusesAMissingBaseBranch is the end of the fallback: with
 // neither ref there is nothing to compare against, and the two names the
 // reader could fix are both said.
@@ -442,6 +472,49 @@ func TestPrepareWritesTheLocalChangeAheadOfThePullRequest(t *testing.T) {
 	// invariant the whole arrangement exists to keep.
 	if len(seen[0].Diff.Files) != 0 || len(seen[0].Commits) != 1 {
 		t.Errorf("the document describes %+v, want only the pushed commit", seen[0].Commits)
+	}
+}
+
+// TestPrepareLeavesTheLocalChangeNullOnASyncedCheckout is the third of the
+// four freshness states that go on. A checkout the freshness check moved onto
+// the pull request's head holds nothing the document does not, so there is no
+// second change to describe — and the patch an earlier ahead_own run left is
+// not left lying in the work dir for a reader to mistake for this run's.
+func TestPrepareLeavesTheLocalChangeNullOnASyncedCheckout(t *testing.T) {
+	t.Parallel()
+
+	repo, head := prepareRepo(t)
+	scratch := t.TempDir()
+	patch := filepath.Join(scratch, "pr-owner@repo-5", "local.patch")
+	prepare := func() pullrequest.Preparation {
+		t.Helper()
+		got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
+			ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: scratch}, store(nil, nil))
+		if err != nil {
+			t.Fatalf("Prepare: %v", err)
+		}
+		return got
+	}
+
+	// An ahead_own run first, so that there is a patch of this pull request's
+	// own to be left behind.
+	localWork(t, repo)
+	if ahead := prepare(); ahead.LocalChange == nil {
+		t.Fatalf("the first run left local_change null, so there is no patch for the second to clear")
+	}
+	// Behind with nothing to lose, which the freshness check fast-forwards
+	// itself and reports as synced.
+	gittest.Run(t, repo, "reset", "-q", "--hard", "HEAD~2")
+
+	got := prepare()
+	if got.Freshness == nil || got.Freshness.Status != "synced" {
+		t.Fatalf("freshness = %+v, want synced", got.Freshness)
+	}
+	if got.LocalChange != nil {
+		t.Errorf("local_change = %+v, want null on a synced checkout", got.LocalChange)
+	}
+	if _, err := os.Stat(patch); !os.IsNotExist(err) {
+		t.Errorf("the earlier run's patch is still in the work dir (%v) with nothing in the output naming it", err)
 	}
 }
 

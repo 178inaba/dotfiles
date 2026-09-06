@@ -272,8 +272,8 @@ one of them skipped.
 An undefined flag stops the command with the defined ones listed, rather than
 being ignored and letting the review run in a mode nobody asked for.
 <scratchpad-dir> has to exist; the context file and the work directory are made
-under it — the work directory on every run, including one on a branch with no
-pull request at all, where the patch in local_change goes.
+under it — the work directory on every run that goes on, including one on a
+branch with no pull request at all, where the patch in local_change goes.
 
 The document is the one ` + "`ccx pr context`" + ` writes — its fields, ` + "`pending`" + ` among
 them, are set out under ` + "`ccx pr context --help`" + ` and not repeated here — and git

@@ -3,6 +3,7 @@ package pullrequest
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -53,8 +54,11 @@ type Preparation struct {
 	// work_dir, review_path and threads_path are handed out rather than left
 	// to the caller to name, which is what binds a review's working files to
 	// one pull request — or, where there is no pull request, to the branch,
-	// which is the only thing left to tell two runs apart. review_path and
-	// threads_path are null in that state, since there is nothing to post to.
+	// which is the only thing left to tell two runs apart. The branch's
+	// slashes are folded onto hyphens there, since a directory name is one
+	// path segment, so two branches differing only in that share a directory.
+	// review_path and threads_path are null in that state, since there is
+	// nothing to post to.
 	WorkDir     *string `json:"work_dir"`
 	ReviewPath  *string `json:"review_path"`
 	ThreadsPath *string `json:"threads_path"`
@@ -188,6 +192,11 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 			return Preparation{}, err
 		}
 		p.LocalChange = &change
+	} else if err := os.Remove(doc.Work.LocalDiffPath); err != nil && !os.IsNotExist(err) {
+		// An earlier ahead_own run's patch goes, for the reason OpenDocument
+		// removes the previous document: a file in the work dir that nothing
+		// in the output names is one a reader can only mistake for current.
+		return Preparation{}, fmt.Errorf("failed to remove the previous local patch: %s", doc.Work.LocalDiffPath)
 	}
 	// The reasons an issue could not be read belong here as well: this is the
 	// only output the caller of prepare-review reads, and a title that came

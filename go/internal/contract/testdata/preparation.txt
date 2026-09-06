@@ -25,8 +25,11 @@
                             than left to the caller to name, which is what binds a
                             review's working files to one pull request — or, where there
                             is no pull request, to the branch, which is the only thing
-                            left to tell two runs apart. review_path and threads_path
-                            are null in that state, since there is nothing to post to.
+                            left to tell two runs apart. The branch's slashes are folded
+                            onto hyphens there, since a directory name is one path
+                            segment, so two branches differing only in that share a
+                            directory. review_path and threads_path are null in that
+                            state, since there is nothing to post to.
   review_path               string (may be null)
   threads_path              string (may be null)
   local_change              object (may be null)
