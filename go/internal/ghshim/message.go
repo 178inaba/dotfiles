@@ -233,19 +233,13 @@ here loses no command that would otherwise have succeeded.
 `, attemptedCommand(argv), source, reason, unreadableFileFix("the query", "input"))
 }
 
-// quotedClosingKeywordMessage is the fourth rule. It is written as an
-// interpreted string because it quotes a backtick, which a raw one cannot hold.
-func quotedClosingKeywordMessage(source string) string {
-	return fmt.Sprintf("Blocked: the pull request body holds a closing keyword inside backticks.\n"+
-		"\n"+
-		"  source: %s\n"+
-		"\n"+
-		"GitHub does not read Closes/Fixes/Resolves #N as a closing keyword inside a\n"+
-		"code span or a code block, so merging the pull request leaves the issue open.\n"+
-		"\n"+
-		"Fix: if the issue is meant to close on the merge, write the keyword bare:\n"+
-		"  Closes #656\n"+
-		"To quote or document the keyword instead, replace the real number with a\n"+
-		"placeholder (`Closes #N` — without a number it is not detected).\n",
-		source)
+// quotedClosingKeywordMessage is the fourth rule: the frame around what ghmd
+// found, as the third rule's message is.
+func quotedClosingKeywordMessage(refusal, source string) string {
+	return fmt.Sprintf(`Blocked: the pull request body holds a closing keyword inside backticks.
+
+  source: %s
+
+%s
+`, source, refusal)
 }

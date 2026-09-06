@@ -160,8 +160,10 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 	if refusal := ghmd.RefuseBareHashRefs(body); refusal != "" {
 		return &Block{Message: bareHashRefsMessage(refusal, source)}
 	}
-	if c.noun == "pr" && (c.verb == "create" || c.verb == "edit") && hasQuotedClosingKeyword(body) {
-		return &Block{Message: quotedClosingKeywordMessage(source)}
+	if c.noun == "pr" && (c.verb == "create" || c.verb == "edit") {
+		if refusal := ghmd.RefuseQuotedClosingKeyword(body); refusal != "" {
+			return &Block{Message: quotedClosingKeywordMessage(refusal, source)}
+		}
 	}
 	return nil
 }

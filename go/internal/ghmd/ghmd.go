@@ -2,9 +2,11 @@
 //
 // Two things in this module have to agree about a verdict. The gh shim
 // refuses a body that numbers its items with bare #N, because GitHub autolinks
-// those and notifies unrelated issues; ghapi writes bodies in process, where
-// the shim never sees them, so it has to reach the same verdict about the same
-// text. The words the refusal is written in are here for that reason — both
+// those and notifies unrelated issues, and a pull request body that hides a
+// closing keyword inside code, because GitHub does not read it there and the
+// merge leaves the issue open; ghapi writes bodies in process, where the shim
+// never sees them, so it has to reach the same verdicts about the same text.
+// The words the refusals are written in are here for that reason — both
 // refusers say the same thing about the same body.
 //
 // More than those two read a body, though, and the reading is what they all
@@ -277,6 +279,47 @@ ordered list (1. 2. ...), say. If an issue or a pull request is really
 being referenced, name it as OWNER/REPO#N:
   178inaba/dotfiles#3
 That keeps the link and does not trip this guard.`, distinct)
+}
+
+// closingKeyword matches a reference GitHub would close an issue on. It reads
+// only the direct adjacency of keyword, optional colon, space and reference,
+// so the detection is limited to it as well.
+//
+// The same knowledge is encoded in pullrequest.closingKeyword, which reads a
+// body for the issues it closes; if GitHub ever changes the set, both have to
+// move.
+var closingKeyword = regexp.MustCompile(
+	`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
+
+// RefuseQuotedClosingKeyword is what to say about a pull request body that
+// holds a closing keyword where GitHub will not read it as one — inside a
+// fence, or inside a code span — and the empty string for one that does not.
+//
+// Here rather than with the gh shim that first made the judgement, for the
+// reason RefuseBareHashRefs is: ghapi writes pull request bodies in process,
+// where the shim never sees them, and two implementations of the same rule are
+// how the two ends of it come to disagree. Where the body came from is the
+// caller's to name, above or in front of this.
+func RefuseQuotedClosingKeyword(body string) string {
+	quoted := false
+	for s := range Segments(body) {
+		if s.Kind != Prose && closingKeyword.MatchString(body[s.Start:s.End]) {
+			quoted = true
+			break
+		}
+	}
+	if !quoted {
+		return ""
+	}
+	// An interpreted string because it quotes a backtick, which a raw one
+	// cannot hold.
+	return "GitHub does not read Closes/Fixes/Resolves #N as a closing keyword inside a\n" +
+		"code span or a code block, so merging the pull request leaves the issue open.\n" +
+		"\n" +
+		"Fix: if the issue is meant to close on the merge, write the keyword bare:\n" +
+		"  Closes #656\n" +
+		"To quote or document the keyword instead, replace the real number with a\n" +
+		"placeholder (`Closes #N` — without a number it is not detected)."
 }
 
 // nextCodeSpan returns the bounds of the first code span at or after from,
