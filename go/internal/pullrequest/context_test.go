@@ -703,9 +703,13 @@ func TestFetchOnAnotherAuthorsPR(t *testing.T) {
 	}
 }
 
-// TestFetchDegradesOnAnUnreadableIssue covers the three answers that mean the
+// TestFetchDegradesOnAnUnreadableIssue covers the two answers that mean the
 // issue may no longer be there. The run goes on with what it has: a review
 // that stopped because a closed issue was deleted would be stopped for good.
+//
+// Only the linked issue degrades this way. Its parent does not, because a
+// parent GitHub declines to show is an environment error rather than a fact
+// about the issue — see TestFetchFailsOnAnUnreadableParent.
 func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
 	t.Parallel()
 
@@ -730,19 +734,6 @@ func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
 			want:        pullrequest.LinkedIssue{Number: 10, Comments: []pullrequest.IssueComment{}},
 			wantWarning: "owner/repo#10: the issue could not be read (HTTP 403)",
 		},
-		{
-			// Only the parent is lost here, and the body that was read is
-			// kept, comments and all: dropping either would throw away what the
-			// run came for, and the comments are the half a fetch placed after
-			// the parent lookup would lose.
-			name:   "only the parent is unreadable",
-			status: map[string]int{parentPath("owner/repo", 10): http.StatusGone},
-			want: pullrequest.LinkedIssue{
-				Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
-				CommentsTotalCount: 3, Comments: issue10Comments,
-			},
-			wantWarning: "owner/repo#10: the parent issue could not be read (HTTP 410)",
-		},
 	}
 
 	for _, tc := range tests {
@@ -758,6 +749,86 @@ func TestFetchDegradesOnAnUnreadableIssue(t *testing.T) {
 				t.Errorf("warnings (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestFetchFailsOnAnUnreadableParent is the parent's side of the same
+// question, answered the other way.
+//
+// A parent GitHub declines to show is a token without SSO authorisation, a
+// rate limit or a deleted issue — none of them a fact about the sub-issue. The
+// one answer that is a fact is 404, which is also how GitHub reports a parent
+// in a repository this token cannot see, so the two are indistinguishable and
+// both read as no parent.
+func TestFetchFailsOnAnUnreadableParent(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Closes #10"
+
+	for _, status := range []int{http.StatusForbidden, http.StatusGone} {
+		t.Run(fmt.Sprintf("HTTP %d", status), func(t *testing.T) {
+			t.Parallel()
+
+			c := serve(t, pages{
+				body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments,
+				issueStatus: map[string]int{parentPath("owner/repo", 10): status},
+			})
+			_, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange(), t.TempDir())
+			if err == nil {
+				t.Fatalf("Fetch succeeded, want HTTP %d on the parent to stop it", status)
+			}
+			if !strings.Contains(err.Error(), "owner/repo#10") {
+				t.Errorf("error = %v, want it to name the issue whose parent could not be read", err)
+			}
+		})
+	}
+
+	// The clause is on the one status that says so. A run stopped by a server
+	// error must not send its reader looking at their token.
+	t.Run("a forbidden parent names SSO authorisation", func(t *testing.T) {
+		t.Parallel()
+
+		for status, want := range map[int]bool{http.StatusForbidden: true, http.StatusInternalServerError: false} {
+			c := serve(t, pages{
+				body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments,
+				issueStatus: map[string]int{parentPath("owner/repo", 10): status},
+			})
+			_, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange(), t.TempDir())
+			if err == nil {
+				t.Fatalf("HTTP %d: Fetch succeeded, want it stopped", status)
+			}
+			if got := strings.Contains(err.Error(), "SSO"); got != want {
+				t.Errorf("HTTP %d: error = %v, want the SSO clause present = %v", status, err, want)
+			}
+		}
+	})
+}
+
+// TestFetchReadsAMissingParentAsNone pins the answer 404 keeps.
+//
+// It is the endpoint's way of saying the issue is nobody's child, and also
+// what it answers for a parent in a repository the token cannot see. Neither
+// is a degradation, so nothing is warned about.
+func TestFetchReadsAMissingParentAsNone(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Closes #10"
+	got := fetch(t, pages{
+		body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments,
+		issueStatus: map[string]int{parentPath("owner/repo", 10): http.StatusNotFound},
+	}, one, pullrequest.DefaultLimits)
+
+	want := []pullrequest.LinkedIssue{{
+		Number: 10, Title: new("Issue 10"), Body: new("The tenth body"),
+		CommentsTotalCount: 3, Comments: issue10Comments,
+	}}
+	if diff := cmp.Diff(want, got.LinkedIssues); diff != "" {
+		t.Errorf("linked_issues (-want +got):\n%s", diff)
+	}
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none", got.Warnings)
 	}
 }
 
