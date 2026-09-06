@@ -12,9 +12,12 @@
 // draft are prose, and plandocs blanks a plan document's code out before
 // looking for the links and imports in it. None of them owns the reading, so
 // it lives here rather than in whichever of them wrote it first — a copy in a
-// caller is a reading that drifts the next time this one is corrected, which
-// is what plandocs' own fence and span scanner had already done in six places
-// by the time it was retired.
+// caller drifts the next time this one is corrected, which is what plandocs'
+// own scanner had done in six places by the time it was retired.
+//
+// One reader is deliberately not here. skill's backticked wants the content
+// of a code span rather than the prose around it, fenced examples included,
+// which is the complement of what Segments yields and not a copy of it.
 //
 // A notation whose meaning depends on that reading belongs here too, even
 // where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
@@ -65,8 +68,11 @@ const (
 	// substitution belongs.
 	Prose Kind = iota
 	// Fence is a line inside a fenced code block. The fence's own marker lines
-	// are no segment at all: nothing reads them, and calling them prose would
-	// hand a rewriter the backticks that delimit the block.
+	// are no segment at all, because calling them prose would hand a rewriter
+	// the backticks that delimit the block. A caller that has to account for
+	// every byte reads them as the gap between segments — which is what
+	// BlankCode does, by writing the whole body out and copying the prose
+	// back.
 	Fence
 	// Span is an inline code span, its backticks included, so that a caller
 	// matching against it sees what GitHub shows.

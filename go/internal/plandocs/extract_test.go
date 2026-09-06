@@ -84,11 +84,13 @@ func TestReferences(t *testing.T) {
 			want: []reference{{target: "c.md", isImport: true}},
 		},
 		// The rest are the places the reading this delegates to disagrees
-		// with the one it replaces, and each is CommonMark's answer. The run
-		// of two below has no partner and neither does the run of three, so
-		// the two single runs are free to pair with each other — a reading
-		// that finds a closing run by substring pairs the two with the first
-		// two backticks of the three instead, and uncovers the link.
+		// with the one it replaces. Four of them are CommonMark's answer; the
+		// last is ghmd's own deliberate deviation from it, which CommonMark
+		// would read as an indented code block. The run of two below has no
+		// partner and neither does the run of three, so the two single runs
+		// are free to pair with each other — a reading that finds a closing
+		// run by substring pairs the two with the first two backticks of the
+		// three instead, and uncovers the link.
 		"a span after an unmatched run still hides its link": {
 			text: "a ``b``` `[x](x.md)` c",
 		},

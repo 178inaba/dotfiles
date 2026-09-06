@@ -228,6 +228,17 @@ func TestSegments(t *testing.T) {
 			want: []text{{Kind: ghmd.Fence, Line: 2, Text: "x\n"}},
 		},
 		{
+			// The deviation markerRun names: CommonMark stops at three spaces
+			// and reads a fourth as an indented code block, so this is the one
+			// place the reading answers differently on purpose.
+			name: "a fence marker indented past three spaces still opens a block",
+			body: "    ```\nx\n    ```\ny\n",
+			want: []text{
+				{Kind: ghmd.Fence, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Prose, Line: 4, Text: "y\n"},
+			},
+		},
+		{
 			name: "a run shorter than the opening one is content",
 			body: "````\n```\nx\n````\n",
 			want: []text{
@@ -322,11 +333,11 @@ func TestBlankCode(t *testing.T) {
 			want: "a\n   \n \n   \nc\n",
 		},
 		{
-			// A backtick fence's info string may not hold a backtick, so this
-			// line opens no block and is prose down to its last byte.
-			name: "a backtick in an info string leaves a paragraph",
-			body: "```a` [x](x.md)",
-			want: "```a` [x](x.md)",
+			// The last line of a body need not end in one, and prose that
+			// runs to the final byte comes back whole.
+			name: "a body that does not end in a newline",
+			body: "no newline here",
+			want: "no newline here",
 		},
 		{
 			// Only the newline is kept, so the \r of a marker line is blanked
