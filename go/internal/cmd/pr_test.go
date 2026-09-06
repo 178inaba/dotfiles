@@ -376,7 +376,7 @@ func (f headCheckFixture) run(t *testing.T, tt headCheckCase,
 			w.WriteHeader(http.StatusInternalServerError)
 		})
 	}
-	deps := Deps{NewClient: func() (*ghapi.Client, error) { return ghapitest.New(t, h), nil }}
+	deps := Deps{NewClient: func() (*ghapi.Client, error) { return ghapitest.New(t, h), nil }, Dir: f.repo}
 
 	var errOut bytes.Buffer
 	code := run(t.Context(), args(contextFile, pullrequest.WorkDir(contextFile)),

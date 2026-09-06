@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -37,7 +38,8 @@ func silent(err error) error {
 }
 
 // Deps is what a command is given rather than what it reaches for: the
-// self-build outcome it reports, and the way to a GitHub client.
+// self-build outcome it reports, the checkout it acts on, and the way to a
+// GitHub client.
 //
 // Every constructor takes the whole of it, including the ones that need no
 // client today, so that a command which later does needs nothing rethreaded to
@@ -54,23 +56,42 @@ type Deps struct {
 	// reaching GitHub should not pay. The commands call it where they used to
 	// construct one, which is to say late.
 	NewClient func() (*ghapi.Client, error)
+	// Dir is the checkout the command acts on, carried rather than read from
+	// the process for the reason ghapi.PullRequestForCurrentBranch documents of
+	// its own dir: a default of the process's own directory is one a test
+	// forgets to override, and overriding it moves every test at once. Always
+	// absolute, which is what plan docs needs to walk up from it.
+	Dir string
 }
 
 // Execute runs the tree and returns the process exit status. The self-rebuild
 // check runs first, before anything reads stdin; see selfbuild.Run.
 //
-// The one place a client is constructed. Every other one goes through Deps,
-// which is what lets a test put ghapitest's client in front of a command; see
-// TestOnlyExecuteBuildsTheClient.
+// The one place a client is constructed, and the one place the process is
+// asked where it is running. Every other one goes through Deps, which is what
+// lets a test put ghapitest's client and a temporary repository in front of a
+// command; see TestOnlyExecuteBuildsTheClient.
+//
+// A directory that cannot be read is reported here rather than carried as an
+// empty one, which would fail later and further away: as a git -C on nothing,
+// or as a plan docs walk that stops a step after it starts.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	build := selfbuild.Run(ctx, selfbuild.NewDeps(args))
+	dir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "ccx: %v\n", err)
+		return 1
+	}
 	return run(ctx, args, stdin, stdout, stderr, Deps{
-		Build:     selfbuild.Run(ctx, selfbuild.NewDeps(args)),
+		Build:     build,
 		NewClient: func() (*ghapi.Client, error) { return ghapi.New(ghapi.Options{}) },
+		Dir:       dir,
 	})
 }
 
 // run is Execute without the self-rebuild check, so tests can drive the tree
-// without the filesystem underneath it.
+// without the filesystem underneath it and without the process's own directory
+// standing in for the checkout.
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, deps Deps) int {
 	root := newRootCmd(deps)
 	root.SetArgs(args)

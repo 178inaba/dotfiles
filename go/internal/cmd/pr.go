@@ -42,9 +42,7 @@ func prFreshnessCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 
-			// The working directory, which is the checkout the caller means:
-			// these run inside the worktree being reviewed in.
-			report, err := worktree.CheckFreshness(c.Context(), runner.Exec{}, ".", prContext.Checkout())
+			report, err := worktree.CheckFreshness(c.Context(), runner.Exec{}, deps.Dir, prContext.Checkout())
 			if err != nil {
 				return silent(err)
 			}
@@ -90,18 +88,16 @@ func prContextCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			repo, err := currentRepo(c.Context(), client)
+			repo, err := currentRepo(c.Context(), client, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
-			meta, err := contextPR(c.Context(), client, repo, number)
+			meta, err := contextPR(c.Context(), client, repo, deps.Dir, number)
 			if err != nil {
 				return silent(err)
 			}
 
-			// The working directory is the checkout the caller means, as the
-			// freshness check reads it.
-			doc, err := pullrequest.OpenDocument(c.Context(), runner.Exec{}, ".", outDir, repo, meta)
+			doc, err := pullrequest.OpenDocument(c.Context(), runner.Exec{}, deps.Dir, outDir, repo, meta)
 			if err != nil {
 				return silent(err)
 			}
@@ -153,8 +149,8 @@ func xdgDir(variable, fallback string) string {
 // The wrapped failure is kept: "no git remote names a repository" is a
 // different problem from being unauthenticated, and a message that hides which
 // one it was sends the reader to debug the wrong thing.
-func currentRepo(ctx context.Context, client *ghapi.Client) (ghapi.Repo, error) {
-	repo, err := client.CurrentRepo(ctx, runner.Exec{}, ".")
+func currentRepo(ctx context.Context, client *ghapi.Client, dir string) (ghapi.Repo, error) {
+	repo, err := client.CurrentRepo(ctx, runner.Exec{}, dir)
 	if err != nil {
 		return ghapi.Repo{}, fmt.Errorf("failed to resolve the repository: %w", err)
 	}
@@ -166,9 +162,9 @@ func currentRepo(ctx context.Context, client *ghapi.Client) (ghapi.Repo, error) 
 // The two ways it can fail need different answers, so they are reported apart:
 // a number that names nothing is one thing, and a branch with no pull request
 // is another, where naming a number is the way forward.
-func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, number int) (ghapi.PullRequest, error) {
+func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, dir string, number int) (ghapi.PullRequest, error) {
 	if number == 0 {
-		pr, err := client.PullRequestForCurrentBranch(ctx, runner.Exec{}, ".", repo)
+		pr, err := client.PullRequestForCurrentBranch(ctx, runner.Exec{}, dir, repo)
 		if err != nil {
 			return ghapi.PullRequest{}, fmt.Errorf("could not infer PR from current branch; specify <pr-number> explicitly")
 		}
@@ -289,7 +285,7 @@ func prPrepareReviewCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			repo, err := currentRepo(c.Context(), client)
+			repo, err := currentRepo(c.Context(), client, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -299,7 +295,7 @@ func prPrepareReviewCmd(deps Deps) *cobra.Command {
 				Worktree: worktreeFlag, LocalOnly: localOnly, NoAutofix: noAutofix,
 				StateHome: stateHome(),
 			}
-			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, ".", options, storeContext)
+			prepared, err := pullrequest.Prepare(c.Context(), runner.Exec{}, client, repo, deps.Dir, options, storeContext)
 			if err != nil {
 				return silent(err)
 			}
@@ -386,7 +382,7 @@ func prPostReviewCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			posted, err := pullrequest.Post(c.Context(), runner.Exec{}, client, ".", prContext.Target(), submission)
+			posted, err := pullrequest.Post(c.Context(), runner.Exec{}, client, deps.Dir, prContext.Target(), submission)
 			if err != nil {
 				return silent(err)
 			}
@@ -434,7 +430,7 @@ func prCommentCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			posted, err := pullrequest.PostComment(c.Context(), runner.Exec{}, client, ".",
+			posted, err := pullrequest.PostComment(c.Context(), runner.Exec{}, client, deps.Dir,
 				prContext.Target(), parsedMark, body)
 			if err != nil {
 				return silent(err)
@@ -538,7 +534,7 @@ func prReplyThreadsCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			if err := pullrequest.RequirePushedHead(c.Context(), runner.Exec{}, client, ".",
+			if err := pullrequest.RequirePushedHead(c.Context(), runner.Exec{}, client, deps.Dir,
 				prContext.Target(), "replying or resolving"); err != nil {
 				return silent(err)
 			}

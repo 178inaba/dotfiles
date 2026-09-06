@@ -104,7 +104,7 @@ func newTreeCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			repo, err := targetRepo(c.Context(), client, repoName)
+			repo, err := targetRepo(c.Context(), client, repoName, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -123,12 +123,12 @@ func newTreeCmd(deps Deps) *cobra.Command {
 }
 
 // targetRepo is the repository a command works on: the one named on the command
-// line, or the one the working directory belongs to.
-func targetRepo(ctx context.Context, c *ghapi.Client, name string) (ghapi.Repo, error) {
+// line, or the one the checkout it was given belongs to.
+func targetRepo(ctx context.Context, c *ghapi.Client, name, dir string) (ghapi.Repo, error) {
 	if name != "" {
 		return ghapi.ParseRepo(name)
 	}
-	repo, err := c.CurrentRepo(ctx, runner.Exec{}, ".")
+	repo, err := c.CurrentRepo(ctx, runner.Exec{}, dir)
 	if err != nil {
 		return ghapi.Repo{}, fmt.Errorf("failed to resolve the current repository (run inside a GitHub repository or pass -R owner/repo): %w", err)
 	}

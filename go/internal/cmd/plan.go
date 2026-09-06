@@ -28,16 +28,12 @@ func newPlanDocsCmd(deps Deps) *cobra.Command {
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, deps.Build)
 
-			root, err := os.Getwd()
-			if err != nil {
-				return silent(err)
-			}
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return silent(err)
 			}
 
-			collection, err := plandocs.Collect(root, home)
+			collection, err := plandocs.Collect(deps.Dir, home)
 			if err != nil {
 				return silent(err)
 			}
