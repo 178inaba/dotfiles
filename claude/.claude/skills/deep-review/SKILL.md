@@ -76,24 +76,24 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 ### 3. Issue情報取得
 
-Skill ツールで `pr-reading` を起動し、その手順に従って読む。起動時に名指すのは、container が「準備」で得た `issues` と同じ出力の `warnings[]`、文書が `context_path`、差分・コミットの取得元が `pr_exists` / `freshness.status` で決まるもの（分岐は「差分取得と確認」）、報告先が「レビュー結果出力」の「確認した内容」。
+Skill ツールで `pr-reading` を起動し、その手順に従って読む。起動時に名指すのは、container が「準備」で得た `issues`（読めなかったものを説明する `warnings[]` も同じ出力のもの）、文書が `context_path`、差分・コミットの取得元が `pr_exists` / `freshness.status` で決まるもの（分岐は「差分取得と確認」）、報告先が「レビュー結果出力」の「確認した内容」。
 
 本スキル固有の扱い:
 
 - **取得元は「準備」で得た `issues` だけで、Issue を自分で取りに行かない**
-- 読めなかった Issue・親は「レビュー結果出力」の充足表に「読めず」の行を残す
+- 読めなかった Issue は「レビュー結果出力」の充足表に「読めず」の行を残す。読めなかった親は充足表に載せず（下記の役割分担）、総合評価直下の行に書く
 - Issue コメントの打ち切りは「準備」が上限を上げて取り直した後の結果なので、ここでの再取得は行わない
 
 あわせて各 Issue の親子関係を `ccx issue tree <N> [-R <owner>/<repo>]` で確認する（`kind` と `sub_issues[]` の state はコンテキストが運ばないため）。役割分担: **充足判定（「レビュー実行」の「Issue 情報が取得されている」項）の対象は当該 Issue の受け入れ条件のみ**、親は横断ルールへの準拠確認と要件解釈の参照に使う（親の受け入れ条件は他の Sub にまたがるため、この PR に「未実装」として計上しない）。`issues[]` の要素自体が親（`kind` が `parent` / `parent_and_sub`。最後の Sub の PR は `Closes #<親>` も持つため closing keyword 検出で親が混ざる）の場合も同じ役割分担を適用し、充足表には載せない。代わりに `Closes #<親>` の妥当性を確認する: 当該 PR が閉じる Sub 以外の全 Sub が closed（`sub_issues[]` の state）で、親の `release_manual_steps` 節が「なし」マーカーであること（Skill ツールで `github-sub-issues` を起動し、その「本文の節の読み取り」に従って節を引き、マーカーを照合する）。満たさなければ指摘する（親が早期に閉じる）。
 
 ### 4. 差分取得と確認
 
-「Issue情報取得」で起動した `pr-reading` の「順序」の 3 以降をここで実行する。この節が決めるのはその取得元だけ。
+「Issue情報取得」で起動した `pr-reading` の「順序」のうち、`pr.body` から差分までをここで実行する。この節が決めるのはその取得元だけ。
 
 取得元は状態で決まる。`pr_exists` を先に見て（false なら `freshness` は null）、次に `freshness.status` を見る — top-level の `status` はこの 3 つを区別しないため（語彙は `ccx pr freshness --help`）。停止する status は「準備」で処理済みなのでここには来ない。`--local-only` はここでの状態ではない（投稿を抑えるだけで、コンテキストは通常どおり書かれ読まれる）:
 
 - `ok` / `synced` → コンテキストから読む。`pr.body`、コミットメッセージは `commits[]`、差分は **`diff.path` が指すファイル**、ファイル一覧は `diff.files[]`
-- `pr_exists: false`（PR が無くコンテキストも無い）と `ahead_own`（コンテキストの差分は `pr.head_oid` までで、作者の未 push コミットが落ちる）の 2 状態のみ、`git log <base_branch>..HEAD` と `git diff <base_branch>...HEAD` をローカルで実行する。ファイル一覧は `--stat`、生成物の印は付かない。`pr_exists: false` では `pr.body` そのものが無い
+- `pr_exists: false`（PR が無くコンテキストも無い）と `ahead_own`（コンテキストの差分は `pr.head_oid` までで、作者の未 push コミットが落ちる）の 2 状態のみ、`git log <base_branch>..HEAD` と `git diff <base_branch>...HEAD` をローカルで実行する。ファイル一覧は `--stat`、生成物の印は付かない
 
 観点ごとの検証手続きは「レビュー実行」のトリガー式チェックリストが担う。
 
