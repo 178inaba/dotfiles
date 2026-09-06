@@ -5,9 +5,14 @@ package pullrequest
 // rest of this module passes a login around. Writing one set of types for both
 // would make the nesting the contract.
 
+// pageInfo carries both ends of a connection. A query selecting one end leaves
+// the other at its zero value, which reads as "no more pages" in the direction
+// nobody is walking.
 type pageInfo struct {
-	HasNextPage bool   `json:"hasNextPage"`
-	EndCursor   string `json:"endCursor"`
+	HasNextPage     bool   `json:"hasNextPage"`
+	EndCursor       string `json:"endCursor"`
+	HasPreviousPage bool   `json:"hasPreviousPage"`
+	StartCursor     string `json:"startCursor"`
 }
 
 // actor is null for an account that no longer exists, which is why every
@@ -103,6 +108,7 @@ type body struct {
 			} `json:"comments"`
 			Reviews struct {
 				TotalCount int          `json:"totalCount"`
+				PageInfo   pageInfo     `json:"pageInfo"`
 				Nodes      []reviewNode `json:"nodes"`
 			} `json:"reviews"`
 			ReviewThreads struct {

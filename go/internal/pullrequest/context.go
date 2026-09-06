@@ -140,6 +140,45 @@ type Review struct {
 	LastEditedAt *string `json:"last_edited_at"`
 }
 
+// ReviewerState is where a reviewer's review stands.
+//
+// Three of GitHub's five review states, because the other two say nothing
+// about a standing: a review the viewer has not submitted is not one yet, and
+// a dismissed one has been turned back into a comment.
+type ReviewerState string
+
+const (
+	// ReviewerApproved is a reviewer whose latest verdict was an approval.
+	ReviewerApproved ReviewerState = "APPROVED"
+	// ReviewerChangesRequested is a reviewer waiting for changes they asked
+	// for, which no later comment of theirs withdraws.
+	ReviewerChangesRequested ReviewerState = "CHANGES_REQUESTED"
+	// ReviewerCommented is a reviewer who has said something and passed no
+	// verdict — including one whose verdict was dismissed, since dismissing a
+	// review changes it into a review comment.
+	ReviewerCommented ReviewerState = "COMMENTED"
+)
+
+// Reviewer is where one reviewer's review stands.
+//
+// One element per author of a submitted review, so that a skill asking "has
+// this reviewer approved" reads the answer rather than walking reviews[] for
+// the last verdict — which is the same walk in every skill that asks.
+type Reviewer struct {
+	// Null together with author_type, for an account that no longer
+	// exists — every such review is the same reviewer here, since nothing
+	// tells two of them apart.
+	Author *string `json:"author"`
+	// The GraphQL type of the author, as the reviews carry it: a
+	// bot's standing is told from a person's without a list of bot names.
+	AuthorType *string `json:"author_type"`
+	// Where the reviewer stands.
+	State ReviewerState `json:"state" contract:"required"`
+	// When the review that settled the state was submitted, or,
+	// for a reviewer who passed no verdict, when they last said anything.
+	SubmittedAt string `json:"submitted_at" contract:"required"`
+}
+
 // ThreadComment is one comment inside a review thread.
 type ThreadComment struct {
 	Author *string `json:"author"`
@@ -236,11 +275,20 @@ type Context struct {
 	CommentsTruncated  bool      `json:"comments_truncated"`
 	Comments           []Comment `json:"comments"`
 	ReviewsTotalCount  int       `json:"reviews_total_count"`
-	ReviewsTruncated   bool      `json:"reviews_truncated"`
-	Reviews            []Review  `json:"reviews"`
-	ThreadsTotalCount  int       `json:"threads_total_count"`
-	ThreadsTruncated   bool      `json:"threads_truncated"`
-	ReviewThreads      []Thread  `json:"review_threads" contract:"required"`
+	// True where the limit left reviews behind, and the ones left
+	// behind are the oldest: the connection is read from its newest end, so
+	// what a truncated document carries is the most recent of what every
+	// reviewer said.
+	ReviewsTruncated bool     `json:"reviews_truncated"`
+	Reviews          []Review `json:"reviews"`
+	// Where each reviewer stands, derived from the reviews above
+	// and so from what was fetched: with reviews_truncated an old approval may
+	// be outside the window, and this says what the reviews say rather than
+	// going null.
+	Reviewers         []Reviewer `json:"reviewers" contract:"required"`
+	ThreadsTotalCount int        `json:"threads_total_count"`
+	ThreadsTruncated  bool       `json:"threads_truncated"`
+	ReviewThreads     []Thread   `json:"review_threads" contract:"required"`
 	// The degradations that did not stop the document being
 	// useful: one line per issue that could not be read, as owner/repo#N
 	// followed by why. Empty rather than null when everything was read. What
@@ -296,7 +344,10 @@ func ParseContext(b []byte, file string) (Context, error) {
 // flags are for.
 type Limits struct {
 	Comments int
-	Threads  int
+	// Reviews bounds what is written rather than only the round trips: the
+	// window asked for is what is still wanted, so a limit of two writes two.
+	Reviews int
+	Threads int
 	// ThreadComments is per thread rather than across all of them: forty
 	// threads of five comments would reach a shared limit in ordinary use, and
 	// every thread after it would lose its discussion.
@@ -308,7 +359,7 @@ type Limits struct {
 
 // DefaultLimits are generous enough that no pull request in this repository
 // has reached one.
-var DefaultLimits = Limits{Comments: 500, Threads: 300, ThreadComments: 200, IssueComments: 200}
+var DefaultLimits = Limits{Comments: 500, Reviews: 200, Threads: 300, ThreadComments: 200, IssueComments: 200}
 
 // Fetch gathers the context of one pull request.
 //
@@ -331,6 +382,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 
 	vars := map[string]any{
 		"owner": repo.Owner, "name": repo.Name, "number": pr.Number, "headOid": pr.HeadRefOid,
+		"reviews": window(limits.Reviews, 0),
 	}
 	var b body
 	if err := c.GraphQL(ctx, bodyQuery, vars, &b); err != nil {
@@ -348,6 +400,20 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 				return nil, pageInfo{}, fmt.Errorf("failed to fetch PR comments page (GraphQL): %v", err)
 			}
 			return page.Repository.PullRequest.Comments.Nodes, page.Repository.PullRequest.Comments.PageInfo, nil
+		})
+	if err != nil {
+		return Context{}, err
+	}
+
+	reviews, err := pagesBefore(ctx, limits.Reviews, prq.Reviews.Nodes, prq.Reviews.PageInfo,
+		func(ctx context.Context, cursor string, want int) ([]reviewNode, pageInfo, error) {
+			var page body
+			vars := map[string]any{"owner": repo.Owner, "name": repo.Name, "number": pr.Number,
+				"cursor": cursor, "reviews": want}
+			if err := c.GraphQL(ctx, reviewsPageQuery, vars, &page); err != nil {
+				return nil, pageInfo{}, fmt.Errorf("failed to fetch PR reviews page (GraphQL): %v", err)
+			}
+			return page.Repository.PullRequest.Reviews.Nodes, page.Repository.PullRequest.Reviews.PageInfo, nil
 		})
 	if err != nil {
 		return Context{}, err
@@ -393,10 +459,10 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		CommentsTruncated:  prq.Comments.TotalCount > len(comments),
 		Comments:           make([]Comment, 0, len(comments)),
 		ReviewsTotalCount:  prq.Reviews.TotalCount,
-		// The reviews are a fixed window rather than a paginated connection, so
-		// this reports what fell outside it.
-		ReviewsTruncated:  prq.Reviews.TotalCount > len(prq.Reviews.Nodes),
-		Reviews:           make([]Review, 0, len(prq.Reviews.Nodes)),
+		// What the limit left behind, which for the reviews is the oldest of
+		// them: they are walked from the newest end.
+		ReviewsTruncated:  prq.Reviews.TotalCount > len(reviews),
+		Reviews:           make([]Review, 0, len(reviews)),
 		ThreadsTotalCount: prq.ReviewThreads.TotalCount,
 		ThreadsTruncated:  prq.ReviewThreads.TotalCount > len(threads),
 		ReviewThreads:     make([]Thread, 0, len(threads)),
@@ -416,13 +482,15 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			IsSkillComment: strings.HasPrefix(n.Body, SkillMarker),
 		})
 	}
-	for _, n := range prq.Reviews.Nodes {
+	for _, n := range reviews {
 		out.Reviews = append(out.Reviews, Review{
 			Author: n.Author.login(), AuthorType: n.Author.typename(),
 			State: n.State, Body: n.Body, URL: n.URL, SubmittedAt: n.SubmittedAt,
 			LastEditedAt: n.LastEditedAt,
 		})
 	}
+	// After the reviews are assembled, since it is a projection of them.
+	out.Reviewers = Reviewers(out.Reviews)
 	for _, n := range threads {
 		t, err := thread(ctx, c, n, me, out.IsOwnPR, headCommittedAt, limits.ThreadComments)
 		if err != nil {
@@ -436,6 +504,59 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 	// count taken by the caller would be the first fetch's.
 	out.Pending = Pending(out, ReadSeen(stateHome, repo, pr.Number))
 	return out, nil
+}
+
+// Reviewers is where each reviewer stands, read off the reviews.
+//
+// A pure function of what the document already carries, so that the answer is
+// computed once here rather than in every skill that needs it — and so that a
+// caller which fetches twice with the limits raised recomputes it by fetching
+// rather than by remembering to.
+//
+// The rule, in GitHub's own terms: a verdict is an approval or a request for
+// changes, and the latest one a reviewer passed is where they stand. A comment
+// leaves it alone, and so does a dismissal — dismissing a review "changes the
+// status of the review to a review comment", so it is still a review and may
+// still be the latest one, but it settles nothing. A review nobody has
+// submitted yet is not a review at all and is dropped, which is also what
+// keeps a null submitted_at out of the document.
+//
+// reviews are in the order the document carries them, oldest first, which is
+// what makes "the latest" the last one seen rather than a comparison of dates.
+func Reviewers(reviews []Review) []Reviewer {
+	// An account that no longer exists has no login, and two such reviews are
+	// the same reviewer here: nothing in the document tells them apart, and
+	// nothing at a consumer could either.
+	const deleted = ""
+
+	out := []Reviewer{}
+	at := map[string]int{}
+	for _, r := range reviews {
+		if r.State == "PENDING" {
+			continue
+		}
+		key := deleted
+		if r.Author != nil {
+			key = *r.Author
+		}
+		i, seen := at[key]
+		if !seen {
+			i = len(out)
+			at[key] = i
+			out = append(out, Reviewer{Author: r.Author, AuthorType: r.AuthorType, State: ReviewerCommented})
+		}
+		switch r.State {
+		case string(ReviewerApproved), string(ReviewerChangesRequested):
+			out[i].State, out[i].SubmittedAt = ReviewerState(r.State), r.SubmittedAt
+		default:
+			// Only where no verdict has been passed: a comment after an
+			// approval says nothing newer about where the reviewer stands.
+			if out[i].State == ReviewerCommented {
+				out[i].SubmittedAt = r.SubmittedAt
+			}
+		}
+	}
+	return out
 }
 
 // thread normalises one review thread, fetching the rest of its comments.
@@ -778,4 +899,46 @@ func pages[T any](ctx context.Context, limit int, first []T, info pageInfo,
 		info = page
 	}
 	return all, nil
+}
+
+// pagesBefore walks a connection backwards from its end, keeping the whole in
+// the order GitHub answers each page in.
+//
+// The other direction of pages, and deliberately not a mode of it: the limit
+// here bounds what is kept rather than the round trips, so each request asks
+// for what is still wanted and the count never exceeds the limit. What a limit
+// drops is therefore the far end — for the reviews, the oldest, which is the
+// end a reader can do without.
+//
+// first is the window the opening query already asked for, at the size window
+// gave it.
+func pagesBefore[T any](ctx context.Context, limit int, first []T, info pageInfo,
+	next func(ctx context.Context, cursor string, want int) ([]T, pageInfo, error),
+) ([]T, error) {
+	all := first
+	for info.HasPreviousPage && len(all) < limit {
+		nodes, page, err := next(ctx, info.StartCursor, window(limit, len(all)))
+		if err != nil {
+			return nil, err
+		}
+		all = append(nodes, all...)
+		info = page
+	}
+	return all, nil
+}
+
+// window is how many elements one request asks for: what the limit has left,
+// capped at the hundred GraphQL allows in one page.
+//
+// A limit of zero or less asks for a whole page rather than for nothing, which
+// with the walk's own guard leaves the opening window and nothing after it —
+// what a limit of zero means on the REST side too (ghapi.GetUpTo). The clamp
+// is written here rather than borrowed from there because the two hundreds are
+// separate limits of separate APIs.
+func window(limit, have int) int {
+	const page = 100
+	if want := limit - have; limit > 0 && want < page {
+		return want
+	}
+	return page
 }

@@ -46,6 +46,12 @@ type pages struct {
 	// asked for.
 	comments map[string]string
 	threads  map[string]string
+	// reviewList is the reviews as GitHub holds them, oldest first. Where it
+	// is set, body carries one %s in place of the reviews connection and both
+	// the first window and the continuations are served from this list — which
+	// is what makes a page asked for larger than the limit visible, rather
+	// than being absorbed by a fixture that always answers the same.
+	reviewList []string
 	// threadComments answers per thread id and cursor.
 	threadComments map[string]string
 	// failAfter names a query whose continuation fails.
@@ -78,6 +84,7 @@ func serve(t *testing.T, p pages) *ghapi.Client {
 			Variables struct {
 				Cursor   string `json:"cursor"`
 				ThreadID string `json:"threadId"`
+				Reviews  int    `json:"reviews"`
 			} `json:"variables"`
 		}
 		if err := json.UnmarshalRead(r.Body, &req); err != nil {
@@ -94,6 +101,8 @@ func serve(t *testing.T, p pages) *ghapi.Client {
 			kind = "threads"
 		case strings.Contains(req.Query, "comments(first: 100, after:"):
 			kind = "comments"
+		case strings.Contains(req.Query, "reviews(last: $reviews, before:"):
+			kind = "reviews"
 		}
 		if kind == p.failAfter {
 			fmt.Fprint(w, `{"errors":[{"message":"page unavailable"}]}`)
@@ -104,6 +113,12 @@ func serve(t *testing.T, p pages) *ghapi.Client {
 		switch kind {
 		case "body":
 			answer = p.body
+			if p.reviewList != nil {
+				answer = fmt.Sprintf(p.body, reviewsConnection(p.reviewList, req.Variables.Reviews, ""))
+			}
+		case "reviews":
+			answer = fmt.Sprintf(`{"data":{"repository":{"pullRequest":{"reviews":%s}}}}`,
+				reviewsConnection(p.reviewList, req.Variables.Reviews, req.Variables.Cursor))
 		case "comments":
 			answer = p.comments[req.Variables.Cursor]
 		case "threads":
@@ -469,6 +484,19 @@ func TestFetch(t *testing.T) {
 		}
 		if got.ReviewsTotalCount != 1 || got.ReviewsTruncated {
 			t.Errorf("reviews count = %d truncated %v, want 1 and false", got.ReviewsTotalCount, got.ReviewsTruncated)
+		}
+	})
+
+	t.Run("reviewers", func(t *testing.T) {
+		// Derived from the reviews above rather than fetched, so the document
+		// answers "where does this reviewer stand" without anybody walking
+		// them.
+		want := []pullrequest.Reviewer{{
+			Author: new("reviewer1"), AuthorType: new("User"),
+			State: pullrequest.ReviewerChangesRequested, SubmittedAt: "2026-01-01T00:00:00Z",
+		}}
+		if diff := cmp.Diff(want, got.Reviewers); diff != "" {
+			t.Errorf("reviewers (-want +got):\n%s", diff)
 		}
 	})
 
@@ -926,7 +954,7 @@ const pagedBody = `{"data":{
         "pageInfo": {"hasNextPage": true, "endCursor": "c1"},
         "nodes": [{"author": {"login": "first", "__typename": "User"}, "body": "first", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/first"}]
       },
-      "reviews": {"totalCount": 0, "nodes": []},
+      "reviews": %s,
       "reviewThreads": {
         "totalCount": 3,
         "pageInfo": {"hasNextPage": true, "endCursor": "t1"},
@@ -961,7 +989,10 @@ func pagedFixture() pages {
 			"c1": commentPage(true, "c2", "second"),
 			"c2": commentPage(false, "c3", "third", "fourth"),
 		},
-		threads: map[string]string{"t1": threadsPage2},
+		// One more review than a single window carries, so this connection is
+		// walked too — backwards, which is the direction the others are not.
+		reviewList: manyReviews(101),
+		threads:    map[string]string{"t1": threadsPage2},
 		threadComments: map[string]string{
 			"A/ac1": threadCommentPage(true, "ac2", "a2"),
 			"A/ac2": threadCommentPage(false, "ac3", "a3"),
@@ -984,6 +1015,16 @@ func TestFetchFollowsEveryConnection(t *testing.T) {
 	}
 	if got.CommentsTruncated {
 		t.Error("comments_truncated = true, want false once every page arrived")
+	}
+
+	// The reviews are walked from the newest end, and the pages are put back
+	// together oldest first — so the whole reads in one order however many
+	// round trips it took.
+	if len(got.Reviews) != 101 || got.ReviewsTruncated {
+		t.Fatalf("reviews = %d, truncated %v; want all 101", len(got.Reviews), got.ReviewsTruncated)
+	}
+	if first, last := *got.Reviews[0].Author, *got.Reviews[100].Author; first != "reviewer000" || last != "reviewer100" {
+		t.Errorf("reviews across pages run %s..%s, want reviewer000..reviewer100", first, last)
 	}
 
 	var ids []string
@@ -1071,10 +1112,219 @@ func TestFetchStopsAtItsLimits(t *testing.T) {
 	}
 }
 
+// reviewNodeJSON is one review as GraphQL answers with it.
+func reviewNodeJSON(login, state, at string) string {
+	return fmt.Sprintf(`{"author":{"login":%q,"__typename":"User"},"state":%q,"body":"",
+		"url":"https://example.com/r/%s","submittedAt":%q,"lastEditedAt":null}`, login, state, at, at)
+}
+
+// reviewsConnection answers reviews(last: n, before: cursor) over a fixture
+// list held oldest first, the way GitHub answers it: the newest n of what lies
+// before the cursor, still oldest first, with the page information of the
+// older end.
+//
+// It honours n rather than answering the whole list, which is what makes a
+// window asked for larger than the limit a failure rather than something a
+// fixed fixture absorbs.
+func reviewsConnection(list []string, n int, before string) string {
+	end := len(list)
+	if before != "" {
+		end = reviewCursorIndex(before)
+	}
+	start := max(end-n, 0)
+	return fmt.Sprintf(`{"totalCount":%d,"pageInfo":{"hasPreviousPage":%t,"startCursor":%q},"nodes":[%s]}`,
+		len(list), start > 0, reviewCursor(start), strings.Join(list[start:end], ","))
+}
+
+func reviewCursor(i int) string { return fmt.Sprintf("rc-%d", i) }
+
+func reviewCursorIndex(cursor string) int {
+	i, err := strconv.Atoi(strings.TrimPrefix(cursor, "rc-"))
+	if err != nil {
+		// A cursor this fake never handed out; answering from the end would
+		// hide the mistake behind a passing test.
+		panic("unknown review cursor " + cursor)
+	}
+	return i
+}
+
+// review is one submitted review, with only the fields the derivation reads.
+func review(author, kind *string, state, at string) pullrequest.Review {
+	return pullrequest.Review{Author: author, AuthorType: kind, State: state, SubmittedAt: at}
+}
+
+// TestReviewers is the whole derivation: where each reviewer stands, read off
+// the reviews alone.
+func TestReviewers(t *testing.T) {
+	t.Parallel()
+
+	user, bot := new("User"), new("Bot")
+	a, b, c := new("alice"), new("bob"), new("carol")
+
+	for _, tc := range []struct {
+		name string
+		in   []pullrequest.Review
+		want []pullrequest.Reviewer
+	}{
+		{name: "no reviews at all", in: nil, want: []pullrequest.Reviewer{}},
+		{
+			// The acceptance case, in one list: a verdict overtaken by a
+			// later one, a reviewer who only ever commented, and a review
+			// that was dismissed — which GitHub itself reads as turning the
+			// review into a review comment.
+			name: "the latest verdict wins, a comment does not set one, and a dismissal does not either",
+			in: []pullrequest.Review{
+				review(a, user, "CHANGES_REQUESTED", "2026-01-01T00:00:00Z"),
+				review(b, user, "COMMENTED", "2026-01-02T00:00:00Z"),
+				review(a, user, "APPROVED", "2026-01-03T00:00:00Z"),
+				review(c, user, "DISMISSED", "2026-01-04T00:00:00Z"),
+				review(a, user, "COMMENTED", "2026-01-05T00:00:00Z"),
+				review(b, user, "COMMENTED", "2026-01-06T00:00:00Z"),
+			},
+			want: []pullrequest.Reviewer{
+				// The approval's date, not the comment that followed it.
+				{Author: a, AuthorType: user, State: pullrequest.ReviewerApproved, SubmittedAt: "2026-01-03T00:00:00Z"},
+				// Nothing set a state, so the date is the latest review's.
+				{Author: b, AuthorType: user, State: pullrequest.ReviewerCommented, SubmittedAt: "2026-01-06T00:00:00Z"},
+				{Author: c, AuthorType: user, State: pullrequest.ReviewerCommented, SubmittedAt: "2026-01-04T00:00:00Z"},
+			},
+		},
+		{
+			// A review the viewer has not submitted has no date and is no
+			// part of where anybody stands, so a reviewer with nothing else
+			// is not one at all.
+			name: "a pending review is not a review",
+			in: []pullrequest.Review{
+				review(a, user, "PENDING", ""),
+				review(b, user, "APPROVED", "2026-01-02T00:00:00Z"),
+				review(b, user, "PENDING", ""),
+			},
+			want: []pullrequest.Reviewer{
+				{Author: b, AuthorType: user, State: pullrequest.ReviewerApproved, SubmittedAt: "2026-01-02T00:00:00Z"},
+			},
+		},
+		{
+			// A bot is included and told apart by its type, which is how a
+			// consumer decides whether to wait for it.
+			name: "a bot reviews like anybody else",
+			in: []pullrequest.Review{
+				review(new("copilot-pull-request-reviewer"), bot, "COMMENTED", "2026-01-01T00:00:00Z"),
+			},
+			want: []pullrequest.Reviewer{
+				{Author: new("copilot-pull-request-reviewer"), AuthorType: bot,
+					State: pullrequest.ReviewerCommented, SubmittedAt: "2026-01-01T00:00:00Z"},
+			},
+		},
+		{
+			// Two reviews by accounts that no longer exist are one reviewer:
+			// nothing tells them apart, here or at any consumer.
+			name: "an account that no longer exists",
+			in: []pullrequest.Review{
+				review(nil, nil, "COMMENTED", "2026-01-01T00:00:00Z"),
+				review(nil, nil, "APPROVED", "2026-01-02T00:00:00Z"),
+			},
+			want: []pullrequest.Reviewer{
+				{State: pullrequest.ReviewerApproved, SubmittedAt: "2026-01-02T00:00:00Z"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tc.want, pullrequest.Reviewers(tc.in)); diff != "" {
+				t.Errorf("Reviewers (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// reviewsBody is a pull request with nothing on it but its reviews, which the
+// fake fills in from the fixture list at the size the fetch asked for.
+const reviewsBody = `{"data":{
+  "viewer": {"login": "testuser"},
+  "repository": {
+    "headCommit": {"committedDate": "2026-01-15T00:00:00Z"},
+    "pullRequest": {
+      "comments": {"totalCount": 0, "pageInfo": {"hasNextPage": false, "endCursor": ""}, "nodes": []},
+      "reviews": %s,
+      "reviewThreads": {"totalCount": 0, "pageInfo": {"hasNextPage": false, "endCursor": ""}, "nodes": []}
+    }
+  }
+}}`
+
+// TestFetchPagesTheReviewsFromTheNewestEnd is the end a cap drops: the oldest
+// reviews, since where a reviewer stands is the newest thing they said.
+func TestFetchPagesTheReviewsFromTheNewestEnd(t *testing.T) {
+	t.Parallel()
+
+	// No closing keywords, so the reviews are all this fetches.
+	bare := meta
+	bare.Body = ""
+
+	three := []string{
+		reviewNodeJSON("alice", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z"),
+		reviewNodeJSON("bob", "COMMENTED", "2026-01-02T00:00:00Z"),
+		reviewNodeJSON("alice", "APPROVED", "2026-01-03T00:00:00Z"),
+	}
+
+	t.Run("a limit keeps the newest and says so", func(t *testing.T) {
+		t.Parallel()
+
+		got := fetch(t, pages{body: reviewsBody, reviewList: three}, bare, pullrequest.Limits{Reviews: 2})
+
+		var authors []string
+		for _, r := range got.Reviews {
+			authors = append(authors, *r.Author)
+		}
+		// Still oldest first, and the one that fell outside is the oldest.
+		if diff := cmp.Diff([]string{"bob", "alice"}, authors); diff != "" {
+			t.Errorf("reviews (-want +got):\n%s", diff)
+		}
+		if got.ReviewsTotalCount != 3 || !got.ReviewsTruncated {
+			t.Errorf("reviews count = %d truncated %v, want 3 and true", got.ReviewsTotalCount, got.ReviewsTruncated)
+		}
+		// Derived from what was fetched, so alice's request for changes is
+		// outside the window and her approval is where she stands.
+		want := []pullrequest.Reviewer{
+			{Author: new("bob"), AuthorType: new("User"), State: pullrequest.ReviewerCommented, SubmittedAt: "2026-01-02T00:00:00Z"},
+			{Author: new("alice"), AuthorType: new("User"), State: pullrequest.ReviewerApproved, SubmittedAt: "2026-01-03T00:00:00Z"},
+		}
+		if diff := cmp.Diff(want, got.Reviewers); diff != "" {
+			t.Errorf("reviewers (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("under the limit nothing is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		got := fetch(t, pages{body: reviewsBody, reviewList: three}, bare, pullrequest.DefaultLimits)
+		if len(got.Reviews) != 3 || got.ReviewsTruncated {
+			t.Errorf("reviews = %d, truncated %v; want all 3", len(got.Reviews), got.ReviewsTruncated)
+		}
+	})
+
+	t.Run("a continuation asks only for what is left", func(t *testing.T) {
+		t.Parallel()
+
+		// One more than the limit, and the limit one more than a page: the
+		// opening window takes a hundred and the continuation may take one.
+		// A continuation that asked for a whole page would come back with
+		// both of the remaining two and overrun the limit it was given.
+		got := fetch(t, pages{body: reviewsBody, reviewList: manyReviews(102)}, bare, pullrequest.Limits{Reviews: 101})
+		if len(got.Reviews) != 101 || !got.ReviewsTruncated {
+			t.Fatalf("reviews = %d, truncated %v; want 101 and true", len(got.Reviews), got.ReviewsTruncated)
+		}
+		if oldest := *got.Reviews[0].Author; oldest != "reviewer001" {
+			t.Errorf("the oldest review kept is %s, want reviewer001", oldest)
+		}
+	})
+
+}
+
 func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 	t.Parallel()
 
-	for _, query := range []string{"body", "comments", "threads", "threadComments"} {
+	for _, query := range []string{"body", "comments", "reviews", "threads", "threadComments"} {
 		t.Run(query, func(t *testing.T) {
 			t.Parallel()
 
@@ -1100,6 +1350,7 @@ func fullContext() map[string]any {
 		},
 		"repo":      "owner/repo",
 		"is_own_pr": false,
+		"reviewers": []any{},
 		"pr": map[string]any{
 			"number":   5,
 			"base_ref": "main",
@@ -1192,6 +1443,9 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 		{name: "no review_threads", edit: drop("review_threads"), want: "ctx.json is missing review_threads"},
 		{name: "null review_threads", edit: put(nil, "review_threads"), want: "ctx.json is missing review_threads"},
 
+		{name: "no reviewers", edit: drop("reviewers"), want: "ctx.json is missing reviewers"},
+		{name: "null reviewers", edit: put(nil, "reviewers"), want: "ctx.json is missing reviewers"},
+
 		{name: "no pr.number", edit: drop("pr", "number"), want: "pr is missing number in ctx.json"},
 		{name: "null pr.number", edit: put(nil, "pr", "number"), want: "pr is missing number in ctx.json"},
 		{name: "zero pr.number", edit: put(0, "pr", "number"), want: "pr sets number to a number that is not positive in ctx.json"},
@@ -1248,6 +1502,7 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 		PR: pullrequest.PR{
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
 		},
+		Reviewers:     []pullrequest.Reviewer{},
 		ReviewThreads: []pullrequest.Thread{},
 	}
 

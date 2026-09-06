@@ -48,6 +48,10 @@ func GetAll[T any](ctx context.Context, c *Client, path string) ([]T, error) {
 // means the first page and nothing after it, rather than no limit at all;
 // GetAll is what asks for everything.
 //
+// MAX_REVIEWS is the one that means something stronger: pullrequest.pagesBefore
+// asks for no more than it keeps, so that limit bounds the count rather than
+// the round trips.
+//
 // The truncation a caller reports is the collection's own total against what
 // arrived, not anything this returns: a walk that stopped and a collection that
 // ended look alike from here.

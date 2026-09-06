@@ -52,7 +52,7 @@ func contextDocument(t *testing.T, fetchedAt string) string {
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
 		"repo":"owner/repo","is_own_pr":true,
 		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123"},
-		"review_threads":[]}`, fetchedAt)
+		"reviewers":[],"review_threads":[]}`, fetchedAt)
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -126,6 +126,32 @@ func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "unknown mark") {
 		t.Errorf("stderr = %q, want it to name the mark as the fault", errOut.String())
+	}
+}
+
+// TestContextLimitsBindEachVariableToItsOwnCap pins the pairing a positional
+// list makes easy to get wrong: the variable names and the caps they raise are
+// two lists kept aligned by hand, and a swapped pair would quietly raise the
+// wrong collection.
+func TestContextLimitsBindEachVariableToItsOwnCap(t *testing.T) {
+	for name, raised := range map[string]func(pullrequest.Limits) int{
+		"MAX_COMMENTS":        func(l pullrequest.Limits) int { return l.Comments },
+		"MAX_REVIEWS":         func(l pullrequest.Limits) int { return l.Reviews },
+		"MAX_THREADS":         func(l pullrequest.Limits) int { return l.Threads },
+		"MAX_THREAD_COMMENTS": func(l pullrequest.Limits) int { return l.ThreadComments },
+		"MAX_ISSUE_COMMENTS":  func(l pullrequest.Limits) int { return l.IssueComments },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "7")
+
+			got, err := contextLimits()
+			if err != nil {
+				t.Fatalf("contextLimits: %v", err)
+			}
+			if raised(got) != 7 {
+				t.Errorf("%s left %+v, want it to raise its own cap to 7", name, got)
+			}
+		})
 	}
 }
 

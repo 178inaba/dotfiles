@@ -1,6 +1,7 @@
 package pullrequest_test
 
 import (
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"maps"
@@ -50,17 +51,34 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues, prepareIssueComments)
+	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues, prepareIssueComments, nil)
 }
 
-// prepareGitHubKnowing is prepareGitHub with the issues and comments it knows
-// about named, so that a test can leave one out, or make one longer than a
-// limit, and see what the run makes of that.
+// prepareGitHubReviewing is prepareGitHub with the reviews answered by a
+// function of the window asked for, which is what a rerun with the limit
+// raised has to be shown getting more of.
+func prepareGitHubReviewing(t *testing.T, headOID, author string, reviews reviewsAnswer) *ghapi.Client {
+	t.Helper()
+
+	return prepareGitHubKnowing(t, headOID, author, noThreads, prepareIssues, prepareIssueComments, reviews)
+}
+
+// reviewsAnswer is one reviews connection, asked for a window of n reviews
+// before a cursor. A nil one is a pull request nobody has reviewed, which is
+// what a test saying nothing about reviews passes.
+type reviewsAnswer func(n int, before string) string
+
+// prepareGitHubKnowing is prepareGitHub with the issues, comments and reviews
+// it knows about named, so that a test can leave one out, or make one longer
+// than a limit, and see what the run makes of that.
 func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
-	issues map[string]string, comments map[string][]string,
+	issues map[string]string, comments map[string][]string, reviews reviewsAnswer,
 ) *ghapi.Client {
 	t.Helper()
 
+	if reviews == nil {
+		reviews = func(int, string) string { return noReviews }
+	}
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// The REST endpoints are routed apart before anything reads the body:
@@ -81,6 +99,16 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 			return
 		}
 		node := prNode(author, headOID)
+		var req struct {
+			Variables struct {
+				Reviews int    `json:"reviews"`
+				Cursor  string `json:"cursor"`
+			} `json:"variables"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("decode the request body: %v", err)
+			return
+		}
 
 		switch {
 		case strings.Contains(string(body), "viewer"):
@@ -88,8 +116,11 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 				"headCommit":{"committedDate":"2026-01-15T00:00:00Z"},
 				"pullRequest":{
 					"comments":{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]},
-					"reviews":{"totalCount":0,"nodes":[]},
-					"reviewThreads":%s}}}}`, threads)
+					"reviews":%s,
+					"reviewThreads":%s}}}}`, reviews(req.Variables.Reviews, ""), threads)
+		case strings.Contains(string(body), "before:"):
+			fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":{"reviews":%s}}}}`,
+				reviews(req.Variables.Reviews, req.Variables.Cursor))
 		case strings.Contains(string(body), "pullRequests("):
 			fmt.Fprintf(w, `{"data":{"repository":{"pullRequests":{"nodes":[%s]}}}}`, node)
 		default:
@@ -132,6 +163,9 @@ func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Cli
 
 // noThreads is a pull request with nothing on its diff.
 const noThreads = `{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[]}`
+
+// noReviews is a pull request nobody has reviewed.
+const noReviews = `{"totalCount":0,"pageInfo":{"hasPreviousPage":false,"startCursor":""},"nodes":[]}`
 
 // prepareIssues is what the pull request's body closes, plus the unrelated
 // issue --issue names instead of it.
@@ -450,7 +484,7 @@ func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
 				known = maps.Clone(prepareIssues)
 				delete(known, issuePath("owner/repo", 10))
 			}
-			gh := prepareGitHubKnowing(t, head, "me", noThreads, known, prepareIssueComments)
+			gh := prepareGitHubKnowing(t, head, "me", noThreads, known, prepareIssueComments, nil)
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
@@ -557,6 +591,79 @@ func manyComments(n int) []string {
 	return out
 }
 
+// manyReviews is a review list long enough to reach the default limit, which
+// is what the rerun has to be shown raising.
+func manyReviews(n int) []string {
+	out := make([]string, 0, n)
+	for i := range n {
+		out = append(out, reviewNodeJSON(fmt.Sprintf("reviewer%03d", i), "COMMENTED",
+			fmt.Sprintf("2026-03-01T%02d:%02d:00Z", i/60, i%60)))
+	}
+	return out
+}
+
+// TestPrepareRaisesTheReviewLimit is the rerun on the reviews: the first fetch
+// keeps the newest of them, and the second one has room for the whole
+// connection.
+func TestPrepareRaisesTheReviewLimit(t *testing.T) {
+	t.Parallel()
+
+	total := pullrequest.DefaultLimits.Reviews + 50
+	list := manyReviews(total)
+
+	repo, head := prepareRepo(t)
+	var seen []pullrequest.Context
+	var paths []string
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
+		prepareGitHubReviewing(t, head, "me", func(n int, before string) string {
+			return reviewsConnection(list, n, before)
+		}),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none after the rerun found room", got.Warnings)
+	}
+	stored := seen[0]
+	if len(stored.Reviews) != total || stored.ReviewsTruncated {
+		t.Fatalf("%d reviews, truncated %v; want %d and false", len(stored.Reviews), stored.ReviewsTruncated, total)
+	}
+	// Recomputed on the rerun rather than left over from the truncated first
+	// answer, which is what the oldest reviewer being there says.
+	if len(stored.Reviewers) != total || *stored.Reviewers[0].Author != "reviewer000" {
+		t.Errorf("reviewers = %d starting at %v, want %d starting at reviewer000",
+			len(stored.Reviewers), stored.Reviewers[0].Author, total)
+	}
+}
+
+// TestPrepareReportsReviewsStillTruncated is the other end of that rerun, in
+// the words the other collections use.
+func TestPrepareReportsReviewsStillTruncated(t *testing.T) {
+	t.Parallel()
+
+	// More reviews than the fixture ever serves, so raising the limit changes
+	// nothing.
+	const truncated = `{"totalCount":400,"pageInfo":{"hasPreviousPage":false,"startCursor":""},"nodes":[]}`
+
+	repo, head := prepareRepo(t)
+	var seen []pullrequest.Context
+	var paths []string
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
+		prepareGitHubReviewing(t, head, "me", func(int, string) string { return truncated }),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "MAX_REVIEWS to 400") {
+		t.Errorf("warnings = %v, want one naming the raised limit", got.Warnings)
+	}
+}
+
 // TestPrepareRaisesTheIssueCommentLimit is the rerun on an issue's comments,
 // and on a parent's: either one being cut short raises the one limit both are
 // read under, since one limit has to cover them all.
@@ -585,7 +692,7 @@ func TestPrepareRaisesTheIssueCommentLimit(t *testing.T) {
 			repo, head := prepareRepo(t)
 			var seen []pullrequest.Context
 			var paths []string
-			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, comments),
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, comments, nil),
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 				pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 			if err != nil {
@@ -623,7 +730,7 @@ func TestPrepareReportsIssueCommentsStillTruncated(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, prepareIssueComments),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, prepareIssueComments, nil),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err != nil {
