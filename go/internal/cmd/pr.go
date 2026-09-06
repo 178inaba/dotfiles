@@ -258,6 +258,12 @@ func prSeenCmd(deps Deps) *cobra.Command {
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
 // with: it settles which pull request, whether the checkout matches it, its
 // context, its freshness and which mode the review runs in, in one call.
+//
+// Where there is no pull request it prepares a local review of the branch
+// instead, which is the ordinary degradation Preparation.PRExists names rather
+// than a second command: the main input is still a pull request number and
+// what it hands out is still that pull request's context, so it belongs under
+// pr even though this path reaches neither.
 func prPrepareReviewCmd(deps Deps) *cobra.Command {
 	var issue int
 	var worktreeFlag, localOnly, noAutofix bool
@@ -300,7 +306,7 @@ func prPrepareReviewCmd(deps Deps) *cobra.Command {
 			return silent(renderJSON(c.OutOrStdout(), prepared))
 		},
 	}
-	c.Flags().IntVar(&issue, "issue", 0, "issue the review is about, instead of the ones the body names")
+	c.Flags().IntVar(&issue, "issue", 0, "issue the review is about, read with or without a pull request and instead of the ones the body names")
 	c.Flags().BoolVar(&worktreeFlag, "worktree", false, "the checkout is a worktree already resolved for this pull request")
 	c.Flags().BoolVar(&localOnly, "local-only", false, "do not post the findings as a review")
 	c.Flags().BoolVar(&noAutofix, "no-autofix", false, "do not act on the findings")

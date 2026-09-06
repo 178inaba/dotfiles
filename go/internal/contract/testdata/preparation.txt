@@ -133,7 +133,11 @@
   issues                    array of object
                             The issues the review checks the work against: the one
                             --issue named, or else the ones the pull request body's
-                            closing keywords point at.
+                            closing keywords point at. The named one is read whether or
+                            not there is a pull request, since what the flag names does
+                            not depend on one. Without the flag this is empty where
+                            there is no pull request, there being no body to have named
+                            anything.
     repo                    string (may be null)
                             Null for an issue in this repository, which is how the body
                             wrote it.

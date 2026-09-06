@@ -51,7 +51,7 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubKnowing(t, headOID, author, threads, prepareIssues, prepareIssueComments, nil)
+	return prepareGitHubKnowing(t, headOID, author, threads, preparePages, nil)
 }
 
 // prepareGitHubReviewing is prepareGitHub with the reviews answered by a
@@ -60,7 +60,7 @@ func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.
 func prepareGitHubReviewing(t *testing.T, headOID, author string, reviews reviewsAnswer) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubKnowing(t, headOID, author, noThreads, prepareIssues, prepareIssueComments, reviews)
+	return prepareGitHubKnowing(t, headOID, author, noThreads, preparePages, reviews)
 }
 
 // reviewsAnswer is one reviews connection, asked for a window of n reviews
@@ -68,11 +68,12 @@ func prepareGitHubReviewing(t *testing.T, headOID, author string, reviews review
 // what a test saying nothing about reviews passes.
 type reviewsAnswer func(n int, before string) string
 
-// prepareGitHubKnowing is prepareGitHub with the issues, comments and reviews
-// it knows about named, so that a test can leave one out, or make one longer
-// than a limit, and see what the run makes of that.
+// prepareGitHubKnowing is prepareGitHub with the issue endpoints and the
+// reviews it knows about named, so that a test can leave an issue out, make one
+// longer than a limit, or have GitHub decline one, and see what the run makes
+// of that.
 func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
-	issues map[string]string, comments map[string][]string, reviews reviewsAnswer,
+	issues pages, reviews reviewsAnswer,
 ) *ghapi.Client {
 	t.Helper()
 
@@ -86,7 +87,7 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 		// pull request into an issue and passes, which is how a fake reports a
 		// parent that does not exist.
 		if r.URL.Path != "/graphql" {
-			serveIssue(w, r, pages{issues: issues, issueComments: comments})
+			serveIssue(w, r, issues)
 			return
 		}
 		if author == "" {
@@ -181,6 +182,9 @@ var prepareIssueComments = func() map[string][]string {
 	m[commentsPath("owner/repo", 42)] = []string{commentJSON(6, "reviewer1", "on the overriding issue")}
 	return m
 }()
+
+// preparePages is the two of them as the handler takes them.
+var preparePages = pages{issues: prepareIssues, issueComments: prepareIssueComments}
 
 // issue42Comments is what the issue --issue names carries; what the issues the
 // body closes carry is declared beside the fixtures themselves.
@@ -755,7 +759,7 @@ func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
 				known = maps.Clone(prepareIssues)
 				delete(known, issuePath("owner/repo", 10))
 			}
-			gh := prepareGitHubKnowing(t, head, "me", noThreads, known, prepareIssueComments, nil)
+			gh := prepareGitHubKnowing(t, head, "me", noThreads, pages{issues: known, issueComments: prepareIssueComments}, nil)
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
@@ -763,6 +767,130 @@ func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
 			}
 			if !slices.Contains(got.Warnings, tc.want) {
 				t.Errorf("warnings = %v, want one saying %q", got.Warnings, tc.want)
+			}
+		})
+	}
+}
+
+// TestPrepareReadsTheNamedIssueWithoutAPullRequest is the state --issue is
+// most useful in and was dropped from: a branch checked against its issue
+// before there is a pull request to take issues from.
+func TestPrepareReadsTheNamedIssueWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		issue int
+		want  []pullrequest.LinkedIssue
+	}{
+		{
+			name: "the issue --issue names", issue: 42,
+			want: []pullrequest.LinkedIssue{{
+				Number: 42, Title: new("Issue 42"), Body: new("The overriding body"),
+				CommentsTotalCount: 1, Comments: issue42Comments,
+			}},
+		},
+		// Without the flag there is no body to have named one either, so the
+		// review has nothing to check the work against.
+		{name: "without the flag", want: []pullrequest.LinkedIssue{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, _ := prepareRepo(t)
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+				pullrequest.Options{OutDir: t.TempDir(), Issue: tc.issue}, store(nil, nil))
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+			if got.Status != "ok" || got.PRExists {
+				t.Errorf("status/pr_exists = %q/%v, want ok and false", got.Status, got.PRExists)
+			}
+			if diff := cmp.Diff(tc.want, got.Issues); diff != "" {
+				t.Errorf("issues (-want +got):\n%s", diff)
+			}
+			// Nothing degraded, so nothing is said: the test below that
+			// expects exactly one warning is only meaningful against this.
+			if len(got.Warnings) != 0 {
+				t.Errorf("warnings = %q, want none on a run where nothing degraded", got.Warnings)
+			}
+		})
+	}
+}
+
+// TestPrepareCarriesTheIssueWarningsWithoutAPullRequest is the degradation on
+// this path: an issue GitHub will not show leaves an entry with nothing in it
+// and a line saying why, rather than an empty list a reader could only take
+// for a run that was never told which issue to read.
+func TestPrepareCarriesTheIssueWarningsWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	// #43 is in no fixture, so the endpoint answers 404 for it.
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir(), Issue: 43}, store(nil, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	want := []pullrequest.LinkedIssue{{Number: 43, Comments: []pullrequest.IssueComment{}}}
+	if diff := cmp.Diff(want, got.Issues); diff != "" {
+		t.Errorf("issues (-want +got):\n%s", diff)
+	}
+	if w := "owner/repo#43: the issue could not be read (HTTP 404)"; !slices.Contains(got.Warnings, w) {
+		t.Errorf("warnings = %v, want one saying %q", got.Warnings, w)
+	}
+}
+
+// TestPrepareStopsOnAnUnreadableIssueWithoutAPullRequest is where the two
+// failures part: having no pull request is the ordinary degradation, but an
+// issue the flag named and the run could not read is data it was told to check
+// against, so it stops rather than review against nothing.
+func TestPrepareStopsOnAnUnreadableIssueWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		issue   int
+		wantErr bool
+	}{
+		{name: "the issue --issue names", issue: 42, wantErr: true},
+		// The same run without the flag never asks GitHub for the issue at
+		// all, so the endpoint that would fail is never reached and the local
+		// review this path degrades to is unchanged.
+		{name: "without the flag"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, _ := prepareRepo(t)
+			// A server error rather than a 404: the issue may well be there,
+			// and nothing came back to say whether it is. It stands in for
+			// GitHub being unreachable at all, which takes the same branch.
+			gh := prepareGitHubKnowing(t, "", "", noThreads, pages{
+				issues:        prepareIssues,
+				issueComments: prepareIssueComments,
+				issueStatus:   map[string]int{issuePath("owner/repo", 42): http.StatusInternalServerError},
+			}, nil)
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+				pullrequest.Options{OutDir: t.TempDir(), Issue: tc.issue}, store(nil, nil))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Prepare = %+v, want an error where the issue could not be read", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+			if got.Status != "ok" || got.PRExists {
+				t.Errorf("status/pr_exists = %q/%v, want ok and false", got.Status, got.PRExists)
 			}
 		})
 	}
@@ -963,7 +1091,7 @@ func TestPrepareRaisesTheIssueCommentLimit(t *testing.T) {
 			repo, head := prepareRepo(t)
 			var seen []pullrequest.Context
 			var paths []string
-			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, comments, nil),
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, pages{issues: issues, issueComments: comments}, nil),
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 				pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 			if err != nil {
@@ -1001,7 +1129,7 @@ func TestPrepareReportsIssueCommentsStillTruncated(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, issues, prepareIssueComments, nil),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, pages{issues: issues, issueComments: prepareIssueComments}, nil),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err != nil {

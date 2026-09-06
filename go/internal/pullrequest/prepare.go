@@ -77,7 +77,10 @@ type Preparation struct {
 	// what it compared.
 	Freshness *worktree.FreshnessReport `json:"freshness"`
 	// The issues the review checks the work against: the one --issue named, or
-	// else the ones the pull request body's closing keywords point at.
+	// else the ones the pull request body's closing keywords point at. The
+	// named one is read whether or not there is a pull request, since what the
+	// flag names does not depend on one. Without the flag this is empty where
+	// there is no pull request, there being no body to have named anything.
 	Issues []LinkedIssue `json:"issues"`
 	// The degradations that did not stop the preparation: an issue
 	// that could not be read, named as owner/repo#N, anything that was still
@@ -142,7 +145,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	}
 
 	if !p.PRExists {
-		return p.localOnly(ctx, r, repo, dir, o)
+		return p.localOnly(ctx, r, c, repo, dir, o)
 	}
 
 	// Only where the number was given and no worktree was resolved: the
@@ -232,9 +235,13 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 // body already named where that is the same issue and read from GitHub where
 // it is not.
 //
-// limit is the one the document was read under, raised rerun included. It is
-// not raised a second time for this issue: the rerun belongs to the document,
-// and an issue the body never named was no part of what it fetched twice.
+// An empty linked list is the branch with no pull request: there is no body to
+// have named anything there, so the issue is always read from GitHub.
+//
+// limit is the one the document was read under, raised rerun included — or the
+// default, where there is no document to have read one under. It is not raised
+// a second time for this issue: the rerun belongs to the document, and an issue
+// the body never named was no part of what it fetched twice.
 func namedIssue(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, number int, linked []LinkedIssue, limit int) ([]LinkedIssue, []string, error) {
 	for _, i := range linked {
 		// Only an issue in this repository: the flag is a bare number, so an
@@ -266,7 +273,11 @@ func probe(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Rep
 // one state with no document at all, and a review that had to compose its own
 // range would read a diff with no file list and no generated flag, which is
 // the exclusion the whole reading rests on.
-func (p Preparation) localOnly(ctx context.Context, r runner.Runner, repo ghapi.Repo, dir string, o Options) (Preparation, error) {
+//
+// The issue --issue names is read here as well, since what the flag names does
+// not depend on a pull request, and this state is where a review is checked
+// against it most often: the branch before there is a pull request at all.
+func (p Preparation) localOnly(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, dir string, o Options) (Preparation, error) {
 	// The work dir is bound to the branch, since there is no number to bind it
 	// to and a fixed name in the shared scratch directory is what a parallel
 	// run on another branch writes over. A detached head has no name to bind
@@ -290,6 +301,19 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, repo ghapi.
 		return Preparation{}, err
 	}
 	p.WorkDir = &work.Dir
+
+	// Before the fetch and the diff below for the reason the detached head is
+	// asked about before either: a run that cannot be served does not pay for
+	// the rest of them first. What this degrades on and what it stops on are
+	// readIssues' own — an issue GitHub says is gone leaves a warning, and
+	// anything else is about the run rather than about the issue.
+	if o.Issue != 0 {
+		named, warnings, err := namedIssue(ctx, c, repo, o.Issue, nil, DefaultLimits.IssueComments)
+		if err != nil {
+			return Preparation{}, err
+		}
+		p.Issues, p.Warnings = named, append(p.Warnings, warnings...)
+	}
 
 	branch := worktree.DefaultBranch(ctx, r, dir)
 	if branch == "" {
