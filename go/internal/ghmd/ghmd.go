@@ -36,7 +36,6 @@ const bareHashRefLimit = 3
 
 var (
 	fenceLine = regexp.MustCompile("^[[:space:]]*(```|~~~)")
-	codeSpan  = regexp.MustCompile("`[^`]*`")
 	// The trailing class is what excludes #12 and up, #1a2b3c and #1st; the
 	// leading one is what leaves OWNER/REPO#1 alone, by skipping any token
 	// that opens with an alphanumeric.
@@ -104,9 +103,9 @@ func Segments(body string) iter.Seq[Segment] {
 // yieldProseAndSpans splits one prose line around the code spans in it.
 func yieldProseAndSpans(yield func(Segment) bool, text string, line, start int) bool {
 	at := 0
-	// The search allocates, and most lines hold no code span.
+	// The scan walks every byte, and most lines hold no code span.
 	if strings.IndexByte(text, '`') >= 0 {
-		for _, span := range codeSpan.FindAllStringIndex(text, -1) {
+		for _, span := range codeSpans(text) {
 			if span[0] > at && !yield(Segment{Kind: Prose, Line: line, Start: start + at, End: start + span[0]}) {
 				return false
 			}
@@ -147,6 +146,66 @@ ordered list (1. 2. ...), say. If an issue or a pull request is really
 being referenced, name it as OWNER/REPO#N:
   178inaba/dotfiles#3
 That keeps the link and does not trip this guard.`, distinct)
+}
+
+// codeSpans returns the byte ranges of the code spans in one line, backticks
+// included, in order and without overlap.
+//
+// CommonMark pairs a span by the length of its backtick run: a run of N opens
+// a span that the next run of exactly N closes, which is how text that itself
+// holds a backtick is quoted — inside a run of two, a lone backtick is content
+// rather than a delimiter. A run with no partner is literal text, and the scan
+// resumes just after it rather than after the runs it searched past, so that
+// those runs are still free to pair with each other.
+//
+// What CommonMark does beyond this — stripping a space from each end of the
+// content, and allowing a span to continue across a soft line break — changes
+// what a span reads as but not where one starts or ends, and only the
+// boundaries are asked for here. Staying within the line is also what keeps
+// Segment.Line meaning what it says.
+func codeSpans(text string) [][2]int {
+	var out [][2]int
+	for i := 0; i < len(text); {
+		if text[i] != '`' {
+			i++
+			continue
+		}
+		n := backtickRun(text, i)
+		j, ok := closingRun(text, i+n, n)
+		if !ok {
+			i += n
+			continue
+		}
+		out = append(out, [2]int{i, j + n})
+		i = j + n
+	}
+	return out
+}
+
+// closingRun finds the run of exactly n backticks that closes a span opened at
+// from, skipping over the runs of any other length between.
+func closingRun(text string, from, n int) (int, bool) {
+	for i := from; i < len(text); {
+		if text[i] != '`' {
+			i++
+			continue
+		}
+		m := backtickRun(text, i)
+		if m == n {
+			return i, true
+		}
+		i += m
+	}
+	return 0, false
+}
+
+// backtickRun is the length of the run of backticks starting at i.
+func backtickRun(text string, i int) int {
+	j := i
+	for j < len(text) && text[j] == '`' {
+		j++
+	}
+	return j - i
 }
 
 // bareHashRefs counts the distinct digits of the bare #1 to #9 in body,

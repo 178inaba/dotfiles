@@ -147,6 +147,54 @@ func TestSegments(t *testing.T) {
 			body: "a `b\n",
 			want: []text{{Kind: ghmd.Prose, Line: 1, Text: "a `b\n"}},
 		},
+		{
+			// The CommonMark way to quote text that itself holds a backtick,
+			// which this repository's own pull request bodies write: a run of
+			// two is closed by the next run of two, and the single run inside
+			// is content rather than a span of its own.
+			name: "a double-backtick span holds a single backtick",
+			body: "a ``b `c` d`` e\n",
+			want: []text{
+				{Kind: ghmd.Prose, Line: 1, Text: "a "},
+				{Kind: ghmd.Span, Line: 1, Text: "``b `c` d``"},
+				{Kind: ghmd.Prose, Line: 1, Text: " e\n"},
+			},
+		},
+		{
+			// The run of two has no partner, so it is literal text and the
+			// scan resumes after it — which is what lets the two single runs
+			// it was searching past pair with each other.
+			name: "an unmatched run is literal and the scan resumes after it",
+			body: "a `` b ` c`\n",
+			want: []text{
+				{Kind: ghmd.Prose, Line: 1, Text: "a `` b "},
+				{Kind: ghmd.Span, Line: 1, Text: "` c`"},
+				{Kind: ghmd.Prose, Line: 1, Text: "\n"},
+			},
+		},
+		{
+			name: "three backticks are closed by three, not by one",
+			body: "x ```a`b``` y\n",
+			want: []text{
+				{Kind: ghmd.Prose, Line: 1, Text: "x "},
+				{Kind: ghmd.Span, Line: 1, Text: "```a`b```"},
+				{Kind: ghmd.Prose, Line: 1, Text: " y\n"},
+			},
+		},
+		{
+			// A fence needs three, so neither line opens one; and neither run
+			// has a partner on its own line, so neither is a span either.
+			name: "a line opening with one or two backticks is not a fence",
+			body: "`\nx\n`\n``\ny\n``\n",
+			want: []text{
+				{Kind: ghmd.Prose, Line: 1, Text: "`\n"},
+				{Kind: ghmd.Prose, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Prose, Line: 3, Text: "`\n"},
+				{Kind: ghmd.Prose, Line: 4, Text: "``\n"},
+				{Kind: ghmd.Prose, Line: 5, Text: "y\n"},
+				{Kind: ghmd.Prose, Line: 6, Text: "``\n"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
