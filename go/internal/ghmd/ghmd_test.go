@@ -228,6 +228,17 @@ func TestSegments(t *testing.T) {
 			want: []text{{Kind: ghmd.Fence, Line: 2, Text: "x\n"}},
 		},
 		{
+			// The deviation markerRun names: CommonMark stops at three spaces
+			// and reads a fourth as an indented code block, so this is the one
+			// place the reading answers differently on purpose.
+			name: "a fence marker indented past three spaces still opens a block",
+			body: "    ```\nx\n    ```\ny\n",
+			want: []text{
+				{Kind: ghmd.Fence, Line: 2, Text: "x\n"},
+				{Kind: ghmd.Prose, Line: 4, Text: "y\n"},
+			},
+		},
+		{
 			name: "a run shorter than the opening one is content",
 			body: "````\n```\nx\n````\n",
 			want: []text{
@@ -289,5 +300,60 @@ func TestSegmentsAreOrderedAndDisjoint(t *testing.T) {
 	}
 	if end != len(body) {
 		t.Errorf("the last segment ends at %d, want the end of the body at %d", end, len(body))
+	}
+}
+
+// TestBlankCode reads the results as literals rather than as a length and a
+// count, because what a caller depends on is not only that the code is gone
+// but that everything else sits where the body put it: the widths below are
+// the offsets a match against the result reports.
+func TestBlankCode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "empty", body: "", want: ""},
+		{name: "prose is what comes back", body: "one\ntwo\n", want: "one\ntwo\n"},
+		{
+			// The backticks go with the span, so what follows keeps the
+			// character in front of it: an import written after a span is
+			// still preceded by a space, and still an import.
+			name: "a span goes, backticks and all",
+			body: "a `b` c\n",
+			want: "a     c\n",
+		},
+		{
+			// The marker lines are no segment at all, and blanking whatever
+			// Segments does not call prose is what takes them too.
+			name: "a fence goes with its marker lines",
+			body: "a\n```\nb\n```\nc\n",
+			want: "a\n   \n \n   \nc\n",
+		},
+		{
+			// The last line of a body need not end in one, and prose that
+			// runs to the final byte comes back whole.
+			name: "a body that does not end in a newline",
+			body: "no newline here",
+			want: "no newline here",
+		},
+		{
+			// Only the newline is kept, so the \r of a marker line is blanked
+			// like any other byte of code while the one in prose is not.
+			name: "CRLF keeps its newline and loses the rest",
+			body: "```\r\n@a.md\r\n```\r\n@c.md\r\n",
+			want: "    \n      \n    \n@c.md\r\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, ghmd.BlankCode(tt.body)); diff != "" {
+				t.Errorf("BlankCode(%q) (-want +got):\n%s", tt.body, diff)
+			}
+		})
 	}
 }

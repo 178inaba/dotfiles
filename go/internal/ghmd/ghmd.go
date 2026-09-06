@@ -1,13 +1,26 @@
 // Package ghmd reads a body the way GitHub renders it.
 //
-// Two things in this module have to agree about that reading. The gh shim
+// Two things in this module have to agree about a verdict. The gh shim
 // refuses a body that numbers its items with bare #N, because GitHub autolinks
 // those and notifies unrelated issues; ghapi writes bodies in process, where
 // the shim never sees them, so it has to reach the same verdict about the same
-// text. Neither of them owns the reading, so it lives here rather than in one
-// of them: what is shared is how a body reads, not what either caller decides
-// about it. The words the refusal is written in are here for the same reason —
-// both refusers say the same thing about the same body.
+// text. The words the refusal is written in are here for that reason — both
+// refusers say the same thing about the same body.
+//
+// More than those two read a body, though, and the reading is what they all
+// share rather than the verdict: issue's section check asks which lines of a
+// draft are prose, and plandocs blanks a plan document's code out before
+// looking for the links and imports in it. None of them owns the reading, so
+// it lives here rather than in whichever of them wrote it first — a copy in a
+// caller drifts the next time this one is corrected, which is what plandocs'
+// own scanner had done in six places by the time it was retired.
+//
+// One reader is still outside, and left there rather than argued out of the
+// rule: skill's backticked reads the same notation more coarsely, splitting a
+// line on backticks without measuring the run, and it wants what is inside a
+// span rather than the prose around it — fenced examples included, where Span
+// stops at the block. Moving it is a change to what that check finds, which
+// is why it is a separate decision and not an oversight of this one.
 //
 // A notation whose meaning depends on that reading belongs here too, even
 // where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
@@ -58,8 +71,11 @@ const (
 	// substitution belongs.
 	Prose Kind = iota
 	// Fence is a line inside a fenced code block. The fence's own marker lines
-	// are no segment at all: nothing reads them, and calling them prose would
-	// hand a rewriter the backticks that delimit the block.
+	// are no segment at all, because calling them prose would hand a rewriter
+	// the backticks that delimit the block. A caller that has to account for
+	// every byte reads them as the gap between segments — which is what
+	// BlankCode does, by writing the whole body out and copying the prose
+	// back.
 	Fence
 	// Span is an inline code span, its backticks included, so that a caller
 	// matching against it sees what GitHub shows.
@@ -112,6 +128,34 @@ func Segments(body string) iter.Seq[Segment] {
 			line++
 		}
 	}
+}
+
+// BlankCode returns body with every byte Segments does not yield as Prose —
+// a Fence segment, a Span segment, and the marker lines a fence is delimited
+// by, which are no segment at all — replaced by a space, and every newline
+// kept.
+//
+// Blanked rather than deleted, so that the result has the body's own length
+// and line structure and each remaining character sits at its original
+// offset. That is what a caller matching a pattern against the result asks
+// for: an import written after a code span is still preceded by a space, and
+// still an import. A \r is a byte like any other, so one inside code goes and
+// one in prose stays.
+func BlankCode(body string) string {
+	out := make([]byte, len(body))
+	for i := range len(body) {
+		if body[i] == '\n' {
+			out[i] = '\n'
+			continue
+		}
+		out[i] = ' '
+	}
+	for s := range Segments(body) {
+		if s.Kind == Prose {
+			copy(out[s.Start:s.End], body[s.Start:s.End])
+		}
+	}
+	return string(out)
 }
 
 // fence is the block a body is currently inside, or the zero value outside
