@@ -30,6 +30,17 @@ type Entry struct {
 	// one wants the first entry whatever it is, another wants a tree it can
 	// edit in.
 	Bare bool
+	// Locked says git holds a lock on the worktree, which is how a caller
+	// tells a running agent's worktree from one an agent left behind: the
+	// harness locks a worktree while its agent runs, and unlocks the one it
+	// decides not to remove.
+	Locked bool
+	// LockReason is what the lock was given as its reason, empty for a lock
+	// taken without one — which is why the two are separate fields, an empty
+	// reason being otherwise indistinguishable from no lock at all. Git's own
+	// text, taken as printed: the porcelain format quotes a reason only where
+	// it holds unusual characters such as a newline.
+	LockReason string
 }
 
 // List returns the worktrees of the repository at root, the main one first.
@@ -58,6 +69,8 @@ func parseList(out string) []Entry {
 				e.Branch = strings.TrimPrefix(value, "refs/heads/")
 			case "bare":
 				e.Bare = true
+			case "locked":
+				e.Locked, e.LockReason = true, value
 			}
 		}
 		if e.Path == "" {

@@ -334,12 +334,23 @@ func TestParseList(t *testing.T) {
 
 	out := "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n" +
 		"worktree /repo/.claude/worktrees/wt\nHEAD def456\nbranch refs/heads/feature/42-x\n\n" +
-		"worktree /repo/.claude/worktrees/detached\nHEAD 789abc\ndetached\n\n"
+		"worktree /repo/.claude/worktrees/detached\nHEAD 789abc\ndetached\n\n" +
+		// The two forms a lock takes, which is what tells a running agent's
+		// worktree from one left behind: git prints the keyword alone where
+		// the lock was given no reason.
+		"worktree /repo/.claude/worktrees/agent-1\nHEAD 111aaa\nbranch refs/heads/worktree-agent-1\n" +
+		"locked claude agent agent-1 (pid 2 start Sun Sep  6 18:53:19 2026)\n\n" +
+		"worktree /repo/.claude/worktrees/agent-2\nHEAD 222bbb\nbranch refs/heads/worktree-agent-2\nlocked\n\n"
 
 	want := []Entry{
 		{Path: "/repo", Branch: "main", Main: true},
 		{Path: "/repo/.claude/worktrees/wt", Branch: "feature/42-x"},
 		{Path: "/repo/.claude/worktrees/detached"},
+		{
+			Path: "/repo/.claude/worktrees/agent-1", Branch: "worktree-agent-1", Locked: true,
+			LockReason: "claude agent agent-1 (pid 2 start Sun Sep  6 18:53:19 2026)",
+		},
+		{Path: "/repo/.claude/worktrees/agent-2", Branch: "worktree-agent-2", Locked: true},
 	}
 	if diff := cmp.Diff(want, parseList(out)); diff != "" {
 		t.Errorf("parseList (-want +got):\n%s", diff)
