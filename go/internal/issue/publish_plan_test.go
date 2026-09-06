@@ -455,8 +455,8 @@ func TestPublishDryRunLeavesQuotedPlaceholdersAlone(t *testing.T) {
 	file := writeManifest(t, m, map[string]string{
 		// The last block is the one a tilde line used to cut short: the
 		// placeholder goes on the line after that marker rather than on it,
-		// because a marker line yields no segment either way and a
-		// placeholder written on one would be skipped for the wrong reason.
+		// because a marker line is Fence either way and a placeholder written
+		// on one would be skipped for the wrong reason.
 		"a.md": leafDraft + "\nInline `#{NAME}` and fenced:\n\n```ruby\nputs \"#{NAME}\"\n```\n\n```\n~~~\n#{NAME}\n```\n",
 	})
 

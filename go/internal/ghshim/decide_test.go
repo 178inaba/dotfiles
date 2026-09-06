@@ -49,6 +49,8 @@ func bodyFixtures(t *testing.T) string {
 
 		"quoted-closes.md":             "Related\n\n`Closes #656`\n",
 		"fenced-closes.md":             "before\n```\ncloses #656\n```\nafter\n",
+		"fence-info-closes.md":         "before\n```Closes #656\nx\n```\nafter\n",
+		"tilde-fence-info-closes.md":   "before\n~~~Fixes #656\nx\n~~~\nafter\n",
 		"quoted-cross-repo-closes.md":  "see `Resolves foo/bar#12` here\n",
 		"raw-closes.md":                "Closes #656\n",
 		"quoted-placeholder-closes.md": "docs update: `Closes #N` placeholder\n",
@@ -387,6 +389,12 @@ func TestDecideQuotedClosingKeyword(t *testing.T) {
 	runDecideCases(t, bodies, []decideCase{
 		{name: "pr create: quoted Closes #N", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("quoted-closes.md")}, block: true, golden: "rule4-body-file"},
 		{name: "pr edit: fenced closes #N", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body-file", at("fenced-closes.md")}, block: true},
+		// A fence's info string is part of the block, not prose, so GitHub
+		// reads no keyword there either. The tilde twin is here because only
+		// the backtick fence restricts what its info string may hold, and the
+		// two arrive at the marker line by different rules.
+		{name: "pr create: closing keyword in a fence info string", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("fence-info-closes.md")}, block: true, golden: "rule4-fence-info"},
+		{name: "pr edit: closing keyword in a tilde fence info string", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body-file", at("tilde-fence-info-closes.md")}, block: true},
 		{name: "pr create: quoted cross-repo Resolves", argv: []string{"pr", "create", "-R", "foo/bar", "--title", "x", "--body-file", at("quoted-cross-repo-closes.md")}, block: true},
 		{name: "pr edit inline --body: quoted Fixes #N", argv: []string{"pr", "edit", "-R", "foo/bar", "1", "--body", "see `Fixes #12` here"}, block: true, golden: "rule4-inline"},
 
