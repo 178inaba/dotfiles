@@ -768,6 +768,128 @@ func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
 	}
 }
 
+// TestPrepareReadsTheNamedIssueWithoutAPullRequest is the state --issue is
+// most useful in and was dropped from: a branch checked against its issue
+// before there is a pull request to take issues from.
+func TestPrepareReadsTheNamedIssueWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		issue int
+		want  []pullrequest.LinkedIssue
+	}{
+		{
+			name: "the issue --issue names", issue: 42,
+			want: []pullrequest.LinkedIssue{{
+				Number: 42, Title: new("Issue 42"), Body: new("The overriding body"),
+				CommentsTotalCount: 1, Comments: issue42Comments,
+			}},
+		},
+		// Without the flag there is no body to have named one either, so the
+		// review has nothing to check the work against.
+		{name: "without the flag", want: []pullrequest.LinkedIssue{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, _ := prepareRepo(t)
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+				pullrequest.Options{OutDir: t.TempDir(), Issue: tc.issue}, store(nil, nil))
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+			if got.Status != "ok" || got.PRExists {
+				t.Errorf("status/pr_exists = %q/%v, want ok and false", got.Status, got.PRExists)
+			}
+			if diff := cmp.Diff(tc.want, got.Issues); diff != "" {
+				t.Errorf("issues (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestPrepareCarriesTheIssueWarningsWithoutAPullRequest is the degradation on
+// this path: an issue GitHub will not show leaves an entry with nothing in it
+// and a line saying why, rather than an empty list a reader could only take
+// for a run that was never told which issue to read.
+func TestPrepareCarriesTheIssueWarningsWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	// #43 is in no fixture, so the endpoint answers 404 for it.
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+		pullrequest.Options{OutDir: t.TempDir(), Issue: 43}, store(nil, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	want := []pullrequest.LinkedIssue{{Number: 43, Comments: []pullrequest.IssueComment{}}}
+	if diff := cmp.Diff(want, got.Issues); diff != "" {
+		t.Errorf("issues (-want +got):\n%s", diff)
+	}
+	if w := "owner/repo#43: the issue could not be read (HTTP 404)"; !slices.Contains(got.Warnings, w) {
+		t.Errorf("warnings = %v, want one saying %q", got.Warnings, w)
+	}
+}
+
+// TestPrepareStopsOnAnUnreadableIssueWithoutAPullRequest is where the two
+// failures part: having no pull request is the ordinary degradation, but an
+// issue the flag named and the run could not read is data it was told to check
+// against, so it stops rather than review against nothing.
+func TestPrepareStopsOnAnUnreadableIssueWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		issue   int
+		wantErr bool
+	}{
+		{name: "the issue --issue names", issue: 42, wantErr: true},
+		// The same GitHub without the flag: a local review is what this path
+		// degrades to, and that is unchanged.
+		{name: "without the flag"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, _ := prepareRepo(t)
+			// A server error rather than a 404: the issue may well be there,
+			// and nothing came back to say whether it is. It stands in for
+			// GitHub being unreachable at all, which takes the same branch.
+			gh := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/graphql" {
+					fmt.Fprint(w, `{"errors":[{"type":"NOT_FOUND","message":"no pull request"}]}`)
+					return
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprint(w, `{"message":"unavailable"}`)
+			}))
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
+				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+				pullrequest.Options{OutDir: t.TempDir(), Issue: tc.issue}, store(nil, nil))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Prepare = %+v, want an error where the issue could not be read", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Prepare: %v", err)
+			}
+			if got.Status != "ok" || got.PRExists {
+				t.Errorf("status/pr_exists = %q/%v, want ok and false", got.Status, got.PRExists)
+			}
+		})
+	}
+}
+
 // TestPrepareStopsOnAMismatchedBranch is the guard against reviewing one
 // branch's diff as though it were another's.
 func TestPrepareStopsOnAMismatchedBranch(t *testing.T) {
