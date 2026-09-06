@@ -1,13 +1,20 @@
 // Package ghmd reads a body the way GitHub renders it.
 //
-// Two things in this module have to agree about that reading. The gh shim
+// Two things in this module have to agree about a verdict. The gh shim
 // refuses a body that numbers its items with bare #N, because GitHub autolinks
 // those and notifies unrelated issues; ghapi writes bodies in process, where
 // the shim never sees them, so it has to reach the same verdict about the same
-// text. Neither of them owns the reading, so it lives here rather than in one
-// of them: what is shared is how a body reads, not what either caller decides
-// about it. The words the refusal is written in are here for the same reason —
-// both refusers say the same thing about the same body.
+// text. The words the refusal is written in are here for that reason — both
+// refusers say the same thing about the same body.
+//
+// More than those two read a body, though, and the reading is what they all
+// share rather than the verdict: issue's section check asks which lines of a
+// draft are prose, and plandocs blanks a plan document's code out before
+// looking for the links and imports in it. None of them owns the reading, so
+// it lives here rather than in whichever of them wrote it first — a copy in a
+// caller is a reading that drifts the next time this one is corrected, which
+// is what plandocs' own fence and span scanner had already done in six places
+// by the time it was retired.
 //
 // A notation whose meaning depends on that reading belongs here too, even
 // where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
