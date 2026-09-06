@@ -2,15 +2,19 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
+	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
 // TestStoreSeen is the writing half of the record: the bytes are the ones its
@@ -47,16 +51,17 @@ func TestStoreSeen(t *testing.T) {
 //
 // isOwnPR is a parameter because it is a gate rather than a detail: the body
 // of somebody else's pull request is not edited, and a case about that refusal
-// says so where it is read.
-func contextDocument(t *testing.T, fetchedAt string, isOwnPR bool) string {
+// says so where it is read. headOID is one for the same reason: the head the
+// document was fetched at is what the check before posting compares against.
+func contextDocument(t *testing.T, fetchedAt string, isOwnPR bool, headOID string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "pr-context-owner@repo-5.json")
 	doc := fmt.Sprintf(`{"fetched_at":%q,
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
 		"repo":"owner/repo","is_own_pr":%t,
-		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123"},
-		"reviewers":[],"review_threads":[]}`, fetchedAt, isOwnPR)
+		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":%q},
+		"reviewers":[],"review_threads":[]}`, fetchedAt, isOwnPR, headOID)
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -71,8 +76,8 @@ func TestPRSeen(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", state)
 
 	var out, errOut bytes.Buffer
-	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true)},
-		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code != 0 {
+	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true, "abc123")},
+		strings.NewReader(""), &out, &errOut, Deps{}); code != 0 {
 		t.Fatalf("`ccx pr seen` = %d, want 0: %s", code, errOut.String())
 	}
 
@@ -86,8 +91,8 @@ func TestPRSeen(t *testing.T) {
 
 	out.Reset()
 	errOut.Reset()
-	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-10T00:00:00Z", true)},
-		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code == 0 {
+	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-10T00:00:00Z", true, "abc123")},
+		strings.NewReader(""), &out, &errOut, Deps{}); code == 0 {
 		t.Error("`ccx pr seen` on an older document = 0, want a refusal")
 	}
 }
@@ -102,8 +107,8 @@ func TestPRSeenWithoutTheVariable(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "")
 
 	var out, errOut bytes.Buffer
-	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true)},
-		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code != 0 {
+	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true, "abc123")},
+		strings.NewReader(""), &out, &errOut, Deps{}); code != 0 {
 		t.Fatalf("`ccx pr seen` = %d, want 0: %s", code, errOut.String())
 	}
 
@@ -111,6 +116,18 @@ func TestPRSeenWithoutTheVariable(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Errorf("no record at %s: %v", want, err)
 	}
+}
+
+// noClient is what a command that must not reach GitHub is given: a
+// constructor that fails the test by name rather than the nil one a bare Deps
+// carries, so that a run which does reach it says what it broke.
+func noClient(t *testing.T) Deps {
+	t.Helper()
+
+	return Deps{NewClient: func() (*ghapi.Client, error) {
+		t.Error("the command asked for a client, want the refusal to come first")
+		return nil, errors.New("no client")
+	}}
 }
 
 // A mark the command does not own is refused on its own terms, before the body
@@ -121,9 +138,9 @@ func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code := run(t.Context(), []string{
-		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z", true),
+		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z", true, "abc123"),
 		"--mark", "other", "--body-file", "nowhere.md",
-	}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
+	}, strings.NewReader(""), &out, &errOut, noClient(t))
 
 	if code == 0 {
 		t.Fatal("`ccx pr comment --mark other` = 0, want a refusal")
@@ -155,9 +172,9 @@ func TestPRBodyAppendRefusesBeforeItReachesGitHub(t *testing.T) {
 
 			var out, errOut bytes.Buffer
 			code := run(t.Context(), []string{
-				"pr", "body-append", contextDocument(t, "2026-01-11T00:00:00Z", tt.isOwnPR),
+				"pr", "body-append", contextDocument(t, "2026-01-11T00:00:00Z", tt.isOwnPR, "abc123"),
 				"--body-file", tt.bodyFile,
-			}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
+			}, strings.NewReader(""), &out, &errOut, noClient(t))
 
 			if code == 0 {
 				t.Fatalf("`ccx pr body-append` = 0, want a refusal")
@@ -219,4 +236,224 @@ func TestStateHome(t *testing.T) {
 			t.Errorf("stateHome() = %q, want %q", got, want)
 		}
 	})
+}
+
+// commitRef names one of the commits a head check case is written against:
+// the two the checkout stands on, and one it cannot resolve at all. A type of
+// its own so that a case cannot name a commit the fixture does not hold.
+type commitRef int
+
+const (
+	refFirst commitRef = iota
+	refSecond
+	refElsewhere
+	numCommitRefs
+)
+
+// headCheckFixture is the checkout the two posting commands run in, and the
+// commits their cases name. Built once per test rather than per case: nothing
+// a case does writes to the checkout, and building it each time is four git
+// processes for three strings that never differ.
+type headCheckFixture struct {
+	repo string
+	oid  [numCommitRefs]string
+}
+
+func newHeadCheckFixture(t *testing.T) headCheckFixture {
+	t.Helper()
+
+	gittest.SkipWithoutGit(t)
+	repo := gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "repo"))
+	first := gittest.Rev(t, repo, "HEAD")
+	gittest.Write(t, filepath.Join(repo, "file.txt"), "second\n")
+	gittest.Run(t, repo, "commit", "-aqm", "second")
+
+	// A commit in a repository of its own, so that it names a head this
+	// checkout cannot resolve. It is the second commit, and its content
+	// differs from the one above, because two repositories built from the same
+	// content, the same identity and the same message within one second hash
+	// alike — the first commits of these two do, and taking one of them here
+	// would make the case about an unresolvable head into a case about first.
+	other := gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "elsewhere"))
+	gittest.Write(t, filepath.Join(other, "file.txt"), "elsewhere\n")
+	gittest.Run(t, other, "commit", "-aqm", "elsewhere")
+
+	return headCheckFixture{repo: repo, oid: [3]string{
+		refFirst:     first,
+		refSecond:    gittest.Rev(t, repo, "HEAD"),
+		refElsewhere: gittest.Rev(t, other, "HEAD"),
+	}}
+}
+
+// headCheckHandler answers the live head lookup, and the comment a run that passes
+// the check goes on to post. posted counts what arrived there, which is how a
+// run that was accepted is told from one that only failed later.
+func headCheckHandler(t *testing.T, liveHead string, posted *int) http.Handler {
+	t.Helper()
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/graphql":
+			fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":{"number":5,"headRefOid":%q}}}}`, liveHead)
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/owner/repo/issues/5/comments":
+			*posted++
+			fmt.Fprint(w, `{"html_url":"https://github.com/owner/repo/pull/5#issuecomment-1"}`)
+		default:
+			t.Errorf("unexpected request to %s %s", r.Method, r.URL.Path)
+		}
+	})
+}
+
+// headCheckCase is one of the five states RequirePushedHead tells apart, named
+// by what the checkout, the pull request's live head and the document's head
+// are to each other.
+type headCheckCase struct {
+	name string
+	// live is the head GitHub reports and docHead the one the document was
+	// fetched at, each naming one of the fixture's commits.
+	live, docHead commitRef
+	// liveFails serves the lookup a 500 instead, since a head that could not
+	// be read is not a head that matched.
+	liveFails bool
+	// wantErr is empty where the run is expected to go through.
+	wantErr string
+}
+
+func headCheckCases() []headCheckCase {
+	return []headCheckCase{
+		{
+			name:    "the local commit has not been pushed",
+			live:    refFirst,
+			docHead: refFirst,
+			wantErr: "push before",
+		},
+		{
+			name:    "the live head is not in this checkout",
+			live:    refElsewhere,
+			docHead: refFirst,
+			wantErr: "sync the checkout before",
+		},
+		{
+			name:    "the document's head was rewritten away",
+			live:    refSecond,
+			docHead: refElsewhere,
+			wantErr: "not an ancestor",
+		},
+		{
+			name:      "the live head cannot be read",
+			live:      refSecond,
+			docHead:   refFirst,
+			liveFails: true,
+			wantErr:   "failed to read the pull request's current head",
+		},
+		{
+			name:    "the push landed with the document behind it",
+			live:    refSecond,
+			docHead: refFirst,
+		},
+	}
+}
+
+// run drives one command through one case and answers with the exit code, what
+// went to stderr, and how many comments reached the server.
+//
+// args is given the document and the work dir the case implies, so that the two
+// commands differ only in what they are asked to do once the check has passed.
+// It has to write whatever it names into the work dir, which is what brings
+// that directory into being.
+func (f headCheckFixture) run(t *testing.T, tt headCheckCase,
+	args func(contextFile, workDir string) []string) (int, string, int) {
+	t.Helper()
+
+	t.Chdir(f.repo)
+	contextFile := contextDocument(t, "2026-01-11T00:00:00Z", true, f.oid[tt.docHead])
+
+	posted := 0
+	h := headCheckHandler(t, f.oid[tt.live], &posted)
+	if tt.liveFails {
+		h = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		})
+	}
+	deps := Deps{NewClient: func() (*ghapi.Client, error) { return ghapitest.New(t, h), nil }}
+
+	var errOut bytes.Buffer
+	code := run(t.Context(), args(contextFile, pullrequest.WorkDir(contextFile)),
+		strings.NewReader(""), io.Discard, &errOut, deps)
+	return code, errOut.String(), posted
+}
+
+// assertHeadCheck holds one run to what its case expects: an acceptance, or a
+// refusal that names its own reason — and either way, exactly the requests the
+// command had to make.
+func assertHeadCheck(t *testing.T, cmd string, tt headCheckCase, code int, stderr string, posted, wantPosted int) {
+	t.Helper()
+
+	if tt.wantErr == "" {
+		if code != 0 {
+			t.Fatalf("`ccx %s` = %d, want 0: %s", cmd, code, stderr)
+		}
+	} else {
+		if code == 0 {
+			t.Fatalf("`ccx %s` = 0, want a refusal", cmd)
+		}
+		if !strings.Contains(stderr, tt.wantErr) {
+			t.Errorf("stderr = %q, want it to mention %q", stderr, tt.wantErr)
+		}
+	}
+	if posted != wantPosted {
+		t.Errorf("%d comments reached the server, want %d", posted, wantPosted)
+	}
+}
+
+// TestPRCommentChecksTheLiveHead is the check at the boundary a skill calls it
+// from: the command is driven through run with the network and the checkout
+// both standing in, and the five states are told apart by what each refuses.
+//
+// The accepted case goes all the way to the posting path and the request
+// arrives at the handler, which is the property the injected client is for.
+//
+// Not parallel, because these commands read the checkout out of the working
+// directory rather than a flag, and t.Chdir moves the whole process.
+func TestPRCommentChecksTheLiveHead(t *testing.T) {
+	f := newHeadCheckFixture(t)
+
+	for _, tt := range headCheckCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stderr, posted := f.run(t, tt, func(contextFile, workDir string) []string {
+				gittest.Write(t, filepath.Join(workDir, "body.md"), "The fixes are in.\n")
+				return []string{"pr", "comment", contextFile,
+					"--mark", string(pullrequest.MarkReviewResponse), "--body-file", "body.md"}
+			})
+
+			wantPosted := 0
+			if tt.wantErr == "" {
+				wantPosted = 1
+			}
+			assertHeadCheck(t, "pr comment", tt, code, stderr, posted, wantPosted)
+		})
+	}
+}
+
+// TestPRReplyThreadsChecksTheLiveHead is the same five states for the other
+// command. Nothing is posted in any of them, the accepted case included: a run
+// with nothing to say is still held to the check, and then has nothing to
+// send. Where the check sits relative to parsing the threads file is not what
+// these cases tell apart — every one of them is given a threads file that
+// parses.
+func TestPRReplyThreadsChecksTheLiveHead(t *testing.T) {
+	f := newHeadCheckFixture(t)
+
+	for _, tt := range headCheckCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stderr, posted := f.run(t, tt, func(contextFile, workDir string) []string {
+				threadsFile := filepath.Join(workDir, "threads.json")
+				gittest.Write(t, threadsFile, `{"threads":[]}`+"\n")
+				return []string{"pr", "reply-threads", contextFile, threadsFile}
+			})
+
+			assertHeadCheck(t, "pr reply-threads", tt, code, stderr, posted, 0)
+		})
+	}
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
@@ -35,16 +36,43 @@ func silent(err error) error {
 	return silentError{err}
 }
 
+// Deps is what a command is given rather than what it reaches for: the
+// self-build outcome it reports, and the way to a GitHub client.
+//
+// Every constructor takes the whole of it, including the ones that need no
+// client today, so that a command which later does needs nothing rethreaded to
+// reach GitHub. A helper that runs rather than builds takes the field it uses:
+// reportBuild, buildFailure and runHook report the build, and handing them a
+// client they have no business reaching would be the wider signature, not the
+// consistent one.
+type Deps struct {
+	// Build is the self-rebuild outcome, which each subcommand reports in
+	// whatever way suits its own output contract.
+	Build selfbuild.State
+	// NewClient is a constructor rather than a client, for the reason
+	// prinfo.Refresh documents: building one costs an exec that a run never
+	// reaching GitHub should not pay. The commands call it where they used to
+	// construct one, which is to say late.
+	NewClient func() (*ghapi.Client, error)
+}
+
 // Execute runs the tree and returns the process exit status. The self-rebuild
 // check runs first, before anything reads stdin; see selfbuild.Run.
+//
+// The one place a client is constructed. Every other one goes through Deps,
+// which is what lets a test put ghapitest's client in front of a command; see
+// TestOnlyExecuteBuildsTheClient.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return run(ctx, args, stdin, stdout, stderr, selfbuild.Run(ctx, selfbuild.NewDeps(args)))
+	return run(ctx, args, stdin, stdout, stderr, Deps{
+		Build:     selfbuild.Run(ctx, selfbuild.NewDeps(args)),
+		NewClient: func() (*ghapi.Client, error) { return ghapi.New(ghapi.Options{}) },
+	})
 }
 
 // run is Execute without the self-rebuild check, so tests can drive the tree
 // without the filesystem underneath it.
-func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, build selfbuild.State) int {
-	root := newRootCmd(build)
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, deps Deps) int {
+	root := newRootCmd(deps)
 	root.SetArgs(args)
 	root.SetIn(stdin)
 	root.SetOut(stdout)
@@ -68,23 +96,22 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	return 1
 }
 
-// newRootCmd builds the command tree. build is the self-rebuild outcome, which
-// each subcommand reports in whatever way suits its own output contract.
-func newRootCmd(build selfbuild.State) *cobra.Command {
+// newRootCmd builds the command tree, handing every subcommand the same deps.
+func newRootCmd(deps Deps) *cobra.Command {
 	root := newParentCmd("ccx", "Claude Code extensions for this dotfiles repository")
 	// Errors and usage are printed once, centrally, in run.
 	root.SilenceUsage = true
 	root.SilenceErrors = true
 
-	root.AddCommand(newStatuslineCmd(build))
-	root.AddCommand(newHookCmd(build))
-	root.AddCommand(newPRCmd(build))
-	root.AddCommand(newIssueCmd(build))
-	root.AddCommand(newPlanCmd(build))
-	root.AddCommand(newReviewCmd(build))
-	root.AddCommand(newWorktreeCmd(build))
-	root.AddCommand(newSkillCmd(build))
-	root.AddCommand(newRefreshCmds()...)
+	root.AddCommand(newStatuslineCmd(deps))
+	root.AddCommand(newHookCmd(deps))
+	root.AddCommand(newPRCmd(deps))
+	root.AddCommand(newIssueCmd(deps))
+	root.AddCommand(newPlanCmd(deps))
+	root.AddCommand(newReviewCmd(deps))
+	root.AddCommand(newWorktreeCmd(deps))
+	root.AddCommand(newSkillCmd(deps))
+	root.AddCommand(newRefreshCmds(deps)...)
 
 	// Rendered when help is asked for, not when the tree is built: all
 	// twenty-one at construction was 77% of the time and 96% of the

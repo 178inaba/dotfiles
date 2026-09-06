@@ -14,12 +14,11 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/issue"
 	"github.com/178inaba/dotfiles/go/internal/runner"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
-func newIssueCmd(build selfbuild.State) *cobra.Command {
+func newIssueCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("issue", "Read and write GitHub issues")
-	c.AddCommand(newSectionsCmd(build), newTreeCmd(build), newPublishCmd(build))
+	c.AddCommand(newSectionsCmd(deps), newTreeCmd(deps), newPublishCmd(deps))
 	return c
 }
 
@@ -30,14 +29,14 @@ func newIssueCmd(build selfbuild.State) *cobra.Command {
 // is what a re-run is repeated from: the record of what has already been
 // written sits beside it, and a run assembled from flags could differ between
 // the two without anybody noticing.
-func newPublishCmd(build selfbuild.State) *cobra.Command {
+func newPublishCmd(deps Deps) *cobra.Command {
 	var dryRun bool
 	c := &cobra.Command{
 		Use:   "publish <manifest-file>",
 		Short: "Create, link and edit the issues a manifest declares",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			file := args[0]
 			content, err := readFile(file, "manifest file")
 			if err != nil {
@@ -50,7 +49,7 @@ func newPublishCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -85,7 +84,7 @@ func newPublishCmd(build selfbuild.State) *cobra.Command {
 // The two annotations are flags rather than always-on because each costs a
 // round trip per sub-issue, and this runs on every startup of the skills that
 // read a leaf issue.
-func newTreeCmd(build selfbuild.State) *cobra.Command {
+func newTreeCmd(deps Deps) *cobra.Command {
 	var repoName string
 	var withPRs, withDeps bool
 	c := &cobra.Command{
@@ -93,7 +92,7 @@ func newTreeCmd(build selfbuild.State) *cobra.Command {
 		Short: "Resolve an issue's parent, sub-issues and blockers",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			// Not silent: a number that is not one is a mistake at the
 			// command line, and the usage text is the answer to it.
 			number, err := issueNumber(args[0])
@@ -101,7 +100,7 @@ func newTreeCmd(build selfbuild.State) *cobra.Command {
 				return err
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -153,9 +152,9 @@ func issueNumber(s string) (int, error) {
 
 // newSectionsCmd builds `ccx issue sections`, the schema an issue body's `## `
 // headings are written against.
-func newSectionsCmd(build selfbuild.State) *cobra.Command {
+func newSectionsCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("sections", "Resolve the sections of an issue body")
-	c.AddCommand(sectionsSchemaCmd(build), sectionsListCmd(build), sectionsCheckCmd(build), sectionsFindCmd(build))
+	c.AddCommand(sectionsSchemaCmd(deps), sectionsListCmd(deps), sectionsCheckCmd(deps), sectionsFindCmd(deps))
 	return c
 }
 
@@ -164,13 +163,13 @@ func newSectionsCmd(build selfbuild.State) *cobra.Command {
 // It takes no locale because its callers are consumers: they accept a heading
 // in either language, since they do not know which one the issue they are
 // reading was written in.
-func sectionsSchemaCmd(build selfbuild.State) *cobra.Command {
+func sectionsSchemaCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "schema <key>",
 		Short: "Print one section's row of the schema",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			s, err := issue.Schema(args[0])
 			if err != nil {
 				return silent(err)
@@ -182,14 +181,14 @@ func sectionsSchemaCmd(build selfbuild.State) *cobra.Command {
 
 // sectionsListCmd answers with the whole table for one locale and kind, which
 // is what the drafting side renders from.
-func sectionsListCmd(build selfbuild.State) *cobra.Command {
+func sectionsListCmd(deps Deps) *cobra.Command {
 	var locale, kind string
 	c := &cobra.Command{
 		Use:   "list",
 		Short: "Print every section for a locale and issue kind",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			l, err := issue.List(issue.Locale(locale), issue.Kind(kind))
 			if err != nil {
 				return silent(err)
@@ -208,14 +207,14 @@ func sectionsListCmd(build selfbuild.State) *cobra.Command {
 // a model to read, so they go to standard error one per line and the status
 // names the class. That is 178inaba/dotfiles#86 requirement 3.2, and the only
 // deliberate exception to "standard output is JSON" in this command tree.
-func sectionsCheckCmd(build selfbuild.State) *cobra.Command {
+func sectionsCheckCmd(deps Deps) *cobra.Command {
 	var locale, kind, mappingFile string
 	c := &cobra.Command{
 		Use:   "check <draft-file>",
 		Short: "Check a draft's headings against the schema",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			draft, err := readFile(args[0], "draft file")
 			if err != nil {
 				return silent(err)
@@ -254,13 +253,13 @@ func sectionsCheckCmd(build selfbuild.State) *cobra.Command {
 	return c
 }
 
-func sectionsFindCmd(build selfbuild.State) *cobra.Command {
+func sectionsFindCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "find <file> <key>",
 		Short: "Print one section of an issue body",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			body, err := readFile(args[0], "input file")
 			if err != nil {
 				return silent(err)

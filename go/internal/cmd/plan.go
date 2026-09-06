@@ -6,12 +6,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/plandocs"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
-func newPlanCmd(build selfbuild.State) *cobra.Command {
+func newPlanCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("plan", "Read what a plan has to be drafted against")
-	c.AddCommand(newPlanDocsCmd(build))
+	c.AddCommand(newPlanDocsCmd(deps))
 	return c
 }
 
@@ -21,13 +20,13 @@ func newPlanCmd(build selfbuild.State) *cobra.Command {
 // It takes no arguments and runs from anywhere inside the repository: the
 // instruction files a session has in context are decided by where it was
 // started, and the walk reads that off the working directory upwards.
-func newPlanDocsCmd(build selfbuild.State) *cobra.Command {
+func newPlanDocsCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "docs",
 		Short: "List the documents a plan has to be drafted against",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 
 			root, err := os.Getwd()
 			if err != nil {

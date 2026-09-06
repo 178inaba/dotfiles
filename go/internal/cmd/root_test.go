@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
 func TestRun(t *testing.T) {
@@ -66,7 +67,7 @@ func TestRun(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, selfbuild.State{})
+			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, Deps{})
 
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d (stdout=%q stderr=%q)", code, tt.wantCode, stdout.String(), stderr.String())
@@ -93,5 +94,54 @@ func TestRun(t *testing.T) {
 				t.Errorf("stderr = %q, want empty", stderr.String())
 			}
 		})
+	}
+}
+
+// clientPatterns reach the two packages the rule is about: the command tree,
+// and the statusline package the detached refreshes are wired in. Not the
+// subpackages below the latter — prinfo and fxrate are handed a constructor,
+// so building one is not something their code is in a position to do.
+var clientPatterns = []string{"*.go", filepath.Join("..", "statusline", "*.go")}
+
+// TestOnlyExecuteBuildsTheClient holds the whole tree to one construction of
+// the GitHub client, in Execute, where the dependency is assembled.
+//
+// A test rather than a depguard rule in .golangci.yml, which is where this
+// repository puts its package-boundary rules: depguard works per import, and
+// root.go goes on importing ghapi. "One call in one file" is not something it
+// can say.
+//
+// The text is scanned rather than parsed, because the call written out is what
+// the rule is about and what a reader greps for. Two things it therefore does
+// not see: an aliased import, and the call named inside a comment — which is
+// why the comments that talk about it leave the parenthesis off.
+func TestOnlyExecuteBuildsTheClient(t *testing.T) {
+	t.Parallel()
+
+	var found []string
+	for _, pattern := range clientPatterns {
+		paths, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatalf("Glob %s: %v", pattern, err)
+		}
+		for _, path := range paths {
+			if strings.HasSuffix(path, "_test.go") {
+				continue
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile %s: %v", path, err)
+			}
+			for i, line := range strings.Split(string(b), "\n") {
+				if strings.Contains(line, "ghapi.New(") {
+					found = append(found, fmt.Sprintf("%s:%d", path, i+1))
+				}
+			}
+		}
+	}
+
+	if len(found) != 1 || !strings.HasPrefix(found[0], "root.go:") {
+		t.Errorf("a client is built at %v, want only the one in root.go that Execute puts in Deps; "+
+			"a command takes its client from Deps rather than building its own", found)
 	}
 }

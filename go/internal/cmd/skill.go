@@ -12,19 +12,19 @@ import (
 
 // newSkillCmd builds `ccx skill`, the checks /skill-authoring runs over the
 // SKILL.md files themselves.
-func newSkillCmd(build selfbuild.State) *cobra.Command {
+func newSkillCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("skill", "Check the SKILL.md files a skill is defined by")
-	c.AddCommand(skillFrontmatterCmd(build), skillContractCmd(build))
+	c.AddCommand(skillFrontmatterCmd(deps), skillContractCmd(deps))
 	return c
 }
 
-func skillFrontmatterCmd(build selfbuild.State) *cobra.Command {
+func skillFrontmatterCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "frontmatter [<target>]",
 		Short: "Check the frontmatter of a skill directory or one SKILL.md",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			target, err := skillTarget(args)
 			if err != nil {
 				return silent(err)
@@ -66,13 +66,13 @@ func skillsDir() (string, error) {
 
 // skillContractCmd builds `ccx skill contract`, whose reason for existing is
 // in the help this renders.
-func skillContractCmd(build selfbuild.State) *cobra.Command {
+func skillContractCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "contract [<skills-dir>]",
 		Short: "Check the contract identifiers skills name",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			target, err := skillTarget(args)
 			if err != nil {
 				return silent(err)

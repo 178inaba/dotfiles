@@ -50,9 +50,17 @@ func RefreshFX(ctx context.Context, cacheDir string, now time.Time) error {
 	return fxrate.Refresh(ctx, http.DefaultClient, fxrate.APIURL, cacheDir, now)
 }
 
-// RefreshPR asks GitHub about a branch's pull request. The client is a
-// constructor rather than a client for the reason prinfo.Refresh documents.
-func RefreshPR(ctx context.Context, r runner.Runner, cacheDir, cacheKey, branch, dir string, now time.Time) error {
-	newClient := func() (*ghapi.Client, error) { return ghapi.New(ghapi.Options{}) }
+// RefreshPR asks GitHub about a branch's pull request. The client arrives as a
+// constructor rather than a client for the reason prinfo.Refresh documents, and
+// is passed in rather than built here so that the command tree keeps the one
+// place where a client is constructed.
+//
+// That leaves it forwarding its arguments and nothing else, where RefreshFX
+// still supplies two of its own. It stays because it is the pair of that one,
+// beside the command names and the flag names the redraw spawns its children
+// with: deleting it would put prinfo in the command tree's imports to save a
+// line, and split where a detached refresh is named from where it is run.
+func RefreshPR(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client, error),
+	cacheDir, cacheKey, branch, dir string, now time.Time) error {
 	return prinfo.Refresh(ctx, r, newClient, cacheDir, cacheKey, branch, dir, now)
 }
