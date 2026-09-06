@@ -411,4 +411,4 @@ ccx pr reply-threads <context_path> <threads_path>
 - **`--worktree` 指定時の挙動**: `worktree-resolution` の注意事項を参照
 - **鮮度ガード**: 開始時の鮮度確認は `ccx pr prepare-review` が差分取得前に実行する（停止条件の正は worktree-resolution の「共通サブ手順: PR head との鮮度確認」）。加えて**外部へ書き込む 2 つのサブコマンドが実行直前にそれぞれ独自に再確認し、その内容は 2 つで異なる**（正は各コマンドの `--help`）:
   - `ccx pr post-review`: ローカル HEAD == ドキュメントの `pr.head_oid`。各指摘はドキュメントの差分の行に紐付くので、まさにその状態にしか投稿できない
-  - `ccx pr reply-threads`: ローカル HEAD == GitHub が今持つ PR の head、かつドキュメントの `pr.head_oid` がその祖先。レビュー中に作者が push すると拒否されるので、拒否文が名指す操作（同期・push・`ccx pr context` の取り直しのいずれか）を実施してから再実行する
+  - `ccx pr reply-threads`: ローカル HEAD == GitHub が今持つ PR の head、かつドキュメントの `pr.head_oid` がその祖先。レビュー中に作者が push すると「同期せよ」で拒否される。このとき**上の鮮度確認サブ手順では復旧しない** — あちらはドキュメントの `pr.head_oid` と比較するので、ローカルがそれと一致したまま `ok` を返して何も動かさず、拒否が繰り返される。`ccx pr prepare-review` を同じ引数で再実行してドキュメントごと取り直し、判定と返信文を新しい head で組み立て直す（作者の push はレビュー対象の差分を変えているため、返信文を作り直さずに同期だけするのは正しくない）

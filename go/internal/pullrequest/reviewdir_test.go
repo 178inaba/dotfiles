@@ -196,6 +196,18 @@ func TestRequirePushedHead(t *testing.T) {
 		}
 	})
 
+	// Nothing was pushed: the document, the checkout and GitHub all name the
+	// same commit. The most travelled path of the two commands, and the one a
+	// run that only replies takes.
+	t.Run("nothing was pushed", func(t *testing.T) {
+		t.Parallel()
+
+		c := ghapitest.New(t, prHandler(t, head))
+		if err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(head), "replying"); err != nil {
+			t.Errorf("RequirePushedHead on an unchanged checkout = %v, want it to accept", err)
+		}
+	})
+
 	// The run's own commits sit on top of what GitHub holds, so a reply would
 	// be about code nobody else can see.
 	t.Run("a commit is unpushed", func(t *testing.T) {
@@ -232,6 +244,52 @@ func TestRequirePushedHead(t *testing.T) {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("error = %q, want it to mention %q", err, want)
 			}
+		}
+	})
+
+	// The same refusal when the live commit is in the repository after all —
+	// somebody fetched, or the run is on a machine that had it. The wording
+	// does not turn on whether it was fetched, only on the reachability.
+	t.Run("the checkout is behind a commit it already has", func(t *testing.T) {
+		t.Parallel()
+
+		own := diffRepo(t)
+		live := gittest.Rev(t, own, "HEAD")
+		gittest.Run(t, own, "switch", "-q", "--detach", "HEAD~")
+		local := gittest.Rev(t, own, "HEAD")
+
+		c := ghapitest.New(t, prHandler(t, live))
+		err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, own, target(local), "replying")
+		if err == nil {
+			t.Fatal("RequirePushedHead behind a fetched live head succeeded, want a refusal")
+		}
+		for _, want := range []string{local, live, "sync"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to mention %q", err, want)
+			}
+		}
+	})
+
+	// Diverged: neither head contains the other, which is a checkout to sync
+	// rather than one to push.
+	t.Run("the checkout has diverged", func(t *testing.T) {
+		t.Parallel()
+
+		own := diffRepo(t)
+		live := gittest.Rev(t, own, "HEAD")
+		gittest.Run(t, own, "switch", "-qc", "other", "origin/main")
+		gittest.Write(t, filepath.Join(own, "other.txt"), "elsewhere\n")
+		gittest.Run(t, own, "add", "other.txt")
+		gittest.Run(t, own, "commit", "-qm", "diverge")
+		local := gittest.Rev(t, own, "HEAD")
+
+		c := ghapitest.New(t, prHandler(t, live))
+		err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, own, target(local), "replying")
+		if err == nil {
+			t.Fatal("RequirePushedHead on a diverged checkout succeeded, want a refusal")
+		}
+		if !strings.Contains(err.Error(), "sync") {
+			t.Errorf("error = %q, want it to ask for a sync rather than a push", err)
 		}
 	})
 
