@@ -260,7 +260,7 @@ func TestPublishRefuses(t *testing.T) {
 				Repo: ptr("owner/repo"), Issues: []issue.PublishManifestIssue{row("A", "a.md")},
 			},
 			files: map[string]string{"a.md": leafDraft + "\n#1 first #2 second #3 third\n"},
-			want:  "look like item numbering",
+			want:  "3 distinct bare #N in #1 to #9 number the items",
 		},
 		{
 			name: "a comment numbers its items with bare #N",
@@ -269,7 +269,7 @@ func TestPublishRefuses(t *testing.T) {
 				Issues: []issue.PublishManifestIssue{row("42", "a.md", withUpdatedAt("2026-01-01T00:00:00Z"), withComment("c.md"))},
 			},
 			files: map[string]string{"a.md": leafDraft, "c.md": "#1 one #2 two #3 three\n"},
-			want:  "look like item numbering",
+			want:  "3 distinct bare #N in #1 to #9 number the items",
 		},
 		{
 			name: "a body names a placeholder no row defines",

@@ -210,7 +210,7 @@ func checkPublishSet(set publishSet) error {
 		if row.parent != "" {
 			bad.addAll(checkPublishRef(set.byKey, row.key+": parent", row.parent))
 		}
-		bad.addAll(checkPublishBody(set.byKey, row))
+		bad.addAll(checkPublishBody(set, row))
 	}
 
 	for _, b := range set.blocks {
@@ -245,8 +245,12 @@ func checkPublishRef(rows map[string]publishRow, where, key string) []string {
 }
 
 // checkPublishBody checks a row's draft, and the comment beside it, for what
-// must not reach GitHub.
-func checkPublishBody(rows map[string]publishRow, row publishRow) []string {
+// must not reach GitHub, and puts what it made of them in set.bodies.
+//
+// Making them here is what holds the whole run to one judgement: the stages
+// send these values, so a body cannot be judged at one moment and sent as it
+// was at another.
+func checkPublishBody(set publishSet, row publishRow) []string {
 	var found []string
 
 	vs, err := Check(row.body, row.locale, row.kind, row.mapping)
@@ -257,31 +261,36 @@ func checkPublishBody(rows map[string]publishRow, row publishRow) []string {
 		found = append(found, fmt.Sprintf("%s: %s", row.draft, v.Message))
 	}
 
-	for _, f := range []struct{ name, body string }{
-		{row.draft, row.body}, {row.commentFile, row.comment},
+	var bodies rowBodies
+	for _, f := range []struct {
+		name, text string
+		into       *ghapi.Body
+	}{
+		{row.draft, row.body, &bodies.body}, {row.commentFile, row.comment, &bodies.comment},
 	} {
 		if f.name == "" {
 			continue
 		}
-		// Scanned as written, before any substitution: what the gh shim would
+		// Judged as written, before any substitution: what the gh shim would
 		// have refused had this gone out through it must be refused here too,
 		// from the same judgement rather than a copy of it.
-		if n := ghmd.BareHashRefs(f.body); n >= ghmd.BareHashRefLimit {
-			found = append(found, fmt.Sprintf(
-				"%s: %d distinct bare #N look like item numbering, which GitHub would autolink to unrelated issues"+
-					" (number the items with an ordered list)", f.name, n))
+		body, err := ghapi.NewBody(f.text)
+		if err != nil {
+			found = append(found, fmt.Sprintf("%s: %v", f.name, err))
 		}
+		*f.into = body
 		// A comment is substituted into and read back like a body, so a name
 		// no row defines has to stop the run here as well. Left to the write
 		// stage it would stop it after the edit that comment belongs to had
 		// already landed.
-		for _, s := range placeholdersIn(f.body) {
-			if rows[s.Name].key == "" {
+		for _, s := range placeholdersIn(f.text) {
+			if set.byKey[s.Name].key == "" {
 				found = append(found, fmt.Sprintf("%s line %d: no row defines the placeholder %s",
 					f.name, s.Line, s.Name))
 			}
 		}
 	}
+	set.bodies[row.key] = bodies
 	return found
 }
 

@@ -71,7 +71,7 @@ func (c *Client) Issue(ctx context.Context, repo Repo, number int) (Issue, error
 // nil label set is "do not touch the labels" where an empty one clears them.
 type IssueChange struct {
 	Title     *string
-	Body      *string
+	Body      *Body
 	Labels    *[]string
 	Assignees *[]string
 }
@@ -82,7 +82,10 @@ func (ch IssueChange) request() map[string]any {
 		req["title"] = *ch.Title
 	}
 	if ch.Body != nil {
-		req["body"] = *ch.Body
+		// The text rather than the Body: an unexported field encodes as
+		// nothing at all, and a body silently dropped on the way to GitHub is
+		// worse than one refused.
+		req["body"] = ch.Body.String()
 	}
 	if ch.Labels != nil {
 		req["labels"] = *ch.Labels
@@ -148,10 +151,14 @@ func (c *Client) AddBlockedBy(ctx context.Context, repo Repo, blocked int, byID 
 }
 
 // CreateIssueComment posts a comment on an issue and answers with its url.
-func (c *Client) CreateIssueComment(ctx context.Context, repo Repo, number int, body string) (string, error) {
+//
+// A pull request is an issue here: this is the endpoint a comment on either
+// one goes to, which is why a comment on a pull request comes through here
+// rather than through a writer of its own.
+func (c *Client) CreateIssueComment(ctx context.Context, repo Repo, number int, body Body) (string, error) {
 	var w issueCommentWire
 	path := fmt.Sprintf("repos/%s/issues/%d/comments", repo, number)
-	if err := c.Post(ctx, path, map[string]any{"body": body}, &w); err != nil {
+	if err := c.Post(ctx, path, map[string]any{"body": body.String()}, &w); err != nil {
 		return "", err
 	}
 	return w.HTMLURL, nil

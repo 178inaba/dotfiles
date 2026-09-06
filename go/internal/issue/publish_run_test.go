@@ -371,6 +371,54 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	}
 }
 
+// TestPublishFillsInTheFirstIssuesOfARepository is what a second judgement
+// would break: the numbers a run assigns may well be 1, 2 and 3, and a parent
+// naming three subs then carries exactly the run of bare references the rule
+// refuses. What that rule guards against is numbering somebody typed, so the
+// substitution makes no judgement about what it produces.
+func TestPublishFillsInTheFirstIssuesOfARepository(t *testing.T) {
+	t.Parallel()
+
+	m := issue.PublishManifest{
+		Repo: ptr("owner/repo"),
+		Issues: []issue.PublishManifestIssue{
+			row("PARENT", "parent.md"),
+			row("SUB_A", "sub-a.md", withParent("PARENT")),
+			row("SUB_B", "sub-b.md", withParent("PARENT")),
+			row("SUB_C", "sub-c.md", withParent("PARENT")),
+		},
+	}
+	file := writeManifest(t, m, map[string]string{
+		"parent.md": leafDraft + "\nComposed of #{SUB_A}, #{SUB_B} and #{SUB_C}.\n",
+		"sub-a.md":  leafDraft,
+		"sub-b.md":  leafDraft,
+		"sub-c.md":  leafDraft,
+	})
+	g := newFakeGitHub()
+	// An empty repository, so that the numbers this run assigns are the low
+	// ones the rule is about; the default start is high enough that #100 and
+	// up are not bare item numbers at all.
+	g.next = 0
+
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	want := []issue.PublishedIssue{
+		{Key: "PARENT", Number: 1, URL: "https://github.com/owner/repo/issues/1"},
+		{Key: "SUB_A", Number: 2, URL: "https://github.com/owner/repo/issues/2"},
+		{Key: "SUB_B", Number: 3, URL: "https://github.com/owner/repo/issues/3"},
+		{Key: "SUB_C", Number: 4, URL: "https://github.com/owner/repo/issues/4"},
+	}
+	if diff := cmp.Diff(want, got.Created); diff != "" {
+		t.Errorf("Publish created (-want +got):\n%s", diff)
+	}
+	if body, want := g.issues[1].Body, "Composed of #2, #3 and #4."; !strings.Contains(body, want) {
+		t.Errorf("#1 does not carry %q:\n%s", want, body)
+	}
+}
+
 // TestPublishResumesAfterAnInterruptedCreate is the property the record exists
 // for: the same manifest run again finishes the job without making a second
 // copy of what already landed.

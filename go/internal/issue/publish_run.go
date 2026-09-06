@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
-	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
 // The order of the stages is forced by the bodies rather than chosen. A parent
@@ -95,7 +94,7 @@ func (r *publishRun) create(ctx context.Context) error {
 		}
 		// Whatever is numbered by now, which is the references back to issues
 		// created earlier in this same run.
-		body, left := r.plan.substitute(row.body)
+		body, left := r.plan.substitute(r.plan.set.body(row.key))
 
 		assignees := []string{r.plan.viewer}
 		got, err := r.client.CreateIssue(ctx, r.plan.set.repo, ghapi.IssueChange{
@@ -186,7 +185,7 @@ func (r *publishRun) patch(ctx context.Context, row publishRow) error {
 	// From the draft rather than from what the create sent: substitution only
 	// ever fills a placeholder in, so starting over reaches the same text, and
 	// a resumed run has nothing else to start from anyway.
-	body, left := r.plan.substitute(row.body)
+	body, left := r.plan.substitute(r.plan.set.body(row.key))
 	if err := r.unfilled(row.draft, left); err != nil {
 		return err
 	}
@@ -221,7 +220,7 @@ func (r *publishRun) comment(ctx context.Context, row publishRow) error {
 	if !r.plan.needsComment(row) {
 		return nil
 	}
-	body, left := r.plan.substitute(row.comment)
+	body, left := r.plan.substitute(r.plan.set.comment(row.key))
 	if err := r.unfilled(row.commentFile, left); err != nil {
 		return err
 	}
@@ -393,8 +392,8 @@ func plural(n int, word string) string {
 // It returns the names it could not replace, so that a caller can tell "not
 // yet" from "never": one before every issue exists is a forward reference, and
 // one after is a body that would go out broken.
-func (p publishPlan) substitute(body string) (string, []PlannedSubstitution) {
-	out, left := ghmd.Substitute(body, p.numbers())
+func (p publishPlan) substitute(body ghapi.Body) (ghapi.Body, []PlannedSubstitution) {
+	out, left := body.Substitute(p.numbers())
 	return out, planned(left)
 }
 
