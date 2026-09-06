@@ -59,14 +59,34 @@ func TestParseCommentBody(t *testing.T) {
 	}
 }
 
+// withLiveHead answers the head check's pull request lookup and hands anything
+// else to h, so that a case asserting what reached the comment endpoint does
+// not carry a second copy of the check's fixture.
+func withLiveHead(t *testing.T, liveHead string, h http.Handler) http.Handler {
+	t.Helper()
+
+	live := prHandler(t, liveHead)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/graphql" {
+			live.ServeHTTP(w, r)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
 func TestPostComment(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	head := gittest.Rev(t, repo, "HEAD")
+	// The pushed-fixes shape the check is for: the document was fetched at the
+	// previous commit, the run pushed, and the comment goes out with no second
+	// fetch.
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD~")}
 
 	var seen posted
-	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := ghapitest.New(t, withLiveHead(t, head, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Body string `json:"body"`
 		}
@@ -76,7 +96,7 @@ func TestPostComment(t *testing.T) {
 		seen = posted{path: r.URL.Path, body: req.Body}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"html_url":"https://github.com/owner/repo/pull/5#issuecomment-1"}`)
-	}))
+	})))
 
 	got, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
 		target, pullrequest.MarkReviewResponse, "# Done\n\nEverything is answered.\n")
@@ -141,23 +161,24 @@ func TestPostCommentRefusesABodyThatNumbersItsItems(t *testing.T) {
 	}
 }
 
-// A checkout that has moved on is a run whose report is about code the pull
-// request no longer holds, so nothing is posted.
-func TestPostCommentRefusesAMovedHead(t *testing.T) {
+// The checkout is what GitHub holds, but nothing the report was written
+// against leads to it — a rebase or a force-push. The report is about a state
+// the pull request no longer has, so nothing is posted.
+func TestPostCommentRefusesADocumentOffTheBranch(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
 	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: "0000000000000000000000000000000000000000"}
-	c := ghapitest.New(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Error("something was posted despite the moved head")
-	}))
+	c := ghapitest.New(t, withLiveHead(t, gittest.Rev(t, repo, "HEAD"), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("something was posted despite the document being off the branch")
+	})))
 
 	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
 		target, pullrequest.MarkReviewResponse, "anything")
 	if err == nil {
-		t.Fatal("PostComment from a moved head succeeded, want a refusal")
+		t.Fatal("PostComment from a document off the branch succeeded, want a refusal")
 	}
-	if !strings.Contains(err.Error(), "differs from PR head") {
-		t.Errorf("error = %q, want it to say the head moved", err)
+	if !strings.Contains(err.Error(), "ccx pr context") {
+		t.Errorf("error = %q, want it to say to fetch the document again", err)
 	}
 }

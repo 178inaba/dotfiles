@@ -333,9 +333,15 @@ The body is judged before anything is sent, as a review's is: one that numbers
 its items with bare #N is refused, because GitHub autolinks such a run and
 notifies unrelated issues.
 
-The local HEAD is confirmed to be the pull request's head first, as posting a
-review does. A report written against a checkout that has since moved is about
-code the pull request no longer holds, and nothing undoes it once published.`,
+The head is confirmed first, and against GitHub rather than against the
+document: the local HEAD has to be the pull request's head as GitHub holds it
+now, and the document's head has to be an ancestor of the local HEAD. That is
+what lets a run push its fixes and comment without fetching the document a
+second time, while still refusing a checkout the pull request does not have —
+unpushed commits are answered by saying to push, a checkout behind or diverged
+from the live head by saying to sync, and a document whose head no longer leads
+to the local HEAD (a rebase or a force-push) by saying to sync and fetch the
+document again. A live head that cannot be read refuses too.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.Commented]())},
 		statuses: with(),
 	},
@@ -356,10 +362,15 @@ Every reply is judged before the first one is posted, as a review's bodies
 are: one that numbers its items with bare #N refuses the whole run, because
 GitHub autolinks such a run and notifies unrelated issues.
 
-The local HEAD is confirmed to be the pull request's head, and then every
-target thread is re-read live: one that has been resolved or answered since the
-context was fetched stops the whole run, since the replies were written as one
-judgement of one view.
+The local HEAD is confirmed to be the pull request's head as GitHub holds it
+now, with the document's head an ancestor of it — so a run may commit and push
+its fixes and reply from the document it already has. Unpushed commits are
+answered by saying to push, a checkout behind or diverged from the live head by
+saying to sync, and a document whose head no longer leads to the local HEAD (a
+rebase or a force-push) by saying to sync and fetch the document again; a live
+head that cannot be read refuses too. Then every target thread is re-read live:
+one that has been resolved or answered since the context was fetched stops the
+whole run, since the replies were written as one judgement of one view.
 
 Each reply that lands is recorded beside the threads file, so a re-run after a
 partial failure cannot post the same reply twice — it refuses instead. On a
