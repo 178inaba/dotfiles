@@ -453,7 +453,11 @@ func TestPublishDryRunLeavesQuotedPlaceholdersAlone(t *testing.T) {
 		Repo: ptr("owner/repo"), Issues: []issue.PublishManifestIssue{row("A", "a.md")},
 	}
 	file := writeManifest(t, m, map[string]string{
-		"a.md": leafDraft + "\nInline `#{NAME}` and fenced:\n\n```ruby\nputs \"#{NAME}\"\n```\n",
+		// The last block is the one a tilde line used to cut short: the
+		// placeholder goes on the line after that marker rather than on it,
+		// because a marker line yields no segment either way and a
+		// placeholder written on one would be skipped for the wrong reason.
+		"a.md": leafDraft + "\nInline `#{NAME}` and fenced:\n\n```ruby\nputs \"#{NAME}\"\n```\n\n```\n~~~\n#{NAME}\n```\n",
 	})
 
 	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, file)
