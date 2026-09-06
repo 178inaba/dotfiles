@@ -22,10 +22,11 @@ type Published struct {
 	// The issues created, in creation order.
 	Created []PublishedIssue `json:"created"`
 	// The issues whose bodies were written: a target's edit, and the fill-in
-	// of an issue this run created whose body went out holding a forward
-	// reference. A run that finishes writes the keys the plan listed under
-	// edit and no others; one that stops writes a prefix of them. A target's
-	// title and labels go out with its body.
+	// of an issue created for this manifest — by this run or by one it
+	// resumes — whose body went out holding a forward reference. A run that
+	// finishes writes the keys the plan listed under edit and no others; one
+	// that stops writes a prefix of them. A target's title and labels go out
+	// with its body.
 	Edited []PublishedIssue `json:"edited"`
 	// The sub-issue links made, by manifest key.
 	Linked []PlannedLink `json:"linked"`

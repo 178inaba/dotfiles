@@ -507,6 +507,15 @@ func TestPublishResumesAfterAnInterruptedCreate(t *testing.T) {
 	if diff := cmp.Diff(want, got.Created); diff != "" {
 		t.Errorf("the resumed run created (-want +got):\n%s", diff)
 	}
+	// The parent was created by the run before this one and left holding its
+	// forward references, so this run owes it a body it never created.
+	wantEdited := []issue.PublishedIssue{
+		{Key: "PARENT", Number: 101, URL: "https://github.com/owner/repo/issues/101"},
+		{Key: "SUB_A", Number: 102, URL: "https://github.com/owner/repo/issues/102"},
+	}
+	if diff := cmp.Diff(wantEdited, got.Edited); diff != "" {
+		t.Errorf("the resumed run edited (-want +got):\n%s", diff)
+	}
 	if body := g.issues[101].Body; !strings.Contains(body, "Composed of #102 then #103.") {
 		t.Errorf("the parent's forward references were never filled in:\n%s", body)
 	}
@@ -769,6 +778,14 @@ func TestPublishLinksAnExistingIssueToItsParent(t *testing.T) {
 	}
 	if diff := cmp.Diff([]issue.PlannedLink{{From: "42", To: "PARENT"}}, got.Linked); diff != "" {
 		t.Errorf("Publish linked (-want +got):\n%s", diff)
+	}
+	// The target end of the same rule the created issues test: an issue the
+	// manifest refines is written and said to have been.
+	wantEdited := []issue.PublishedIssue{
+		{Key: "42", Number: 42, URL: "https://github.com/owner/repo/issues/42"},
+	}
+	if diff := cmp.Diff(wantEdited, got.Edited); diff != "" {
+		t.Errorf("Publish edited (-want +got):\n%s", diff)
 	}
 }
 
