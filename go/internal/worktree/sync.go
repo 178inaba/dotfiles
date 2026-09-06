@@ -60,10 +60,9 @@ func fastForwardOrDirty(ctx context.Context, r runner.Runner, dir, target string
 //
 // A commit the repository does not hold answers false rather than raising:
 // `git merge-base --is-ancestor` exits 128 on a name it cannot resolve, and to
-// every caller here a commit that is not there is one nothing is reachable
-// from. That makes the direction a caller asks in load-bearing — the pull
-// request check phrases its question so that an unfetched head falls on the
-// side that tells the operator to sync.
+// a caller a commit that is not there is one nothing is reachable from. Which
+// of the two a caller passes is therefore load-bearing whenever one of them may
+// be absent.
 func IsAncestor(ctx context.Context, r runner.Runner, dir, ancestor, descendant string) bool {
 	_, err := r.Run(ctx, runner.Command{
 		Name: "git",

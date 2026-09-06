@@ -189,12 +189,12 @@ func (t Target) repository() (ghapi.Repo, error) {
 // describes, which is what posting a review is held to.
 //
 // A review is written against one document and is posted on that document's
-// head: every remark is anchored to a line of that diff, and a comment on a
-// line that no longer means what it did is one GitHub rejects outright — while
-// a thread resolved against a diff since undone is worse, because nothing
-// rejects that. The commands that reply to and comment on a pull request are
-// held to something different, since their run pushes between fetching the
-// document and posting: see RequirePushedHead.
+// head, and the tie is mechanical: checkAnchors matches every remark against
+// the diff it reads out of this very checkout, so the local tree has to be the
+// state the remarks were written against or the anchoring check is judging the
+// wrong diff. The commands that reply to and comment on a pull request are held
+// to something different, since their run pushes between fetching the document
+// and posting: see RequirePushedHead.
 func RequireHead(ctx context.Context, r runner.Runner, dir, headOID, before string) error {
 	local, err := localHead(ctx, r, dir)
 	if err != nil {

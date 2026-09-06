@@ -471,11 +471,9 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 			if err := pullrequest.RequireInWorkDir(threadsFile, "threads_path", contextFile); err != nil {
 				return silent(err)
 			}
-			// The client is built here rather than where the replies are
-			// posted, because the head check now reads the pull request's live
-			// head. The check keeps its place ahead of parsing the threads
-			// file: a run with nothing to post still checks, which costs one
-			// round trip on a rare path and leaves nothing to reason about.
+			// The check keeps its place ahead of parsing the threads file, so a
+			// run with nothing to post still checks: that costs one round trip
+			// on a rare path and leaves nothing to reason about.
 			client, err := ghapi.New(ghapi.Options{})
 			if err != nil {
 				return silent(err)

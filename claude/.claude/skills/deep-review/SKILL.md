@@ -409,6 +409,6 @@ ccx pr reply-threads <context_path> <threads_path>
 ## 注意事項
 - `ccx pr prepare-review` が非ゼロ exit した場合（明示指定 PR の不在・コンテキスト取得失敗等）は stderr を提示して停止する。「PR なし」縮退（`pr_exists: false`）と混同しない
 - **`--worktree` 指定時の挙動**: `worktree-resolution` の注意事項を参照
-- **鮮度ガード**: `ccx pr prepare-review` が差分取得前に鮮度確認を実行し、**外部へ書き込む 2 つのサブコマンドが実行直前にそれぞれ独自に再確認する**（停止条件の正は worktree-resolution の「共通サブ手順: PR head との鮮度確認」）。確認する対象は 2 つで異なる:
-  - `ccx pr post-review`: ローカル HEAD == ドキュメントの `pr.head_oid`。レビューは 1 つのドキュメントに対して書かれ、各指摘はその差分の行に紐付くので、まさにその状態にしか投稿できない
-  - `ccx pr reply-threads`: ローカル HEAD == GitHub が今持つ PR の head、かつドキュメントの `pr.head_oid` がローカル HEAD の祖先。作者が実行中に push した場合は「同期せよ」と言って拒否されるので、同期してから再実行する（ローカルに未 push のコミットがある場合は「push せよ」、rebase / force-push でドキュメントの head が枝から外れた場合は「同期して `ccx pr context` を取り直せ」）
+- **鮮度ガード**: 開始時の鮮度確認は `ccx pr prepare-review` が差分取得前に実行する（停止条件の正は worktree-resolution の「共通サブ手順: PR head との鮮度確認」）。加えて**外部へ書き込む 2 つのサブコマンドが実行直前にそれぞれ独自に再確認し、その内容は 2 つで異なる**（正は各コマンドの `--help`）:
+  - `ccx pr post-review`: ローカル HEAD == ドキュメントの `pr.head_oid`。各指摘はドキュメントの差分の行に紐付くので、まさにその状態にしか投稿できない
+  - `ccx pr reply-threads`: ローカル HEAD == GitHub が今持つ PR の head、かつドキュメントの `pr.head_oid` がその祖先。レビュー中に作者が push すると拒否されるので、拒否文が名指す操作（同期・push・`ccx pr context` の取り直しのいずれか）を実施してから再実行する

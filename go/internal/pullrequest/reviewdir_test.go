@@ -158,8 +158,17 @@ func prHandler(t *testing.T, liveHead string) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":{"number":5,"headRefOid":%q}}}}`, liveHead)
+		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, prNode("owner", liveHead))
 	})
+}
+
+// unrelatedCommit is a commit in a repository of its own, so that it is a name
+// the checkout under test cannot resolve — which is what a head pushed during
+// the run looks like from here.
+func unrelatedCommit(t *testing.T, name string) string {
+	t.Helper()
+
+	return gittest.Rev(t, gittest.InitWithCommit(t, filepath.Join(t.TempDir(), name)), "HEAD")
 }
 
 // TestRequirePushedHead is the check the two reply commands make now that a run
@@ -207,15 +216,13 @@ func TestRequirePushedHead(t *testing.T) {
 		}
 	})
 
-	// The live head is one the author pushed during the run, so it is not in
-	// this repository at all. That absence is the ordinary shape of this case,
-	// and the reason the ancestry is tested in the direction it is: asked the
-	// other way round, a missing commit reads as "not an ancestor" and a
-	// reviewer who cannot push is told to push.
+	// The live head is one the author pushed during the run, so this checkout
+	// cannot resolve it — the ordinary shape of this case, and what an ancestry
+	// test asked the other way round would answer wrongly.
 	t.Run("the checkout is behind", func(t *testing.T) {
 		t.Parallel()
 
-		elsewhere := gittest.Rev(t, gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "elsewhere")), "HEAD")
+		elsewhere := unrelatedCommit(t, "elsewhere")
 		c := ghapitest.New(t, prHandler(t, elsewhere))
 		err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(head), "replying")
 		if err == nil {
@@ -233,7 +240,7 @@ func TestRequirePushedHead(t *testing.T) {
 	t.Run("the document's head is not an ancestor", func(t *testing.T) {
 		t.Parallel()
 
-		aside := gittest.Rev(t, gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "aside")), "HEAD")
+		aside := unrelatedCommit(t, "aside")
 		c := ghapitest.New(t, prHandler(t, head))
 		err := pullrequest.RequirePushedHead(t.Context(), runner.Exec{}, c, repo, target(aside), "replying")
 		if err == nil {

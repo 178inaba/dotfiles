@@ -74,11 +74,9 @@ func ParseCommentBody(workDir, bodyFile string) (string, error) {
 // the comment's opening line.
 //
 // The mark is resolved before anything else, then the joined text is judged,
-// and the head is confirmed after that: the local HEAD has to be the pull
-// request's head as GitHub holds it now, with the document's head an ancestor
-// of it. A report written against a checkout that is not what the pull request
-// really has is about code nobody else can see, and there is nothing to be
-// done about it once it is published.
+// and the head is confirmed after that — see RequirePushedHead for what it
+// compares. A report published from a checkout the pull request does not have
+// is about code nobody else can see, and nothing undoes it.
 //
 // What is judged is the joined text rather than what the caller wrote, because
 // that is what GitHub renders. The marker holds nothing the judgement is about,
