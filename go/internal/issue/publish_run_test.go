@@ -336,11 +336,21 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	file := writeManifest(t, m, parentAndSubFiles())
 	g := newFakeGitHub()
 
-	// What the same manifest's dry run says the run will write, so that the
-	// result is held against the plan rather than against a second judgement.
+	// What the run says it will write before it writes anything, so that the
+	// same case pins both halves of the promise that the two are one set.
 	plan, err := issue.PublishDryRun(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("PublishDryRun: %v", err)
+	}
+	// The parent and SUB_A go out holding a forward reference, so the write
+	// stage fills each of them in; SUB_B names only the issue created before
+	// it, so its body is finished at its create and it is written once.
+	wantEdit := []issue.PlannedIssue{
+		{Key: "PARENT", Title: "A title", Labels: []string{"enhancement"}},
+		{Key: "SUB_A", Title: "A title", Labels: []string{"enhancement"}},
+	}
+	if diff := cmp.Diff(wantEdit, plan.Edit); diff != "" {
+		t.Errorf("PublishDryRun planned to edit (-want +got):\n%s", diff)
 	}
 
 	got, err := issue.Publish(t.Context(), g.client(t), m, file)
@@ -357,18 +367,14 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 		t.Errorf("Publish created (-want +got):\n%s", diff)
 	}
 
-	// The parent and SUB_A go out holding a forward reference, so the write
-	// stage fills each of them in; SUB_B names only the issue created before
-	// it, so its body is finished at its create and it is written once.
+	// The issues the plan listed under edit, and no others, now carrying the
+	// numbers they were given.
 	wantEdited := []issue.PublishedIssue{
 		{Key: "PARENT", Number: 101, URL: "https://github.com/owner/repo/issues/101"},
 		{Key: "SUB_A", Number: 102, URL: "https://github.com/owner/repo/issues/102"},
 	}
 	if diff := cmp.Diff(wantEdited, got.Edited); diff != "" {
 		t.Errorf("Publish edited (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(plannedKeys(plan.Edit), publishedKeys(got.Edited)); diff != "" {
-		t.Errorf("the run wrote other issues than its dry run planned (-plan +run):\n%s", diff)
 	}
 
 	// Every body ends up carrying real numbers, forward references included.
@@ -392,28 +398,10 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	}
 }
 
-// plannedKeys and publishedKeys are how a plan and a result are compared: the
-// plan carries 0 where the run carries the number it assigned, so the keys are
-// what the two say in the same terms.
-func plannedKeys(planned []issue.PlannedIssue) []string {
-	keys := []string{}
-	for _, p := range planned {
-		keys = append(keys, p.Key)
-	}
-	return keys
-}
-
-func publishedKeys(published []issue.PublishedIssue) []string {
-	keys := []string{}
-	for _, p := range published {
-		keys = append(keys, p.Key)
-	}
-	return keys
-}
-
-// TestPublishLeavesAFinishedBodyAlone is the other half of the rule the result
-// follows: an issue created with nothing left to fill in is written once, so
-// it appears under created and nowhere else.
+// TestPublishLeavesAFinishedBodyAlone guards the gate rather than the append:
+// an issue created with nothing left to fill in is never written a second
+// time, so a run that reports it as edited is reporting a write it did not
+// make.
 func TestPublishLeavesAFinishedBodyAlone(t *testing.T) {
 	t.Parallel()
 
