@@ -9,18 +9,12 @@
 //
 // More than those two read a body, though, and the reading is what they all
 // share rather than the verdict: issue's section check asks which lines of a
-// draft are prose, and plandocs blanks a plan document's code out before
-// looking for the links and imports in it. None of them owns the reading, so
-// it lives here rather than in whichever of them wrote it first — a copy in a
-// caller drifts the next time this one is corrected, which is what plandocs'
-// own scanner had done in six places by the time it was retired.
-//
-// One reader is still outside, and left there rather than argued out of the
-// rule: skill's backticked reads the same notation more coarsely, splitting a
-// line on backticks without measuring the run, and it wants what is inside a
-// span rather than the prose around it — fenced examples included, where Span
-// stops at the block. Moving it is a change to what that check finds, which
-// is why it is a separate decision and not an oversight of this one.
+// draft are prose, plandocs blanks a plan document's code out before looking
+// for the links and imports in it, and skill's contract check wants the names
+// a SKILL.md writes in a code span. None of them owns the reading, so it lives
+// here rather than in whichever of them wrote it first — a copy in a caller
+// drifts the next time this one is corrected, which is what plandocs' own
+// scanner had done in six places by the time it was retired.
 //
 // A notation whose meaning depends on that reading belongs here too, even
 // where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
