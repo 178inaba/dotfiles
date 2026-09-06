@@ -242,6 +242,7 @@ here loses no command that would otherwise have succeeded.
 `, attemptedCommand(argv), source, reason, unreadableFileFix("the query", "input"))
 }
 
+// quotedClosingKeywordMessage is the fourth rule.
 func quotedClosingKeywordMessage(refusal, source string) string {
 	return bodyRuleMessage("the pull request body holds a closing keyword inside backticks", refusal, source)
 }

@@ -173,12 +173,15 @@ func (c *Client) AppendToPullRequestBody(ctx context.Context, repo Repo, number 
 	// from a file written with LF, so neither the search nor the join can go
 	// by the bytes as they arrive.
 	current := strings.ReplaceAll(pr.Body, "\r\n", "\n")
+	// Trimmed on both sides of the join as well as of the search, so that the
+	// one blank line between them holds for a section file that opens or ends
+	// with blank lines of its own.
 	text := strings.TrimSpace(section.String())
 	if text != "" && strings.Contains(current, text) {
 		return "", fmt.Errorf("the section is already in the body of %s#%d, so nothing was appended", repo, number)
 	}
 
-	body := section.String()
+	body := text + "\n"
 	if trimmed := strings.TrimRight(current, "\n"); trimmed != "" {
 		body = trimmed + "\n\n" + body
 	}

@@ -360,8 +360,9 @@ section is added to is read from GitHub at the moment of the write rather than
 taken from the document: a body has no version to compare, so a document
 fetched an hour ago would silently undo whatever was typed into the
 description since. The body already there is kept whatever it says — it is
-what a person wrote — and the two are joined by one blank line, or the section
-stands alone where the body was empty.
+what a person wrote, and only its line endings are normalised — and the two
+are joined by one blank line, or the section stands alone where the body was
+empty.
 
 The section is judged before the body is read: one that numbers its items with
 bare #N is refused, because GitHub autolinks such a run and notifies unrelated

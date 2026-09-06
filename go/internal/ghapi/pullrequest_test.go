@@ -466,6 +466,29 @@ func TestAppendToPullRequestBody(t *testing.T) {
 	}
 }
 
+// One blank line between the body and the section, whatever the section file
+// happens to open and end with: a file written by hand carries blank lines
+// nobody meant as content, and two of them read as a gap in the rendering.
+func TestAppendToPullRequestBodyKeepsTheJoinToOneBlankLine(t *testing.T) {
+	t.Parallel()
+
+	var sent edit
+	c := ghapitest.New(t, appendServer(t, "The original description.\n\n", &sent))
+
+	body, err := ghapi.NewPullRequestBody("\n\n## The decision\n\nKept as it is.\n\n\n")
+	if err != nil {
+		t.Fatalf("NewPullRequestBody: %v", err)
+	}
+	if _, err := c.AppendToPullRequestBody(t.Context(), repo, 7, body); err != nil {
+		t.Fatalf("AppendToPullRequestBody: %v", err)
+	}
+
+	want := "The original description.\n\n## The decision\n\nKept as it is.\n"
+	if sent.body != want {
+		t.Errorf("body sent = %q, want %q", sent.body, want)
+	}
+}
+
 // A second run of the same escalation would otherwise write the section twice,
 // which is what a retry after a reply that never reached GitHub looks like.
 // The stored body comes back with CRLF line endings, so the comparison cannot
