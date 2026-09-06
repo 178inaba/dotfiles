@@ -36,26 +36,26 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 
 // newHookCmd builds `ccx hook`. Every hook is a subcommand of it, so a name
 // that settings.json got wrong is a cobra error rather than an exit 0.
-func newHookCmd(build selfbuild.State) *cobra.Command {
+func newHookCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
-		leafHookCmd("start-caffeinate", "Hold the machine awake while Claude Code works", build,
+		leafHookCmd("start-caffeinate", "Hold the machine awake while Claude Code works", deps,
 			func() hook { return caffeinate.NewStart(caffeinate.Default()) }),
-		stopCaffeinateCmd(build),
-		leafHookCmd("idle-notify", "Notify unless a subagent is still running", build,
+		stopCaffeinateCmd(deps),
+		leafHookCmd("idle-notify", "Notify unless a subagent is still running", deps,
 			func() hook { return notify.NewIdle(notify.Default()) }),
-		leafHookCmd("issue-handle-guard", "Refuse the end of a turn while issue-handle is unfinished", build,
+		leafHookCmd("issue-handle-guard", "Refuse the end of a turn while issue-handle is unfinished", deps,
 			func() hook { return issuehandle.New() }),
-		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", build,
+		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", deps,
 			func() hook { return noopwait.New() }),
-		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", build,
+		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", deps,
 			func() hook { return skillcheck.New() }),
-		leafHookCmd("slack-notify", "Post the notification to Slack", build,
+		leafHookCmd("slack-notify", "Post the notification to Slack", deps,
 			func() hook { return notify.NewSlack(notify.Default()) }),
-		subagentTrackerCmd(build),
-		leafHookCmd("worktree-edit-guard", "Block an edit that leaves the current worktree", build,
+		subagentTrackerCmd(deps),
+		leafHookCmd("worktree-edit-guard", "Block an edit that leaves the current worktree", deps,
 			func() hook { return worktreeguard.New(runner.Exec{}) }),
-		leafHookCmd("terminal-bell", "Ring the terminal bell", build,
+		leafHookCmd("terminal-bell", "Ring the terminal bell", deps,
 			func() hook { return notify.NewBell() }),
 	)
 	return c
@@ -64,9 +64,9 @@ func newHookCmd(build selfbuild.State) *cobra.Command {
 // stopCaffeinateCmd is the stop half, registered on four events with two
 // flags between them. Neither flag is the ordinary end of a turn, which is why
 // the mode with no flag is the one that stops the session's own caffeinate.
-func stopCaffeinateCmd(build selfbuild.State) *cobra.Command {
+func stopCaffeinateCmd(deps Deps) *cobra.Command {
 	var agentDone, force bool
-	c := leafHookCmd("stop-caffeinate", "Let the machine sleep again", build,
+	c := leafHookCmd("stop-caffeinate", "Let the machine sleep again", deps,
 		func() hook {
 			mode := caffeinate.Session
 			switch {
@@ -87,9 +87,9 @@ func stopCaffeinateCmd(build selfbuild.State) *cobra.Command {
 // flag each. cobra rejects a wrong number of them rather than picking one, so
 // an entry in settings.json that asks for two, or for none, is a startup error
 // and not a marker quietly written for the wrong event.
-func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
+func subagentTrackerCmd(deps Deps) *cobra.Command {
 	var start, stop, sessionEnd bool
-	c := leafHookCmd("subagent-tracker", "Track which subagents are running", build,
+	c := leafHookCmd("subagent-tracker", "Track which subagents are running", deps,
 		func() hook {
 			mode := notify.Start
 			switch {
@@ -115,13 +115,13 @@ func subagentTrackerCmd(build selfbuild.State) *cobra.Command {
 // rather than passed in, so that one with flags sees the values cobra has by
 // then parsed into the variables its registration closed over — and so that
 // the discarded subcommands construct no dependencies.
-func leafHookCmd(use, short string, build selfbuild.State, newHook func() hook) *cobra.Command {
+func leafHookCmd(use, short string, deps Deps, newHook func() hook) *cobra.Command {
 	return &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runHook(c.Context(), newHook(), build,
+			return runHook(c.Context(), newHook(), deps.Build,
 				c.InOrStdin(), c.OutOrStdout(), c.ErrOrStderr())
 		},
 	}

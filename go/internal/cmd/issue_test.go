@@ -106,7 +106,7 @@ func TestIssueSectionsStatus(t *testing.T) {
 			t.Parallel()
 
 			var stdout, stderr bytes.Buffer
-			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, selfbuild.State{})
+			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, Deps{})
 
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d (stderr=%q)", code, tt.wantCode, stderr.String())
@@ -155,7 +155,7 @@ func TestIssueSectionsJSON(t *testing.T) {
 			t.Parallel()
 
 			var stdout, stderr bytes.Buffer
-			if code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, selfbuild.State{}); code != 0 {
+			if code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, Deps{}); code != 0 {
 				t.Fatalf("exit code = %d, want 0 (stderr=%q)", code, stderr.String())
 			}
 			if stderr.Len() != 0 {
@@ -182,7 +182,7 @@ func TestIssueSectionsBareParentPrintsHelp(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	if code := run(t.Context(), []string{"issue", "sections"}, strings.NewReader(""), &stdout, &stderr, selfbuild.State{}); code != 0 {
+	if code := run(t.Context(), []string{"issue", "sections"}, strings.NewReader(""), &stdout, &stderr, Deps{}); code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
 	if !strings.Contains(stdout.String(), "Available Commands:") {
@@ -244,7 +244,7 @@ func TestIssueSectionsPreconditions(t *testing.T) {
 			t.Parallel()
 
 			var stdout, stderr bytes.Buffer
-			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, selfbuild.State{})
+			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, Deps{})
 
 			if code != 1 {
 				t.Errorf("exit code = %d, want 1 (stdout=%q stderr=%q)", code, stdout.String(), stderr.String())
@@ -268,7 +268,7 @@ func TestScriptSubcommandReportsABrokenBuildOnStderr(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	build := selfbuild.State{Failed: true, JustFailed: true, FirstError: "issue/sections.go:1:1: nope"}
-	if code := run(t.Context(), []string{"issue", "sections", "schema", "depends_on"}, strings.NewReader(""), &stdout, &stderr, build); code != 0 {
+	if code := run(t.Context(), []string{"issue", "sections", "schema", "depends_on"}, strings.NewReader(""), &stdout, &stderr, Deps{Build: build}); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
 

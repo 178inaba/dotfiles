@@ -13,27 +13,26 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 // newPRCmd builds `ccx pr`, the commands that work from a pull request.
-func newPRCmd(build selfbuild.State) *cobra.Command {
+func newPRCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
-	c.AddCommand(prContextCmd(build), prPrepareReviewCmd(build), prFreshnessCmd(build), prPostReviewCmd(build),
-		prReplyThreadsCmd(build), prSeenCmd(build), prCommentCmd(build), prBodyAppendCmd(build))
+	c.AddCommand(prContextCmd(deps), prPrepareReviewCmd(deps), prFreshnessCmd(deps), prPostReviewCmd(deps),
+		prReplyThreadsCmd(deps), prSeenCmd(deps), prCommentCmd(deps), prBodyAppendCmd(deps))
 	return c
 }
 
 // prFreshnessCmd builds `ccx pr freshness`, the guard /deep-review and
 // /review-response run before they read a diff or apply a fix.
-func prFreshnessCmd(build selfbuild.State) *cobra.Command {
+func prFreshnessCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "freshness <pr-context.json>",
 		Short: "Compare the checkout here with the pull request's head",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			content, err := readFile(args[0], "pr context file")
 			if err != nil {
 				return silent(err)
@@ -64,13 +63,13 @@ func prFreshnessCmd(build selfbuild.State) *cobra.Command {
 // subagents share one scratch directory and a fixed name has already caused
 // one to read another repository's pull request. The work dir comes with it,
 // since a caller that goes on to reply to threads writes into it.
-func prContextCmd(build selfbuild.State) *cobra.Command {
+func prContextCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "context <out-dir> [<pr-number>]",
 		Short: "Fetch a pull request's comments, reviews and threads into a file",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			outDir := args[0]
 			if info, err := os.Stat(outDir); err != nil || !info.IsDir() {
 				return silent(fmt.Errorf("output directory not found: %s", outDir))
@@ -87,7 +86,7 @@ func prContextCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -227,13 +226,13 @@ func storeSeen(path string, s pullrequest.Seen) error {
 // is the instant that document was read at: a number would leave the command
 // to fetch one for itself, and the mark would then be later than the judgment
 // it stands for, silently retiring whatever arrived in between.
-func prSeenCmd(build selfbuild.State) *cobra.Command {
+func prSeenCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "seen <pr-context.json>",
 		Short: "Record that a run judged this pull request",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			content, err := readFile(args[0], "pr context file")
 			if err != nil {
 				return silent(err)
@@ -259,7 +258,7 @@ func prSeenCmd(build selfbuild.State) *cobra.Command {
 // prPrepareReviewCmd builds `ccx pr prepare-review`, which /deep-review opens
 // with: it settles which pull request, whether the checkout matches it, its
 // context, its freshness and which mode the review runs in, in one call.
-func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
+func prPrepareReviewCmd(deps Deps) *cobra.Command {
 	var issue int
 	var worktreeFlag, localOnly, noAutofix bool
 	c := &cobra.Command{
@@ -267,7 +266,7 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 		Short: "Settle everything a review needs before it starts",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			scratch := args[0]
 			if info, err := os.Stat(scratch); err != nil || !info.IsDir() {
 				return silent(fmt.Errorf("scratchpad directory not found: %s", scratch))
@@ -280,7 +279,7 @@ func prPrepareReviewCmd(build selfbuild.State) *cobra.Command {
 				}
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -345,13 +344,13 @@ func contextLimits() (pullrequest.Limits, error) {
 	return limits, nil
 }
 
-func prPostReviewCmd(build selfbuild.State) *cobra.Command {
+func prPostReviewCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "post-review <pr-context.json> <review-file>",
 		Short: "Post a review, after checking every comment still anchors to the diff",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			contextFile, reviewFile := args[0], args[1]
 			context, err := readFile(contextFile, "pr context file")
 			if err != nil {
@@ -377,7 +376,7 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -397,14 +396,14 @@ func prPostReviewCmd(build selfbuild.State) *cobra.Command {
 // written as a shell argument loses its markdown to one missed escape. The
 // file has to sit in the work dir paired with the document, which is what
 // keeps parallel runs on different pull requests out of each other's files.
-func prCommentCmd(build selfbuild.State) *cobra.Command {
+func prCommentCmd(deps Deps) *cobra.Command {
 	var mark, bodyFile string
 	cmd := &cobra.Command{
 		Use:   "comment <pr-context.json> --mark <name> --body-file <name>",
 		Short: "Post a comment on the pull request, marked as ours",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			contextFile := args[0]
 			content, err := readFile(contextFile, "pr context file")
 			if err != nil {
@@ -425,7 +424,7 @@ func prCommentCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -454,14 +453,14 @@ func prCommentCmd(build selfbuild.State) *cobra.Command {
 // cannot undo an edit made since — and a file holding only the section cannot
 // wipe the rest of the body, which is what made the `gh pr edit` this replaces
 // a footgun.
-func prBodyAppendCmd(build selfbuild.State) *cobra.Command {
+func prBodyAppendCmd(deps Deps) *cobra.Command {
 	var bodyFile string
 	cmd := &cobra.Command{
 		Use:   "body-append <pr-context.json> --body-file <name>",
 		Short: "Append one section to the pull request's body",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			contextFile := args[0]
 			content, err := readFile(contextFile, "pr context file")
 			if err != nil {
@@ -483,7 +482,7 @@ func prBodyAppendCmd(build selfbuild.State) *cobra.Command {
 				return silent(err)
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -501,14 +500,14 @@ func prBodyAppendCmd(build selfbuild.State) *cobra.Command {
 	return cmd
 }
 
-func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
+func prReplyThreadsCmd(deps Deps) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "reply-threads <pr-context.json> <threads-file>",
 		Short: "Reply to and resolve the review threads it is our move on",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			contextFile, threadsFile := args[0], args[1]
 			context, err := readFile(contextFile, "pr context file")
 			if err != nil {
@@ -529,7 +528,7 @@ func prReplyThreadsCmd(build selfbuild.State) *cobra.Command {
 			// The check keeps its place ahead of parsing the threads file, so a
 			// run with nothing to post still checks: that costs one round trip
 			// on a rare path and leaves nothing to reason about.
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}

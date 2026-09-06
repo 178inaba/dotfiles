@@ -6,29 +6,27 @@ import (
 	"github.com/cli/go-gh/v2/pkg/config"
 	"github.com/spf13/cobra"
 
-	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/reviewprs"
 	"github.com/178inaba/dotfiles/go/internal/runner"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
 // newReviewCmd builds `ccx review`, the three questions /review-assigned-prs
 // asks around each pass of its loop: what to review, where to review it, and
 // whether the review arrived.
-func newReviewCmd(build selfbuild.State) *cobra.Command {
+func newReviewCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("review", "Review the pull requests assigned to this user")
-	c.AddCommand(reviewPendingCmd(build), reviewVerifyCmd(build), reviewCloneCmd(build))
+	c.AddCommand(reviewPendingCmd(deps), reviewVerifyCmd(deps), reviewCloneCmd(deps))
 	return c
 }
 
-func reviewPendingCmd(build selfbuild.State) *cobra.Command {
+func reviewPendingCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "pending",
 		Short: "List the pull requests waiting for this user's review",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			reportBuild(c, build)
-			client, err := ghapi.New(ghapi.Options{})
+			reportBuild(c, deps.Build)
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -41,13 +39,13 @@ func reviewPendingCmd(build selfbuild.State) *cobra.Command {
 	}
 }
 
-func reviewVerifyCmd(build selfbuild.State) *cobra.Command {
+func reviewVerifyCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "verify <owner>/<repo>#<number>...",
 		Short: "Check that this user's review reached each pull request",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			specs := make([]reviewprs.Spec, 0, len(args))
 			for _, arg := range args {
 				s, err := reviewprs.ParseSpec(arg)
@@ -57,7 +55,7 @@ func reviewVerifyCmd(build selfbuild.State) *cobra.Command {
 				specs = append(specs, s)
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -70,13 +68,13 @@ func reviewVerifyCmd(build selfbuild.State) *cobra.Command {
 	}
 }
 
-func reviewCloneCmd(build selfbuild.State) *cobra.Command {
+func reviewCloneCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "clone <owner>/<repo>",
 		Short: "Make a review clone of a repository available",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			repo, err := reviewprs.ParseOwnerRepo(args[0])
 			if err != nil {
 				return err

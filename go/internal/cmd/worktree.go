@@ -7,10 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/178inaba/dotfiles/go/internal/ghapi"
-
 	"github.com/178inaba/dotfiles/go/internal/runner"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
@@ -19,10 +16,10 @@ import (
 //
 // Every one of these runs from anywhere inside the repository and resolves the
 // main worktree itself, because a skill may be running in a worktree already.
-func newWorktreeCmd(build selfbuild.State) *cobra.Command {
+func newWorktreeCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("worktree", "Create and resolve the worktrees the skills work in")
-	c.AddCommand(worktreeDetectCmd(build), worktreeCreateCmd(build), worktreeResolveCmd(build), worktreeCheckoutCmd(build),
-		worktreeCollectCmd(build), worktreeDeleteCmd(build))
+	c.AddCommand(worktreeDetectCmd(deps), worktreeCreateCmd(deps), worktreeResolveCmd(deps), worktreeCheckoutCmd(deps),
+		worktreeCollectCmd(deps), worktreeDeleteCmd(deps))
 	return c
 }
 
@@ -37,13 +34,13 @@ func mainRoot(c *cobra.Command) (string, error) {
 	return worktree.MainRoot(c.Context(), runner.Exec{}, dir)
 }
 
-func worktreeDetectCmd(build selfbuild.State) *cobra.Command {
+func worktreeDetectCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "detect <issue-number>",
 		Short: "Find the worktree an issue is already being worked on in",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			issue, err := issueNumber(args[0])
 			if err != nil {
 				return err
@@ -61,13 +58,13 @@ func worktreeDetectCmd(build selfbuild.State) *cobra.Command {
 	}
 }
 
-func worktreeCreateCmd(build selfbuild.State) *cobra.Command {
+func worktreeCreateCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "create <worktree-name> <branch> <base-branch>",
 		Short: "Create a worktree for a new branch off a base branch",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			root, err := mainRoot(c)
 			if err != nil {
 				return silent(err)
@@ -85,13 +82,13 @@ func worktreeCreateCmd(build selfbuild.State) *cobra.Command {
 // worktree-resolution procedure /deep-review and /review-response run for
 // --worktree. The second half is worktreeCheckoutCmd; switching the session is
 // the caller's, because no command can see the session's state.
-func worktreeResolveCmd(build selfbuild.State) *cobra.Command {
+func worktreeResolveCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "resolve [<pr-number>]",
 		Short: "Find the worktree for a pull request, or prepare to make one",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			// Zero means no number was given, and the pull request is inferred
 			// from the branch checked out here.
 			number := 0
@@ -102,7 +99,7 @@ func worktreeResolveCmd(build selfbuild.State) *cobra.Command {
 				}
 			}
 
-			client, err := ghapi.New(ghapi.Options{})
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -120,13 +117,13 @@ func worktreeResolveCmd(build selfbuild.State) *cobra.Command {
 	}
 }
 
-func worktreeCheckoutCmd(build selfbuild.State) *cobra.Command {
+func worktreeCheckoutCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "checkout <worktree-name> <head-ref>",
 		Short: "Make a worktree at a pull request's head branch",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			root, err := mainRoot(c)
 			if err != nil {
 				return silent(err)
@@ -143,14 +140,14 @@ func worktreeCheckoutCmd(build selfbuild.State) *cobra.Command {
 // worktreeCollectCmd builds `ccx worktree collect`, the first half of
 // /cleanup-merged. It deletes nothing: the list goes to a person for approval,
 // and worktreeDeleteCmd takes back whatever survives that.
-func worktreeCollectCmd(build selfbuild.State) *cobra.Command {
+func worktreeCollectCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "collect",
 		Short: "List the worktrees and branches whose work is finished",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			reportBuild(c, build)
-			client, err := ghapi.New(ghapi.Options{})
+			reportBuild(c, deps.Build)
+			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
 			}
@@ -163,13 +160,13 @@ func worktreeCollectCmd(build selfbuild.State) *cobra.Command {
 	}
 }
 
-func worktreeDeleteCmd(build selfbuild.State) *cobra.Command {
+func worktreeDeleteCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete",
 		Short: "Delete the approved worktrees and branches read from standard input",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			reportBuild(c, build)
+			reportBuild(c, deps.Build)
 			in, err := io.ReadAll(c.InOrStdin())
 			if err != nil {
 				return silent(err)

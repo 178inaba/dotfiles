@@ -10,7 +10,6 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
 // TestStoreSeen is the writing half of the record: the bytes are the ones its
@@ -72,7 +71,7 @@ func TestPRSeen(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true)},
-		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code != 0 {
+		strings.NewReader(""), &out, &errOut, Deps{}); code != 0 {
 		t.Fatalf("`ccx pr seen` = %d, want 0: %s", code, errOut.String())
 	}
 
@@ -87,7 +86,7 @@ func TestPRSeen(t *testing.T) {
 	out.Reset()
 	errOut.Reset()
 	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-10T00:00:00Z", true)},
-		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code == 0 {
+		strings.NewReader(""), &out, &errOut, Deps{}); code == 0 {
 		t.Error("`ccx pr seen` on an older document = 0, want a refusal")
 	}
 }
@@ -103,7 +102,7 @@ func TestPRSeenWithoutTheVariable(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	if code := run(t.Context(), []string{"pr", "seen", contextDocument(t, "2026-01-11T00:00:00Z", true)},
-		strings.NewReader(""), &out, &errOut, selfbuild.State{}); code != 0 {
+		strings.NewReader(""), &out, &errOut, Deps{}); code != 0 {
 		t.Fatalf("`ccx pr seen` = %d, want 0: %s", code, errOut.String())
 	}
 
@@ -123,7 +122,7 @@ func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
 	code := run(t.Context(), []string{
 		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z", true),
 		"--mark", "other", "--body-file", "nowhere.md",
-	}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
+	}, strings.NewReader(""), &out, &errOut, Deps{})
 
 	if code == 0 {
 		t.Fatal("`ccx pr comment --mark other` = 0, want a refusal")
@@ -157,7 +156,7 @@ func TestPRBodyAppendRefusesBeforeItReachesGitHub(t *testing.T) {
 			code := run(t.Context(), []string{
 				"pr", "body-append", contextDocument(t, "2026-01-11T00:00:00Z", tt.isOwnPR),
 				"--body-file", tt.bodyFile,
-			}, strings.NewReader(""), &out, &errOut, selfbuild.State{})
+			}, strings.NewReader(""), &out, &errOut, Deps{})
 
 			if code == 0 {
 				t.Fatalf("`ccx pr body-append` = 0, want a refusal")

@@ -50,9 +50,11 @@ func RefreshFX(ctx context.Context, cacheDir string, now time.Time) error {
 	return fxrate.Refresh(ctx, http.DefaultClient, fxrate.APIURL, cacheDir, now)
 }
 
-// RefreshPR asks GitHub about a branch's pull request. The client is a
-// constructor rather than a client for the reason prinfo.Refresh documents.
-func RefreshPR(ctx context.Context, r runner.Runner, cacheDir, cacheKey, branch, dir string, now time.Time) error {
-	newClient := func() (*ghapi.Client, error) { return ghapi.New(ghapi.Options{}) }
+// RefreshPR asks GitHub about a branch's pull request. The client arrives as a
+// constructor rather than a client for the reason prinfo.Refresh documents, and
+// is passed in rather than built here so that the command tree keeps the one
+// place where a client is constructed.
+func RefreshPR(ctx context.Context, r runner.Runner, newClient func() (*ghapi.Client, error),
+	cacheDir, cacheKey, branch, dir string, now time.Time) error {
 	return prinfo.Refresh(ctx, r, newClient, cacheDir, cacheKey, branch, dir, now)
 }

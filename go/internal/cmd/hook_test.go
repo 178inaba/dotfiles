@@ -212,7 +212,7 @@ func TestHookCommand(t *testing.T) {
 			t.Parallel()
 
 			var stdout, stderr bytes.Buffer
-			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, selfbuild.State{})
+			code := run(t.Context(), tt.args, strings.NewReader(""), &stdout, &stderr, Deps{})
 
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d (stdout=%q stderr=%q)", code, tt.wantCode, stdout.String(), stderr.String())

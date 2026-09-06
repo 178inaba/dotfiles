@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/contract"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 )
 
 // TestContractsRender is what stops the degradation in help.String shipping:
@@ -64,7 +63,7 @@ func TestNoGoNamesInTheRenderedContract(t *testing.T) {
 // the help hook looks a command up by its path, so a key matching no command
 // is a contract nobody reaches.
 func TestContractsNameRealCommands(t *testing.T) {
-	root := newRootCmd(selfbuild.State{})
+	root := newRootCmd(Deps{})
 
 	paths := map[string]bool{}
 	var walk func(*cobra.Command)
@@ -87,7 +86,7 @@ func TestContractsNameRealCommands(t *testing.T) {
 // the table, which is what the hook on the root is for.
 func TestHelpRendersTheContract(t *testing.T) {
 	var out bytes.Buffer
-	if code := run(t.Context(), []string{"worktree", "collect", "--help"}, nil, &out, io.Discard, selfbuild.State{}); code != 0 {
+	if code := run(t.Context(), []string{"worktree", "collect", "--help"}, nil, &out, io.Discard, Deps{}); code != 0 {
 		t.Fatalf("--help exited %d", code)
 	}
 	for _, want := range []string{"Output (JSON on standard output)", "in_use_by_process", "Exit status:"} {
