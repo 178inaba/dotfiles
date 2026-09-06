@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -117,6 +118,18 @@ func TestPRSeenWithoutTheVariable(t *testing.T) {
 	}
 }
 
+// noClient is what a command that must not reach GitHub is given: a
+// constructor that fails the test by name rather than the nil one a bare Deps
+// carries, so that a run which does reach it says what it broke.
+func noClient(t *testing.T) Deps {
+	t.Helper()
+
+	return Deps{NewClient: func() (*ghapi.Client, error) {
+		t.Error("the command asked for a client, want the refusal to come first")
+		return nil, errors.New("no client")
+	}}
+}
+
 // A mark the command does not own is refused on its own terms, before the body
 // is looked for. Resolving the body first reports a missing file for a run
 // whose real fault is the mark, which sends the reader to fix the wrong thing.
@@ -127,7 +140,7 @@ func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
 	code := run(t.Context(), []string{
 		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z", true, "abc123"),
 		"--mark", "other", "--body-file", "nowhere.md",
-	}, strings.NewReader(""), &out, &errOut, Deps{})
+	}, strings.NewReader(""), &out, &errOut, noClient(t))
 
 	if code == 0 {
 		t.Fatal("`ccx pr comment --mark other` = 0, want a refusal")
@@ -161,7 +174,7 @@ func TestPRBodyAppendRefusesBeforeItReachesGitHub(t *testing.T) {
 			code := run(t.Context(), []string{
 				"pr", "body-append", contextDocument(t, "2026-01-11T00:00:00Z", tt.isOwnPR, "abc123"),
 				"--body-file", tt.bodyFile,
-			}, strings.NewReader(""), &out, &errOut, Deps{})
+			}, strings.NewReader(""), &out, &errOut, noClient(t))
 
 			if code == 0 {
 				t.Fatalf("`ccx pr body-append` = 0, want a refusal")
@@ -424,9 +437,11 @@ func TestPRCommentChecksTheLiveHead(t *testing.T) {
 }
 
 // TestPRReplyThreadsChecksTheLiveHead is the same five states for the other
-// command. Nothing is posted in any of them, the accepted case included: the
-// check keeps its place ahead of the threads file, so a run with nothing to
-// say still makes it and then has nothing to send.
+// command. Nothing is posted in any of them, the accepted case included: a run
+// with nothing to say is still held to the check, and then has nothing to
+// send. Where the check sits relative to parsing the threads file is not what
+// these cases tell apart — every one of them is given a threads file that
+// parses.
 func TestPRReplyThreadsChecksTheLiveHead(t *testing.T) {
 	f := newHeadCheckFixture(t)
 
