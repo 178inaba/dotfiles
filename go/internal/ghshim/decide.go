@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
 // Env is what the decision reads from outside the argv.
@@ -155,7 +157,7 @@ func bodyBlock(c command, bf bodyFlags, argv []string, s scanned) *Block {
 		return nil
 	}
 
-	if distinct := countBareHashRefs(body); distinct >= 3 {
+	if distinct := ghmd.BareHashRefs(body); distinct >= ghmd.BareHashRefLimit {
 		return &Block{Message: bareHashRefsMessage(distinct, source)}
 	}
 	if c.noun == "pr" && (c.verb == "create" || c.verb == "edit") && hasQuotedClosingKeyword(body) {
