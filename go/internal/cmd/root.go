@@ -56,25 +56,32 @@ type Deps struct {
 	// reaching GitHub should not pay. The commands call it where they used to
 	// construct one, which is to say late.
 	NewClient func() (*ghapi.Client, error)
-	// Dir is the checkout the command acts on, carried rather than read from
-	// the process for the reason ghapi.PullRequestForCurrentBranch documents of
-	// its own dir: a default of the process's own directory is one a test
-	// forgets to override, and overriding it moves every test at once. Always
-	// absolute, which is what plan docs needs to walk up from it.
+	// Dir is the checkout the command acts on, carried for the reason
+	// ghapi.PullRequestForCurrentBranch documents of its own dir — a default
+	// of the process's directory is one a test forgets to override — and with
+	// the half this package adds: overriding it moves every test at once.
+	// Always absolute, which is what plan docs needs to walk up from it.
+	//
+	// The process's checkout rather than the session's. A command handed a
+	// payload has the better answer in it — hooks.Payload.Dir, the status
+	// line's workspace — and takes the directory from there.
 	Dir string
 }
 
 // Execute runs the tree and returns the process exit status. The self-rebuild
 // check runs first, before anything reads stdin; see selfbuild.Run.
 //
-// The one place a client is constructed, and the one place the process is
-// asked where it is running. Every other one goes through Deps, which is what
-// lets a test put ghapitest's client and a temporary repository in front of a
-// command; see TestOnlyExecuteBuildsTheClient.
+// The one place a client is constructed, and the one place this package asks
+// the process where it is running. Every other one goes through Deps, which is
+// what lets a test put ghapitest's client and a temporary repository in front
+// of a command; see TestOnlyExecuteBuildsTheClient. The status line keeps a
+// seam of its own for the payload that arrives without a directory, in
+// statusline.Config.
 //
-// A directory that cannot be read is reported here rather than carried as an
-// empty one, which would fail later and further away: as a git -C on nothing,
-// or as a plan docs walk that stops a step after it starts.
+// A directory that cannot be read stops the run here rather than travelling as
+// an empty one. Empty is not a failure anywhere downstream: git reads it as
+// "do not change directory" and plan docs walks up from the process's own,
+// which is the ambient answer this field exists to stop giving.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	build := selfbuild.Run(ctx, selfbuild.NewDeps(args))
 	dir, err := os.Getwd()

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 
@@ -23,13 +22,6 @@ func newWorktreeCmd(deps Deps) *cobra.Command {
 	return c
 }
 
-// mainRoot is the main worktree of the repository dir belongs to. The
-// directory arrives named rather than left for git to assume, so that every
-// directory these commands ask git about is one they named.
-func mainRoot(ctx context.Context, dir string) (string, error) {
-	return worktree.MainRoot(ctx, runner.Exec{}, dir)
-}
-
 func worktreeDetectCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "detect <issue-number>",
@@ -41,7 +33,7 @@ func worktreeDetectCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			root, err := mainRoot(c.Context(), deps.Dir)
+			root, err := worktree.MainRoot(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -61,7 +53,7 @@ func worktreeCreateCmd(deps Deps) *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
-			root, err := mainRoot(c.Context(), deps.Dir)
+			root, err := worktree.MainRoot(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -120,7 +112,7 @@ func worktreeCheckoutCmd(deps Deps) *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
-			root, err := mainRoot(c.Context(), deps.Dir)
+			root, err := worktree.MainRoot(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
