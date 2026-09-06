@@ -526,6 +526,39 @@ against the one recorded at collection time. --force is never used.`,
 		statuses: with(),
 	},
 
+	"worktree sweep": {
+		intro: `Remove the worktrees the harness's isolated agents left behind.
+
+The unattended counterpart of ` + "`ccx worktree collect`" + ` and
+` + "`ccx worktree delete`" + `: this runs in the middle of another procedure, so
+nothing is asked between finding and removing, and the safety is in the checks
+instead of in an approval.
+
+Recognised only by the names the harness gives an isolated agent's worktree
+and branch. A linked worktree qualifies when its path ends in
+.claude/worktrees/agent-<something> and its branch begins worktree-agent-,
+both; so does a worktree-agent- branch no worktree has checked out. Requiring
+both halves is what leaves a worktree made for an issue in the same directory
+alone. Should the harness rename either, this finds nothing, which is the
+intent — it removes nothing it did not recognise.
+
+A worktree git holds a lock on is an agent still running, in this session or
+in another: the harness locks one while its agent runs and unlocks the one it
+leaves behind. Locked ones are kept, whatever their trees look like, and
+nothing here ever unlocks anything. A leftover some process has as its working
+directory is kept too. What is left goes with git worktree remove --force,
+passed once, and its branch with git branch -D — but only where the working
+directory's own head already holds the branch's commits. A branch that carries
+more is kept with its head, and reported again by every later run until
+somebody deletes it.
+
+The exit status is 0 whenever the run reached the end, entries under kept or
+failures included. Only a broken premise — no repository, no lsof — fails the
+command itself.`,
+		blocks:   []block{prints(reflect.TypeFor[worktree.SweepReport]())},
+		statuses: with(),
+	},
+
 	"review pending": {
 		intro: `List the pull requests waiting for this user's review.
 
