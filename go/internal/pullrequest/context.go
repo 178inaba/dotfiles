@@ -140,6 +140,45 @@ type Review struct {
 	LastEditedAt *string `json:"last_edited_at"`
 }
 
+// ReviewerState is where a reviewer's review stands.
+//
+// Three of GitHub's five review states, because the other two say nothing
+// about a standing: a review the viewer has not submitted is not one yet, and
+// a dismissed one has been turned back into a comment.
+type ReviewerState string
+
+const (
+	// ReviewerApproved is a reviewer whose latest verdict was an approval.
+	ReviewerApproved ReviewerState = "APPROVED"
+	// ReviewerChangesRequested is a reviewer waiting for changes they asked
+	// for, which no later comment of theirs withdraws.
+	ReviewerChangesRequested ReviewerState = "CHANGES_REQUESTED"
+	// ReviewerCommented is a reviewer who has said something and passed no
+	// verdict — including one whose verdict was dismissed, since dismissing a
+	// review changes it into a review comment.
+	ReviewerCommented ReviewerState = "COMMENTED"
+)
+
+// Reviewer is where one reviewer's review stands.
+//
+// One element per author of a submitted review, so that a skill asking "has
+// this reviewer approved" reads the answer rather than walking reviews[] for
+// the last verdict — which is the same walk in every skill that asks.
+type Reviewer struct {
+	// Null together with author_type, for an account that no longer
+	// exists — every such review is the same reviewer here, since nothing
+	// tells two of them apart.
+	Author *string `json:"author"`
+	// The GraphQL type of the author, as the reviews carry it: a
+	// bot's standing is told from a person's without a list of bot names.
+	AuthorType *string `json:"author_type"`
+	// Where the reviewer stands.
+	State ReviewerState `json:"state" contract:"required"`
+	// When the review that settled the state was submitted, or,
+	// for a reviewer who passed no verdict, when they last said anything.
+	SubmittedAt string `json:"submitted_at" contract:"required"`
+}
+
 // ThreadComment is one comment inside a review thread.
 type ThreadComment struct {
 	Author *string `json:"author"`
@@ -238,9 +277,14 @@ type Context struct {
 	ReviewsTotalCount  int       `json:"reviews_total_count"`
 	ReviewsTruncated   bool      `json:"reviews_truncated"`
 	Reviews            []Review  `json:"reviews"`
-	ThreadsTotalCount  int       `json:"threads_total_count"`
-	ThreadsTruncated   bool      `json:"threads_truncated"`
-	ReviewThreads      []Thread  `json:"review_threads" contract:"required"`
+	// Where each reviewer stands, derived from the reviews above
+	// and so from what was fetched: with reviews_truncated an old approval may
+	// be outside the window, and this says what the reviews say rather than
+	// going null.
+	Reviewers         []Reviewer `json:"reviewers" contract:"required"`
+	ThreadsTotalCount int        `json:"threads_total_count"`
+	ThreadsTruncated  bool       `json:"threads_truncated"`
+	ReviewThreads     []Thread   `json:"review_threads" contract:"required"`
 	// The degradations that did not stop the document being
 	// useful: one line per issue that could not be read, as owner/repo#N
 	// followed by why. Empty rather than null when everything was read. What
@@ -423,6 +467,8 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			LastEditedAt: n.LastEditedAt,
 		})
 	}
+	// After the reviews are assembled, since it is a projection of them.
+	out.Reviewers = Reviewers(out.Reviews)
 	for _, n := range threads {
 		t, err := thread(ctx, c, n, me, out.IsOwnPR, headCommittedAt, limits.ThreadComments)
 		if err != nil {
@@ -436,6 +482,59 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 	// count taken by the caller would be the first fetch's.
 	out.Pending = Pending(out, ReadSeen(stateHome, repo, pr.Number))
 	return out, nil
+}
+
+// Reviewers is where each reviewer stands, read off the reviews.
+//
+// A pure function of what the document already carries, so that the answer is
+// computed once here rather than in every skill that needs it — and so that a
+// caller which fetches twice with the limits raised recomputes it by fetching
+// rather than by remembering to.
+//
+// The rule, in GitHub's own terms: a verdict is an approval or a request for
+// changes, and the latest one a reviewer passed is where they stand. A comment
+// leaves it alone, and so does a dismissal — dismissing a review "changes the
+// status of the review to a review comment", so it is still a review and may
+// still be the latest one, but it settles nothing. A review nobody has
+// submitted yet is not a review at all and is dropped, which is also what
+// keeps a null submitted_at out of the document.
+//
+// reviews are in the order the document carries them, oldest first, which is
+// what makes "the latest" the last one seen rather than a comparison of dates.
+func Reviewers(reviews []Review) []Reviewer {
+	// An account that no longer exists has no login, and two such reviews are
+	// the same reviewer here: nothing in the document tells them apart, and
+	// nothing at a consumer could either.
+	const deleted = ""
+
+	out := []Reviewer{}
+	at := map[string]int{}
+	for _, r := range reviews {
+		if r.State == "PENDING" {
+			continue
+		}
+		key := deleted
+		if r.Author != nil {
+			key = *r.Author
+		}
+		i, seen := at[key]
+		if !seen {
+			i = len(out)
+			at[key] = i
+			out = append(out, Reviewer{Author: r.Author, AuthorType: r.AuthorType, State: ReviewerCommented})
+		}
+		switch ReviewerState(r.State) {
+		case ReviewerApproved, ReviewerChangesRequested:
+			out[i].State, out[i].SubmittedAt = ReviewerState(r.State), r.SubmittedAt
+		default:
+			// Only where no verdict has been passed: a comment after an
+			// approval says nothing newer about where the reviewer stands.
+			if out[i].State == ReviewerCommented {
+				out[i].SubmittedAt = r.SubmittedAt
+			}
+		}
+	}
+	return out
 }
 
 // thread normalises one review thread, fetching the rest of its comments.

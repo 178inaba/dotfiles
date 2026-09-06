@@ -472,6 +472,19 @@ func TestFetch(t *testing.T) {
 		}
 	})
 
+	t.Run("reviewers", func(t *testing.T) {
+		// Derived from the reviews above rather than fetched, so the document
+		// answers "where does this reviewer stand" without anybody walking
+		// them.
+		want := []pullrequest.Reviewer{{
+			Author: new("reviewer1"), AuthorType: new("User"),
+			State: pullrequest.ReviewerChangesRequested, SubmittedAt: "2026-01-01T00:00:00Z",
+		}}
+		if diff := cmp.Diff(want, got.Reviewers); diff != "" {
+			t.Errorf("reviewers (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("threads", func(t *testing.T) {
 		if got.ThreadsTotalCount != 10 || got.ThreadsTruncated || len(got.ReviewThreads) != 10 {
 			t.Fatalf("threads = %d of %d, truncated %v; want all 10", len(got.ReviewThreads), got.ThreadsTotalCount, got.ThreadsTruncated)
@@ -1071,6 +1084,96 @@ func TestFetchStopsAtItsLimits(t *testing.T) {
 	}
 }
 
+// review is one submitted review, with only the fields the derivation reads.
+func review(author, kind *string, state, at string) pullrequest.Review {
+	return pullrequest.Review{Author: author, AuthorType: kind, State: state, SubmittedAt: at}
+}
+
+// TestReviewers is the whole derivation: where each reviewer stands, read off
+// the reviews alone.
+func TestReviewers(t *testing.T) {
+	t.Parallel()
+
+	user, bot := new("User"), new("Bot")
+	a, b, c := new("alice"), new("bob"), new("carol")
+
+	for _, tc := range []struct {
+		name string
+		in   []pullrequest.Review
+		want []pullrequest.Reviewer
+	}{
+		{name: "no reviews at all", in: nil, want: []pullrequest.Reviewer{}},
+		{
+			// The acceptance case, in one list: a verdict overtaken by a
+			// later one, a reviewer who only ever commented, and a review
+			// that was dismissed — which GitHub itself reads as turning the
+			// review into a review comment.
+			name: "the latest verdict wins, a comment does not set one, and a dismissal does not either",
+			in: []pullrequest.Review{
+				review(a, user, "CHANGES_REQUESTED", "2026-01-01T00:00:00Z"),
+				review(b, user, "COMMENTED", "2026-01-02T00:00:00Z"),
+				review(a, user, "APPROVED", "2026-01-03T00:00:00Z"),
+				review(c, user, "DISMISSED", "2026-01-04T00:00:00Z"),
+				review(a, user, "COMMENTED", "2026-01-05T00:00:00Z"),
+				review(b, user, "COMMENTED", "2026-01-06T00:00:00Z"),
+			},
+			want: []pullrequest.Reviewer{
+				// The approval's date, not the comment that followed it.
+				{Author: a, AuthorType: user, State: pullrequest.ReviewerApproved, SubmittedAt: "2026-01-03T00:00:00Z"},
+				// Nothing set a state, so the date is the latest review's.
+				{Author: b, AuthorType: user, State: pullrequest.ReviewerCommented, SubmittedAt: "2026-01-06T00:00:00Z"},
+				{Author: c, AuthorType: user, State: pullrequest.ReviewerCommented, SubmittedAt: "2026-01-04T00:00:00Z"},
+			},
+		},
+		{
+			// A review the viewer has not submitted has no date and is no
+			// part of where anybody stands, so a reviewer with nothing else
+			// is not one at all.
+			name: "a pending review is not a review",
+			in: []pullrequest.Review{
+				review(a, user, "PENDING", ""),
+				review(b, user, "APPROVED", "2026-01-02T00:00:00Z"),
+				review(b, user, "PENDING", ""),
+			},
+			want: []pullrequest.Reviewer{
+				{Author: b, AuthorType: user, State: pullrequest.ReviewerApproved, SubmittedAt: "2026-01-02T00:00:00Z"},
+			},
+		},
+		{
+			// A bot is included and told apart by its type, which is how a
+			// consumer decides whether to wait for it.
+			name: "a bot reviews like anybody else",
+			in: []pullrequest.Review{
+				review(new("copilot-pull-request-reviewer"), bot, "COMMENTED", "2026-01-01T00:00:00Z"),
+			},
+			want: []pullrequest.Reviewer{
+				{Author: new("copilot-pull-request-reviewer"), AuthorType: bot,
+					State: pullrequest.ReviewerCommented, SubmittedAt: "2026-01-01T00:00:00Z"},
+			},
+		},
+		{
+			// Two reviews by accounts that no longer exist are one reviewer:
+			// nothing tells them apart, here or at any consumer.
+			name: "an account that no longer exists",
+			in: []pullrequest.Review{
+				review(nil, nil, "COMMENTED", "2026-01-01T00:00:00Z"),
+				review(nil, nil, "APPROVED", "2026-01-02T00:00:00Z"),
+			},
+			want: []pullrequest.Reviewer{
+				{State: pullrequest.ReviewerApproved, SubmittedAt: "2026-01-02T00:00:00Z"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tc.want, pullrequest.Reviewers(tc.in)); diff != "" {
+				t.Errorf("Reviewers (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
 	t.Parallel()
 
@@ -1100,6 +1203,7 @@ func fullContext() map[string]any {
 		},
 		"repo":      "owner/repo",
 		"is_own_pr": false,
+		"reviewers": []any{},
 		"pr": map[string]any{
 			"number":   5,
 			"base_ref": "main",
@@ -1192,6 +1296,9 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 		{name: "no review_threads", edit: drop("review_threads"), want: "ctx.json is missing review_threads"},
 		{name: "null review_threads", edit: put(nil, "review_threads"), want: "ctx.json is missing review_threads"},
 
+		{name: "no reviewers", edit: drop("reviewers"), want: "ctx.json is missing reviewers"},
+		{name: "null reviewers", edit: put(nil, "reviewers"), want: "ctx.json is missing reviewers"},
+
 		{name: "no pr.number", edit: drop("pr", "number"), want: "pr is missing number in ctx.json"},
 		{name: "null pr.number", edit: put(nil, "pr", "number"), want: "pr is missing number in ctx.json"},
 		{name: "zero pr.number", edit: put(0, "pr", "number"), want: "pr sets number to a number that is not positive in ctx.json"},
@@ -1248,6 +1355,7 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 		PR: pullrequest.PR{
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
 		},
+		Reviewers:     []pullrequest.Reviewer{},
 		ReviewThreads: []pullrequest.Thread{},
 	}
 

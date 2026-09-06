@@ -52,7 +52,7 @@ func contextDocument(t *testing.T, fetchedAt string) string {
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
 		"repo":"owner/repo","is_own_pr":true,
 		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123"},
-		"review_threads":[]}`, fetchedAt)
+		"reviewers":[],"review_threads":[]}`, fetchedAt)
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
