@@ -36,26 +36,38 @@ PR を理解し、作業を引き継げる状態にする
 
 Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解決手順」に従って対象 PR の worktree に session を切り替える。
 
-### 1. PR情報の取得
-1. `git branch --show-current` で現在のブランチを確認
-2. `gh pr view` でPRのタイトル・説明・ステータスを取得
-3. PRが見つからない場合はその旨を報告して終了
-4. PR説明文に関連Issue（`Closes #N`、`Fixes #N`、`#N` への言及等）があれば `gh issue view` で内容を確認
+### PR コンテキストの取得
 
-### 2. 変更内容の把握
-4. `gh pr view --json baseRefName --jq '.baseRefName'` でベースブランチを取得
-5. `git log [base]..HEAD --oneline` でコミット履歴を確認
-6. `git diff [base]...HEAD --stat` で変更ファイルの概要を確認
-7. 主要な変更ファイルの差分を読み、変更内容を理解する
+worktree 解決を行った場合はその中で実行する（番号を省略したとき、worktree の branch の PR が解決されるようにするため）:
 
-### 3. 現在の状態の確認
+```bash
+ccx pr context <scratchpadディレクトリ> [<pr-number>]
+```
+
+出力とコンテキストの読み方は `ccx pr context --help` にある。カレント branch に PR が無い場合は非ゼロ exit + stderr で止まるので、その内容を報告して終了する。
+
+ブリーフの素材（Issue の本文とコメント・PR 本文・コミット・差分・レビュー・待ち状態）はすべてこのドキュメントから取る。ドキュメントが運ばない CI の状態だけを `gh pr checks <pr.number>` で取る（番号はドキュメントの `pr.number` を使い、モードで分岐させない — 番号のみのモードでは checkout が PR を名指さないため）。非ゼロ exit は CI が失敗・保留であることを意味するので、停止せず「残作業・注意点」の材料にする。
+
+### PR 全体の読解
+
+Skill ツールで `pr-reading` を起動し、その手順に従って読む。起動時に名指すのは、container が取得したドキュメントの `linked_issues[]`（読めなかったものを説明する `warnings[]` も同じドキュメントのもの）、文書がそのドキュメント、差分・コミットの取得元も同じドキュメント、報告先が「報告」の「変更内容」。
+
+本スキルが持つのはブリーフへの写像だけで、読む順序・差分の読み切り・生成物の扱い・網羅の確認・読めない Issue・compaction の規則はいずれも同スキルの持ち物:
+
+- **「目的」**: 手順が読んだ意図（Issue とその親の本文・コメント、`pr.body`、`commits[]`）から組み立てる
+- **「変更内容」**: 同じく読んだ差分から、ファイル単位ではなく論理的な変更単位で組み立てる。ファイルごとの概要は `diff.files[]`
+- 読めなかった Issue と `warnings[]` の各行は「残作業・注意点」に載せる（ブリーフが何を扱えたかを変えるため）
+
+ブリーフは毎回この読解を経て作る。「残作業・注意点」が読む待ち状態は、読解を省く条件ではない。
+
+### 現在の状態の確認
 8. `git status` で未コミットの変更を確認
 9. `gh pr checks` でCIの状態を確認
 10. `gh pr view --json reviewDecision,reviews,headRefOid` でレビュー状態と PR の最新 head を取得
 11. `git rev-parse HEAD` を `headRefOid` と比較し、不一致ならローカルが PR の最新 head と乖離していることを記録する（読み取り専用スキルのため fetch・同期はせず、報告への注記のみ）
 12. 乖離時、`git cat-file -e <headRefOid>` でオブジェクトがローカルに存在する場合のみ `git merge-base --is-ancestor` で方向（ahead: 未 push commit あり / behind: 未取得 commit あり / diverged）を判別して併記する（push/pull どちらが必要かの引き継ぎ情報になるため。オブジェクト不在なら方向不明のまま報告してよい — fetch はしない）
 
-### 4. 報告
+### 報告
 以下の構造で報告する：
 
 ```
@@ -63,7 +75,10 @@ Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解
 （PRが解決しようとしている課題・背景）
 
 ## 変更内容
-（主要な変更の要約。ファイル単位ではなく論理的な変更単位で）
+（主要な変更の要約。ファイル単位ではなく論理的な変更単位で。読解の報告 —
+ 差分を末尾まで読んだこと・読んだ件数・スキップした生成物 — もここに置く。
+ ローカルが PR head より ahead / diverged の場合は、この節が PR の head を
+ 反映しており手元のコミットではない旨を添える）
 
 ## 現在の状態
 - ブランチ: xxx
