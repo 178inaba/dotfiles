@@ -1,18 +1,40 @@
 ---
 name: understand-pr
-description: 現在のブランチのPRを理解し、目的・変更内容・現状を構造化して報告
+description: PR を理解し、目的・変更内容・現状を構造化して報告（<pr-number> で PR を指定、--worktree で対象 PR の worktree に切替）
+argument-hint: "[<pr-number>] [--worktree]"
 ---
 
 # /understand-pr
 
-現在のブランチのPRを理解し、作業を引き継げる状態にする
+PR を理解し、作業を引き継げる状態にする
 
 ## 使用方法
 ```
-/understand-pr
+/understand-pr                  # カレント branch の PR（ローカルの状態も含む）
+/understand-pr 123              # PR 123（checkout は動かさない）
+/understand-pr --worktree       # カレント branch の PR の worktree に切替して報告
+/understand-pr 123 --worktree   # PR 123 の worktree に切替して報告
 ```
 
+## 引数
+- `<pr-number>`: 対象 PR 番号（省略時はカレント branch の PR を推論）
+- `--worktree`: 対象 PR の worktree に切替（既存があれば再利用、無ければ作成）。並列で別作業中に他の PR を読む際の主用途
+
+## モード
+
+引数で 3 つに分かれる。違うのは worktree 解決を先に行うかと、ローカルの状態を見るかの 2 点だけで、ブリーフの組み立ては共通:
+
+- **番号なし**: カレント branch の PR。ローカルの状態も報告する
+- **`<pr-number>` のみ**: checkout を一切動かさない。「現在の状態」のローカル項目は 1 行に置き換わる（同節参照）
+- **`--worktree`**（番号の有無を問わず）: worktree 解決を先に行い、その中で番号なしモードと同じブリーフを出す。**本スキルが checkout を動かすのはこの経路だけ**で、ユーザーが worktree を要求したケースに当たる
+
 ## 実行内容
+
+以下の各節は、書かれた順に実行するステップ。他の節からはステップ名で参照する（番号を振ると、ステップの挿入で他所の参照が黙って壊れるため）。
+
+### Worktree 解決（`--worktree` 指定時のみ、最初に実行）
+
+Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解決手順」に従って対象 PR の worktree に session を切り替える。
 
 ### 1. PR情報の取得
 1. `git branch --show-current` で現在のブランチを確認
