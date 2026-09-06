@@ -44,11 +44,13 @@ func GetAll[T any](ctx context.Context, c *Client, path string) ([]T, error) {
 // result, so the first page always arrives whole and a final count may exceed
 // the limit — the same rule pullrequest.pages follows on the GraphQL side, and
 // the reason the two are the same is that MAX_COMMENTS and MAX_ISSUE_COMMENTS
-// are read as one set by whoever raises them. MAX_REVIEWS is the one that means
-// something stronger: pullrequest.pagesBefore asks for no more than it keeps,
-// so that limit bounds the count rather than the round trips. A limit of zero or less therefore
+// are read as one set by whoever raises them. A limit of zero or less therefore
 // means the first page and nothing after it, rather than no limit at all;
 // GetAll is what asks for everything.
+//
+// MAX_REVIEWS is the one that means something stronger: pullrequest.pagesBefore
+// asks for no more than it keeps, so that limit bounds the count rather than
+// the round trips.
 //
 // The truncation a caller reports is the collection's own total against what
 // arrived, not anything this returns: a walk that stopped and a collection that

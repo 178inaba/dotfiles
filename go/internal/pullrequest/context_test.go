@@ -1303,6 +1303,22 @@ func TestFetchPagesTheReviewsFromTheNewestEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("a continuation asks only for what is left", func(t *testing.T) {
+		t.Parallel()
+
+		// One more than the limit, and the limit one more than a page: the
+		// opening window takes a hundred and the continuation may take one.
+		// A continuation that asked for a whole page would come back with
+		// both of the remaining two and overrun the limit it was given.
+		got := fetch(t, pages{body: reviewsBody, reviewList: manyReviews(102)}, bare, pullrequest.Limits{Reviews: 101})
+		if len(got.Reviews) != 101 || !got.ReviewsTruncated {
+			t.Fatalf("reviews = %d, truncated %v; want 101 and true", len(got.Reviews), got.ReviewsTruncated)
+		}
+		if oldest := *got.Reviews[0].Author; oldest != "reviewer001" {
+			t.Errorf("the oldest review kept is %s, want reviewer001", oldest)
+		}
+	})
+
 }
 
 func TestFetchFailsOnAnUnreachablePage(t *testing.T) {
