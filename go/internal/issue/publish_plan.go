@@ -91,7 +91,13 @@ func plan(ctx context.Context, c *ghapi.Client, wire PublishManifest, file strin
 	if err != nil {
 		return publishPlan{}, err
 	}
-	record := readPublishRecord(PublishedLog(file))
+	record, err := readPublishRecord(PublishedLog(file))
+	if err != nil {
+		return publishPlan{}, err
+	}
+	if err := record.describes(set); err != nil {
+		return publishPlan{}, err
+	}
 
 	if err := checkPublishSet(set); err != nil {
 		return publishPlan{}, err
@@ -190,12 +196,15 @@ func checkPublishSet(set publishSet) error {
 	var bad violations
 
 	for _, row := range set.rows {
-		switch {
-		case row.target() && row.updatedAt == "":
+		// Separate conditions rather than one switch, so that a row breaking
+		// two of them is told about both.
+		if row.target() && row.updatedAt == "" {
 			bad.add("%s: a row keyed by an issue number needs updated_at, the snapshot the draft was written against", row.key)
-		case !row.target() && row.updatedAt != "":
+		}
+		if !row.target() && row.updatedAt != "" {
 			bad.add("%s: a placeholder names no issue yet, so it cannot carry updated_at", row.key)
-		case !row.target() && row.commentFile != "":
+		}
+		if !row.target() && row.commentFile != "" {
 			bad.add("%s: an issue this run creates has no reader to notify, so it cannot carry a comment", row.key)
 		}
 		if row.parent != "" {
@@ -262,12 +271,15 @@ func checkPublishBody(rows map[string]publishRow, row publishRow) []string {
 				"%s: %d distinct bare #N look like item numbering, which GitHub would autolink to unrelated issues"+
 					" (number the items with an ordered list)", f.name, n))
 		}
-	}
-
-	for _, s := range substitutionsIn(row) {
-		if rows[s.Name].key == "" {
-			found = append(found, fmt.Sprintf("%s line %d: no row defines the placeholder %s",
-				row.draft, s.Line, s.Name))
+		// A comment is substituted into and read back like a body, so a name
+		// no row defines has to stop the run here as well. Left to the write
+		// stage it would stop it after the edit that comment belongs to had
+		// already landed.
+		for _, s := range placeholdersIn(f.body) {
+			if rows[s.Name].key == "" {
+				found = append(found, fmt.Sprintf("%s line %d: no row defines the placeholder %s",
+					f.name, s.Line, s.Name))
+			}
 		}
 	}
 	return found
@@ -330,10 +342,10 @@ func readPublishTargets(ctx context.Context, c *ghapi.Client, set publishSet, re
 		if !ok {
 			continue
 		}
-		if want := record.baseline(row); got.UpdatedAt != want {
+		if !record.fresh(row, got.UpdatedAt) {
 			bad.add("#%d has changed since the draft was written (%s, now %s):"+
 				" re-fetch it, carry the change into %s, and update updated_at",
-				row.number, want, got.UpdatedAt, row.draft)
+				row.number, record.baseline(row), got.UpdatedAt, row.draft)
 		}
 	}
 	// An issue named only as a parent or a blocker is read for its id alone.

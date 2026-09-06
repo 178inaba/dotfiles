@@ -65,9 +65,11 @@ func Publish(ctx context.Context, c *ghapi.Client, m PublishManifest, file strin
 	r := &publishRun{plan: p, client: c}
 	for _, stage := range []func(context.Context) error{r.create, r.link, r.write, r.block} {
 		if err := stage(ctx); err != nil {
-			// Not the part that landed: what was written is in the record,
-			// which is what a re-run reads and what the failure names.
-			return Published{}, err
+			// What landed comes back with the failure. The record is what a
+			// re-run reads, but a degradation is not in it: a label GitHub
+			// declined to apply is noticed once, at the create, and a re-run
+			// skips that create and so never mentions it again.
+			return r.out, err
 		}
 	}
 	return r.out, nil
@@ -103,7 +105,7 @@ func (r *publishRun) create(ctx context.Context) error {
 			return r.abort("create %s: %v", row.key, err)
 		}
 		if err := r.record().append(publishRecordLine{
-			Step: stepCreate, Key: row.key, Number: got.Number, ID: got.ID,
+			Step: stepCreate, Key: row.key, Number: got.Number, ID: got.ID, Title: row.title,
 		}); err != nil {
 			return err
 		}

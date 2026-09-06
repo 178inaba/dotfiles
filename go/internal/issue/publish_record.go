@@ -2,6 +2,9 @@ package issue
 
 import (
 	"encoding/json/v2"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 )
@@ -44,6 +47,9 @@ type publishRecordLine struct {
 	Key    string      `json:"key,omitzero"`
 	Number int         `json:"number,omitzero"`
 	ID     int64       `json:"id,omitzero"`
+	// Title is what a created issue was called, which is how a record left by
+	// a different run is recognised; see describes.
+	Title string `json:"title,omitzero"`
 	// Other is the key at the far end of a link or a dependency: the parent,
 	// or the issue waited for. Recorded rather than implied, so that a
 	// manifest whose parent was changed after a partial run is linked again
@@ -68,9 +74,13 @@ type publishRecord struct {
 	blocked   map[publishBlock]bool
 	final     map[string]bool
 	commented map[string]bool
-	// fresh is the updated_at each touched issue has now, which is what a
+	// wroteAt is the updated_at each touched issue has now, which is what a
 	// re-run checks a target against.
-	fresh map[string]string
+	wroteAt map[string]string
+	// titles is what each created placeholder was called, which is how a
+	// record left behind by a different run is told from this one's; see
+	// describes.
+	titles map[string]string
 }
 
 // publishNumber is an issue a run created.
@@ -84,15 +94,23 @@ type publishNumber struct {
 // A line that does not decode is dropped rather than reported: the only way to
 // produce one is to be interrupted mid-append, and the step it half-describes
 // is exactly the one the run should do again.
-func readPublishRecord(file string) *publishRecord {
+func readPublishRecord(file string) (*publishRecord, error) {
 	r := &publishRecord{
 		file: file, numbered: map[string]publishNumber{},
 		linked: map[publishBlock]bool{}, blocked: map[publishBlock]bool{},
-		final: map[string]bool{}, commented: map[string]bool{}, fresh: map[string]string{},
+		final: map[string]bool{}, commented: map[string]bool{},
+		wroteAt: map[string]string{}, titles: map[string]string{},
 	}
 	b, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		// Nothing has been written yet, which is the ordinary first run.
+		return r, nil
+	}
 	if err != nil {
-		return r
+		// Anything else — a permission, a directory — is not "nothing has been
+		// written". Reading it as that would drop the one guarantee the record
+		// exists to give, that a re-run does not create everything twice.
+		return nil, fmt.Errorf("read what this manifest has already written: %w", err)
 	}
 	for line := range strings.Lines(string(b)) {
 		if strings.TrimSpace(line) == "" {
@@ -104,7 +122,31 @@ func readPublishRecord(file string) *publishRecord {
 		}
 		r.remember(l)
 	}
-	return r
+	return r, nil
+}
+
+// describes reports whether the record was left by a run of this manifest.
+//
+// The record is found by the manifest's name, and the skill keeps the manifest
+// under one fixed name in the scratchpad, so a record can outlive the set it
+// describes and be read as this one's progress — under which a second run of
+// issue-draft writes nothing at all, or fills the previous run's issues with
+// this one's bodies. The title an issue was created under is what tells them
+// apart: this run never changes a created issue's title, so a row that says
+// something else is a row about a different issue.
+func (r publishRecord) describes(set publishSet) error {
+	for key, was := range r.titles {
+		row, ok := set.byKey[key]
+		if !ok || row.title == was {
+			continue
+		}
+		return fmt.Errorf(
+			"%s records %s as an issue created with the title %q, and the manifest calls it %q:"+
+				" this record was left by a different run.\nIf this is a new set of issues, delete %s and run again;"+
+				" if it is the same one, put the title back",
+			r.file, key, was, row.title, r.file)
+	}
+	return nil
 }
 
 // remember applies one step to what the record holds, so that reading the file
@@ -113,6 +155,7 @@ func (r *publishRecord) remember(l publishRecordLine) {
 	switch l.Step {
 	case stepCreate:
 		r.numbered[l.Key] = publishNumber{number: l.Number, id: l.ID}
+		r.titles[l.Key] = l.Title
 	case stepLink:
 		r.linked[publishBlock{blocked: l.Key, by: l.Other}] = true
 	case stepBodyFinal:
@@ -122,19 +165,37 @@ func (r *publishRecord) remember(l publishRecordLine) {
 	case stepBlockedBy:
 		r.blocked[publishBlock{blocked: l.Key, by: l.Other}] = true
 	case stepFreshness:
-		r.fresh[l.Key] = l.UpdatedAt
+		r.wroteAt[l.Key] = l.UpdatedAt
 	}
 }
 
-// baseline is what a target's live updated_at is compared against: what this
-// run last left it at, or the snapshot the draft was written from.
+// fresh reports whether a target still looks like the issue its draft was
+// written against.
 //
-// The distinction is the whole reason the timestamp is recorded. A run that
-// links a sub to an existing parent moves that parent's updated_at; without
-// this, re-running the same manifest would refuse as "the issue has moved"
-// over a move it made itself.
+// Two values pass, and both have to. What this run last left the issue at is
+// one: a run that links a sub to an existing parent moves that parent, and
+// without it a re-run would refuse over a move it made itself. The snapshot in
+// the manifest is the other, and leaving it out is what made the documented
+// way out of a refusal — re-fetch the issue, carry the change into the draft,
+// update updated_at — change nothing, because the comparison never looked at
+// the field the instruction says to edit.
+//
+// A target whose body is already written is not checked at all. Freshness
+// guards against overwriting somebody's change, and there is no write left to
+// overwrite it with.
+func (r publishRecord) fresh(row publishRow, live string) bool {
+	if r.final[row.key] {
+		return true
+	}
+	if at, ok := r.wroteAt[row.key]; ok && live == at {
+		return true
+	}
+	return live == row.updatedAt
+}
+
+// baseline is what a refusal reports the issue was expected to be at.
 func (r publishRecord) baseline(row publishRow) string {
-	if at, ok := r.fresh[row.key]; ok {
+	if at, ok := r.wroteAt[row.key]; ok {
 		return at
 	}
 	return row.updatedAt

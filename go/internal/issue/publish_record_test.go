@@ -3,7 +3,10 @@ package issue_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/178inaba/dotfiles/go/internal/issue"
 )
@@ -34,7 +37,7 @@ func TestPublishResumesFromTheRecord(t *testing.T) {
 		"parent.md": leafDraft + "\nComposed of #{SUB_A}.\n",
 		"sub-a.md":  leafDraft,
 	})
-	writeRecord(t, file, `{"step":"create","key":"PARENT","number":100,"id":900}`)
+	writeRecord(t, file, `{"step":"create","key":"PARENT","number":100,"id":900,"title":"A title"}`)
 
 	got, err := issue.PublishDryRun(t.Context(), reading(t, nil), m, file)
 	if err != nil {
@@ -90,6 +93,107 @@ func TestPublishChecksFreshnessAgainstTheRecord(t *testing.T) {
 	})
 	if _, err := issue.PublishDryRun(t.Context(), c, m, file); err != nil {
 		t.Errorf("PublishDryRun refused a move this run made itself: %v", err)
+	}
+}
+
+// TestPublishRefusesARecordFromAnotherRun is the hazard the fixed manifest
+// name creates: the record outlives the set it describes, and a second run of
+// issue-draft in the same scratchpad would otherwise read it as its own
+// progress — writing nothing at all, or filling the previous run's issues with
+// this run's bodies.
+func TestPublishRefusesARecordFromAnotherRun(t *testing.T) {
+	t.Parallel()
+
+	m := issue.PublishManifest{
+		Repo: ptr("owner/repo"), Issues: []issue.PublishManifestIssue{row("PARENT", "parent.md")},
+	}
+	file := writeManifest(t, m, map[string]string{"parent.md": leafDraft})
+	writeRecord(t, file,
+		`{"step":"create","key":"PARENT","number":100,"id":900,"title":"An issue from the run before"}`)
+
+	_, err := issue.PublishDryRun(t.Context(), refusing(t), m, file)
+	if err == nil {
+		t.Fatal("PublishDryRun accepted a record left by another run, want a refusal")
+	}
+	for _, want := range []string{"different run", "An issue from the run before", "delete"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not mention %q:\n%s", want, err)
+		}
+	}
+}
+
+// TestPublishTakesTheDraftsWordAfterSomebodyElseMoved is the way out of a
+// freshness refusal, which the refusal itself and --help both describe:
+// re-fetch the issue, carry the change into the draft, update updated_at. It
+// only works if the check looks at the field the instruction says to edit.
+func TestPublishTakesTheDraftsWordAfterSomebodyElseMoved(t *testing.T) {
+	t.Parallel()
+
+	const moved = "2026-03-03T00:00:00Z"
+	m := issue.PublishManifest{
+		Repo:   ptr("owner/repo"),
+		Issues: []issue.PublishManifestIssue{row("42", "42.md", withUpdatedAt(moved))},
+	}
+	file := writeManifest(t, m, map[string]string{"42.md": leafDraft})
+	// This run linked something to #42 and stopped; somebody else has since
+	// edited it, and the draft has been rewritten against what they left.
+	writeRecord(t, file, `{"step":"freshness","key":"42","updated_at":"2026-02-02T00:00:00Z"}`)
+
+	c := reading(t, map[string]string{"/repos/owner/repo/issues/42": liveIssue(42, 900, moved)})
+	if _, err := issue.PublishDryRun(t.Context(), c, m, file); err != nil {
+		t.Errorf("PublishDryRun refused a draft written against the issue as it now stands: %v", err)
+	}
+}
+
+// TestPublishSkipsFreshnessForABodyAlreadyWritten is the other half: freshness
+// guards against overwriting somebody's change, and once the write has landed
+// there is nothing left to overwrite it with.
+func TestPublishSkipsFreshnessForABodyAlreadyWritten(t *testing.T) {
+	t.Parallel()
+
+	m := issue.PublishManifest{
+		Repo: ptr("owner/repo"),
+		Issues: []issue.PublishManifestIssue{
+			row("42", "42.md", withUpdatedAt(fresh), withComment("42-comment.md")),
+		},
+	}
+	file := writeManifest(t, m, map[string]string{
+		"42.md":         leafDraft,
+		"42-comment.md": "The body was rewritten.\n",
+	})
+	writeRecord(t, file, `{"step":"body_final","key":"42"}`)
+
+	c := reading(t, map[string]string{
+		"/repos/owner/repo/issues/42": liveIssue(42, 900, "2026-09-09T00:00:00Z"),
+	})
+	got, err := issue.PublishDryRun(t.Context(), c, m, file)
+	if err != nil {
+		t.Fatalf("PublishDryRun refused an issue it has nothing left to write to: %v", err)
+	}
+	// The comment it still owes is what the re-run is for.
+	if diff := cmp.Diff([]int{42}, got.Comment); diff != "" {
+		t.Errorf("PublishDryRun comment (-want +got):\n%s", diff)
+	}
+}
+
+// TestPublishRefusesAnUnreadableRecord is why absence and failure are told
+// apart: reading a permission error as "nothing has been written" would drop
+// the guarantee that a re-run does not create everything twice.
+func TestPublishRefusesAnUnreadableRecord(t *testing.T) {
+	t.Parallel()
+
+	m := issue.PublishManifest{
+		Repo: ptr("owner/repo"), Issues: []issue.PublishManifestIssue{row("A", "a.md")},
+	}
+	file := writeManifest(t, m, map[string]string{"a.md": leafDraft})
+	// A directory where the record belongs: unreadable as a file, and nothing
+	// a test has to change a mode to arrange.
+	if err := os.Mkdir(issue.PublishedLog(file), 0o700); err != nil {
+		t.Fatalf("stand a directory in for an unreadable record: %v", err)
+	}
+
+	if _, err := issue.PublishDryRun(t.Context(), refusing(t), m, file); err == nil {
+		t.Error("PublishDryRun read an unreadable record as nothing written, want a refusal")
 	}
 }
 

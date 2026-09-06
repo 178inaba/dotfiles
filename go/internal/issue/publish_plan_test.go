@@ -280,6 +280,17 @@ func TestPublishRefuses(t *testing.T) {
 			want:  "no row defines the placeholder SUB_B",
 		},
 		{
+			// Refused here rather than at the write stage, which is reached
+			// only after the edit this comment belongs to has landed.
+			name: "an edit-notification comment names a placeholder no row defines",
+			manifest: issue.PublishManifest{
+				Repo:   ptr("owner/repo"),
+				Issues: []issue.PublishManifestIssue{row("42", "a.md", withUpdatedAt(fresh), withComment("c.md"))},
+			},
+			files: map[string]string{"a.md": leafDraft, "c.md": "See #{NOPE}.\n"},
+			want:  "c.md line 1: no row defines the placeholder NOPE",
+		},
+		{
 			name: "a parent names a placeholder no row defines",
 			manifest: issue.PublishManifest{
 				Repo:   ptr("owner/repo"),

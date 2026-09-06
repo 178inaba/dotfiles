@@ -161,7 +161,8 @@ Each write is recorded in a file beside the manifest as it lands, so running
 the same manifest again after a failure carries on from where it stopped
 instead of creating a second copy of what already exists. What the run itself
 moved is recorded too — linking a sub moves its parent — so a re-run is not
-refused over its own work.
+refused over its own work. A record describing a different set of issues is
+refused rather than resumed from: delete it when the manifest is a new set.
 
 Drafts, comment bodies and a draft's optional ` + "`<draft>.mapping`" + ` are read from the
 manifest's own directory, by bare file name.

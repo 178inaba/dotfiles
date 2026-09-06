@@ -599,10 +599,18 @@ func TestPublishFailsOnAMissedSubstitution(t *testing.T) {
 	}
 }
 
-// TestPublishFailsOnAPlaceholderNoWriteCanFill is the other half of the
-// read-back: a forward reference is expected while issues are still being
-// created and a broken body once they all exist.
-func TestPublishFailsOnAPlaceholderNoWriteCanFill(t *testing.T) {
+// TestPublishFailsWhenTheWriteDidNotFillInAForwardReference is the other route
+// into the read-back: a body that went out holding a forward reference on
+// purpose, and came back still holding it from the write that was meant to
+// fill it in.
+//
+// It is the same verdict as a missed substitution, because by the write stage
+// every issue exists and so every name is numbered. That is why readBack's
+// other branch — a name still unnumbered after everything is created — has no
+// test: the pre-flight refuses a name no row defines, and the create stage
+// numbers every row, so nothing can reach it. It is kept as a guard against a
+// bug in those two rather than as a path.
+func TestPublishFailsWhenTheWriteDidNotFillInAForwardReference(t *testing.T) {
 	t.Parallel()
 
 	m := issue.PublishManifest{

@@ -63,6 +63,12 @@ func newPublishCmd(build selfbuild.State) *cobra.Command {
 			}
 			published, err := issue.Publish(c.Context(), client, m, file)
 			if err != nil {
+				// What landed is printed even on a failure: a label or an
+				// assignee GitHub declined is only ever noticed once, and a
+				// re-run skips the write that would notice it again.
+				if renderErr := renderCompactJSON(c.OutOrStdout(), published); renderErr != nil {
+					return silent(renderErr)
+				}
 				return silent(err)
 			}
 			return silent(renderCompactJSON(c.OutOrStdout(), published))
