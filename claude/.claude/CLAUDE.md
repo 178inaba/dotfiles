@@ -87,13 +87,13 @@
 - **判断密度が高い批評・レビュー・計画・実装**: スキルの明示指定に従う（例: issue-handle の実装委譲は sonnet、完了時 deep-review は fable）。スキル外のアドホックな起動では親モデル継承のままで良い
   - スキルが `model` を指定していないレビュー・批評（組み込み `/simplify` のレビューエージェントを含む）は、呼び出し側の判断で下位ティアへ落とさず `model` を付けずに起動する（親継承）。モデルの選定はスキル・エージェント定義が所有し、呼び出し側がコスト都合でカバレッジのトレードオフを決めない（判断密度の高い角度 — altitude 等 — のカバレッジが静かに落ちるため）
 
-**隔離** — 起動元セッション自身のコミット済みツリーをレビュー・批評し、finding の検証のためにそのツリーへ書きうるエージェントは、`isolation: "worktree"` で 1 エージェント 1 worktree に隔離して起動する（`/simplify` が並列起動する 4 つのレビューエージェントが該当）。共有 worktree で並列に実験させると、あるエージェントの未復元の変更の上で別エージェントの計測が走る（#228 / PR #236 で実測）。前提はレビュー対象がコミット済みであること — 隔離 worktree は `worktree.baseRef: "head"` により HEAD 起点で作られ、未コミットの作業を持たない。
+**隔離** — 起動元セッション自身のコミット済みツリーをレビュー・批評し、finding の検証のためにそのツリーへ書きうるエージェントは、`isolation: "worktree"` で 1 エージェント 1 worktree に隔離して起動する（`/simplify` が並列起動する 4 つのレビューエージェントが該当）。共有 worktree で並列に実験させると、あるエージェントの未復元の変更の上で別エージェントの計測が走る（178inaba/dotfiles#228 / 178inaba/dotfiles#236 で実測）。前提はレビュー対象がコミット済みであること — 隔離 worktree は `worktree.baseRef: "head"` により HEAD 起点で作られ、未コミットの作業を持たない。
 
 - **対象外**: `/deep-review` を走らせるエージェント。どちらも `--no-autofix` でツリーへ書かないうえ、隔離ではレビュー対象に届かない — `assigned-pr-reviewer` は `ccx review clone` で自前の checkout を解決する（`isolation` は起動元の HEAD 起点で PR head を見られない）、`independent-reviewer`（issue-handle Step 7）は設計上親の worktree を共有する（隔離 worktree は新規ブランチ上に作られ、`ccx pr prepare-review` が `branch_mismatch` で止まる）
 - diff を渡さず、**ベース ref を渡して各自の worktree で `git diff <base>...HEAD` を取らせる**（隔離 worktree はそのエージェント専用で、親の diff をそのまま貼っても対象が一致しない）
 - **未コミットの変更があるときは隔離しない**。起動前に `git status --porcelain -uno` で tracked な変更を見て、あれば従来どおり隔離なしで起動し、その旨を要約に書く（組み込み `/simplify` はコミット前に走ることが多く `git diff HEAD` をスコープに畳み込む。何も見えていないレビューは干渉より悪く、いつコミットするかはユーザーの領分）
 - finding が名指しするパスは `.claude/worktrees/<name>/` 配下になる。親は自分のツリーのパスへ読み替えて適用する（`ccx hook worktree-edit-guard` は worktree 側からの流出しか見ないので、メインツリーの親では止まらない）
-- **後始末**: 変更のなかった worktree はハーネスがブランチごと削除するが、エージェントが復元に失敗した worktree は dirty のまま残る。実行後に `git worktree list` を見て `git worktree remove --force` で除去し、**続けて `git branch -D` でブランチも消す**（`git worktree remove` はブランチを消さない）。`/cleanup-merged` は dirty な worktree を候補から外すので、どちらも拾わない
+- **後始末**: 変更のなかった worktree はハーネスがブランチごと削除するが、エージェントが復元に失敗した worktree は dirty のまま残る。実行後に `git worktree list` を見て `git worktree remove --force` で除去し、**続けて `git branch -D` でブランチも消す**（`git worktree remove` はブランチを消さない）。`/cleanup-merged` はマージ済みのブランチしか候補にしないので、PR を持たず未マージのこれらは worktree もブランチも拾われない
 
 ## 計画立案原則
 
