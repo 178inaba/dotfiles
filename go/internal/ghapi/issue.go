@@ -26,6 +26,12 @@ type Issue struct {
 	// that a caller holding a snapshot can tell whether it still describes the
 	// issue by comparing the strings.
 	UpdatedAt string
+	// Labels and Assignees are what the issue carries by name, which is what a
+	// caller that has just asked for some compares its request against:
+	// GitHub applies neither for a user without push access, and says so only
+	// by returning the issue without them.
+	Labels    []string
+	Assignees []string
 	// Repo is the repository the issue lives in, which need not be the one it
 	// was asked about: a sub-issue may cross repositories within an owner. The
 	// zero value is a repository url that could not be read, which each caller
@@ -53,6 +59,59 @@ type IssueComment struct {
 func (c *Client) Issue(ctx context.Context, repo Repo, number int) (Issue, error) {
 	var w issueWire
 	if err := c.Get(ctx, fmt.Sprintf("repos/%s/issues/%d", repo, number), &w); err != nil {
+		return Issue{}, err
+	}
+	return w.issue(), nil
+}
+
+// IssueChange is what a create or an edit asks for.
+//
+// Every field is a pointer because an edit says what to change and leaves the
+// rest alone: an empty body and no body at all are different requests, and a
+// nil label set is "do not touch the labels" where an empty one clears them.
+type IssueChange struct {
+	Title     *string
+	Body      *string
+	Labels    *[]string
+	Assignees *[]string
+}
+
+func (ch IssueChange) request() map[string]any {
+	req := map[string]any{}
+	if ch.Title != nil {
+		req["title"] = *ch.Title
+	}
+	if ch.Body != nil {
+		req["body"] = *ch.Body
+	}
+	if ch.Labels != nil {
+		req["labels"] = *ch.Labels
+	}
+	if ch.Assignees != nil {
+		req["assignees"] = *ch.Assignees
+	}
+	return req
+}
+
+// CreateIssue opens an issue and answers with the issue GitHub stored.
+//
+// The response is the read-back a caller needs: GitHub returns the issue as it
+// saved it, so what it declined to apply is visible without a second request.
+func (c *Client) CreateIssue(ctx context.Context, repo Repo, ch IssueChange) (Issue, error) {
+	var w issueWire
+	if err := c.Post(ctx, fmt.Sprintf("repos/%s/issues", repo), ch.request(), &w); err != nil {
+		return Issue{}, err
+	}
+	return w.issue(), nil
+}
+
+// EditIssue changes an issue and answers with the issue GitHub stored.
+//
+// A label set replaces the one on the issue rather than adding to it, which is
+// what the endpoint does; a caller adding one sends the existing ones too.
+func (c *Client) EditIssue(ctx context.Context, repo Repo, number int, ch IssueChange) (Issue, error) {
+	var w issueWire
+	if err := c.Patch(ctx, fmt.Sprintf("repos/%s/issues/%d", repo, number), ch.request(), &w); err != nil {
 		return Issue{}, err
 	}
 	return w.issue(), nil
@@ -119,16 +178,32 @@ type issueWire struct {
 	// required by the issue schema.
 	RepositoryURL string `json:"repository_url"`
 	Comments      int    `json:"comments"`
+	Labels        []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
+	Assignees []struct {
+		Login string `json:"login"`
+	} `json:"assignees"`
 }
 
 func (w issueWire) issue() Issue {
 	// An unparseable url leaves the repository at its zero value; see
 	// Issue.Repo.
 	repo, _ := RepoFromAPIURL(w.RepositoryURL)
+	// Nil rather than empty where GitHub sent none, so that "the issue carries
+	// no label" and "the response did not say" stay one answer: the endpoint
+	// always sends the arrays.
+	var labels, assignees []string
+	for _, l := range w.Labels {
+		labels = append(labels, l.Name)
+	}
+	for _, a := range w.Assignees {
+		assignees = append(assignees, a.Login)
+	}
 	return Issue{
 		Number: w.Number, ID: w.ID, Title: w.Title, Body: w.Body,
 		State: w.State, UpdatedAt: w.UpdatedAt, URL: w.HTMLURL,
-		Repo: repo, Comments: w.Comments,
+		Repo: repo, Comments: w.Comments, Labels: labels, Assignees: assignees,
 	}
 }
 

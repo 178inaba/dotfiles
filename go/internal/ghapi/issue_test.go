@@ -95,6 +95,32 @@ func TestIssueReadsTheIDAndUpdatedAt(t *testing.T) {
 	}
 }
 
+// TestIssueReadsTheLabelsAndAssignees covers the read-back a write needs:
+// GitHub answers a create with the issue it stored, and what it declined to
+// apply is only visible by comparing the two.
+func TestIssueReadsTheLabelsAndAssignees(t *testing.T) {
+	t.Parallel()
+
+	c := issues(t, map[string]string{
+		"/repos/owner/repo/issues/10": `{"number":10,"title":"Issue 10","body":"","state":"open",
+			"labels":[{"name":"enhancement"},{"name":"good first issue"}],
+			"assignees":[{"login":"178inaba"}],
+			"html_url":"https://github.com/owner/repo/issues/10",
+			"repository_url":"https://api.github.com/repos/owner/repo"}`,
+	}, nil)
+
+	got, err := c.Issue(t.Context(), issueRepo, 10)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	if diff := cmp.Diff([]string{"enhancement", "good first issue"}, got.Labels); diff != "" {
+		t.Errorf("Issue.Labels (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"178inaba"}, got.Assignees); diff != "" {
+		t.Errorf("Issue.Assignees (-want +got):\n%s", diff)
+	}
+}
+
 // TestIssueReadsTheCommentCount is the reason the count is decoded here rather
 // than counted: it arrives with the body the enrichment already fetches, so the
 // total a truncated comment list is measured against costs no request.

@@ -68,8 +68,13 @@ type publishPlan struct {
 	record publishRecord
 	// live is every issue the run reads before writing, by key: the targets it
 	// checks for freshness, and the existing issues it only needs an id for.
-	live   map[string]ghapi.Issue
-	viewer string
+	live map[string]ghapi.Issue
+	// targets is the keys a freshness check applies to — the rows that name an
+	// issue the run edits. An existing issue named only as a parent or a
+	// blocker is not one: nothing is written to it, so nothing about it can go
+	// stale under the run.
+	targets map[string]bool
+	viewer  string
 }
 
 // plan runs every check, up to but not including the first write.
@@ -93,7 +98,14 @@ func plan(ctx context.Context, c *ghapi.Client, wire PublishManifest, dir, file 
 	if err != nil {
 		return publishPlan{}, fmt.Errorf("failed to resolve who the token authenticates: %v", err)
 	}
-	return publishPlan{set: set, record: record, live: live, viewer: viewer}, nil
+
+	targets := map[string]bool{}
+	for _, row := range set.rows {
+		if row.target() {
+			targets[row.key] = true
+		}
+	}
+	return publishPlan{set: set, record: record, live: live, targets: targets, viewer: viewer}, nil
 }
 
 // checkPublishSet rejects what the manifest says about itself, with GitHub not
@@ -193,18 +205,27 @@ func checkPublishBody(rows map[string]publishRow, row publishRow) []string {
 	return found
 }
 
-// substitutionsIn finds the placeholders in a row's body, outside the code a
-// draft may quote them in: #{NAME} is string interpolation in Ruby and Elixir,
-// and a draft that shows some is not naming an issue.
-func substitutionsIn(row publishRow) []PlannedSubstitution {
+// placeholdersIn finds the placeholders in a body, outside the code a draft
+// may quote them in: #{NAME} is string interpolation in Ruby and Elixir, and a
+// draft that shows some is not naming an issue.
+func placeholdersIn(body string) []PlannedSubstitution {
 	var out []PlannedSubstitution
-	for s := range ghmd.Segments(row.body) {
+	for s := range ghmd.Segments(body) {
 		if s.Kind != ghmd.Prose {
 			continue
 		}
-		for _, m := range placeholderRef.FindAllStringSubmatch(row.body[s.Start:s.End], -1) {
-			out = append(out, PlannedSubstitution{In: row.key, Line: s.Line, Name: m[1]})
+		for _, m := range placeholderRef.FindAllStringSubmatch(body[s.Start:s.End], -1) {
+			out = append(out, PlannedSubstitution{Line: s.Line, Name: m[1]})
 		}
+	}
+	return out
+}
+
+// substitutionsIn is placeholdersIn with the row that holds them named.
+func substitutionsIn(row publishRow) []PlannedSubstitution {
+	out := placeholdersIn(row.body)
+	for i := range out {
+		out[i].In = row.key
 	}
 	return out
 }

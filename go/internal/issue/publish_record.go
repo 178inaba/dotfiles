@@ -87,22 +87,28 @@ func readPublishRecord(file string) publishRecord {
 		if json.Unmarshal([]byte(line), &l) != nil {
 			continue
 		}
-		switch l.Step {
-		case stepCreate:
-			r.numbered[l.Key] = publishNumber{number: l.Number, id: l.ID}
-		case stepLink:
-			r.linked[l.Key] = true
-		case stepPatch:
-			r.patched[l.Key] = true
-		case stepComment:
-			r.commented[l.Key] = true
-		case stepBlockedBy:
-			r.blocked[publishBlock{blocked: l.Key, by: l.By}] = true
-		case stepFreshness:
-			r.fresh[l.Key] = l.UpdatedAt
-		}
+		r.remember(l)
 	}
 	return r
+}
+
+// remember applies one step to what the record holds, so that reading the file
+// back and appending to it during a run agree by construction.
+func (r *publishRecord) remember(l publishRecordLine) {
+	switch l.Step {
+	case stepCreate:
+		r.numbered[l.Key] = publishNumber{number: l.Number, id: l.ID}
+	case stepLink:
+		r.linked[l.Key] = true
+	case stepPatch:
+		r.patched[l.Key] = true
+	case stepComment:
+		r.commented[l.Key] = true
+	case stepBlockedBy:
+		r.blocked[publishBlock{blocked: l.Key, by: l.By}] = true
+	case stepFreshness:
+		r.fresh[l.Key] = l.UpdatedAt
+	}
 }
 
 // baseline is what a target's live updated_at is compared against: what this
