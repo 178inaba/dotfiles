@@ -83,6 +83,30 @@ func TestReferences(t *testing.T) {
 			text: "```\r\n@a.md\r\n```\r\n@c.md\r\n",
 			want: []reference{{target: "c.md", isImport: true}},
 		},
+		// The rest are the places the reading this delegates to disagrees
+		// with the one it replaces, and each is CommonMark's answer. The run
+		// of two below has no partner and neither does the run of three, so
+		// the two single runs are free to pair with each other — a reading
+		// that finds a closing run by substring pairs the two with the first
+		// two backticks of the three instead, and uncovers the link.
+		"a span after an unmatched run still hides its link": {
+			text: "a ``b``` `[x](x.md)` c",
+		},
+		"a block opened by four backticks is not closed by three": {
+			text: "````\n```\n[a](a.md)\n````\n",
+		},
+		// CommonMark's example 145: a backtick fence's info string may not
+		// hold a backtick, so this line opens no block and is a paragraph.
+		"a backtick in an info string leaves the line a paragraph": {
+			text: "```a` [x](x.md)",
+			want: []reference{{target: "x.md"}},
+		},
+		"a closing run followed by text closes nothing": {
+			text: "```\n[a](a.md)\n``` x\n[b](b.md)\n",
+		},
+		"a fence marker may be indented past four spaces": {
+			text: "    ```\n[a](a.md)\n    ```\n",
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
