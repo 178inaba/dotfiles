@@ -112,7 +112,7 @@ func Segments(body string) iter.Seq[Segment] {
 		for text := range strings.Lines(body) {
 			start := offset
 			offset += len(text)
-			if open.covers(text) {
+			if open.step(text) {
 				if !yield(Segment{Kind: Fence, Line: line, Start: start, End: offset}) {
 					return
 				}
@@ -169,7 +169,7 @@ type fence struct {
 	n    int
 }
 
-// covers advances f over one line and reports whether that line belongs to a
+// step advances f over one line and reports whether that line belongs to a
 // fenced block — the markers that open and close it included, since they are
 // Fence like the content between them.
 //
@@ -177,7 +177,7 @@ type fence struct {
 // closes one only inside: a marker of the other character, or a shorter one,
 // is content rather than a nested block, and that is the difference from the
 // toggle this replaces.
-func (f *fence) covers(text string) bool {
+func (f *fence) step(text string) bool {
 	switch {
 	case f.n == 0:
 		opened, ok := opensFence(text)
