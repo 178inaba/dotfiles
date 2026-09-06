@@ -68,9 +68,7 @@ type Preparation struct {
 	// otherwise. Not the document's diff, which is taken at pr.head_oid and
 	// stays there.
 	LocalChange *Change `json:"local_change"`
-	// The branch to diff against, already prefixed with origin/.
-	BaseBranch *string `json:"base_branch"`
-	Modes      *Modes  `json:"modes"`
+	Modes       *Modes  `json:"modes"`
 	// The whole freshness report, so that a caller stopping on one can say
 	// what it compared.
 	Freshness *worktree.FreshnessReport `json:"freshness"`
@@ -179,15 +177,13 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	}
 	p.Freshness = &freshness
 
-	base := "origin/" + fetched.PR.BaseRef
-	p.BaseBranch = &base
 	// Read only where the checkout runs past the document, and after the check
 	// that says whether it does. The document itself is left alone: its diff
 	// is taken at head_oid, and one whose head_oid and diff disagree is
 	// something no reader could detect. No fallback for the base ref here —
 	// reading the change has already fetched it.
 	if freshness.Status == worktree.FreshnessAheadOwn {
-		change, err := ReadLocalChange(ctx, r, dir, base, doc.Work.LocalDiffPath)
+		change, err := ReadLocalChange(ctx, r, dir, "origin/"+fetched.PR.BaseRef, doc.Work.LocalDiffPath)
 		if err != nil {
 			return Preparation{}, err
 		}
@@ -273,9 +269,6 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, repo ghapi.
 		p.Warnings = append(p.Warnings,
 			fmt.Sprintf("git fetch origin %s failed; diff may be computed against a stale remote tracking ref", branch))
 	}
-	base := "origin/" + branch
-	p.BaseBranch = &base
-
 	// The work dir is bound to the branch, since there is no number to bind it
 	// to and a fixed name in the shared scratch directory is what a parallel
 	// run on another branch writes over. A detached head has no name to bind

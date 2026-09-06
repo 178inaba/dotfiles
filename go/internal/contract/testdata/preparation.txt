@@ -94,8 +94,6 @@
                             A binary file counts towards neither, which is why they can
                             be less than the patch appears to hold.
       deletions             integer
-  base_branch               string (may be null)
-                            The branch to diff against, already prefixed with origin/.
   modes                     object (may be null)
     comment                 boolean
                             The findings are posted as a review rather than acted on,
