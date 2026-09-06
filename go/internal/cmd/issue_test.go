@@ -305,12 +305,14 @@ func TestRenderIssueTree(t *testing.T) {
 		// left for a null here.
 		Parent: nil,
 		// Nothing is blocking it: an empty array, never a null.
-		BlockedBy:        nil,
-		SubIssues:        []issue.SubIssue{},
-		SubIssuesSummary: issue.Summary{},
+		BlockedBy: nil,
+		SubIssues: []issue.SubIssue{},
+		// A summary that counts children none of which arrived, which is the
+		// warning a null parent can actually be rendered beside.
+		SubIssuesSummary: issue.Summary{Total: 1},
 		Siblings:         []issue.SubIssue{},
 		Warnings: []string{
-			"parent #3 is in another repository (178inaba/other); siblings unknown",
+			"sub_issues count mismatch for #121: summary=1 fetched=0",
 		},
 	}
 

@@ -285,6 +285,58 @@ func TestHTTPStatus(t *testing.T) {
 	}
 }
 
+// TestForbiddenNamesSSOAuthorisation pins the one cause this package names for
+// its caller, and the two ways it stays out of the way otherwise.
+//
+// It is attached here rather than by the callers so that a lookup added later
+// cannot forget it; the status has to survive underneath, since IsNotFound and
+// HTTPStatus read it after the wrapping.
+func TestForbiddenNamesSSOAuthorisation(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError, http.StatusNotFound} {
+		t.Run(fmt.Sprintf("HTTP %d", status), func(t *testing.T) {
+			t.Parallel()
+
+			c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				fmt.Fprint(w, `{"message":"no"}`)
+			}))
+
+			var out struct{}
+			err := c.Get(t.Context(), "repos/o/r/issues/1", &out)
+			if err == nil {
+				t.Fatalf("HTTP %d: want an error, got nil", status)
+			}
+			want := status == http.StatusForbidden
+			if got := strings.Contains(err.Error(), "SSO authorisation"); got != want {
+				t.Errorf("HTTP %d: error = %v, want the clause present = %v", status, err, want)
+			}
+			if got, ok := ghapi.HTTPStatus(err); !ok || got != status {
+				t.Errorf("HTTP %d: HTTPStatus = %d, %v, want the status to survive the wrapping", status, got, ok)
+			}
+		})
+	}
+
+	// A failure that never reached a response has no status to judge, and must
+	// pass through rather than be guessed at.
+	t.Run("a network error", func(t *testing.T) {
+		t.Parallel()
+
+		c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `not json`)
+		}))
+		var out struct{}
+		if err := c.Get(t.Context(), "repos/o/r/issues/1", &out); err == nil {
+			t.Fatal("want an error, got nil")
+		} else if strings.Contains(err.Error(), "SSO authorisation") {
+			t.Errorf("error = %v, want no clause on a failure with no status", err)
+		}
+	})
+}
+
 func TestGetCachedReusesTheResponse(t *testing.T) {
 	t.Parallel()
 

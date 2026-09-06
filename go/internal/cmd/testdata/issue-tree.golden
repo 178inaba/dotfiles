@@ -10,13 +10,13 @@
   "blockers_closed": false,
   "sub_issues": [],
   "sub_issues_summary": {
-    "total": 0,
+    "total": 1,
     "completed": 0
   },
   "all_sub_issues_closed": false,
   "siblings": [],
   "all_siblings_closed": false,
   "warnings": [
-    "parent #3 is in another repository (178inaba/other); siblings unknown"
+    "sub_issues count mismatch for #121: summary=1 fetched=0"
   ]
 }

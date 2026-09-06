@@ -739,10 +739,9 @@ func linkedIssues(body string) []LinkedIssue {
 // expired token says nothing about the issue, and a null title would report it
 // as gone.
 //
-// The parent is not degraded that way at all. A null parent means the issue
-// has none, and GitHub says so with a 404 that IssueParent has already turned
-// into one; a refusal of any other kind is about the run, and returning it
-// keeps "has no parent" from also meaning "could not be asked".
+// The parent is not degraded that way at all: whatever ghapi.IssueParent
+// returns as an error is about the run rather than about the issue, and is
+// returned.
 func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []LinkedIssue, limit int) ([]LinkedIssue, []string, error) {
 	warnings := []string{}
 	for i, linked := range issues {
@@ -785,8 +784,7 @@ func readIssues(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, issues []
 
 		parent, err := c.IssueParent(ctx, in, linked.Number)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read the parent of %s#%d%s: %v",
-				in, linked.Number, ghapi.SSOHint(err), err)
+			return nil, nil, fmt.Errorf("failed to read the parent of %s#%d: %v", in, linked.Number, err)
 		}
 		if parent == nil {
 			continue

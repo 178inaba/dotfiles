@@ -76,7 +76,7 @@ func GetUpTo[T any](ctx context.Context, c *Client, path string, limit int) ([]T
 func getPage[T any](ctx context.Context, c *Client, path string) ([]T, string, error) {
 	resp, err := c.rest.RequestWithContext(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, "", explain(err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()

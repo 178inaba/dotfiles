@@ -98,7 +98,7 @@ func New(o Options) (*Client, error) {
 // path is what `gh api` took: a path relative to the API root, or a whole URL,
 // which is what makes a pagination link usable as one.
 func (c *Client) Get(ctx context.Context, path string, out any) error {
-	return c.rest.DoWithContext(ctx, http.MethodGet, path, nil, out)
+	return explain(c.rest.DoWithContext(ctx, http.MethodGet, path, nil, out))
 }
 
 // GetCached is Get with a response cache, which is what `gh api --cache` gave
@@ -119,7 +119,7 @@ func (c *Client) GetCached(ctx context.Context, path string, ttl time.Duration, 
 		}
 		c.cached = cached
 	}
-	return c.cached.DoWithContext(ctx, http.MethodGet, path, nil, out)
+	return explain(c.cached.DoWithContext(ctx, http.MethodGet, path, nil, out))
 }
 
 // post sends body as JSON to a REST path and decodes the response into out.
@@ -147,7 +147,7 @@ func (c *Client) send(ctx context.Context, method, path string, body, out any) e
 	if err != nil {
 		return fmt.Errorf("ghapi: encode request body: %w", err)
 	}
-	return c.rest.DoWithContext(ctx, method, path, bytes.NewReader(b), out)
+	return explain(c.rest.DoWithContext(ctx, method, path, bytes.NewReader(b), out))
 }
 
 // GraphQL runs one query or mutation and decodes the response into out.
@@ -159,14 +159,14 @@ func (c *Client) send(ctx context.Context, method, path string, body, out any) e
 // writing one out here would be the bypass the type exists to remove, and the
 // compiler cannot say so: this is what review looks for.
 func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any, out any) error {
-	return c.gql.DoWithContext(ctx, query, vars, out)
+	return explain(c.gql.DoWithContext(ctx, query, vars, out))
 }
 
 // IsNotFound reports whether err is GitHub saying the thing does not exist.
 //
-// issue-hierarchy depends on the distinction: the sub-issue parent endpoint
-// answers 404 for an issue that simply has no parent, which is an ordinary
-// result, while any other failure is a degradation it records in warnings[].
+// The sub-issue parent endpoint depends on the distinction: it answers 404 for
+// an issue that simply has no parent, which is an ordinary result, while any
+// other failure is about the run and stops its caller.
 func IsNotFound(err error) bool {
 	if status, ok := HTTPStatus(err); ok {
 		return status == http.StatusNotFound
@@ -191,21 +191,25 @@ func HTTPStatus(err error) (int, bool) {
 	return 0, false
 }
 
-// SSOHint is the clause a forbidden answer earns, and nothing else does.
+// explain names the likely cause of an answer whose status has one, and is
+// applied to every request this package sends.
 //
-// The likeliest reason GitHub forbids a read the token is otherwise entitled
-// to is an organisation it has not been authorised for, which is fixed
-// somewhere other than the command that failed — so it is worth naming in the
-// error. A server error or a rate limit is not, and sending a reader to look
-// at their token over one would be worse than saying nothing.
+// Only 403 has one worth naming: the likeliest reason GitHub forbids a read the
+// token is otherwise entitled to is an organisation it has not been authorised
+// for, which is fixed somewhere other than the command that failed. A server
+// error or a rate limit has no such answer, and sending a reader to look at
+// their token over one would be worse than saying nothing.
 //
-// Empty where it does not apply, so that a caller writes it into the message
-// unconditionally rather than branching on the status a second time.
-func SSOHint(err error) string {
+// Here rather than at the call sites because the cause is a property of
+// GitHub's answer, not of the sentence a caller wraps it in — and because this
+// package is the only thing that talks to GitHub, so a lookup added later
+// cannot forget it. Wrapped rather than replaced, so HTTPStatus and IsNotFound
+// still find the status underneath.
+func explain(err error) error {
 	if status, ok := HTTPStatus(err); ok && status == http.StatusForbidden {
-		return " (the token may lack SSO authorisation for the organisation)"
+		return fmt.Errorf("%w (the token may lack SSO authorisation for the organisation)", err)
 	}
-	return ""
+	return err
 }
 
 // bodyOf reads a response body, which the paginating path needs because it

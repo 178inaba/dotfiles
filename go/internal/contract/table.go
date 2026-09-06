@@ -8,11 +8,8 @@ import (
 
 // marshalers is the exception list the renderer's guard is checked against: a
 // type that serialises itself says here what it puts on the wire, since its Go
-// fields are no longer the wire form.
-//
-// Empty at the moment. The two entries it held were lists a failed lookup
-// printed as null, and failing the command instead left nothing for them to
-// say.
+// fields are no longer the wire form. No type in this module does at present,
+// and the guard refuses to render one that is missing from here.
 var marshalers = map[reflect.Type]Marshaled{}
 
 // std is the table this module's types are rendered against.

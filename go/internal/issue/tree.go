@@ -161,7 +161,7 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 	if err != nil {
 		return Hierarchy{}, err
 	}
-	blockers, err := r.blockers(ctx, base, self.Dependencies.TotalBlockedBy, fmt.Sprintf("#%d", number))
+	blockers, blockersClosed, err := r.blockers(ctx, base, self.Dependencies.TotalBlockedBy, fmt.Sprintf("#%d", number))
 	if err != nil {
 		return Hierarchy{}, err
 	}
@@ -191,12 +191,11 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 				// url; returned rather than dropped so it cannot hide.
 				return Hierarchy{}, fmt.Errorf("read the url of Sub #%d: %w", s.Number, err)
 			}
-			b, err := r.blockers(ctx, path, s.Dependencies.TotalBlockedBy, fmt.Sprintf("Sub #%d", s.Number))
+			list, closed, err := r.blockers(ctx, path, s.Dependencies.TotalBlockedBy, fmt.Sprintf("Sub #%d", s.Number))
 			if err != nil {
 				return Hierarchy{}, err
 			}
-			out[i].BlockedBy = &b.list
-			out[i].BlockersClosed = &b.closed
+			out[i].BlockedBy, out[i].BlockersClosed = &list, &closed
 		}
 	}
 
@@ -219,8 +218,8 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 		URL:                self.HTMLURL,
 		Kind:               kindOf(self.SubIssuesSummary.Total > 0, parent != nil),
 		Parent:             parent,
-		BlockedBy:          blockers.list,
-		BlockersClosed:     blockers.closed,
+		BlockedBy:          blockers,
+		BlockersClosed:     blockersClosed,
 		SubIssues:          out,
 		SubIssuesSummary:   Summary{Total: self.SubIssuesSummary.Total, Completed: self.SubIssuesSummary.Completed},
 		AllSubIssuesClosed: subsComplete && len(out) > 0 && allClosed(out),
@@ -232,16 +231,13 @@ func (r *resolver) tree(ctx context.Context, number int) (Hierarchy, error) {
 
 // parent reads the parent, which is null only where the issue has none.
 //
-// GitHub answers 404 both for an issue that is nobody's child and for a parent
-// in a repository this token cannot see, and IssueParent has already turned
-// both into no parent. Every other refusal is about the run rather than about
-// the issue, and answering it with a null would make "has no parent" also mean
-// "could not be asked" — which is the one thing a caller gating on a parent
-// must not be told.
+// Which answers mean that is ghapi.IssueParent's to say. Everything it returns
+// as an error is about the run, and is returned rather than flattened into a
+// null, since a caller gating on a parent reads a null as a fact.
 func (r *resolver) parent(ctx context.Context, number int) (*Ref, error) {
 	parent, err := r.c.IssueParent(ctx, r.repo, number)
 	if err != nil {
-		return nil, fmt.Errorf("read the parent of #%d in %s%s: %w", number, r.repo, ghapi.SSOHint(err), err)
+		return nil, fmt.Errorf("read the parent of #%d in %s: %w", number, r.repo, err)
 	}
 	if parent == nil {
 		return nil, nil
@@ -260,7 +256,7 @@ func (r *resolver) subIssues(ctx context.Context, base string, number, total int
 	}
 	subs, err := ghapi.GetAll[issueWire](ctx, r.c, base+"/sub_issues?per_page=100")
 	if err != nil {
-		return nil, fmt.Errorf("read the children of #%d in %s%s: %w", number, r.repo, ghapi.SSOHint(err), err)
+		return nil, fmt.Errorf("read the children of #%d in %s: %w", number, r.repo, err)
 	}
 	return subs, nil
 }
@@ -286,8 +282,8 @@ func (r *resolver) siblings(ctx context.Context, number int, parent *Ref) ([]Sub
 	path := fmt.Sprintf("repos/%s/issues/%d/sub_issues?per_page=100", r.repo, parent.Number)
 	subs, err := ghapi.GetAll[issueWire](ctx, r.c, path)
 	if err != nil {
-		return nil, false, fmt.Errorf("read the children of #%d in %s, the parent of #%d%s: %w",
-			parent.Number, r.repo, number, ghapi.SSOHint(err), err)
+		return nil, false, fmt.Errorf("read the children of #%d in %s, the parent of #%d: %w",
+			parent.Number, r.repo, number, err)
 	}
 
 	out := make([]SubIssue, 0, len(subs))
@@ -300,27 +296,24 @@ func (r *resolver) siblings(ctx context.Context, number int, parent *Ref) ([]Sub
 	return out, true, nil
 }
 
-// blockerResult is the pair of fields a blocker lookup produces, which appear
-// side by side both on the issue itself and on each annotated sub-issue.
-type blockerResult struct {
-	list   []Ref
-	closed bool
-}
-
-// blockers reads what is blocking an issue.
+// blockers reads what is blocking an issue, and whether all of it is closed.
 //
 // The gate is total_blocked_by rather than blocked_by, because the latter
 // counts only the open ones and would read an issue whose blockers have all
 // been closed as having none — which is the opposite of what the caller needs
 // to know.
-func (r *resolver) blockers(ctx context.Context, base string, total int, label string) (blockerResult, error) {
+//
+// The bool is false wherever the answer is not known, as siblings' is: a count
+// that disagrees with the summary means some blocker never arrived, and one
+// still open would look the same as one nobody listed.
+func (r *resolver) blockers(ctx context.Context, base string, total int, label string) ([]Ref, bool, error) {
 	if total == 0 {
-		return blockerResult{closed: true}, nil
+		return nil, true, nil
 	}
 
 	list, err := ghapi.GetAll[issueWire](ctx, r.c, base+"/dependencies/blocked_by?per_page=100")
 	if err != nil {
-		return blockerResult{}, fmt.Errorf("read what is blocking %s in %s%s: %w", label, r.repo, ghapi.SSOHint(err), err)
+		return nil, false, fmt.Errorf("read what is blocking %s in %s: %w", label, r.repo, err)
 	}
 
 	refs := make([]Ref, 0, len(list))
@@ -329,7 +322,7 @@ func (r *resolver) blockers(ctx context.Context, base string, total int, label s
 	}
 	if total != len(refs) {
 		r.warn("blocked_by count mismatch for %s: summary=%d fetched=%d", label, total, len(refs))
-		return blockerResult{list: refs}, nil
+		return refs, false, nil
 	}
 
 	closed := true
@@ -339,7 +332,7 @@ func (r *resolver) blockers(ctx context.Context, base string, total int, label s
 			break
 		}
 	}
-	return blockerResult{list: refs, closed: closed}, nil
+	return refs, closed, nil
 }
 
 // closingPRs reads the pull requests that close one sub-issue.
@@ -358,7 +351,7 @@ func (r *resolver) closingPRs(ctx context.Context, sub issueWire) ([]PR, error) 
 		} `json:"resource"`
 	}
 	if err := r.c.GraphQL(ctx, closingPRsQuery, map[string]any{"url": sub.HTMLURL}, &refs); err != nil {
-		return nil, fmt.Errorf("read the pull requests closing Sub #%d%s: %w", sub.Number, ghapi.SSOHint(err), err)
+		return nil, fmt.Errorf("read the pull requests closing Sub #%d: %w", sub.Number, err)
 	}
 	if refs.Resource == nil {
 		return nil, fmt.Errorf("read the pull requests closing Sub #%d: %s names no issue", sub.Number, sub.HTMLURL)
@@ -375,7 +368,7 @@ func (r *resolver) closingPRs(ctx context.Context, sub issueWire) ([]PR, error) 
 			} `json:"resource"`
 		}
 		if err := r.c.GraphQL(ctx, prByURLQuery, map[string]any{"url": n.URL}, &out); err != nil {
-			return nil, fmt.Errorf("read %s, which closes Sub #%d%s: %w", n.URL, sub.Number, ghapi.SSOHint(err), err)
+			return nil, fmt.Errorf("read %s, which closes Sub #%d: %w", n.URL, sub.Number, err)
 		}
 		if out.Resource == nil {
 			return nil, fmt.Errorf("read %s, which closes Sub #%d: it names no pull request", n.URL, sub.Number)

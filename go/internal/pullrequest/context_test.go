@@ -766,43 +766,37 @@ func TestFetchFailsOnAnUnreadableParent(t *testing.T) {
 	one := meta
 	one.Body = "Closes #10"
 
-	for _, status := range []int{http.StatusForbidden, http.StatusGone} {
-		t.Run(fmt.Sprintf("HTTP %d", status), func(t *testing.T) {
+	// wantSSO is ghapi's clause, which only a forbidden answer earns: a run
+	// stopped by a server error must not send its reader looking at their token.
+	tests := []struct {
+		status  int
+		wantSSO bool
+	}{
+		{http.StatusForbidden, true},
+		{http.StatusGone, false},
+		{http.StatusInternalServerError, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("HTTP %d", tc.status), func(t *testing.T) {
 			t.Parallel()
 
 			c := serve(t, pages{
 				body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments,
-				issueStatus: map[string]int{parentPath("owner/repo", 10): status},
+				issueStatus: map[string]int{parentPath("owner/repo", 10): tc.status},
 			})
 			_, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange(), t.TempDir())
 			if err == nil {
-				t.Fatalf("Fetch succeeded, want HTTP %d on the parent to stop it", status)
+				t.Fatalf("Fetch succeeded, want HTTP %d on the parent to stop it", tc.status)
 			}
 			if !strings.Contains(err.Error(), "owner/repo#10") {
-				t.Errorf("error = %v, want it to name the issue whose parent could not be read", err)
+				t.Errorf("error = %v, want it to name the issue whose parent was refused", err)
+			}
+			if got := strings.Contains(err.Error(), "SSO"); got != tc.wantSSO {
+				t.Errorf("error = %v, want the SSO clause present = %v", err, tc.wantSSO)
 			}
 		})
 	}
-
-	// The clause is on the one status that says so. A run stopped by a server
-	// error must not send its reader looking at their token.
-	t.Run("a forbidden parent names SSO authorisation", func(t *testing.T) {
-		t.Parallel()
-
-		for status, want := range map[int]bool{http.StatusForbidden: true, http.StatusInternalServerError: false} {
-			c := serve(t, pages{
-				body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments,
-				issueStatus: map[string]int{parentPath("owner/repo", 10): status},
-			})
-			_, err := pullrequest.Fetch(t.Context(), c, repo, one, pullrequest.DefaultLimits, noChange(), t.TempDir())
-			if err == nil {
-				t.Fatalf("HTTP %d: Fetch succeeded, want it stopped", status)
-			}
-			if got := strings.Contains(err.Error(), "SSO"); got != want {
-				t.Errorf("HTTP %d: error = %v, want the SSO clause present = %v", status, err, want)
-			}
-		}
-	})
 }
 
 // TestFetchReadsAMissingParentAsNone pins the answer 404 keeps.
