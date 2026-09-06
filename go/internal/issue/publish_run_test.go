@@ -336,6 +336,13 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	file := writeManifest(t, m, parentAndSubFiles())
 	g := newFakeGitHub()
 
+	// What the same manifest's dry run says the run will write, so that the
+	// result is held against the plan rather than against a second judgement.
+	plan, err := issue.PublishDryRun(t.Context(), g.client(t), m, file)
+	if err != nil {
+		t.Fatalf("PublishDryRun: %v", err)
+	}
+
 	got, err := issue.Publish(t.Context(), g.client(t), m, file)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
@@ -348,6 +355,20 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got.Created); diff != "" {
 		t.Errorf("Publish created (-want +got):\n%s", diff)
+	}
+
+	// The parent and SUB_A go out holding a forward reference, so the write
+	// stage fills each of them in; SUB_B names only the issue created before
+	// it, so its body is finished at its create and it is written once.
+	wantEdited := []issue.PublishedIssue{
+		{Key: "PARENT", Number: 101, URL: "https://github.com/owner/repo/issues/101"},
+		{Key: "SUB_A", Number: 102, URL: "https://github.com/owner/repo/issues/102"},
+	}
+	if diff := cmp.Diff(wantEdited, got.Edited); diff != "" {
+		t.Errorf("Publish edited (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(plannedKeys(plan.Edit), publishedKeys(got.Edited)); diff != "" {
+		t.Errorf("the run wrote other issues than its dry run planned (-plan +run):\n%s", diff)
 	}
 
 	// Every body ends up carrying real numbers, forward references included.
@@ -368,6 +389,50 @@ func TestPublishNumbersEveryReferenceAndLinksTheSet(t *testing.T) {
 	}
 	if len(got.Degraded) != 0 {
 		t.Errorf("Publish reported %v as degraded, want none", got.Degraded)
+	}
+}
+
+// plannedKeys and publishedKeys are how a plan and a result are compared: the
+// plan carries 0 where the run carries the number it assigned, so the keys are
+// what the two say in the same terms.
+func plannedKeys(planned []issue.PlannedIssue) []string {
+	keys := []string{}
+	for _, p := range planned {
+		keys = append(keys, p.Key)
+	}
+	return keys
+}
+
+func publishedKeys(published []issue.PublishedIssue) []string {
+	keys := []string{}
+	for _, p := range published {
+		keys = append(keys, p.Key)
+	}
+	return keys
+}
+
+// TestPublishLeavesAFinishedBodyAlone is the other half of the rule the result
+// follows: an issue created with nothing left to fill in is written once, so
+// it appears under created and nowhere else.
+func TestPublishLeavesAFinishedBodyAlone(t *testing.T) {
+	t.Parallel()
+
+	m := issue.PublishManifest{
+		Repo:   ptr("owner/repo"),
+		Issues: []issue.PublishManifestIssue{row("SOLO", "solo.md")},
+	}
+	file := writeManifest(t, m, map[string]string{"solo.md": leafDraft})
+	g := newFakeGitHub()
+
+	got, err := issue.Publish(t.Context(), g.client(t), m, file)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if len(got.Created) != 1 {
+		t.Fatalf("Publish created %+v, want the one issue", got.Created)
+	}
+	if len(got.Edited) != 0 {
+		t.Errorf("Publish edited %+v, want nothing — its body went out finished", got.Edited)
 	}
 }
 
