@@ -42,7 +42,7 @@ argument-hint: "[<pr-number>] [--issue NUMBER] [--worktree] [--local-only] [--no
 ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [--worktree] [--local-only] [--no-autofix]
 ```
 
-フラグ検証・PR 存在プローブ・branch 一致確認・PR コンテキスト一括取得（`ccx pr context` と同じ機構、打ち切り時の自動再取得込み）・3モード判定・PR head との鮮度確認・ベースブランチ判定を1回で行う。未定義フラグ（旧名・typo）は定義済み一覧を添えた非ゼロ exit で止まる — 黙って無視され意図しないモードで実行される事故を防ぐため。
+フラグ検証・PR 存在プローブ・branch 一致確認・PR コンテキスト一括取得（`ccx pr context` と同じ機構、打ち切り時の自動再取得込み）・3モード判定・PR head との鮮度確認・コンテキストが運ばないローカル変更の読み取りを1回で行う。未定義フラグ（旧名・typo）は定義済み一覧を添えた非ゼロ exit で止まる — 黙って無視され意図しないモードで実行される事故を防ぐため。
 
 出力の読み方は `ccx pr prepare-review --help` にある。本スキルがそれに対して行うこと:
 
@@ -51,7 +51,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 - `context_path` の読み方は「PR コンテキストの読了」
 - `work_dir`: **レビュー中に scratchpad へ作る補助ファイル（body の下書き等）もこの配下に置く** — 同一セッションの scratchpad は並列サブエージェントと共有されるため、共有直下に固定名で書くと別 PR のレビューに上書きされる
 - `review_path` / `threads_path`: 「コメントモードON時: PRにレビュー投稿」「コメントモードON時: 前回指摘スレッドへの返信・解決」で Write するとき**このパスをそのまま使う**（自分で命名しない）
-- `base_branch` は「差分取得と確認」がローカルで差分を取る状態でのみ使う（それ以外の差分はコンテキストから読む）。`issues` は「Issue情報取得」で使う
+- `local_change` は「差分取得と確認」がコンテキスト以外から差分を取る状態でのみ使う（それ以外の状態では null）。`issues` は「Issue情報取得」で使う
 - `warnings[]` が空でなければユーザーへの報告に併記する（打ち切りが解消しなかった場合は、記載の指示に従い再取得してから「PR コンテキストの読了」へ進む。ただし Issue コメントの打ち切りだけは例外で、「Issue情報取得」の規則に従い再取得しない）
 
 モードの効き先（ONのとき追加で読む箇所）:
@@ -93,7 +93,7 @@ Skill ツールで `pr-reading` を起動し、その手順に従って読む。
 取得元は状態で決まる。`pr_exists` を先に見て（false なら `freshness` は null）、次に `freshness.status` を見る — top-level の `status` はこの 3 つを区別しないため（語彙は `ccx pr freshness --help`）。停止する status は「準備」で処理済みなのでここには来ない。`--local-only` はここでの状態ではない（投稿を抑えるだけで、コンテキストは通常どおり書かれ読まれる）:
 
 - `ok` / `synced` → コンテキストから読む。`pr.body`、コミットメッセージは `commits[]`、差分は **`diff.path` が指すファイル**、ファイル一覧は `diff.files[]`
-- `pr_exists: false`（PR が無くコンテキストも無い）と `ahead_own`（コンテキストの差分は `pr.head_oid` までで、作者の未 push コミットが落ちる）の 2 状態のみ、`git log <base_branch>..HEAD` と `git diff <base_branch>...HEAD` をローカルで実行する。ファイル一覧は `--stat`、生成物の印は付かない
+- `pr_exists: false`（PR が無くコンテキストも無い）と `ahead_own`（コンテキストの差分は `pr.head_oid` までで、作者の未 push コミットが落ちる）の 2 状態のみ、`local_change` から読む。コミットメッセージは `local_change.commits[]`、差分は **`local_change.diff.path` が指すファイル**、ファイル一覧は `local_change.diff.files[]`。`pr_exists: false` では `pr.body` は読むものが無い
 
 観点ごとの検証手続きは「レビュー実行」のトリガー式チェックリストが担う。
 

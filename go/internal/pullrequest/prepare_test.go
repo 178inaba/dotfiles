@@ -192,8 +192,14 @@ var issue42Comments = []pullrequest.IssueComment{
 // turning one into bytes is the command layer's business.
 func store(seen *[]pullrequest.Context, paths *[]string) pullrequest.Store {
 	return func(path string, c pullrequest.Context) error {
-		*seen = append(*seen, c)
-		*paths = append(*paths, path)
+		// Either may be nil, so that a test about something else says so
+		// rather than collecting what it will not look at.
+		if seen != nil {
+			*seen = append(*seen, c)
+		}
+		if paths != nil {
+			*paths = append(*paths, path)
+		}
 		return nil
 	}
 }
@@ -234,18 +240,281 @@ func TestPrepareWithoutAPullRequest(t *testing.T) {
 			if diff := cmp.Diff(&tc.want, got.Modes); diff != "" {
 				t.Errorf("modes (-want +got):\n%s", diff)
 			}
-			if got.BaseBranch == nil || *got.BaseBranch != "origin/main" {
-				t.Errorf("base_branch = %v, want origin/main", got.BaseBranch)
-			}
-			// Nothing was fetched, so none of the paths a review writes to
-			// exist yet.
-			if got.ContextPath != nil || got.WorkDir != nil || got.Freshness != nil {
+			// Nothing was fetched, so neither the document nor the freshness
+			// report it is compared against exists.
+			if got.ContextPath != nil || got.Freshness != nil {
 				t.Errorf("prepare = %+v, want the fetched fields left null", got)
+			}
+			// Nothing degraded, so nothing is said: the two tests that expect
+			// exactly one warning are only meaningful against this.
+			if len(got.Warnings) != 0 {
+				t.Errorf("warnings = %q, want none on a run where nothing degraded", got.Warnings)
 			}
 			if len(seen) != 0 {
 				t.Errorf("a context was fetched for a branch with no pull request")
 			}
 		})
+	}
+}
+
+// localWork adds a commit with something in it to the fixture's branch, since
+// every commit prepareRepo makes is empty and the local change is about the
+// files a review reads. It answers what the diff has to describe.
+func localWork(t *testing.T, repo string) []pullrequest.DiffFile {
+	t.Helper()
+
+	gittest.Write(t, filepath.Join(repo, ".gitattributes"), "api.pb.go linguist-generated\n")
+	gittest.Write(t, filepath.Join(repo, "api.pb.go"), "package api\n")
+	gittest.Write(t, filepath.Join(repo, "hand.go"), "package hand\n")
+	gittest.Run(t, repo, "add", "-A")
+	gittest.Run(t, repo, "commit", "-qm", "Add a generated file and a hand-written one")
+
+	return []pullrequest.DiffFile{
+		{Path: ".gitattributes", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
+		{Path: "api.pb.go", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0), Generated: true},
+		{Path: "hand.go", Status: pullrequest.StatusAdded, Additions: new(1), Deletions: new(0)},
+	}
+}
+
+// TestPrepareWritesTheLocalChangeWithoutAPullRequest is the state that has no
+// document at all: the range the review reads is computed here, and the patch
+// goes in a work dir bound to the branch rather than to a pull request.
+func TestPrepareWritesTheLocalChangeWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	wantFiles := localWork(t, repo)
+	scratch := t.TempDir()
+
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: scratch}, store(nil, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	// Bound to the branch, since there is no number to bind it to: two runs on
+	// two branches in one scratch directory are what the work dir is for.
+	wantDir := filepath.Join(scratch, "branch-owner@repo-feature-x")
+	if got.WorkDir == nil || *got.WorkDir != wantDir {
+		t.Errorf("work_dir = %v, want %q", got.WorkDir, wantDir)
+	}
+	// Nothing writes a review or a threads file where there is no pull request
+	// to post one to.
+	if got.ReviewPath != nil || got.ThreadsPath != nil {
+		t.Errorf("review_path/threads_path = %v/%v, want both null", got.ReviewPath, got.ThreadsPath)
+	}
+	if got.LocalChange == nil {
+		t.Fatalf("local_change is null on a branch with no pull request")
+	}
+	if diff := cmp.Diff(wantFiles, got.LocalChange.Diff.Files); diff != "" {
+		t.Errorf("local_change.diff.files (-want +got):\n%s", diff)
+	}
+	// The whole branch, not the last commit: the fixture's own empty commit is
+	// in the range too.
+	if len(got.LocalChange.Commits) != 2 {
+		t.Errorf("local_change.commits = %+v, want both commits of the branch", got.LocalChange.Commits)
+	}
+	patch := filepath.Join(wantDir, "local.patch")
+	if got.LocalChange.Diff.Path != patch {
+		t.Errorf("local_change.diff.path = %q, want %q", got.LocalChange.Diff.Path, patch)
+	}
+	if _, err := os.Stat(patch); err != nil {
+		t.Errorf("the patch local_change names was not written: %v", err)
+	}
+}
+
+// TestPrepareRefusesADetachedHeadWithoutAPullRequest covers the one checkout
+// this state cannot name a work dir for.
+func TestPrepareRefusesADetachedHeadWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	gittest.Run(t, repo, "switch", "-q", "--detach", "HEAD")
+
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
+	if err == nil {
+		t.Fatal("Prepare succeeded on a detached head, want it to refuse")
+	}
+	if !strings.Contains(err.Error(), "branch") {
+		t.Errorf("Prepare error = %v, want it to say to check out a branch", err)
+	}
+}
+
+// singleBranch narrows the fixture to what `git clone --single-branch` leaves
+// behind: a remote that is there, and no remote-tracking ref for the base
+// branch — which a `git fetch origin <base>` does not restore, since the
+// configured refspec decides which remote-tracking branch an explicit fetch
+// updates.
+func singleBranch(t *testing.T, repo string) {
+	t.Helper()
+
+	gittest.Run(t, repo, "config", "remote.origin.fetch", "+refs/heads/feature/x:refs/remotes/origin/feature/x")
+	gittest.Run(t, repo, "update-ref", "-d", "refs/remotes/origin/main")
+	// origin/HEAD goes with it, which is what leaves the default branch to be
+	// guessed at — the way this state is reached in the first place.
+	gittest.Run(t, repo, "update-ref", "-d", "refs/remotes/origin/HEAD")
+}
+
+// TestPrepareFallsBackToALocalBaseBranch covers a checkout whose base branch
+// has no remote-tracking ref: refusing there would be refusing the local
+// review this whole path exists to give.
+//
+// A tag named after the base branch stands beside it, since the fallback names
+// a branch git would otherwise resolve to the tag first.
+func TestPrepareFallsBackToALocalBaseBranch(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	localWork(t, repo)
+	// A tag on the branch's own head, so that resolving it instead of the
+	// branch would give an empty diff rather than an error.
+	gittest.Run(t, repo, "tag", "main", "HEAD")
+	singleBranch(t, repo)
+
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if got.LocalChange == nil || len(got.LocalChange.Diff.Files) != 3 {
+		t.Fatalf("local_change = %+v, want the branch's diff against the local main", got.LocalChange)
+	}
+	// Which of the two refs the range was taken against is something the
+	// reader has to be told, and told once: the fetch that failed and the
+	// remote-tracking ref that is not there are the same event.
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "origin/main") {
+		t.Errorf("warnings = %q, want exactly one naming the remote-tracking ref that was not there", got.Warnings)
+	}
+}
+
+// TestPrepareWarnsOnceWhenTheFetchFailed is the other half of the one-warning
+// rule: the remote-tracking ref is there and is still what the range is taken
+// against, and the reader is told once that it may be behind.
+func TestPrepareWarnsOnceWhenTheFetchFailed(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	localWork(t, repo)
+	// The remote is still configured and origin/main is still here; only the
+	// fetch cannot reach anything, which is what being offline looks like.
+	gittest.Run(t, repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if got.LocalChange == nil || len(got.LocalChange.Diff.Files) != 3 {
+		t.Fatalf("local_change = %+v, want the branch's diff against origin/main", got.LocalChange)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "failed") {
+		t.Errorf("warnings = %q, want exactly one saying the fetch failed", got.Warnings)
+	}
+}
+
+// TestPrepareRefusesAMissingBaseBranch is the end of the fallback: with
+// neither ref there is nothing to compare against, and the two names the
+// reader could fix are both said.
+func TestPrepareRefusesAMissingBaseBranch(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	singleBranch(t, repo)
+	gittest.Run(t, repo, "branch", "-qD", "main")
+
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
+	if err == nil {
+		t.Fatal("Prepare succeeded with no base branch of either kind, want it to refuse")
+	}
+	if !strings.Contains(err.Error(), "the local branch main") {
+		t.Errorf("Prepare error = %v, want it to name the local branch it looked for as well", err)
+	}
+}
+
+// TestPrepareWritesTheLocalChangeAheadOfThePullRequest is the other state: the
+// document is still taken at the pull request's head, and the field carries
+// what the author has not pushed on top of it.
+func TestPrepareWritesTheLocalChangeAheadOfThePullRequest(t *testing.T) {
+	t.Parallel()
+
+	repo, head := prepareRepo(t)
+	wantFiles := localWork(t, repo)
+	scratch := t.TempDir()
+	var seen []pullrequest.Context
+
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: scratch}, store(&seen, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if got.Freshness == nil || got.Freshness.Status != "ahead_own" {
+		t.Fatalf("freshness = %+v, want ahead_own", got.Freshness)
+	}
+
+	if got.LocalChange == nil {
+		t.Fatalf("local_change is null on the author's own checkout ahead of the pull request")
+	}
+	if diff := cmp.Diff(wantFiles, got.LocalChange.Diff.Files); diff != "" {
+		t.Errorf("local_change.diff.files (-want +got):\n%s", diff)
+	}
+	// Beside the document's patch rather than over it: the two describe
+	// different commits, and a reader given one path could not tell.
+	patch := filepath.Join(scratch, "pr-owner@repo-5", "local.patch")
+	if got.LocalChange.Diff.Path != patch {
+		t.Errorf("local_change.diff.path = %q, want %q", got.LocalChange.Diff.Path, patch)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("%d contexts were stored, want 1", len(seen))
+	}
+	// The document's own diff ends where the pull request does, which is the
+	// invariant the whole arrangement exists to keep.
+	if len(seen[0].Diff.Files) != 0 || len(seen[0].Commits) != 1 {
+		t.Errorf("the document describes %+v, want only the pushed commit", seen[0].Commits)
+	}
+}
+
+// TestPrepareLeavesTheLocalChangeNullOnASyncedCheckout is the third of the
+// four freshness states that go on. A checkout the freshness check moved onto
+// the pull request's head holds nothing the document does not, so there is no
+// second change to describe — and the patch an earlier ahead_own run left is
+// not left lying in the work dir for a reader to mistake for this run's.
+func TestPrepareLeavesTheLocalChangeNullOnASyncedCheckout(t *testing.T) {
+	t.Parallel()
+
+	repo, head := prepareRepo(t)
+	scratch := t.TempDir()
+	patch := filepath.Join(scratch, "pr-owner@repo-5", "local.patch")
+	prepare := func() pullrequest.Preparation {
+		t.Helper()
+		got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
+			ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: scratch}, store(nil, nil))
+		if err != nil {
+			t.Fatalf("Prepare: %v", err)
+		}
+		return got
+	}
+
+	// An ahead_own run first, so that there is a patch of this pull request's
+	// own to be left behind.
+	localWork(t, repo)
+	if ahead := prepare(); ahead.LocalChange == nil {
+		t.Fatalf("the first run left local_change null, so there is no patch for the second to clear")
+	}
+	// Behind with nothing to lose, which the freshness check fast-forwards
+	// itself and reports as synced.
+	gittest.Run(t, repo, "reset", "-q", "--hard", "HEAD~2")
+
+	got := prepare()
+	if got.Freshness == nil || got.Freshness.Status != "synced" {
+		t.Fatalf("freshness = %+v, want synced", got.Freshness)
+	}
+	if got.LocalChange != nil {
+		t.Errorf("local_change = %+v, want null on a synced checkout", got.LocalChange)
+	}
+	if _, err := os.Stat(patch); !os.IsNotExist(err) {
+		t.Errorf("the earlier run's patch is still in the work dir (%v) with nothing in the output naming it", err)
 	}
 }
 
@@ -334,8 +603,10 @@ func TestPrepare(t *testing.T) {
 			if got.Freshness == nil || got.Freshness.Status != "ok" {
 				t.Errorf("freshness = %+v, want an ok report", got.Freshness)
 			}
-			if got.BaseBranch == nil || *got.BaseBranch != "origin/main" {
-				t.Errorf("base_branch = %v, want origin/main", got.BaseBranch)
+			// A checkout at the pull request's head has nothing the document
+			// does not carry, so there is no second change to describe.
+			if got.LocalChange != nil {
+				t.Errorf("local_change = %+v, want null on a checkout that is not ahead", got.LocalChange)
 			}
 			// The issues come from the body's closing keywords, read rather
 			// than merely numbered.

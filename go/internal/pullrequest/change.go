@@ -12,7 +12,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// Commit is one commit of the pull request.
+// Commit is one commit of the range being described.
 type Commit struct {
 	OID string `json:"oid"`
 	// The whole message, headline and paragraphs together. Not the
@@ -25,13 +25,13 @@ type Commit struct {
 type FileStatus string
 
 const (
-	// StatusAdded is a file the pull request creates.
+	// StatusAdded is a file the range creates.
 	StatusAdded FileStatus = "added"
 	// StatusModified is a file whose content changed. A file whose type
 	// changed — a regular file replaced by a symlink, say — is reported as
 	// this: it is a modification, and there is no third answer to give.
 	StatusModified FileStatus = "modified"
-	// StatusDeleted is a file the pull request removes.
+	// StatusDeleted is a file the range removes.
 	StatusDeleted FileStatus = "deleted"
 	// StatusRenamed is a file that moved, and is the reason previous_path
 	// exists: the patch shows the two paths, and a reader matching the file
@@ -41,7 +41,7 @@ const (
 	StatusCopied FileStatus = "copied"
 )
 
-// DiffFile is one file the pull request changes.
+// DiffFile is one file the range changes.
 type DiffFile struct {
 	// The path on the new side; for a deletion, the path that was
 	// removed.
@@ -55,16 +55,18 @@ type DiffFile struct {
 	Additions *int `json:"additions"`
 	Deletions *int `json:"deletions"`
 	// Whether the repository marks the file as generated, by
-	// the linguist-generated attribute read at head_oid rather than in
-	// whatever is checked out here — so a pull request that adds the marking
-	// is described by its own marking. Anything but unset, unspecified or
+	// the linguist-generated attribute read at the commit the range ends on —
+	// the pull request's head_oid, or HEAD for a change read out of a checkout
+	// — rather than at whatever the reader happens to have checked out, so
+	// that a change adding the marking is described by its own marking.
+	// Anything but unset, unspecified or
 	// false is true, which is how linguist reads the attribute. It is the one
 	// exclusion a reader of the whole diff is given, and the repository rather
 	// than the reader decides it.
 	Generated bool `json:"generated" contract:"required"`
 }
 
-// Diff is the whole diff of the pull request.
+// Diff is the whole diff of the range.
 //
 // The patch goes to a file rather than into the document: it is unbounded, and
 // a reader takes it with a tool that reads a path.
@@ -72,7 +74,8 @@ type Diff struct {
 	// The absolute path of the file holding the patch. It sits
 	// directly in the work dir, is named with the rest of what goes there, and
 	// is overwritten on every run — a caller composing the name is how two
-	// runs on two pull requests come to write over each other.
+	// runs on two pull requests, or on two branches, come to write over each
+	// other.
 	Path  string     `json:"path"`
 	Files []DiffFile `json:"files"`
 	// additions and deletions are the lines across the text
@@ -82,18 +85,22 @@ type Diff struct {
 	Deletions int `json:"deletions"`
 }
 
-// Change is what a pull request changes: the commits that made it and the diff
-// they add up to.
+// Change is what a range of commits changes: the commits that made it and the
+// diff they add up to.
 //
 // Read apart from the conversation because the two fail differently and are
 // retried differently, and because a caller that fetches the conversation
 // twice with the limits raised still reads this once.
 //
-// ReadChange is where one comes from: both lists are empty rather than nil on
-// every path out of it, which is what the document publishes.
+// ReadChange and ReadLocalChange are where one comes from: both lists are
+// empty rather than nil on every path out of either, which is what the
+// document publishes.
 type Change struct {
-	Commits []Commit
-	Diff    Diff
+	// The commits of the range, oldest first.
+	Commits []Commit `json:"commits"`
+	// The whole diff of the range, as a file and the statistics
+	// over it. No limit is applied to either.
+	Diff Diff `json:"diff"`
 }
 
 // ReadChange reads a pull request's commits and diff out of git.
@@ -108,14 +115,6 @@ type Change struct {
 //
 // git runs against dir, which is the checkout the command was invoked in.
 func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, diffPath string) (Change, error) {
-	// Absolute before it reaches git: -C moves git's own working directory, so
-	// a relative --output would land under dir rather than beside the
-	// document. It is also what diff.path promises its reader.
-	patch, err := filepath.Abs(diffPath)
-	if err != nil {
-		return Change{}, fmt.Errorf("failed to resolve the diff path %s: %v", diffPath, err)
-	}
-
 	head := fmt.Sprintf("refs/pull/%d/head", pr.Number)
 	if _, err := r.Run(ctx, runner.Command{
 		Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", pr.BaseRefName, head},
@@ -136,15 +135,61 @@ func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullR
 		return Change{}, fmt.Errorf("failed to find the merge base of origin/%s and %s: %v", pr.BaseRefName, pr.HeadRefOid, err)
 	}
 
-	commits, err := readCommits(ctx, r, dir, base+".."+pr.HeadRefOid)
+	return readRange(ctx, r, dir, base, pr.HeadRefOid, diffPath)
+}
+
+// ReadLocalChange reads the change a checkout holds over a base branch.
+//
+// The two states a document cannot describe are read through this: a branch
+// with no pull request at all, and the author's own checkout with commits not
+// pushed yet, whose document ends at the pull request's head. The range is
+// taken from HEAD rather than from an object named in metadata, since that is
+// what those two states have and what their reviewer is being asked about.
+//
+// base is the whole ref to compare against — origin/<branch>, or the local
+// branch of that name where there is no remote-tracking ref — and the caller
+// resolves it, because which of the two is right is something only the caller
+// knows how it got there. Nothing is fetched here for the same reason: both
+// callers have already fetched, and a second one would put the decision about
+// what a failed fetch means in two places.
+//
+// The attribute saying which files are generated is read at HEAD, which is the
+// commit this describes — the same rule the document's reading follows, so
+// that the local diff carries the flag the document's does.
+func ReadLocalChange(ctx context.Context, r runner.Runner, dir, base, diffPath string) (Change, error) {
+	// No merge base found by hand: unlike ReadChange, which has to name an
+	// object git would not find on the other side, both ends here are refs git
+	// resolves itself, and the three dots readRange uses are that merge base.
+	return readRange(ctx, r, dir, base, "HEAD", diffPath)
+}
+
+// readRange is what both readings are once the two ends are settled: the
+// commits of base..tip, the diff of base...tip, and the generated attribute as
+// the repository declares it at tip.
+//
+// One implementation, because the two rules it carries are the same for either
+// end — the attribute is read at the commit the range describes rather than at
+// whatever is checked out, and three dots keep the diff against the merge base
+// rather than against wherever the base branch has since moved to. What differs
+// between the callers is only how they arrive at the two ends.
+func readRange(ctx context.Context, r runner.Runner, dir, base, tip, diffPath string) (Change, error) {
+	// Absolute before it reaches git: -C moves git's own working directory, so
+	// a relative --output would land under dir rather than beside the
+	// document. It is also what diff.path promises its reader.
+	patch, err := filepath.Abs(diffPath)
+	if err != nil {
+		return Change{}, fmt.Errorf("failed to resolve the diff path %s: %v", diffPath, err)
+	}
+
+	commits, err := readCommits(ctx, r, dir, base+".."+tip)
 	if err != nil {
 		return Change{}, err
 	}
-	diff, err := readDiff(ctx, r, dir, base+"..."+pr.HeadRefOid, patch)
+	diff, err := readDiff(ctx, r, dir, base+"..."+tip, patch)
 	if err != nil {
 		return Change{}, err
 	}
-	if err := readGenerated(ctx, r, dir, pr.HeadRefOid, diff.Files); err != nil {
+	if err := readGenerated(ctx, r, dir, tip, diff.Files); err != nil {
 		return Change{}, err
 	}
 	return Change{Commits: commits, Diff: diff}, nil

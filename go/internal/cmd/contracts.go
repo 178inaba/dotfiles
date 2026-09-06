@@ -264,21 +264,24 @@ caller is standing in.`,
 		intro: `Settle what a review needs before it starts, in one call.
 
 Flag validation, the pull request probe, the branch check, the context fetch,
-the three-mode decision, the freshness check and the base branch, in one call:
-each of them decides what the next one is allowed to assume, and a review that
-runs them separately can proceed with one of them skipped.
+the three-mode decision, the freshness check and the change this checkout holds
+that the document does not, in one call: each of them decides what the next one
+is allowed to assume, and a review that runs them separately can proceed with
+one of them skipped.
 
 An undefined flag stops the command with the defined ones listed, rather than
 being ignored and letting the review run in a mode nobody asked for.
-<scratchpad-dir> has to exist; the context file and the review work directory
-are made under it.
+<scratchpad-dir> has to exist; the context file and the work directory are made
+under it — the work directory on every run that goes on, including one on a
+branch with no pull request at all, where the patch in local_change goes.
 
 The document is the one ` + "`ccx pr context`" + ` writes — its fields, ` + "`pending`" + ` among
 them, are set out under ` + "`ccx pr context --help`" + ` and not repeated here — and git
 runs the same way for it: **wherever context_path is set, the commit that
 document names as ` + "`pr.head_oid`" + ` is present in this repository**. Where the
-preparation stops before that — no pull request at all, or a checkout on
-another branch — nothing was fetched and the promise does not apply.`,
+preparation stops before that — a checkout on another branch — nothing was
+fetched and the promise does not apply; on a branch with no pull request there
+is no document either, and local_change is the whole of what the review reads.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.Preparation]())},
 		statuses: with(),
 	},
