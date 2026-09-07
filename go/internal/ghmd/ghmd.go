@@ -105,8 +105,8 @@ type Segment struct {
 // segment is matching within a line, and one mapping a segment onto a line
 // index is entitled to the single answer Line gives. Both would break quietly
 // on the day a run were allowed to grow past a newline — issue's section check
-// maps segments onto lines, and ClosingReferences below reads a keyword and
-// its reference as adjacent only within one.
+// maps segments onto lines, and the walk under ClosingReferences below reads a
+// keyword and its reference as adjacent only within one.
 //
 // A known limit, carried over from the shell version this replaces: an
 // unclosed fence hides everything after it, running to the end as Fence. A

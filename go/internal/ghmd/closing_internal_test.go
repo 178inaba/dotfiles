@@ -38,6 +38,12 @@ func TestKeywordReferences(t *testing.T) {
 			// An underscore is not alphanumeric, so it does not join the
 			// keyword to a longer word — which is where this reading and the
 			// \b one it replaces used to disagree.
+			//
+			// Whether GitHub closes on this form is unverified: it takes a
+			// real pull request merged into a default branch to find out, and
+			// what is pinned here is the one implementation that survived the
+			// two, not GitHub's behaviour. This is the case to rewrite first
+			// if GitHub's own reading is ever established.
 			name: "an underscore leaves the keyword whole",
 			body: "_Closes #5\n",
 			want: []keywordReference{{Number: 5, Kind: Prose}},
@@ -91,15 +97,16 @@ func TestKeywordReferences(t *testing.T) {
 				{Repo: "other/repo", Number: 13, Kind: Prose},
 			},
 		},
-		// The forms that name no issue to close.
+		// The forms that name no issue to close. Four of them hold a # and so
+		// reach the pattern, which turns them away; the two that hold none —
+		// the keyword with nothing to refer to, and the url — are skipped
+		// before it by the run having no # in it at all.
 		{name: "a line break separates the keyword from the reference", body: "Closes\n#5\n"},
 		{name: "a placeholder names no issue", body: "docs update: `Closes #N` placeholder\n"},
 		{name: "a longer word merely ends in the keyword", body: "word `discloses #656` here\n"},
-		{name: "the keyword without a reference", body: "call `closes the stream` explicitly\n"},
-		// The one form that reaches the pattern and is turned away by it
-		// rather than by the run holding no # at all. GitHub links a bare
-		// reference and closes on none.
+		// GitHub links a bare reference and closes on none.
 		{name: "a reference without a keyword", body: "See #5\n"},
+		{name: "the keyword without a reference", body: "call `closes the stream` explicitly\n"},
 		{name: "a url is not a reference GitHub closes on", body: "Fixes https://github.com/owner/repo/issues/14\n"},
 	}
 	for _, tt := range tests {

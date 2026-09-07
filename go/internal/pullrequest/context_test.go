@@ -915,7 +915,9 @@ func TestFetchStopsAtTheIssueCommentLimit(t *testing.T) {
 // One body carries both halves of the reading, because they used to be decided
 // by different patterns: a keyword in a code span is quoted rather than meant,
 // and an underscore before one leaves the word whole, which the \b this reading
-// replaces did not.
+// replaces did not. Whether GitHub closes on that second form is unverified —
+// ghmd's own test for the boundary says what that means and what would settle
+// it — so this pins the reading ccx keeps, not GitHub's.
 func TestFetchReadsTheClosingKeywordsGitHubReads(t *testing.T) {
 	t.Parallel()
 
