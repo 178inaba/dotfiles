@@ -366,7 +366,6 @@ func (f headCheckFixture) run(t *testing.T, tt headCheckCase,
 	args func(contextFile, workDir string) []string) (int, string, int) {
 	t.Helper()
 
-	t.Chdir(f.repo)
 	contextFile := contextDocument(t, "2026-01-11T00:00:00Z", true, f.oid[tt.docHead])
 
 	posted := 0
@@ -376,7 +375,7 @@ func (f headCheckFixture) run(t *testing.T, tt headCheckCase,
 			w.WriteHeader(http.StatusInternalServerError)
 		})
 	}
-	deps := Deps{NewClient: func() (*ghapi.Client, error) { return ghapitest.New(t, h), nil }}
+	deps := Deps{NewClient: func() (*ghapi.Client, error) { return ghapitest.New(t, h), nil }, Dir: f.repo}
 
 	var errOut bytes.Buffer
 	code := run(t.Context(), args(contextFile, pullrequest.WorkDir(contextFile)),
@@ -413,14 +412,15 @@ func assertHeadCheck(t *testing.T, cmd string, tt headCheckCase, code int, stder
 //
 // The accepted case goes all the way to the posting path and the request
 // arrives at the handler, which is the property the injected client is for.
-//
-// Not parallel, because these commands read the checkout out of the working
-// directory rather than a flag, and t.Chdir moves the whole process.
 func TestPRCommentChecksTheLiveHead(t *testing.T) {
+	t.Parallel()
+
 	f := newHeadCheckFixture(t)
 
 	for _, tt := range headCheckCases() {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			code, stderr, posted := f.run(t, tt, func(contextFile, workDir string) []string {
 				gittest.Write(t, filepath.Join(workDir, "body.md"), "The fixes are in.\n")
 				return []string{"pr", "comment", contextFile,
@@ -443,10 +443,14 @@ func TestPRCommentChecksTheLiveHead(t *testing.T) {
 // these cases tell apart — every one of them is given a threads file that
 // parses.
 func TestPRReplyThreadsChecksTheLiveHead(t *testing.T) {
+	t.Parallel()
+
 	f := newHeadCheckFixture(t)
 
 	for _, tt := range headCheckCases() {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			code, stderr, posted := f.run(t, tt, func(contextFile, workDir string) []string {
 				threadsFile := filepath.Join(workDir, "threads.json")
 				gittest.Write(t, threadsFile, `{"threads":[]}`+"\n")

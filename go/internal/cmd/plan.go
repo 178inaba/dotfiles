@@ -19,7 +19,7 @@ func newPlanCmd(deps Deps) *cobra.Command {
 //
 // It takes no arguments and runs from anywhere inside the repository: the
 // instruction files a session has in context are decided by where it was
-// started, and the walk reads that off the working directory upwards.
+// started, and the walk reads that off the checkout it was given upwards.
 func newPlanDocsCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "docs",
@@ -28,16 +28,12 @@ func newPlanDocsCmd(deps Deps) *cobra.Command {
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, deps.Build)
 
-			root, err := os.Getwd()
-			if err != nil {
-				return silent(err)
-			}
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return silent(err)
 			}
 
-			collection, err := plandocs.Collect(root, home)
+			collection, err := plandocs.Collect(deps.Dir, home)
 			if err != nil {
 				return silent(err)
 			}

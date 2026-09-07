@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -23,17 +22,6 @@ func newWorktreeCmd(deps Deps) *cobra.Command {
 	return c
 }
 
-// mainRoot is the main worktree of the repository the command was started in.
-// The working directory is resolved here rather than left for git to assume, so
-// that every directory these commands ask git about is one they named.
-func mainRoot(c *cobra.Command) (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return worktree.MainRoot(c.Context(), runner.Exec{}, dir)
-}
-
 func worktreeDetectCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "detect <issue-number>",
@@ -45,7 +33,7 @@ func worktreeDetectCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			root, err := mainRoot(c)
+			root, err := worktree.MainRoot(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -65,7 +53,7 @@ func worktreeCreateCmd(deps Deps) *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
-			root, err := mainRoot(c)
+			root, err := worktree.MainRoot(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -103,12 +91,12 @@ func worktreeResolveCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			repo, err := targetRepo(c.Context(), client, "")
+			repo, err := targetRepo(c.Context(), client, "", deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
 
-			resolved, err := worktree.Resolve(c.Context(), runner.Exec{}, client, repo, ".", number)
+			resolved, err := worktree.Resolve(c.Context(), runner.Exec{}, client, repo, deps.Dir, number)
 			if err != nil {
 				return silent(err)
 			}
@@ -124,7 +112,7 @@ func worktreeCheckoutCmd(deps Deps) *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
-			root, err := mainRoot(c)
+			root, err := worktree.MainRoot(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -151,7 +139,7 @@ func worktreeCollectCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			collected, err := worktree.Collect(c.Context(), runner.Exec{}, client, ".")
+			collected, err := worktree.Collect(c.Context(), runner.Exec{}, client, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
@@ -175,7 +163,7 @@ func worktreeDeleteCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			deleted, err := worktree.Delete(c.Context(), runner.Exec{}, ".", candidates)
+			deleted, err := worktree.Delete(c.Context(), runner.Exec{}, deps.Dir, candidates)
 			if err != nil {
 				return silent(err)
 			}
