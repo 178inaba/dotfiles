@@ -173,6 +173,68 @@ func TestIdentifiersOmitsGroupHeadings(t *testing.T) {
 	}
 }
 
+// samplePathNode is a nested document with a list of its own, so that a path
+// is built from more than one level of nesting.
+type samplePathNode struct {
+	Name string      `json:"name"`
+	Refs []sampleRef `json:"refs"`
+}
+
+// samplePath carries every shape a segment is built from: a plain key, a
+// nested document, a list of documents, a list of scalars, a list whose kind
+// the render qualifies both ways, a value set whose members are not keys, and
+// an exclusive group — placed before the last fields rather than last, so that
+// what follows it is read back at the parent's depth.
+type samplePath struct {
+	Head         string           `json:"head"`
+	Node         samplePathNode   `json:"node"`
+	Nodes        []samplePathNode `json:"nodes" contract:"required"`
+	sampleChoice `contract:"exclusive,required"`
+	Tags         []string     `json:"tags"`
+	Kinds        []sampleKind `json:"kinds" contract:"required"`
+}
+
+// pathTable explains both members of the value set, which sampleTable does
+// not: a value nobody explained gets no row of its own, and the rows are the
+// thing a path has to be kept clear of.
+func pathTable() Table {
+	p := reflect.TypeFor[samplePath]().PkgPath()
+	return Table{
+		Fields: map[string]string{},
+		Enums:  map[string][]string{p + ".sampleKind": {string(sampleAlpha), string(sampleBeta)}},
+		EnumDocs: map[string]string{
+			p + ".sampleKind." + string(sampleAlpha): "The first.",
+			p + ".sampleKind." + string(sampleBeta):  "The second.",
+		},
+	}
+}
+
+// TestPaths pins what a path is spelled as: the keys it sits under before it,
+// "[]" on a key that holds a list, and nothing at all for the two rows that
+// are not keys — a group's heading, whose members are inline in the JSON, and
+// a value set's members, which are what a key holds rather than keys under it.
+//
+// nodes and kinds are qualified, and are here for that: a qualifier goes into
+// the middle of the kind in one of two places, and a path read from the front
+// of it stays right through both.
+func TestPaths(t *testing.T) {
+	got, err := pathTable().Paths(reflect.TypeFor[samplePath]())
+	if err != nil {
+		t.Fatalf("Paths: %v", err)
+	}
+	want := []string{
+		"head",
+		"node", "node.name", "node.refs[]", "node.refs[].number", "node.refs[].url",
+		"nodes[]", "nodes[].name", "nodes[].refs[]", "nodes[].refs[].number", "nodes[].refs[].url",
+		"text", "file",
+		"tags[]",
+		"kinds[]",
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Paths (-want +got):\n%s", diff)
+	}
+}
+
 type samplePartial struct {
 	Kind sampleKind `json:"kind"`
 }

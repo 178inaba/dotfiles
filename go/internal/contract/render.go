@@ -78,6 +78,11 @@ const (
 	// LineWidth is what a rendered contract is laid out to. Exported so that a
 	// caller checking its own text against the same column does not restate it.
 	LineWidth = 88
+	// arrayPrefix is how a rendered kind says the key holds a list, and so is
+	// how a path knows to put "[]" on that key's segment. Shared rather than
+	// written twice: what the help calls a list and what a path marks as one
+	// are then the same decision.
+	arrayPrefix = "array of "
 )
 
 // Render describes t as the plain text a --help prints.
@@ -151,6 +156,61 @@ func (tb Table) Identifiers(t reflect.Type) ([]string, error) {
 	return out, nil
 }
 
+// Paths is every path a contract publishes: each JSON key joined to the keys
+// it sits under with ".", a key that holds a list carrying "[]".
+//
+// What Identifiers is to a name a skill mentions, this is to a path something
+// points at: a name says only that the document has such a key somewhere, and
+// four of this module's types have a comments_truncated. Rendered from the
+// same walk as the help, so a path that no longer exists cannot go on being
+// named.
+func (tb Table) Paths(t reflect.Type) ([]string, error) {
+	rows, err := tb.walk(t, Output, 0, map[reflect.Type]bool{})
+	if err != nil {
+		return nil, err
+	}
+
+	// One frame per key a path is currently inside, and one for a heading,
+	// whose members are inline in the JSON: it holds the depth open without
+	// putting a segment in front of them.
+	type frame struct {
+		depth   int
+		segment string
+	}
+	var stack []frame
+
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		// A value set's members are what a key holds rather than keys under
+		// it, so nothing descends through them.
+		if r.member {
+			continue
+		}
+		for len(stack) > 0 && stack[len(stack)-1].depth >= r.depth {
+			stack = stack[:len(stack)-1]
+		}
+		if r.heading {
+			stack = append(stack, frame{depth: r.depth})
+			continue
+		}
+
+		segment := r.name
+		if r.array {
+			segment += "[]"
+		}
+		var b strings.Builder
+		for _, f := range stack {
+			if f.segment != "" {
+				b.WriteString(f.segment + ".")
+			}
+		}
+		b.WriteString(segment)
+		out = append(out, b.String())
+		stack = append(stack, frame{depth: r.depth, segment: segment})
+	}
+	return out, nil
+}
+
 type row struct {
 	depth int
 	name  string
@@ -162,6 +222,14 @@ type row struct {
 	// heading marks the row that states an exclusive group's cardinality. It
 	// carries no kind and no doc, and is the one row that names nothing.
 	heading bool
+	// member marks one explained value of a set. It sits a level in from the
+	// key it belongs to and is named like one, which is what a path has to be
+	// told apart from.
+	member bool
+	// array marks a key that holds a list, which is what puts "[]" on its
+	// segment. Read back from the kind so that it is the same decision the
+	// help renders rather than a second rule about what a list is.
+	array bool
 }
 
 func (r row) indent() string { return strings.Repeat("  ", r.depth+1) }
@@ -209,8 +277,9 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 		}
 		rows = append(rows, row{
 			depth: depth, name: name, kind: kind,
-			doc:  tb.Fields[key(t, f.Name)],
-			enum: tb.Enums[typeKey(enumOf(f.Type))],
+			doc:   tb.Fields[key(t, f.Name)],
+			enum:  tb.Enums[typeKey(enumOf(f.Type))],
+			array: strings.HasPrefix(kind, arrayPrefix),
 		})
 
 		rows = append(rows, tb.values(f.Type, depth+1)...)
@@ -497,7 +566,7 @@ func (tb Table) values(t reflect.Type, depth int) []row {
 	}
 	rows := make([]row, 0, len(tb.Enums[typeKey(t)]))
 	for _, v := range tb.Enums[typeKey(t)] {
-		rows = append(rows, row{depth: depth, name: v, kind: tb.EnumDocs[typeKey(t)+"."+v]})
+		rows = append(rows, row{depth: depth, name: v, kind: tb.EnumDocs[typeKey(t)+"."+v], member: true})
 	}
 	return rows
 }
@@ -534,7 +603,7 @@ func (tb Table) kindOf(t reflect.Type) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return "array of " + of, nil
+		return arrayPrefix + of, nil
 	case k == reflect.Struct:
 		return "object", nil
 	case k == reflect.Bool:
