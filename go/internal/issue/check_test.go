@@ -43,7 +43,7 @@ func TestCheck(t *testing.T) {
 			draft:  strings.Replace(jaLeaf, "## 受け入れ条件\n\n- [ ] 通る\n\n", "", 1),
 			locale: issue.JA, kind: issue.Leaf,
 			wantClasses: []issue.Class{issue.MissingSection},
-			wantIn:      []string{"acceptance", "受け入れ条件"},
+			wantIn:      []string{"acceptance", "受け入れ条件", "fix: the draft"},
 		},
 		{
 			// A repository template may rename a section, and then its heading
@@ -62,12 +62,14 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			// depends_on is machine-consumed: other skills find it by its
-			// heading, so a template may not rename it.
+			// heading, so a template may not rename it. The draft here is
+			// clean, which is why the reason names the mapping file: no edit
+			// to the draft clears this one.
 			name:  "mapping a machine-consumed key is refused",
 			draft: jaLeaf, locale: issue.JA, kind: issue.Leaf,
 			mapping:     []issue.Mapping{{Key: "depends_on", Heading: "Prerequisites"}},
 			wantClasses: []issue.Class{issue.MappedMachineKey},
-			wantIn:      []string{"depends_on", "Prerequisites"},
+			wantIn:      []string{"depends_on", "Prerequisites", "fix: the mapping file"},
 		},
 		{
 			name:   "headings inside a fence declare nothing",

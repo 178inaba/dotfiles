@@ -15,21 +15,33 @@ import (
 type status struct {
 	code   int
 	symbol string
-	// What reaching this status says, not what to do about it — that belongs
-	// to whoever is calling.
+	// What reaching this status says. Where it is fixed is not part of it but
+	// of where below, and what to do beyond going there belongs to whoever is
+	// calling.
 	meaning string
+	// The file a violation of this status's class is fixed in, where the
+	// status has a class. Not advice to the caller but a fact about the
+	// violation, the same one for every caller — so it is the class's to
+	// state, and this field only renders what the class says.
+	where string
 }
 
 type statuses []status
 
+// render puts where on its own line under the meaning, indented to the text.
+// Both on one line runs a status past the column the rest of a help is laid
+// out to, and a wrapped clause is one a reader has to reassemble to act on.
 func (ss statuses) render() string {
 	var b strings.Builder
 	for _, s := range ss {
 		if s.symbol == "" {
 			fmt.Fprintf(&b, "  %d  %s\n", s.code, s.meaning)
-			continue
+		} else {
+			fmt.Fprintf(&b, "  %d  %s — %s\n", s.code, s.symbol, s.meaning)
 		}
-		fmt.Fprintf(&b, "  %d  %s — %s\n", s.code, s.symbol, s.meaning)
+		if s.where != "" {
+			fmt.Fprintf(&b, "     %s\n", s.where)
+		}
 	}
 	return b.String()
 }
@@ -76,13 +88,20 @@ func sectionsCheckStatus(class issue.Class) (int, bool) {
 // checkStatuses spells out its own two ordinary outcomes rather than taking
 // commonStatuses: this command prints nothing when it passes, and "the answer
 // is on standard output" would describe an empty stream.
+//
+// Status 1 is the one entry whose place is typed here. It is not a violation
+// and has no class to read it off, its reasons being the ones ParseMapping and
+// the arguments raise.
 func checkStatuses() statuses {
 	out := statuses{
 		{code: 0, meaning: "the draft's headings match the schema"},
-		{code: 1, meaning: "the check could not run; the reason is on standard error"},
+		{code: 1, meaning: "the check could not run; the reason is on standard error",
+			where: "fix: the mapping file or the invocation"},
 	}
 	for _, cs := range sectionsCheckStatuses {
-		out = append(out, cs.status)
+		s := cs.status
+		s.where = cs.class.Where()
+		out = append(out, s)
 	}
 	return out
 }

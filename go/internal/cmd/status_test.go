@@ -38,9 +38,12 @@ func TestStatusesRender(t *testing.T) {
 	got := statuses{
 		{code: 0, meaning: "the answer is on standard output"},
 		{code: 6, symbol: "section_not_found", meaning: "the body does not carry the section"},
+		{code: 2, symbol: "missing_section", meaning: "a section the draft lacks", where: "fix: the draft"},
 	}.render()
 	want := `  0  the answer is on standard output
   6  section_not_found — the body does not carry the section
+  2  missing_section — a section the draft lacks
+     fix: the draft
 `
 	if got != want {
 		t.Errorf("render() =\n%q\nwant\n%q", got, want)
