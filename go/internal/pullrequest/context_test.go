@@ -1639,3 +1639,167 @@ func TestParseContextReportsAMalformedDocument(t *testing.T) {
 		})
 	}
 }
+
+// limitRow is the table's row for one truncation flag.
+//
+// By the flag rather than by the variable, so that nothing here holds an
+// environment variable's name: a rename in the table is meant to fail the
+// hand-written oracle in cmd and nothing in this package. Not by the
+// collection the warning names either — review_threads is the collection of
+// two of the rows, so it does not pick one out.
+func limitRow(t *testing.T, flag string) pullrequest.FetchLimit {
+	t.Helper()
+
+	for _, l := range pullrequest.FetchLimits {
+		if l.Flag == flag {
+			return l
+		}
+	}
+	t.Fatalf("no fetch limit reports %s", flag)
+	return pullrequest.FetchLimit{}
+}
+
+// TestFetchLimitWarningNouns is the rerun warning's prose, written out by hand
+// rather than read from the row it is checking.
+//
+// Deliberately an oracle, for the reason cmd's is: a row that reads just as
+// well with another row's nouns — "issue comments ... before reading
+// linked_issues" under MAX_THREAD_COMMENTS — is wrong only to a reader that
+// does not hold the table, and the warning is the one output a person acts on.
+// All five here, since the rerun tests in prepare_test.go reach three of them.
+func TestFetchLimitWarningNouns(t *testing.T) {
+	t.Parallel()
+
+	for _, want := range []struct{ flag, subject, collection string }{
+		{"comments_truncated", "comments", "comments"},
+		{"reviews_truncated", "reviews", "reviews"},
+		{"threads_truncated", "review threads", "review_threads"},
+		{"review_threads[].comments_truncated", "thread comments", "review_threads"},
+		{"linked_issues[].comments_truncated", "issue comments", "linked_issues"},
+	} {
+		t.Run(want.flag, func(t *testing.T) {
+			t.Parallel()
+
+			l := limitRow(t, want.flag)
+			if l.Subject != want.subject || l.Collection != want.collection {
+				t.Errorf("%s says (%q, %q), want (%q, %q)",
+					l.Flag, l.Subject, l.Collection, want.subject, want.collection)
+			}
+		})
+	}
+}
+
+// TestFetchLimitReached pins the two things nothing about a row says: that the
+// reader beside a variable counts that variable's own collection, and that a
+// per-item cap goes to the largest of the totals that were actually cut short,
+// since one limit has to cover them all. A pair swapped between two rows would
+// raise the wrong cap on the rerun and leave the collection that was cut short
+// just as short; a cap raised to anything less than the largest would fetch the
+// same truncation again.
+func TestFetchLimitReached(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// The one row meant to report the context below as reached; empty
+		// where no row is.
+		flag  string
+		c     pullrequest.Context
+		total int
+	}{
+		{
+			// Items that arrived whole, so that a per-item row reporting the
+			// presence of a collection rather than a truncation in it is
+			// caught here rather than passing on the empty document.
+			name: "nothing truncated",
+			c: pullrequest.Context{
+				CommentsTotalCount: 3, ReviewsTotalCount: 3, ThreadsTotalCount: 3,
+				ReviewThreads: []pullrequest.Thread{{CommentsTotalCount: 3}},
+				LinkedIssues: []pullrequest.LinkedIssue{
+					{CommentsTotalCount: 3, Parent: &pullrequest.IssueParent{CommentsTotalCount: 3}},
+				},
+			},
+		},
+		{
+			name:  "comments",
+			flag:  "comments_truncated",
+			c:     pullrequest.Context{CommentsTotalCount: 7, CommentsTruncated: true},
+			total: 7,
+		},
+		{
+			name:  "reviews",
+			flag:  "reviews_truncated",
+			c:     pullrequest.Context{ReviewsTotalCount: 8, ReviewsTruncated: true},
+			total: 8,
+		},
+		{
+			name:  "threads",
+			flag:  "threads_truncated",
+			c:     pullrequest.Context{ThreadsTotalCount: 9, ThreadsTruncated: true},
+			total: 9,
+		},
+		{
+			// The thread that arrived whole does not raise the limit however
+			// much it holds, and the smaller truncated one does not lower it.
+			name: "thread comments, over the threads cut short",
+			flag: "review_threads[].comments_truncated",
+			c: pullrequest.Context{ReviewThreads: []pullrequest.Thread{
+				{CommentsTotalCount: 11, CommentsTruncated: true},
+				{CommentsTotalCount: 30},
+				{CommentsTotalCount: 4, CommentsTruncated: true},
+			}},
+			total: 11,
+		},
+		{
+			name: "issue comments, over the issues cut short",
+			flag: "linked_issues[].comments_truncated",
+			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
+				{CommentsTotalCount: 12, CommentsTruncated: true},
+				{CommentsTotalCount: 40},
+				{CommentsTotalCount: 5, CommentsTruncated: true},
+			}},
+			total: 12,
+		},
+		{
+			// A parent is read under the limit its own issue is read under, so
+			// it raises that limit on its own.
+			name: "issue comments, from a parent alone",
+			flag: "linked_issues[].comments_truncated",
+			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
+				{CommentsTotalCount: 40, Parent: &pullrequest.IssueParent{CommentsTotalCount: 13, CommentsTruncated: true}},
+			}},
+			total: 13,
+		},
+		{
+			name: "issue comments, over an issue and its parent",
+			flag: "linked_issues[].comments_truncated",
+			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
+				{
+					CommentsTotalCount: 14, CommentsTruncated: true,
+					Parent: &pullrequest.IssueParent{CommentsTotalCount: 6, CommentsTruncated: true},
+				},
+			}},
+			total: 14,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Every row against every context: a row reading somebody else's
+			// collection shows up in the rows it was not meant to answer.
+			for _, l := range pullrequest.FetchLimits {
+				total, reached := l.Reached(tt.c)
+				switch {
+				case l.Flag != tt.flag:
+					if reached {
+						t.Errorf("%s reads %d from a context nothing of its own was cut short in", l.Flag, total)
+					}
+				case !reached || total != tt.total:
+					t.Errorf("%s = (%d, %t), want (%d, true)", l.Flag, total, reached, tt.total)
+				}
+			}
+		})
+	}
+}

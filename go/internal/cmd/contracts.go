@@ -687,16 +687,16 @@ func published() skill.Published {
 // and five entries in one paragraph do not read.
 func limitRows() string {
 	width := 0
-	for _, l := range fetchLimits {
-		width = max(width, len(l.variable))
+	for _, l := range pullrequest.FetchLimits {
+		width = max(width, len(l.Variable))
 	}
 
 	defaults := pullrequest.DefaultLimits
 	var b strings.Builder
-	for _, l := range fetchLimits {
-		fmt.Fprintf(&b, "\n  %-*s  %3d  %s", width, l.variable, *l.cap(&defaults), l.flag)
-		if l.per != "" {
-			fmt.Fprintf(&b, " (per %s)", l.per)
+	for _, l := range pullrequest.FetchLimits {
+		fmt.Fprintf(&b, "\n  %-*s  %3d  %s", width, l.Variable, *l.Cap(&defaults), l.Flag)
+		if l.Per != "" {
+			fmt.Fprintf(&b, " (per %s)", l.Per)
 		}
 	}
 	return b.String()

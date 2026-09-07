@@ -412,30 +412,15 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 		return fetched, limits, nil
 	}
 
-	if fetched.CommentsTruncated {
-		p.Warnings = append(p.Warnings, fmt.Sprintf(
-			"comments still truncated after raising MAX_COMMENTS to %d; rerun `ccx pr context` with a larger MAX_COMMENTS before reading comments", limits.Comments))
-	}
-	if fetched.ReviewsTruncated {
-		p.Warnings = append(p.Warnings, fmt.Sprintf(
-			"reviews still truncated after raising MAX_REVIEWS to %d; rerun `ccx pr context` with a larger MAX_REVIEWS before reading reviews", limits.Reviews))
-	}
-	if fetched.ThreadsTruncated {
-		p.Warnings = append(p.Warnings, fmt.Sprintf(
-			"review threads still truncated after raising MAX_THREADS to %d; rerun `ccx pr context` with a larger MAX_THREADS before reading review_threads", limits.Threads))
-	}
-	for _, thread := range fetched.ReviewThreads {
-		if thread.CommentsTruncated {
+	// Read off the same rows the rerun was assembled from, so that a warning
+	// cannot name a variable the command does not read. The value it names is
+	// the one the rerun was made with rather than the total that came back,
+	// since raising past what has already been tried is what it is asking for.
+	for _, l := range FetchLimits {
+		if _, reached := l.Reached(fetched); reached {
 			p.Warnings = append(p.Warnings, fmt.Sprintf(
-				"thread comments still truncated after raising MAX_THREAD_COMMENTS to %d; rerun `ccx pr context` with a larger MAX_THREAD_COMMENTS before reading review_threads", limits.ThreadComments))
-			break
-		}
-	}
-	for _, issue := range fetched.LinkedIssues {
-		if issue.CommentsTruncated || (issue.Parent != nil && issue.Parent.CommentsTruncated) {
-			p.Warnings = append(p.Warnings, fmt.Sprintf(
-				"issue comments still truncated after raising MAX_ISSUE_COMMENTS to %d; rerun `ccx pr context` with a larger MAX_ISSUE_COMMENTS before reading linked_issues", limits.IssueComments))
-			break
+				"%s still truncated after raising %s to %d; rerun `ccx pr context` with a larger %s before reading %s",
+				l.Subject, l.Variable, *l.Cap(&limits), l.Variable, l.Collection))
 		}
 	}
 	return fetched, limits, nil
@@ -444,31 +429,15 @@ func (p *Preparation) fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Rep
 // raisedLimits are the limits to try again with, and whether anything was cut
 // short at all.
 //
-// The per-thread limit goes to the largest of the truncated threads' totals,
-// since one limit has to cover them all.
+// Each cap goes to the total its own row read back, which never lowers one:
+// the first fetch reads under DefaultLimits, so anything a limit cut short has
+// a total above that limit. The per-item caps go to the largest of the
+// truncated items' totals, since one limit has to cover them all.
 func raisedLimits(c Context) (Limits, bool) {
 	limits, raised := DefaultLimits, false
-	if c.CommentsTruncated {
-		limits.Comments, raised = c.CommentsTotalCount, true
-	}
-	if c.ReviewsTruncated {
-		limits.Reviews, raised = c.ReviewsTotalCount, true
-	}
-	if c.ThreadsTruncated {
-		limits.Threads, raised = c.ThreadsTotalCount, true
-	}
-	for _, thread := range c.ReviewThreads {
-		if thread.CommentsTruncated && thread.CommentsTotalCount > limits.ThreadComments {
-			limits.ThreadComments, raised = thread.CommentsTotalCount, true
-		}
-	}
-	for _, issue := range c.LinkedIssues {
-		if issue.CommentsTruncated && issue.CommentsTotalCount > limits.IssueComments {
-			limits.IssueComments, raised = issue.CommentsTotalCount, true
-		}
-		// A parent is an issue for this too, and is read under the same limit.
-		if p := issue.Parent; p != nil && p.CommentsTruncated && p.CommentsTotalCount > limits.IssueComments {
-			limits.IssueComments, raised = p.CommentsTotalCount, true
+	for _, l := range FetchLimits {
+		if total, reached := l.Reached(c); reached {
+			*l.Cap(&limits), raised = total, true
 		}
 	}
 	return limits, raised

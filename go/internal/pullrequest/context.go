@@ -363,6 +363,112 @@ type Limits struct {
 // has reached one.
 var DefaultLimits = Limits{Comments: 500, Reviews: 200, Threads: 300, ThreadComments: 200, IssueComments: 200}
 
+// FetchLimit is one cap on what a fetch reads, and everything the four readers
+// of it need said in one place: the variable that raises it, the cap it
+// raises, the flag the document sets where it was reached, what it counts
+// against where that is one item rather than the whole document, the two nouns
+// the rerun warning names, and how to read the document back for whether the
+// cap was reached at all.
+//
+// One declaration because four readers need the same pairing, and no two of
+// them are in a position to check the others: the command raises the cap the
+// variable names, the help publishes it so a caller answering a truncation is
+// not left to guess which variable goes with which flag, raisedLimits raises
+// what was cut short, and the warning tells a caller which variable to raise
+// by hand. Kept apart, a variable renamed for one of them would leave the
+// others naming a variable that no longer raises anything.
+//
+// Here rather than in the command layer because every column is this package's
+// own vocabulary — the Limits field, the truncated flag of its own Context,
+// the collection the document publishes — and because two of the four readers
+// are here and cannot import the command layer.
+//
+// They stay environment variables rather than becoming flags: the only time
+// anybody sets one is to run the same command again with more room, and the
+// command line belongs to the skill.
+type FetchLimit struct {
+	Variable string
+	// Cap is a pointer into the limits handed in, since a caller raises a copy
+	// of the defaults rather than the defaults themselves.
+	Cap  func(*Limits) *int
+	Flag string
+	// Per is what the cap counts against, empty where it is the whole
+	// document. The help renders it; the rerun warning in prepare.go does not,
+	// since it speaks of the collection that came up short rather than of the
+	// cap.
+	Per string
+	// Subject is what the rerun warning says was cut short, and Collection is
+	// what it says not to read until the limit is raised. Written out rather
+	// than derived: Collection is not the flag's own path — threads_truncated
+	// is a flag on the document that reports the review_threads collection —
+	// and a Subject worked out from the other columns would rest on every
+	// per-item cap counting comments, which is one row away from being wrong.
+	// Prose a reader acts on is cheaper to read than to reconstruct.
+	Subject    string
+	Collection string
+	// Reached says whether the document ran into this cap, and the largest
+	// total seen under it. For the per-item caps that is the largest over the
+	// items that were actually cut short, since one limit has to cover them
+	// all; an item that arrived whole does not raise it however much it holds.
+	Reached func(Context) (total int, reached bool)
+}
+
+// FetchLimits are the caps a caller raises when a pull request was cut short,
+// in the order they are read and the order their warnings are written.
+var FetchLimits = [...]FetchLimit{
+	{
+		Variable: "MAX_COMMENTS",
+		Cap:      func(l *Limits) *int { return &l.Comments },
+		Flag:     "comments_truncated", Subject: "comments", Collection: "comments",
+		Reached: func(c Context) (int, bool) { return c.CommentsTotalCount, c.CommentsTruncated },
+	},
+	{
+		Variable: "MAX_REVIEWS",
+		Cap:      func(l *Limits) *int { return &l.Reviews },
+		Flag:     "reviews_truncated", Subject: "reviews", Collection: "reviews",
+		Reached: func(c Context) (int, bool) { return c.ReviewsTotalCount, c.ReviewsTruncated },
+	},
+	{
+		Variable: "MAX_THREADS",
+		Cap:      func(l *Limits) *int { return &l.Threads },
+		Flag:     "threads_truncated", Subject: "review threads", Collection: "review_threads",
+		Reached: func(c Context) (int, bool) { return c.ThreadsTotalCount, c.ThreadsTruncated },
+	},
+	{
+		Variable: "MAX_THREAD_COMMENTS",
+		Cap:      func(l *Limits) *int { return &l.ThreadComments },
+		Flag:     "review_threads[].comments_truncated", Per: "thread",
+		Subject: "thread comments", Collection: "review_threads",
+		Reached: func(c Context) (total int, reached bool) {
+			for _, thread := range c.ReviewThreads {
+				if thread.CommentsTruncated {
+					total, reached = max(total, thread.CommentsTotalCount), true
+				}
+			}
+			return total, reached
+		},
+	},
+	{
+		Variable: "MAX_ISSUE_COMMENTS",
+		Cap:      func(l *Limits) *int { return &l.IssueComments },
+		Flag:     "linked_issues[].comments_truncated", Per: "issue",
+		Subject: "issue comments", Collection: "linked_issues",
+		Reached: func(c Context) (total int, reached bool) {
+			for _, issue := range c.LinkedIssues {
+				if issue.CommentsTruncated {
+					total, reached = max(total, issue.CommentsTotalCount), true
+				}
+				// A parent is an issue for this too, and is read under the
+				// same limit.
+				if p := issue.Parent; p != nil && p.CommentsTruncated {
+					total, reached = max(total, p.CommentsTotalCount), true
+				}
+			}
+			return total, reached
+		},
+	},
+}
+
 // Fetch gathers the context of one pull request.
 //
 // pr is its metadata, already resolved by the caller — by number or from the
