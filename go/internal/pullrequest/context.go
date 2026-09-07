@@ -11,14 +11,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
 // SkillMarker is what /review-response puts at the front of every comment it
@@ -697,21 +696,22 @@ func movedSince(headCommittedAt *string, createdAt string) bool {
 
 func isLogin(login *string, want string) bool { return login != nil && *login == want }
 
-// closingKeyword matches the references GitHub itself closes an issue on: a
-// keyword, then #N or owner/repo#N. A bare #N and a url are deliberately not
-// among them, because GitHub does not close on those either.
-var closingKeyword = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?):?\s+(?:([\w.-]+/[\w.-]+))?#([0-9]+)`)
-
 // linkedIssues reads the issues a body says it closes.
+//
+// Which references those are is ghmd's to say, and it says only the ones
+// GitHub acts on: a keyword quoted in a code span or a fence never reaches
+// here, which is what the field's contract — what GitHub itself would close on
+// merge — has always claimed. The gh shim refuses such a keyword by the same
+// walk, so the two cannot come to disagree about a body.
 //
 // Sorted by number and then by repository, and deduplicated, because a body may
 // name the same issue twice and the order it does so in is not information.
 func linkedIssues(body string) []LinkedIssue {
 	out := []LinkedIssue{}
-	for _, m := range closingKeyword.FindAllStringSubmatch(body, -1) {
-		issue := LinkedIssue{Number: mustAtoi(m[2])}
-		if m[1] != "" {
-			repo := m[1]
+	for _, ref := range ghmd.ClosingReferences(body) {
+		issue := LinkedIssue{Number: ref.Number}
+		if ref.Repo != "" {
+			repo := ref.Repo
 			issue.Repo = &repo
 		}
 		out = append(out, issue)
@@ -870,14 +870,6 @@ func repoOf(i LinkedIssue) string {
 		return ""
 	}
 	return *i.Repo
-}
-
-func mustAtoi(s string) int {
-	// The pattern matched digits, so this cannot fail on anything that reaches
-	// it; a number too large for an int comes back as zero rather than as a
-	// reason to abandon the whole context.
-	n, _ := strconv.Atoi(s)
-	return n
 }
 
 // pages walks the rest of a connection, stopping once limit elements are in

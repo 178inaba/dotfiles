@@ -908,6 +908,37 @@ func TestFetchStopsAtTheIssueCommentLimit(t *testing.T) {
 	}
 }
 
+// TestFetchReadsTheClosingKeywordsGitHubReads holds linked_issues to its own
+// contract — what GitHub itself would close on merge — where the body writes a
+// keyword GitHub does not read that way.
+//
+// One body carries both halves of the reading, because they used to be decided
+// by different patterns: a keyword in a code span is quoted rather than meant,
+// and an underscore before one leaves the word whole, which the \b this reading
+// replaces did not. Whether GitHub closes on that second form is unverified —
+// ghmd's own test for the boundary says what that means and what would settle
+// it — so this pins the reading ccx keeps, not GitHub's.
+func TestFetchReadsTheClosingKeywordsGitHubReads(t *testing.T) {
+	t.Parallel()
+
+	one := meta
+	one.Body = "Closes #10\n`Closes #11`\n_Closes #12\n"
+
+	issues := maps.Clone(linkedIssues)
+	issues[issuePath("owner/repo", 12)] = issueJSON("owner/repo", 12, "Issue 12", "The twelfth body", 0)
+
+	got := fetch(t, pages{body: fixtureBody, issues: issues, issueComments: linkedIssueComments}, one, pullrequest.DefaultLimits)
+
+	want := []int{10, 12}
+	var numbers []int
+	for _, issue := range got.LinkedIssues {
+		numbers = append(numbers, issue.Number)
+	}
+	if !cmp.Equal(want, numbers) {
+		t.Errorf("linked_issues = %v, want %v — the quoted one is not closed on and the underscored one is", numbers, want)
+	}
+}
+
 // TestFetchReadsCommentsFromTheIssuesOwnRepository pins where the comments are
 // asked for, which the shared fixture cannot: an issue and a parent may each
 // live somewhere other than the pull request, and asking the wrong repository

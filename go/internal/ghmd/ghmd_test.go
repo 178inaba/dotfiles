@@ -121,6 +121,22 @@ func TestRefuseQuotedClosingKeywordSaysWhyAndWhatToDo(t *testing.T) {
 	}
 }
 
+func TestClosingReferences(t *testing.T) {
+	t.Parallel()
+
+	// The reading GitHub acts on, and no way to ask for the rest: a body that
+	// documents a closing keyword beside the one it means gets back only the
+	// one it means. Which run each reference sat in is asserted where the walk
+	// is, in closing_internal_test.go — a caller of this cannot see it, which
+	// is the point of the shape.
+	body := "Closes #10\nas in `Closes #11`\n```\nCloses #12\n```\nFixes other/repo#13\n"
+
+	want := []ghmd.ClosingReference{{Number: 10}, {Repo: "other/repo", Number: 13}}
+	if diff := cmp.Diff(want, ghmd.ClosingReferences(body)); diff != "" {
+		t.Errorf("ClosingReferences(%q) (-want +got):\n%s", body, diff)
+	}
+}
+
 // text is one segment rendered as the caller sees it: its kind, its line and
 // the bytes it covers, so a case reads as the body it describes.
 type text struct {

@@ -12,11 +12,13 @@
 // More than those two read a body, though, and the reading is what they all
 // share rather than the verdict: issue's section check asks which lines of a
 // draft are prose, plandocs blanks a plan document's code out before looking
-// for the links and imports in it, and skill's contract check wants the names
-// a SKILL.md writes in a code span. None of them owns the reading, so it lives
-// here rather than in whichever of them wrote it first — a copy in a caller
-// drifts the next time this one is corrected, which is what plandocs' own
-// scanner had done in six places by the time it was retired.
+// for the links and imports in it, skill's contract check wants the names
+// a SKILL.md writes in a code span, and pullrequest's linked_issues asks for
+// the closing keywords a body means, which is the same question the refusal
+// asks with the answer kept the other way round. None of them owns the
+// reading, so it lives here rather than in whichever of them wrote it first —
+// a copy in a caller drifts the next time this one is corrected, which is what
+// plandocs' own scanner had done in six places by the time it was retired.
 //
 // A notation whose meaning depends on that reading belongs here too, even
 // where GitHub has never heard of it: the #{NAME} placeholder in placeholder.go
@@ -42,6 +44,7 @@ import (
 	"fmt"
 	"iter"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -80,8 +83,8 @@ const (
 // Segment is one run of a body, and where it is.
 type Segment struct {
 	Kind Kind
-	// Line is the 1-based line the segment starts on, which is what a report
-	// about a body names.
+	// Line is the 1-based line the segment is on, which is what a report about
+	// a body names. A segment never spans more than one line.
 	Line int
 	// Start and End are the byte offsets into the body itself, not into the
 	// line, so that a rewriter can splice its output out of the body at the
@@ -89,13 +92,21 @@ type Segment struct {
 	Start, End int
 }
 
-// Segments partitions a body: the runs come in order, never overlap, and
-// cover every byte from the first to the last.
+// Segments partitions a body: the runs come in order, never overlap, cover
+// every byte from the first to the last, and none of them spans a line end.
 //
 // The covering is what a caller is entitled to rely on rather than a property
 // of how this happens to be written. A caller that has to account for every
 // byte accounts for it by walking the segments, and a gap nobody yields is
 // where such a reader forgets one.
+//
+// The line is promised for the same reason, rather than left as a consequence
+// of walking a body a line at a time: a caller matching a pattern against a
+// segment is matching within a line, and one mapping a segment onto a line
+// index is entitled to the single answer Line gives. Both would break quietly
+// on the day a run were allowed to grow past a newline — issue's section check
+// maps segments onto lines, and the walk under ClosingReferences below reads a
+// keyword and its reference as adjacent only within one.
 //
 // A known limit, carried over from the shell version this replaces: an
 // unclosed fence hides everything after it, running to the end as Fence. A
@@ -285,17 +296,94 @@ That keeps the link and does not trip this guard.`, distinct)
 // only the direct adjacency of keyword, optional colon, space and reference,
 // so the detection is limited to it as well.
 //
-// The same knowledge is encoded in pullrequest.closingKeyword, which reads a
-// body for the issues it closes; if GitHub ever changes the set, both have to
-// move.
+// Unexported, and the reading exported instead as ClosingReferences: a caller
+// handed the pattern would derive the boundary and the keyword set from it for
+// itself, which is the second implementation this one exists to be instead of.
+// The same reason keeps the run a reference sits in inside the package.
 var closingKeyword = regexp.MustCompile(
-	`(?i)(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+`)
+	`(?i)(?:^|[^[:alnum:]])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#([0-9]+)`)
+
+// ClosingReference is one reference GitHub would close an issue on.
+type ClosingReference struct {
+	// Repo is the owner/repo a qualified reference names, and empty for a bare
+	// #N — which is how the body wrote it.
+	Repo string
+	// Number is the issue or pull request the reference names.
+	Number int
+}
+
+// ClosingReferences returns the references GitHub would close on, in the order
+// the body writes them: those its prose names, and no others.
+//
+// GitHub's reading and nothing else, rather than every reference with the run
+// it sits in for the caller to sort out. Handed the latter, a caller that
+// forgets to drop the quoted ones has a body's own documentation of a closing
+// keyword counted as a closure — which is the reading pr context's
+// linked_issues shipped with until this became one function, and which the
+// type would let the next caller reintroduce without saying anything wrong.
+// What the refusal below wants — the references GitHub will not read — is the
+// same walk's remainder, and it is in this package because that is where the
+// judgement about a run of a body belongs.
+func ClosingReferences(body string) []ClosingReference {
+	var out []ClosingReference
+	for _, ref := range keywordReferences(body) {
+		if ref.Kind == Prose {
+			out = append(out, ClosingReference{Repo: ref.Repo, Number: ref.Number})
+		}
+	}
+	return out
+}
+
+// keywordReference is one reference a closing keyword names, and the run of the
+// body it sits in.
+type keywordReference struct {
+	Repo   string
+	Number int
+	// Kind is the run the reference sits in. It stays inside the package: the
+	// two readings taken from it are both here, and a caller holding it could
+	// only get them wrong.
+	Kind Kind
+}
+
+// keywordReferences is the one walk both judgements about a closing keyword are
+// filtered out of, in the order the body writes them.
+//
+// One walk with two filters rather than a reading for each consumer: split in
+// two they would come to disagree about the same body, as they did over an
+// underscore before the keyword and over a keyword quoted in code.
+//
+// The match runs on each segment's own text rather than on the body at the
+// segment's offsets, which is what makes the pattern's leading ^ mean the start
+// of a run. A reference is therefore attributed to the run it sits in, a
+// keyword parted from its number by a line end is read by nobody, and both
+// follow from Segments rather than from a rule of their own.
+func keywordReferences(body string) []keywordReference {
+	var out []keywordReference
+	for s := range Segments(body) {
+		text := body[s.Start:s.End]
+		// The pattern ends in a literal #, so a run without one cannot hold a
+		// reference however it is spelled. Skipping those is what keeps this
+		// off the gh shim's write path as a cost — a body is mostly runs with
+		// no # in them at all, and the match is what the scan spends.
+		if strings.IndexByte(text, '#') < 0 {
+			continue
+		}
+		for _, m := range closingKeyword.FindAllStringSubmatch(text, -1) {
+			// The pattern matched digits, so this cannot fail on anything
+			// that reaches it; a number too long for an int comes back as
+			// the largest one rather than as a reason to abandon the body.
+			n, _ := strconv.Atoi(m[2])
+			out = append(out, keywordReference{Repo: m[1], Number: n, Kind: s.Kind})
+		}
+	}
+	return out
+}
 
 // hasQuotedClosingKeyword reports whether body holds a closing keyword where
 // GitHub will not read it as one: inside a fence, or inside a code span.
 func hasQuotedClosingKeyword(body string) bool {
-	for s := range Segments(body) {
-		if s.Kind != Prose && closingKeyword.MatchString(body[s.Start:s.End]) {
+	for _, ref := range keywordReferences(body) {
+		if ref.Kind != Prose {
 			return true
 		}
 	}
