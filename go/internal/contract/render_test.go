@@ -181,10 +181,9 @@ type samplePathNode struct {
 }
 
 // samplePath carries every shape a segment is built from: a plain key, a
-// nested document, a list of documents, a list of scalars, a list whose kind
-// the render qualifies both ways, a value set whose members are not keys, and
-// an exclusive group — placed before the last fields rather than last, so that
-// what follows it is read back at the parent's depth.
+// nested document, a list of documents, a list of scalars, a list of a value
+// set, and an exclusive group — placed before the last fields rather than
+// last, so that what follows it is written at the parent's depth too.
 type samplePath struct {
 	Head         string           `json:"head"`
 	Node         samplePathNode   `json:"node"`
@@ -213,10 +212,6 @@ func pathTable() Table {
 // "[]" on a key that holds a list, and nothing at all for the two rows that
 // are not keys — a group's heading, whose members are inline in the JSON, and
 // a value set's members, which are what a key holds rather than keys under it.
-//
-// nodes and kinds are qualified, and are here for that: a qualifier goes into
-// the middle of the kind in one of two places, and a path read from the front
-// of it stays right through both.
 func TestPaths(t *testing.T) {
 	got, err := pathTable().Paths(reflect.TypeFor[samplePath]())
 	if err != nil {
@@ -433,5 +428,27 @@ func TestRenderUsesMarshalerOverride(t *testing.T) {
 	}
 	if want := "  odd       null, or an array of numbers\n"; got != want {
 		t.Errorf("Render = %q, want %q", got, want)
+	}
+}
+
+// TestPathsAskTheMarshalerOverride puts "[]" on a key whose list is the
+// override's rather than Go's. The Kind is a sentence the table's author wrote
+// and the wire form is declared by Elem, so the path is built from Elem — a
+// path read out of the sentence would miss this one, which does not open with
+// the words a list is rendered with.
+func TestPathsAskTheMarshalerOverride(t *testing.T) {
+	tbl := Table{
+		Fields: map[string]string{},
+		Marshalers: map[reflect.Type]Marshaled{
+			reflect.TypeFor[sampleMarshaler](): {Kind: "null, or an array of refs", Elem: reflect.TypeFor[sampleRef]()},
+		},
+	}
+	got, err := tbl.Paths(reflect.TypeFor[sampleWithMarshaler]())
+	if err != nil {
+		t.Fatalf("Paths: %v", err)
+	}
+	want := []string{"odd[]", "odd[].number", "odd[].url"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Paths (-want +got):\n%s", diff)
 	}
 }
