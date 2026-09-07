@@ -69,6 +69,6 @@ PR が何をしようとしていて何を変えたのかを、durable な記録
 |---|---|---|---|---|
 | `review-response` | `linked_issues[]` と同じドキュメントの `warnings[]` / `ccx pr context` のドキュメント | 文書（`ahead_own` でも文書側。理由は同スキルが持つ） | 「対応対象の指摘」「反応待ちスレッド」より前 | 判断対象の有無の確認によるゲート（「ステートレス」の唯一の省略経路）、会話を読解の**後**に置く順序とその例外、`comments_truncated` の上限引き上げ |
 | `deep-review` | `ccx pr prepare-review` の `issues` と同出力の `warnings[]` / `context_path` | 状態で分岐し、文書と同出力の `local_change` の両方を取りうる（分岐の正は同スキルが持つ） | 「レビュー結果出力」の「確認した内容」 | 「PR コンテキストの読了」を container より**前**に置く順序、`pr_exists` / `freshness.status` による取得元の選択、container の読解の**直後**に挟む `ccx issue tree` と役割分担、Issue の打ち切りを再取得しない判断 |
-| `understand-pr` | `linked_issues[]` / `ccx pr context` の文書 | 文書 | ブリーフの変更内容 | ブリーフの構成（配線は 178inaba/dotfiles#166） |
+| `understand-pr` | `linked_issues[]` と同じドキュメントの `warnings[]` / `ccx pr context` の文書 | 文書 | ブリーフの変更内容 | ブリーフの構成（配線は 178inaba/dotfiles#166） |
 
 `issue-handle` は消費者ではない。実装したセッションで動き、意図が文脈に残っているため組み立て直す必要がない（178inaba/dotfiles#163 の Out of scope）。
