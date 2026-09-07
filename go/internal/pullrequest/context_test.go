@@ -1659,11 +1659,14 @@ func limitRow(t *testing.T, flag string) pullrequest.FetchLimit {
 	return pullrequest.FetchLimit{}
 }
 
-// TestFetchLimitReachedReadsItsOwnCollection pins what nothing about a row
-// says: that the reader beside a variable counts that variable's own
-// collection. A pair swapped between two rows would raise the wrong cap on the
-// rerun, and leave the collection that was cut short just as short.
-func TestFetchLimitReachedReadsItsOwnCollection(t *testing.T) {
+// TestFetchLimitReached pins the two things nothing about a row says: that the
+// reader beside a variable counts that variable's own collection, and that a
+// per-item cap goes to the largest of the totals that were actually cut short,
+// since one limit has to cover them all. A pair swapped between two rows would
+// raise the wrong cap on the rerun and leave the collection that was cut short
+// just as short; a cap raised to anything less than the largest would fetch the
+// same truncation again.
+func TestFetchLimitReached(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1697,20 +1700,47 @@ func TestFetchLimitReachedReadsItsOwnCollection(t *testing.T) {
 			total: 9,
 		},
 		{
-			name: "thread comments",
+			// The thread that arrived whole does not raise the limit however
+			// much it holds, and the smaller truncated one does not lower it.
+			name: "thread comments, over the threads cut short",
 			flag: "review_threads[].comments_truncated",
 			c: pullrequest.Context{ReviewThreads: []pullrequest.Thread{
 				{CommentsTotalCount: 11, CommentsTruncated: true},
+				{CommentsTotalCount: 30},
+				{CommentsTotalCount: 4, CommentsTruncated: true},
 			}},
 			total: 11,
 		},
 		{
-			name: "issue comments",
+			name: "issue comments, over the issues cut short",
 			flag: "linked_issues[].comments_truncated",
 			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
 				{CommentsTotalCount: 12, CommentsTruncated: true},
+				{CommentsTotalCount: 40},
+				{CommentsTotalCount: 5, CommentsTruncated: true},
 			}},
 			total: 12,
+		},
+		{
+			// A parent is read under the limit its own issue is read under, so
+			// it raises that limit on its own.
+			name: "issue comments, from a parent alone",
+			flag: "linked_issues[].comments_truncated",
+			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
+				{CommentsTotalCount: 40, Parent: &pullrequest.IssueParent{CommentsTotalCount: 13, CommentsTruncated: true}},
+			}},
+			total: 13,
+		},
+		{
+			name: "issue comments, over an issue and its parent",
+			flag: "linked_issues[].comments_truncated",
+			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
+				{
+					CommentsTotalCount: 14, CommentsTruncated: true,
+					Parent: &pullrequest.IssueParent{CommentsTotalCount: 6, CommentsTruncated: true},
+				},
+			}},
+			total: 14,
 		},
 	}
 
@@ -1730,75 +1760,6 @@ func TestFetchLimitReachedReadsItsOwnCollection(t *testing.T) {
 				case !reached || total != tt.total:
 					t.Errorf("%s = (%d, %t), want (%d, true)", l.Flag, total, reached, tt.total)
 				}
-			}
-		})
-	}
-}
-
-// TestFetchLimitReachedTakesTheLargestTruncatedItem covers the two per-item
-// caps, where one limit has to cover every item: the rerun goes to the largest
-// of the totals that were actually cut short, and an item that arrived whole
-// does not raise it however much it holds.
-func TestFetchLimitReachedTakesTheLargestTruncatedItem(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		flag  string
-		c     pullrequest.Context
-		total int
-	}{
-		{
-			name: "over the threads",
-			flag: "review_threads[].comments_truncated",
-			c: pullrequest.Context{ReviewThreads: []pullrequest.Thread{
-				{CommentsTotalCount: 11, CommentsTruncated: true},
-				{CommentsTotalCount: 30},
-				{CommentsTotalCount: 4, CommentsTruncated: true},
-			}},
-			total: 11,
-		},
-		{
-			name: "over the issues",
-			flag: "linked_issues[].comments_truncated",
-			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
-				{CommentsTotalCount: 12, CommentsTruncated: true},
-				{CommentsTotalCount: 40},
-				{CommentsTotalCount: 5, CommentsTruncated: true},
-			}},
-			total: 12,
-		},
-		{
-			// A parent is read under the limit its own issue is read under, so
-			// it raises that limit on its own.
-			name: "over a parent alone",
-			flag: "linked_issues[].comments_truncated",
-			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
-				{CommentsTotalCount: 40, Parent: &pullrequest.IssueParent{CommentsTotalCount: 13, CommentsTruncated: true}},
-			}},
-			total: 13,
-		},
-		{
-			name: "over an issue and its parent",
-			flag: "linked_issues[].comments_truncated",
-			c: pullrequest.Context{LinkedIssues: []pullrequest.LinkedIssue{
-				{
-					CommentsTotalCount: 14, CommentsTruncated: true,
-					Parent: &pullrequest.IssueParent{CommentsTotalCount: 6, CommentsTruncated: true},
-				},
-			}},
-			total: 14,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			l := limitRow(t, tt.flag)
-			total, reached := l.Reached(tt.c)
-			if !reached || total != tt.total {
-				t.Errorf("%s = (%d, %t), want (%d, true)", l.Flag, total, reached, tt.total)
 			}
 		})
 	}

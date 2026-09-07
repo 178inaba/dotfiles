@@ -397,11 +397,12 @@ type FetchLimit struct {
 	// speaks of the collection that came up short rather than of the cap.
 	Per string
 	// Subject is what the rerun warning says was cut short, and Collection is
-	// what it says not to read until the limit is raised. Columns rather than
-	// derived from the ones above: threads_truncated is a flag on the document
-	// but reports the review_threads collection, and "thread comments" is
-	// neither the flag nor Per, so deriving either would be a list of
-	// exceptions.
+	// what it says not to read until the limit is raised. Written out rather
+	// than derived: Collection is not the flag's own path — threads_truncated
+	// is a flag on the document that reports the review_threads collection —
+	// and a Subject worked out from the other columns would rest on every
+	// per-item cap counting comments, which is one row away from being wrong.
+	// Prose a reader acts on is cheaper to read than to reconstruct.
 	Subject    string
 	Collection string
 	// Reached says whether the document ran into this cap, and the largest
@@ -439,7 +440,9 @@ var FetchLimits = [...]FetchLimit{
 		Subject: "thread comments", Collection: "review_threads",
 		Reached: func(c Context) (total int, reached bool) {
 			for _, thread := range c.ReviewThreads {
-				total, reached = largest(total, reached, thread.CommentsTotalCount, thread.CommentsTruncated)
+				if thread.CommentsTruncated {
+					total, reached = max(total, thread.CommentsTotalCount), true
+				}
 			}
 			return total, reached
 		},
@@ -451,25 +454,18 @@ var FetchLimits = [...]FetchLimit{
 		Subject: "issue comments", Collection: "linked_issues",
 		Reached: func(c Context) (total int, reached bool) {
 			for _, issue := range c.LinkedIssues {
-				total, reached = largest(total, reached, issue.CommentsTotalCount, issue.CommentsTruncated)
+				if issue.CommentsTruncated {
+					total, reached = max(total, issue.CommentsTotalCount), true
+				}
 				// A parent is an issue for this too, and is read under the
 				// same limit.
-				if p := issue.Parent; p != nil {
-					total, reached = largest(total, reached, p.CommentsTotalCount, p.CommentsTruncated)
+				if p := issue.Parent; p != nil && p.CommentsTruncated {
+					total, reached = max(total, p.CommentsTotalCount), true
 				}
 			}
 			return total, reached
 		},
 	},
-}
-
-// largest folds one item into a per-item cap's running answer, counting only
-// what was cut short.
-func largest(total int, reached bool, itemTotal int, itemTruncated bool) (int, bool) {
-	if itemTruncated && itemTotal > total {
-		return itemTotal, true
-	}
-	return total, reached
 }
 
 // Fetch gathers the context of one pull request.
