@@ -33,12 +33,7 @@ Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解
 
 ### 共通手順（両モードで実行）
 
-- **コンテキスト取得**: `ccx pr context` で以下を**すべて**一括取得（「指摘・議論経緯の取得」参照）
-  - **レビュー本文** (`reviews[]`): 総評・優先度付き指摘リスト・サマリー
-  - **行コメント** (`review_threads[]`): 未解決スレッド
-  - **通常コメント** (`comments[]`): PR本体へのタイムラインコメント（議論経緯・追加の修正依頼）
-
-  返された `path` が**この実行の唯一のドキュメント**であり、以降のステップはすべてこれを指す。取得は1実行1回で、修正を push した後も取り直さない（投稿するコマンドが自分でローカル HEAD と GitHub の live head を突き合わせるため。「スレッドへの返信と解決」）
+- **コンテキスト取得**: `ccx pr context` で PR のコンテキストを一括取得する（「指摘・議論経緯の取得」参照）。返された `path` が**この実行の唯一のドキュメント**であり、以降のステップはすべてこれを指す。取得は1実行1回で、修正を push した後も取り直さない（投稿するコマンドが自分でローカル HEAD と GitHub の live head を突き合わせるため。「スレッドへの返信と解決」）
 - **鮮度確認**: Skill ツールで `worktree-resolution` を起動し、その「共通サブ手順: PR head との鮮度確認」を、ドキュメントのパスをコマンド引数にして実行（停止条件に該当した場合は修正・返信を開始しない。stale なコードへの修正適用や、リモートで対応済みの指摘への二重対応を防ぐため。head branch の fetch はサブ手順のコマンドが毎回内部実行するため `--worktree` 時も省略されない — Worktree 解決後に取得したドキュメントの `pr.head_oid` が worktree 解決時の fetch より新しい可能性に対応する）。`--dry-run` でも同期は省略しない — 修正案・返信案の起案自体が最新 head を前提とし、同期は作業を破棄しない fast-forward のみのため
 - **判断対象の有無の確認**: ドキュメントから `pending` だけを jq で取り出して読み（文書全体を開かずに済ませるのがこのステップの意味）、`pending.threads[]` / `pending.reviews[]` / `pending.comments[]` がすべて空なら「判断対象なし」を1行報告してこの実行（`/loop` では当該イテレーション）を終える。以降のステップは1つも実行せず、判断に達していないので判断の記録も行わない。終了時の報告には `ball: "theirs"` の一覧を添える（内容は「行コメントスレッドの扱い」、`/loop` での省略は「/loop での定期実行」）。件数の判定は `pending` の3リストだけを出典とし、`reviews[]` / `comments[]` を自前のセレクタで数え直さない — 数え方が2箇所に分かれ、判断対象の有無で食い違うため
 - **PR 全体の読解**: 「PR 全体の読解」に従って PR を読む。指摘の本文を読むのはこの後
@@ -75,7 +70,7 @@ Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解
 
 **実行条件**: 判断対象の有無の確認を通ったすべての実行。省略してよいのは判断対象が無いときだけで、それを決めるのはそのステップである（`pr-reading` の「ステートレス」が定める唯一の省略経路）。
 
-**手順**: Skill ツールで `pr-reading` を起動し、その手順に従って読む。起動時に名指すのは、container がドキュメントの `linked_issues[]` と `warnings[]`、文書がそのドキュメント、差分・コミットの取得元が同じ文書、報告先が下記「報告」。`ahead_own`（未 push のローカル commit がある状態）でも取得元は文書側 — 指摘が付いているのは push 済みの行なので、手元の差分に読み替えない。`comments_truncated: true` の上限の上げ方は下記「指摘・議論経緯の取得」の打ち切り表にある。
+**手順**: Skill ツールで `pr-reading` を起動し、その手順に従って読む。起動時に名指すのは、container がドキュメントの `linked_issues[]` と `warnings[]`、文書がそのドキュメント、差分・コミットの取得元が同じ文書、報告先が下記「報告」。`ahead_own`（未 push のローカル commit がある状態）でも取得元は文書側 — 指摘が付いているのは push 済みの行なので、手元の差分に読み替えない。`comments_truncated: true` の上限の上げ方は `ccx pr context --help` にある。
 
 **会話を読む位置**: 指摘の本文（`reviews[]` / `review_threads[]` / `comments[]`）を読むのは読解の後。先に読むと差分がその指摘の裏取りになり、指摘が触れていない決定を見落とす。唯一の例外は「行コメントスレッドの扱い」の `theirs` 報告。
 
@@ -188,17 +183,9 @@ Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解
 ccx pr context <scratchpadディレクトリ> [<pr-number>]
 ```
 
-レビュー本文（`reviews[]`）・レビュースレッド（`review_threads[]`）・通常コメント（`comments[]`）の3種を一括取得し、正規化した JSON を scratchpad 配下の一意な名前のファイルに書く。stdout に返る `path` / `work_dir` / `threads_path` はいずれも `ccx pr context` が所有する — 呼び出し側で保存先を組み立てず、返された値だけを使う。以後は返された `path` のファイルを jq で必要部分を段階的に参照する（CI bot が多い PR では数百 KB に達し、直接表示の部分読みは指摘・議論経緯の読み落としを誘発するため）。3つは GitHub 上で別管理のため、一部だけ取得すると本文の指摘（優先度付きリスト等）や通常コメント上の議論経緯・追加依頼を見落とす — 一括取得・全量取得（ページネーション）・マーカーの先頭一致判定は `ccx pr context` が保証する。`<pr-number>` 省略時はカレント branch の PR を推論し、失敗時は非ゼロ exit + stderr メッセージで停止する。
+正規化した JSON を scratchpad 配下の一意な名前のファイルに書く。stdout に返る `path` / `work_dir` / `threads_path` はいずれも `ccx pr context` が所有する — 呼び出し側で保存先を組み立てず、返された値だけを使う。以後は返された `path` のファイルを jq で必要部分を段階的に参照する（CI bot が多い PR では数百 KB に達し、直接表示の部分読みは指摘・議論経緯の読み落としを誘発するため）。一括取得・全量取得（ページネーション）・マーカーの先頭一致判定は `ccx pr context` が保証する。`<pr-number>` 省略時はカレント branch の PR を推論し、失敗時は非ゼロ exit + stderr メッセージで停止する。
 
-全量取得にはコストガードの上限がある。打ち切りが発生したら該当の環境変数で上限を引き上げて再実行する:
-
-| 対象 | 打ち切りフラグ | 環境変数（既定） |
-|---|---|---|
-| 通常コメント | `comments_truncated` | `MAX_COMMENTS`（500） |
-| レビュー本文 | `reviews_truncated` | `MAX_REVIEWS`（200、落ちるのは古い側） |
-| レビュースレッド | `threads_truncated` | `MAX_THREADS`（300） |
-| スレッド内コメント | `review_threads[].comments_truncated` | `MAX_THREAD_COMMENTS`（200、スレッドごと） |
-| Issue のコメント | `linked_issues[].comments_truncated`（`parent` 側も同名） | `MAX_ISSUE_COMMENTS`（200、Issue ごと） |
+全量取得にはコストガードの上限がある。打ち切りが発生したら、`ccx pr context --help` が示す該当の環境変数で上限を引き上げて再実行する（どのフラグがどの変数と対になるかも同 help にある）。
 
 ### スレッドへの返信と解決
 
