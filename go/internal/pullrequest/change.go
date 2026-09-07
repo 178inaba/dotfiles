@@ -334,9 +334,6 @@ func readGenerated(ctx context.Context, r runner.Runner, dir, source string, fil
 		Args:  []string{"-C", top, "check-attr", "--source", source, "-z", "--stdin", generatedAttr},
 	})
 	if err != nil {
-		// git's own words, carried out rather than dropped: what a failure of
-		// this call is about is something git has already said better than an
-		// exit status can.
 		reason := runner.Message(err)
 		// The arguments are all fixed here, so the only option git can fail to
 		// recognise is --source, and the only git that fails to is one from

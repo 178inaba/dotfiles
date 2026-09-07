@@ -74,7 +74,7 @@ func Delete(ctx context.Context, r runner.Runner, dir string, candidates Candida
 		return Deletion{}, err
 	}
 
-	d := &deleter{r: r, dir: dir, table: table}
+	d := &deleter{r: r, dir: dir}
 	d.out.Removed = Removed{Worktrees: []string{}, Branches: []string{}}
 	d.out.Failures = []Failure{}
 
@@ -103,10 +103,9 @@ func Delete(ctx context.Context, r runner.Runner, dir string, candidates Candida
 }
 
 type deleter struct {
-	r     runner.Runner
-	dir   string
-	table cwdTable
-	out   Deletion
+	r   runner.Runner
+	dir string
+	out Deletion
 }
 
 // deleteBranch removes a branch, with the flag its verdict has earned.
