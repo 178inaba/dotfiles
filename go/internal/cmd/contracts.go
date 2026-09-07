@@ -211,7 +211,11 @@ it measures against is local to this machine and private to the skill, so a
 machine that has never run ` + "`ccx pr seen`" + ` counts everything — one reading, and
 nothing lost.
 
-` + limitSentence(),
+These environment variables raise what one fetch reads, each taking a plain
+non-negative integer. Beside each is the default it replaces and the flag that
+says the limit was reached, which for a linked issue is set on its parent as
+well:
+` + limitRows(),
 		blocks: []block{
 			prints(reflect.TypeFor[pullrequest.Stored]()),
 			writes("The document written to that path", reflect.TypeFor[pullrequest.Context]()),
@@ -675,17 +679,13 @@ func published() skill.Published {
 	return out
 }
 
-// limitSentence publishes every fetch limit from the table the command reads
-// them with, so the defaults reach a caller without being retyped anywhere.
+// limitRows publishes every fetch limit from the table the command reads them
+// with, so the defaults reach a caller without being retyped anywhere.
 //
-// The rows are assembled outside contract.Wrap, which re-flows what it is given
-// into one paragraph: five entries in a sentence do not read, and a list of
-// them would come back as a sentence.
-func limitSentence() string {
-	lead := contract.Wrap("These environment variables raise what one fetch reads, each taking a " +
-		"plain non-negative integer. Beside each is the default it replaces and the flag that " +
-		"says the limit was reached, which for a linked issue is set on its parent as well:")
-
+// Rows rather than a sentence, and so assembled the way status.go assembles the
+// exit-status list: contract.Wrap re-flows what it is given into one paragraph,
+// and five entries in one paragraph do not read.
+func limitRows() string {
 	width := 0
 	for _, l := range fetchLimits {
 		width = max(width, len(l.variable))
@@ -693,7 +693,6 @@ func limitSentence() string {
 
 	defaults := pullrequest.DefaultLimits
 	var b strings.Builder
-	b.WriteString(lead + "\n")
 	for _, l := range fetchLimits {
 		fmt.Fprintf(&b, "\n  %-*s  %3d  %s", width, l.variable, *l.cap(&defaults), l.flag)
 		if l.per != "" {

@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
 	"github.com/178inaba/dotfiles/go/internal/gittest"
@@ -207,10 +209,10 @@ var publishedLimits = []struct {
 	{"MAX_ISSUE_COMMENTS", func(l pullrequest.Limits) int { return l.IssueComments }, "linked_issues[].comments_truncated"},
 }
 
-// TestContextLimitsBindEachVariableToItsOwnCap pins the pairing a positional
-// list makes easy to get wrong: the variable names and the caps they raise are
-// two lists kept aligned by hand, and a swapped pair would quietly raise the
-// wrong collection.
+// TestContextLimitsBindEachVariableToItsOwnCap pins the pairing an accessor
+// makes easy to get wrong: nothing about a row says the closure beside a
+// variable reaches that variable's own cap, and a swapped pair would quietly
+// raise the wrong collection.
 func TestContextLimitsBindEachVariableToItsOwnCap(t *testing.T) {
 	for _, l := range publishedLimits {
 		t.Run(l.variable, func(t *testing.T) {
@@ -230,32 +232,45 @@ func TestContextLimitsBindEachVariableToItsOwnCap(t *testing.T) {
 // TestPRContextHelpPublishesEachLimit is what lets the skills point at the help
 // instead of copying the numbers into a table of their own: a reader answering
 // a truncation finds the variable to raise, what it is now, and which flag sent
-// them there, in one place. Read against the defaults themselves, so raising
-// one in the struct and not in the help fails here.
+// them there, in one place. A help carrying its own copy of a number fails here
+// as soon as the struct moves, which is how the table drifted while it lived in
+// a skill.
 func TestPRContextHelpPublishesEachLimit(t *testing.T) {
 	t.Parallel()
 
 	text := longFor("pr context")
-	var listed []string
+	rows := map[string]string{}
 	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, "MAX_") {
-			listed = append(listed, line)
+		if cols := strings.Fields(line); len(cols) > 0 && strings.HasPrefix(cols[0], "MAX_") {
+			rows[cols[0]] = line
 		}
 	}
-	if len(listed) != len(publishedLimits) {
-		t.Fatalf("%d lines name a variable, want one each for %d:\n%s",
-			len(listed), len(publishedLimits), strings.Join(listed, "\n"))
+	if len(rows) != len(publishedLimits) {
+		t.Fatalf("%d rows name a variable, want one each for %d:\n%s", len(rows), len(publishedLimits), text)
 	}
 
-	for i, l := range publishedLimits {
-		// By column rather than by substring: comments_truncated is a substring
-		// of both per-item flags, so a row showing the wrong one would pass a
-		// contains check — the very mix-up this reads the columns to catch.
-		cols := strings.Fields(listed[i])
-		want := []string{l.variable, strconv.Itoa(l.cap(pullrequest.DefaultLimits)), l.flag}
-		if len(cols) < len(want) || !slices.Equal(cols[:len(want)], want) {
-			t.Errorf("line %d is %q, want it to open with %q", i, listed[i], strings.Join(want, " "))
-		}
+	// Every name the document publishes, so a flag renamed in the contract is
+	// not left behind here: transcribing a json tag into a help is the
+	// arrangement the rendered contract exists to end.
+	published, err := contract.Identifiers(reflect.TypeFor[pullrequest.Context]())
+	if err != nil {
+		t.Fatalf("Identifiers: %v", err)
+	}
+
+	for _, l := range publishedLimits {
+		t.Run(l.variable, func(t *testing.T) {
+			// By column rather than by substring: comments_truncated is a
+			// substring of both per-item flags, so a row showing the wrong one
+			// would pass a contains check — the very mix-up this catches.
+			cols := strings.Fields(rows[l.variable])
+			want := []string{l.variable, strconv.Itoa(l.cap(pullrequest.DefaultLimits)), l.flag}
+			if len(cols) < len(want) || !slices.Equal(cols[:len(want)], want) {
+				t.Errorf("row is %q, want it to open with %q", rows[l.variable], strings.Join(want, " "))
+			}
+			if field := l.flag[strings.LastIndex(l.flag, ".")+1:]; !slices.Contains(published, field) {
+				t.Errorf("the document publishes no %q, so %s names a flag nobody sets", field, l.variable)
+			}
+		})
 	}
 }
 

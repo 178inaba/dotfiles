@@ -183,9 +183,9 @@ Skill ツールで `worktree-resolution` を起動し、その「PR worktree 解
 ccx pr context <scratchpadディレクトリ> [<pr-number>]
 ```
 
-正規化した JSON を scratchpad 配下の一意な名前のファイルに書く。stdout に返る `path` / `work_dir` / `threads_path` はいずれも `ccx pr context` が所有する — 呼び出し側で保存先を組み立てず、返された値だけを使う。以後は返された `path` のファイルを jq で必要部分を段階的に参照する（CI bot が多い PR では数百 KB に達し、直接表示の部分読みは指摘・議論経緯の読み落としを誘発するため）。一括取得・全量取得（ページネーション）・マーカーの先頭一致判定は `ccx pr context` が保証する。`<pr-number>` 省略時はカレント branch の PR を推論し、失敗時は非ゼロ exit + stderr メッセージで停止する。
+正規化した JSON を scratchpad 配下の一意な名前のファイルに書く。stdout に返る `path` / `work_dir` / `threads_path` はいずれも `ccx pr context` が所有する — 呼び出し側で保存先を組み立てず、返された値だけを使う。以後は返された `path` のファイルを jq で必要部分を段階的に参照する（CI bot が多い PR では数百 KB に達し、直接表示の部分読みは指摘・議論経緯の読み落としを誘発するため）。コンテキストの一括取得・全量取得（ページネーション）・マーカーの先頭一致判定は `ccx pr context` が保証する。`<pr-number>` 省略時はカレント branch の PR を推論し、失敗時は非ゼロ exit + stderr メッセージで停止する。
 
-全量取得にはコストガードの上限がある。打ち切りが発生したら、`ccx pr context --help` が示す該当の環境変数で上限を引き上げて再実行する（どのフラグがどの変数と対になるかも同 help にある）。
+全量取得にはコストガードの上限がある。打ち切りが発生したら、`ccx pr context --help` が示す該当の環境変数で上限を引き上げて再実行する。
 
 ### スレッドへの返信と解決
 
