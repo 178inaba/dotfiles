@@ -19,10 +19,10 @@ type status struct {
 	// of where below, and what to do beyond going there belongs to whoever is
 	// calling.
 	meaning string
-	// The file a violation of this status's class is fixed in, where the
-	// status has a class. Not advice to the caller but a fact about the
-	// violation, the same one for every caller — so it is the class's to
-	// state, and this field only renders what the class says.
+	// The file a fault reported by this status is fixed in. Not advice to the
+	// caller but a fact about the fault, the same one for every caller — so
+	// where the status has a class it is the class's to state and this field
+	// only renders it. A status with no class writes its own.
 	where string
 }
 

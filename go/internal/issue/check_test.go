@@ -181,8 +181,11 @@ func TestWorst(t *testing.T) {
 // A class with no exit status stops `ccx issue sections check` with an error
 // naming it. A class with no place stops nothing: `ccx issue publish` builds
 // its refusals out of these messages and has no table to consult, so a reason
-// would go out saying what is wrong and not where. Only the four declared
-// here, a fifth being exactly what this is meant to catch.
+// would go out saying what is wrong and not where.
+//
+// The classes are listed rather than walked, there being no count to walk to
+// that would not be an exported constant of its own. Adding one to Class means
+// adding it here.
 func TestEveryClassSaysWhereItIsFixed(t *testing.T) {
 	t.Parallel()
 
