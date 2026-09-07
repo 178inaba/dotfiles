@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -186,29 +188,74 @@ func TestPRBodyAppendRefusesBeforeItReachesGitHub(t *testing.T) {
 	}
 }
 
+// publishedLimits is what each fetch limit owes a reader: the variable that
+// raises it, the cap it raises, and the flag that reports the cap was reached.
+//
+// Written out by hand, and deliberately not read from the table the command and
+// the help are rendered from — a test taking the pairing from that table would
+// agree with it however it was wired, which is the mistake both tests below
+// exist to catch.
+var publishedLimits = []struct {
+	variable string
+	cap      func(pullrequest.Limits) int
+	flag     string
+}{
+	{"MAX_COMMENTS", func(l pullrequest.Limits) int { return l.Comments }, "comments_truncated"},
+	{"MAX_REVIEWS", func(l pullrequest.Limits) int { return l.Reviews }, "reviews_truncated"},
+	{"MAX_THREADS", func(l pullrequest.Limits) int { return l.Threads }, "threads_truncated"},
+	{"MAX_THREAD_COMMENTS", func(l pullrequest.Limits) int { return l.ThreadComments }, "review_threads[].comments_truncated"},
+	{"MAX_ISSUE_COMMENTS", func(l pullrequest.Limits) int { return l.IssueComments }, "linked_issues[].comments_truncated"},
+}
+
 // TestContextLimitsBindEachVariableToItsOwnCap pins the pairing a positional
 // list makes easy to get wrong: the variable names and the caps they raise are
 // two lists kept aligned by hand, and a swapped pair would quietly raise the
 // wrong collection.
 func TestContextLimitsBindEachVariableToItsOwnCap(t *testing.T) {
-	for name, raised := range map[string]func(pullrequest.Limits) int{
-		"MAX_COMMENTS":        func(l pullrequest.Limits) int { return l.Comments },
-		"MAX_REVIEWS":         func(l pullrequest.Limits) int { return l.Reviews },
-		"MAX_THREADS":         func(l pullrequest.Limits) int { return l.Threads },
-		"MAX_THREAD_COMMENTS": func(l pullrequest.Limits) int { return l.ThreadComments },
-		"MAX_ISSUE_COMMENTS":  func(l pullrequest.Limits) int { return l.IssueComments },
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Setenv(name, "7")
+	for _, l := range publishedLimits {
+		t.Run(l.variable, func(t *testing.T) {
+			t.Setenv(l.variable, "7")
 
 			got, err := contextLimits()
 			if err != nil {
 				t.Fatalf("contextLimits: %v", err)
 			}
-			if raised(got) != 7 {
-				t.Errorf("%s left %+v, want it to raise its own cap to 7", name, got)
+			if l.cap(got) != 7 {
+				t.Errorf("%s left %+v, want it to raise its own cap to 7", l.variable, got)
 			}
 		})
+	}
+}
+
+// TestPRContextHelpPublishesEachLimit is what lets the skills point at the help
+// instead of copying the numbers into a table of their own: a reader answering
+// a truncation finds the variable to raise, what it is now, and which flag sent
+// them there, in one place. Read against the defaults themselves, so raising
+// one in the struct and not in the help fails here.
+func TestPRContextHelpPublishesEachLimit(t *testing.T) {
+	t.Parallel()
+
+	text := longFor("pr context")
+	var listed []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "MAX_") {
+			listed = append(listed, line)
+		}
+	}
+	if len(listed) != len(publishedLimits) {
+		t.Fatalf("%d lines name a variable, want one each for %d:\n%s",
+			len(listed), len(publishedLimits), strings.Join(listed, "\n"))
+	}
+
+	for i, l := range publishedLimits {
+		// By column rather than by substring: comments_truncated is a substring
+		// of both per-item flags, so a row showing the wrong one would pass a
+		// contains check — the very mix-up this reads the columns to catch.
+		cols := strings.Fields(listed[i])
+		want := []string{l.variable, strconv.Itoa(l.cap(pullrequest.DefaultLimits)), l.flag}
+		if len(cols) < len(want) || !slices.Equal(cols[:len(want)], want) {
+			t.Errorf("line %d is %q, want it to open with %q", i, listed[i], strings.Join(want, " "))
+		}
 	}
 }
 
