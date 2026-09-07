@@ -108,7 +108,7 @@ func TestEverySkillFacingCommandHasAContract(t *testing.T) {
 		"pr context", "pr seen", "pr freshness", "pr prepare-review", "pr post-review", "pr reply-threads",
 		"pr comment", "pr body-append",
 		"worktree detect", "worktree create", "worktree resolve", "worktree checkout",
-		"worktree collect", "worktree delete",
+		"worktree collect", "worktree delete", "worktree sweep",
 		"review pending", "review verify", "review clone",
 		"skill frontmatter", "skill contract",
 	}

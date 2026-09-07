@@ -159,10 +159,17 @@ var genFields = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/worktree.DeleteInput.Candidates":            "The approved lists, in the shape collect printed them. A document without the field is a failure rather than an empty list quietly deleting nothing; an empty object is an approved list of nothing.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Detection.Path":                    "worktree_path and branch are null when nothing was found, rather than empty strings: the caller branches on found and reads these only after.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.FreshnessReport.LocalHead":         "Read after any synchronisation, so it is where the checkout ended up rather than where it started.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Kept.Branch":                       "Absent for a bare branch, whose name is already the target.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Kept.Detail":                       "For a person reading the list, and written in the language the rest of this rule speaks.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Kept.Head":                         "The commit the branch is at, for the one reason that is about a branch's commits and absent for the rest.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Kept.Target":                       "The worktree's path, or the branch's name.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Resolution.PRNumber":               "pr_number and head_ref are the pull request as resolved, so that a caller that left the number out learns which one it got.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Resolution.Path":                   "Null unless an existing worktree was found; there is nowhere to point at until Checkout has made one.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Resolution.WorktreeName":           "The head branch with its slashes flattened, since one directory name has to stand for a branch that may be nested.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Skipped.Branch":                    "Absent for a bare branch, whose name is already the target.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.SweepReport.Failures":              "A git command that did not succeed, with what git said about it.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Swept.BranchDeleted":               "Whether the branch was deleted as well. Always true for a branch that had no worktree, which reaches this list only once it is gone; false for a worktree whose branch was kept or could not be deleted, and the branch then says which under kept or failures.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Swept.Path":                        "Absent for a branch that had no worktree of its own.",
 }
 
 // genTypes is every contract type's own doc comment, flattened to one line.
@@ -277,10 +284,13 @@ var genTypes = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/worktree.Entry":                 "One worktree of a repository. The shell parsed `git worktree list --porcelain` with awk in three different places, each cutting the fields its own way. One parser instead, because the format is one thing and three readings of it drift.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Failure":               "One deletion that did not happen, and why.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.FreshnessReport":       "The answer, with the two commits that produced it so that a caller can say what it compared.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Kept":                  "One candidate the sweep left in place, and why.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.PullRequest":           "What the freshness check needs to know about the pull request the checkout is supposed to be following.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Removed":               "What is gone.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Resolution":            "Where a pull request's worktree is, or what has to happen for one to exist.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Skipped":               "Something that was judged finished and is being left alone anyway.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.SweepReport":           "The outcome of one pass.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.Swept":                 "One thing the sweep removed.",
 }
 
 // genEnums is every named string type's constants, in declaration order.
@@ -299,6 +309,7 @@ var genEnums = map[string][]string{
 	"github.com/178inaba/dotfiles/go/internal/worktree.Action":            {"enter_existing", "create"},
 	"github.com/178inaba/dotfiles/go/internal/worktree.CreateStatus":      {"ok", "branch_exists", "path_exists"},
 	"github.com/178inaba/dotfiles/go/internal/worktree.Freshness":         {"ok", "synced", "ahead_own", "behind_dirty", "diverged", "branch_mismatch", "fetch_failed"},
+	"github.com/178inaba/dotfiles/go/internal/worktree.KeptReason":        {"locked", "in_use_by_process", "branch_beyond_head"},
 	"github.com/178inaba/dotfiles/go/internal/worktree.ResolveStatus":     {"ok", "behind_dirty", "diverged", "evacuation_dirty"},
 	"github.com/178inaba/dotfiles/go/internal/worktree.SkipReason":        {"uncommitted_changes", "unpushed_commits", "no_upstream_with_commits", "commits_beyond_merged_pr", "local_commits_beyond_pr", "in_use_by_process"},
 	"github.com/178inaba/dotfiles/go/internal/worktree.TargetKind":        {"worktree", "branch"},
@@ -356,6 +367,9 @@ var genEnumDocs = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/worktree.Freshness.fetch_failed":                "fetch_failed most often means the head branch is not on origin at all, which is what a pull request from a fork looks like from here.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Freshness.ok":                          "A checkout already at the pull request's head.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.Freshness.synced":                      "The same checkout after this command moved it there.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.KeptReason.branch_beyond_head":         "A branch carrying a commit the working directory's own head does not, which is the one thing standing between an agent's own work and a deletion that skips git's merged check. It is reported again by every later sweep, which is the reminder it is kept as.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.KeptReason.in_use_by_process":          "A leftover some process has as its working directory — a shell somebody opened there, a command still running from a finished agent. Removing it would kill every later command of that process. This is the second guard, for what the lock does not cover.",
+	"github.com/178inaba/dotfiles/go/internal/worktree.KeptReason.locked":                     "A worktree git holds a lock on, which is an agent still running — in this session or in another. The harness locks a worktree while its agent runs and unlocks the one it leaves behind, so the lock is the whole distinction and no process table has to be consulted for it. Nothing here ever unlocks anything, so a lock left by a session that crashed is reported every run until a person removes it.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.ResolveStatus.behind_dirty":            "A checkout with uncommitted changes in it, which cannot be moved to the head.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.ResolveStatus.diverged":                "A checkout carrying commits the remote has never seen.",
 	"github.com/178inaba/dotfiles/go/internal/worktree.ResolveStatus.evacuation_dirty":        "The main repository sitting on the pull request's branch with changes in it, so it cannot be moved off to make room for the worktree.",

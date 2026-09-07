@@ -17,6 +17,7 @@
       "Bash(ccx skill frontmatter:*)",
       "Bash(ccx worktree collect:*)",
       "Bash(ccx worktree detect:*)",
+      "Bash(ccx worktree sweep:*)",
       "Bash(docker compose:*)",
       "Bash(gh api user:*)",
       "Bash(gh issue list:*)",

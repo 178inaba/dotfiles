@@ -18,7 +18,7 @@ import (
 func newWorktreeCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("worktree", "Create and resolve the worktrees the skills work in")
 	c.AddCommand(worktreeDetectCmd(deps), worktreeCreateCmd(deps), worktreeResolveCmd(deps), worktreeCheckoutCmd(deps),
-		worktreeCollectCmd(deps), worktreeDeleteCmd(deps))
+		worktreeCollectCmd(deps), worktreeDeleteCmd(deps), worktreeSweepCmd(deps))
 	return c
 }
 
@@ -144,6 +144,25 @@ func worktreeCollectCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), collected))
+		},
+	}
+}
+
+// worktreeSweepCmd builds `ccx worktree sweep`, the unattended counterpart of
+// the pair above: it runs in the middle of another procedure, so nothing is
+// asked of the caller between finding and removing.
+func worktreeSweepCmd(deps Deps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "sweep",
+		Short: "Remove the worktrees the harness's isolated agents left behind",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			reportBuild(c, deps.Build)
+			swept, err := worktree.Sweep(c.Context(), runner.Exec{}, ".")
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), swept))
 		},
 	}
 }
