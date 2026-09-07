@@ -15,33 +15,21 @@ import (
 type status struct {
 	code   int
 	symbol string
-	// What reaching this status says. Where it is fixed is not part of it but
-	// of where below, and what to do beyond going there belongs to whoever is
-	// calling.
+	// What reaching this status says, not what to do about it — that belongs
+	// to whoever is calling.
 	meaning string
-	// The file a fault reported by this status is fixed in. Not advice to the
-	// caller but a fact about the fault, the same one for every caller — so
-	// where the status has a class it is the class's to state and this field
-	// only renders it. A status with no class writes its own.
-	where string
 }
 
 type statuses []status
 
-// render puts where on its own line under the meaning, indented to the text.
-// Both on one line runs a status past the column the rest of a help is laid
-// out to, and a wrapped clause is one a reader has to reassemble to act on.
 func (ss statuses) render() string {
 	var b strings.Builder
 	for _, s := range ss {
 		if s.symbol == "" {
 			fmt.Fprintf(&b, "  %d  %s\n", s.code, s.meaning)
-		} else {
-			fmt.Fprintf(&b, "  %d  %s — %s\n", s.code, s.symbol, s.meaning)
+			continue
 		}
-		if s.where != "" {
-			fmt.Fprintf(&b, "     %s\n", s.where)
-		}
+		fmt.Fprintf(&b, "  %d  %s — %s\n", s.code, s.symbol, s.meaning)
 	}
 	return b.String()
 }
@@ -72,8 +60,7 @@ type classStatus struct {
 var sectionsCheckStatuses = []classStatus{
 	{issue.MissingSection, status{code: 2, symbol: "missing_section", meaning: "a section the kind requires and the draft lacks"}},
 	{issue.UnknownHeading, status{code: 3, symbol: "unknown_heading", meaning: "a heading in neither the schema nor the template mapping"}},
-	{issue.MappedMachineKey, status{code: 4, symbol: "mapped_machine_key", meaning: "a template renaming a heading other skills find by its text"}},
-	{issue.HeadingLocaleMismatch, status{code: 5, symbol: "heading_locale_mismatch", meaning: "a canonical heading written in the other language"}},
+	{issue.HeadingLocaleMismatch, status{code: 4, symbol: "heading_locale_mismatch", meaning: "a canonical heading written in the other language"}},
 }
 
 func sectionsCheckStatus(class issue.Class) (int, bool) {
@@ -88,20 +75,13 @@ func sectionsCheckStatus(class issue.Class) (int, bool) {
 // checkStatuses spells out its own two ordinary outcomes rather than taking
 // commonStatuses: this command prints nothing when it passes, and "the answer
 // is on standard output" would describe an empty stream.
-//
-// Status 1 is the one entry whose place is typed here. It is not a violation
-// and has no class to read it off, its reasons being the ones ParseMapping and
-// the arguments raise.
 func checkStatuses() statuses {
 	out := statuses{
 		{code: 0, meaning: "the draft's headings match the schema"},
-		{code: 1, meaning: "the check could not run; the reason is on standard error",
-			where: "fix: the mapping file or the invocation"},
+		{code: 1, meaning: "the check could not run; the reason is on standard error"},
 	}
 	for _, cs := range sectionsCheckStatuses {
-		s := cs.status
-		s.where = cs.class.Where()
-		out = append(out, s)
+		out = append(out, cs.status)
 	}
 	return out
 }

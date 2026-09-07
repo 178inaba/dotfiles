@@ -43,7 +43,7 @@ func TestCheck(t *testing.T) {
 			draft:  strings.Replace(jaLeaf, "## 受け入れ条件\n\n- [ ] 通る\n\n", "", 1),
 			locale: issue.JA, kind: issue.Leaf,
 			wantClasses: []issue.Class{issue.MissingSection},
-			wantIn:      []string{"acceptance", "受け入れ条件", "fix: the draft"},
+			wantIn:      []string{"acceptance", "受け入れ条件"},
 		},
 		{
 			// A repository template may rename a section, and then its heading
@@ -59,16 +59,6 @@ func TestCheck(t *testing.T) {
 			// therefore missing.
 			wantClasses: []issue.Class{issue.MissingSection, issue.UnknownHeading},
 			wantIn:      []string{"acceptance", "Definition of Done"},
-		},
-		{
-			// depends_on is machine-consumed: other skills find it by its
-			// heading, so a template may not rename it. The draft is the clean
-			// one, which is what the reason's place has to reflect.
-			name:  "mapping a machine-consumed key is refused",
-			draft: jaLeaf, locale: issue.JA, kind: issue.Leaf,
-			mapping:     []issue.Mapping{{Key: "depends_on", Heading: "Prerequisites"}},
-			wantClasses: []issue.Class{issue.MappedMachineKey},
-			wantIn:      []string{"depends_on", "Prerequisites", "fix: the mapping file"},
 		},
 		{
 			name:   "headings inside a fence declare nothing",
@@ -155,8 +145,8 @@ func TestWorst(t *testing.T) {
 		},
 		{
 			name: "a single class is itself",
-			in:   []issue.Violation{{Class: issue.MappedMachineKey}},
-			want: issue.MappedMachineKey, wantFound: true,
+			in:   []issue.Violation{{Class: issue.HeadingLocaleMismatch}},
+			want: issue.HeadingLocaleMismatch, wantFound: true,
 		},
 	}
 
@@ -172,30 +162,6 @@ func TestWorst(t *testing.T) {
 				t.Errorf("Worst(%v) = %d, want %d", tt.in, got, tt.want)
 			}
 		})
-	}
-}
-
-// TestEveryClassSaysWhereItIsFixed is the guard the number has and the place
-// would otherwise lack.
-//
-// A class with no exit status stops `ccx issue sections check` with an error
-// naming it. A class with no place stops nothing: `ccx issue publish` builds
-// its refusals out of these messages and has no table to consult, so a reason
-// would go out saying what is wrong and not where.
-//
-// The classes are listed rather than walked, there being no count to walk to
-// that would not be an exported constant of its own. Adding one to Class means
-// adding it here.
-func TestEveryClassSaysWhereItIsFixed(t *testing.T) {
-	t.Parallel()
-
-	for _, c := range []issue.Class{
-		issue.MissingSection, issue.UnknownHeading,
-		issue.MappedMachineKey, issue.HeadingLocaleMismatch,
-	} {
-		if c.Where() == "" {
-			t.Errorf("class %d does not say where it is fixed", c)
-		}
 	}
 }
 
@@ -241,6 +207,13 @@ func TestParseMapping(t *testing.T) {
 		{name: "an unknown key", in: "nope Something\n", want: "unknown section key in the mapping"},
 		{name: "one key mapped twice", in: "acceptance A\nacceptance B\n", want: "mapped more than once"},
 		{name: "two keys on one heading", in: "acceptance Same\nbackground Same\n", want: "more than one key"},
+		{
+			// depends_on is machine-consumed: other skills find it by its
+			// heading, so a template may not rename it. Refused here rather
+			// than by Check because the draft has no part in deciding it.
+			name: "a machine-consumed key", in: "depends_on Prerequisites\n",
+			want: "machine-consumed key must keep its canonical heading: depends_on",
+		},
 	}
 
 	for _, tt := range tests {

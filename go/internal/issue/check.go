@@ -30,53 +30,9 @@ const (
 	// UnknownHeading is a `## ` heading that is in neither the table nor the
 	// template mapping.
 	UnknownHeading
-	// MappedMachineKey is a template renaming a heading that other skills find
-	// by its text.
-	MappedMachineKey
 	// HeadingLocaleMismatch is a canonical heading in the other language.
 	HeadingLocaleMismatch
 )
-
-// Where names, as the clause a reason ends with, the file a violation of this
-// class is fixed in.
-//
-// Unlike the number, which is a fact about the process a caller runs and so
-// belongs to internal/cmd, this is a fact about the violation: it is the same
-// file whoever is asking. It has to be produced here because `ccx issue
-// publish` builds its refusal lines in this package, out of these very
-// messages, and cannot reach the status table that renders the numbers.
-//
-// MappedMachineKey is the one that does not say the draft: the loop over the
-// mapping raises it, so no edit to the draft clears it. A typo in the mapping
-// is a different matter — it arrives as a missing section and an unknown
-// heading, whose clause says the draft while the line to fix is in the
-// mapping, and recognising that pair is the reader's.
-func (c Class) Where() string {
-	switch c {
-	case MissingSection, UnknownHeading, HeadingLocaleMismatch:
-		return "fix: the draft"
-	case MappedMachineKey:
-		return "fix: the mapping file"
-	}
-	return ""
-}
-
-// newViolation writes one reason and the place it is fixed as a single
-// message, which is the only way they are put together: a Violation built
-// beside a message that already ends would be a reason a caller has to act on
-// without being told where.
-//
-// A class with no place is written without one rather than with a clause left
-// hanging off it. That it cannot happen is what the tests hold: unlike the
-// number, whose absence `ccx issue sections check` turns into an error it
-// exits with, `ccx issue publish` has no table to miss the place in.
-func newViolation(c Class, format string, a ...any) Violation {
-	msg := fmt.Sprintf(format, a...)
-	if where := c.Where(); where != "" {
-		msg += "; " + where
-	}
-	return Violation{Class: c, Message: msg}
-}
 
 // Mapping is one entry of a repository issue template's heading mapping: the
 // schema key, and the heading that template uses for it.
@@ -93,6 +49,11 @@ type Mapping struct {
 // getting it wrong is an error rather than a best effort: silently keeping one
 // of two entries for the same key would fail later as "a required section is
 // missing", which points at the draft instead of at the mapping.
+//
+// Renaming a machine-consumed key is refused here for the same reason it is an
+// error at all. Whether a template may rename a key is settled by the mapping
+// and the section table alone, so reporting it as something wrong with the
+// draft sends its reader to a file no edit to which would clear it.
 func ParseMapping(content string) ([]Mapping, error) {
 	var out []Mapping
 	byKey := map[string]bool{}
@@ -107,8 +68,12 @@ func ParseMapping(content string) ([]Mapping, error) {
 		if !ok || key == "" || heading == "" {
 			return nil, fmt.Errorf("malformed mapping line (expected: <key> <template heading>): %s", line)
 		}
-		if _, known := row(key); !known {
+		s, known := row(key)
+		if !known {
 			return nil, fmt.Errorf("unknown section key in the mapping: %s (see the section table in internal/issue)", key)
+		}
+		if !s.TemplateMappable {
+			return nil, fmt.Errorf("machine-consumed key must keep its canonical heading: %s (mapped to %q)", key, heading)
 		}
 		if byKey[key] {
 			return nil, fmt.Errorf("section key mapped more than once: %s", key)
@@ -124,16 +89,16 @@ func ParseMapping(content string) ([]Mapping, error) {
 
 // Check reports what is wrong with a draft written for locale and kind.
 //
-// Four rules, and the division of labour between the first two is deliberate.
+// Three rules, and the division of labour between the first two is deliberate.
 // A heading counts as known if it is the canonical heading in *either* locale,
 // not only in the one being checked — read strictly, every heading that is not
-// in the mapping would have to match the checked locale exactly, rule 4 could
+// in the mapping would have to match the checked locale exactly, rule 3 could
 // never fire, and a draft with its headings in two languages would pass as a
 // pile of unknown ones. Loosened, rule 2 catches headings from outside the
-// table and rule 4 catches the ones from the other locale, which is what a
+// table and rule 3 catches the ones from the other locale, which is what a
 // mixed draft actually is.
 //
-// Mapped headings are exempt from rule 4: where a repository template names the
+// Mapped headings are exempt from rule 3: where a repository template names the
 // sections, the template's language wins.
 func Check(draft string, l Locale, k Kind, mapping []Mapping) ([]Violation, error) {
 	if err := validLocale(l); err != nil {
@@ -185,18 +150,12 @@ func Check(draft string, l Locale, k Kind, mapping []Mapping) ([]Violation, erro
 		if h, ok := headingOfMapped[s.Key]; ok {
 			expected = h
 		}
-		out = append(out, newViolation(MissingSection,
-			"missing required section: %s (expected heading: %q)", s.Key, expected))
+		out = append(out, Violation{MissingSection,
+			fmt.Sprintf("missing required section: %s (expected heading: %q)", s.Key, expected)})
 	}
 	for _, r := range found {
 		if r.key == "" {
-			out = append(out, newViolation(UnknownHeading, "unknown heading: %q", r.heading))
-		}
-	}
-	for _, m := range mapping {
-		if s, ok := row(m.Key); ok && !s.TemplateMappable {
-			out = append(out, newViolation(MappedMachineKey,
-				"machine-consumed key must keep its canonical heading: %s (mapped to %q)", m.Key, m.Heading))
+			out = append(out, Violation{UnknownHeading, fmt.Sprintf("unknown heading: %q", r.heading)})
 		}
 	}
 	for _, r := range found {
@@ -204,9 +163,9 @@ func Check(draft string, l Locale, k Kind, mapping []Mapping) ([]Violation, erro
 			continue
 		}
 		s, _ := row(r.key)
-		out = append(out, newViolation(HeadingLocaleMismatch,
-			"heading locale mismatch: %q is not %s (canonical %s heading for %s: %q)",
-			r.heading, l, l, r.key, s.Headings.For(l)))
+		out = append(out, Violation{HeadingLocaleMismatch,
+			fmt.Sprintf("heading locale mismatch: %q is not %s (canonical %s heading for %s: %q)",
+				r.heading, l, l, r.key, s.Headings.For(l))})
 	}
 	return out, nil
 }

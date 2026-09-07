@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -76,7 +75,7 @@ func TestIssueSectionsStatus(t *testing.T) {
 		{
 			name:     "a missing required section",
 			args:     []string{"issue", "sections", "check", missing, "--locale", "ja", "--kind", "leaf"},
-			wantCode: 2, wantStderr: []string{"missing required section: acceptance", "fix: the draft"}, bareStdout: true,
+			wantCode: 2, wantStderr: []string{"missing required section: acceptance"}, bareStdout: true,
 		},
 		{
 			name:     "an unknown heading",
@@ -84,16 +83,17 @@ func TestIssueSectionsStatus(t *testing.T) {
 			wantCode: 3, wantStderr: []string{"unknown heading"}, bareStdout: true,
 		},
 		{
-			// The draft here is the clean one, so the reason has nothing to
-			// say about it and sends the reader to the mapping file instead.
+			// A fault of the mapping rather than of the draft, so it stops the
+			// run the way the mapping's other faults do — exit 1, with the
+			// file that has to be fixed named ahead of the reason.
 			name:     "a machine-consumed key in the mapping",
 			args:     []string{"issue", "sections", "check", clean, "--locale", "ja", "--kind", "leaf", "--mapping", badMapping},
-			wantCode: 4, wantStderr: []string{"machine-consumed key", "fix: the mapping file"}, bareStdout: true,
+			wantCode: 1, wantStderr: []string{badMapping + ": machine-consumed key"}, bareStdout: true,
 		},
 		{
 			name:     "a heading in the other language",
 			args:     []string{"issue", "sections", "check", mixed, "--locale", "ja", "--kind", "leaf"},
-			wantCode: 5, wantStderr: []string{"heading locale mismatch"}, bareStdout: true,
+			wantCode: 4, wantStderr: []string{"heading locale mismatch"}, bareStdout: true,
 		},
 		{
 			// Its own status, so that a caller can tell "this issue has no such
@@ -126,58 +126,6 @@ func TestIssueSectionsStatus(t *testing.T) {
 				t.Errorf("stderr = %q, want it empty", stderr.String())
 			}
 		})
-	}
-}
-
-// TestSectionsCheckHelpSaysWhereEachClassIsFixed pins the place each class is
-// fixed in, and that the help a caller reads is where they are told it.
-//
-// Two assertions rather than one search of the text. The block the help
-// carries has to be the one checkStatuses builds — the wiring TestStatusesRender
-// cannot see, since it renders a table of its own — and the places in it have
-// to be these, written out here so that the test disagrees when they change.
-// A search of the whole help for a phrase would pass with two classes' places
-// swapped, which is the very mistake a caller sent to the wrong file makes.
-func TestSectionsCheckHelpSaysWhereEachClassIsFixed(t *testing.T) {
-	t.Parallel()
-
-	// Status 1 is not a violation and has no class to carry its place, its
-	// reasons being the ones ParseMapping and the arguments raise.
-	const whereStatus1 = "fix: the mapping file or the invocation"
-	want := map[issue.Class]string{
-		issue.MissingSection:        "fix: the draft",
-		issue.UnknownHeading:        "fix: the draft",
-		issue.MappedMachineKey:      "fix: the mapping file",
-		issue.HeadingLocaleMismatch: "fix: the draft",
-	}
-
-	var stdout, stderr bytes.Buffer
-	if code := run(t.Context(), []string{"issue", "sections", "check", "--help"},
-		strings.NewReader(""), &stdout, &stderr, Deps{}); code != 0 {
-		t.Fatalf("--help exited %d (stderr=%q)", code, stderr.String())
-	}
-	all := checkStatuses()
-	if block := all.render(); !strings.Contains(stdout.String(), block) {
-		t.Fatalf("the help does not carry the status block:\n%s\nhelp:\n%s", block, stdout.String())
-	}
-
-	for _, cs := range sectionsCheckStatuses {
-		w, ok := want[cs.class]
-		if !ok {
-			t.Errorf("%s is not among the places this test pins", cs.status.symbol)
-			continue
-		}
-		if got := cs.class.Where(); got != w {
-			t.Errorf("%s is fixed in %q, want %q", cs.status.symbol, got, w)
-		}
-	}
-
-	i := slices.IndexFunc(all, func(s status) bool { return s.code == 1 })
-	if i < 0 {
-		t.Fatal("the check publishes no status 1")
-	}
-	if all[i].where != whereStatus1 {
-		t.Errorf("status 1 is fixed in %q, want %q", all[i].where, whereStatus1)
 	}
 }
 
