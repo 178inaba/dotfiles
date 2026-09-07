@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -46,6 +48,52 @@ func TestRunFailureCarriesStderr(t *testing.T) {
 	}
 	if got, want := string(Stderr(err)), "boom\n"; got != want {
 		t.Errorf("Stderr = %q, want %q", got, want)
+	}
+}
+
+// TestMessage covers the two answers the function has and the inputs that
+// decide between them: what a command wrote, what it did not write, and an
+// error that never came from a command at all. The wrapped case is the one
+// production takes — a caller reads a failure of Git, which puts the *Error
+// inside a message of its own.
+func TestMessage(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "what the command said",
+			err:  &Error{Name: "git", Err: errors.New("exit status 1"), Stderr: []byte("fatal: not a branch\n")},
+			want: "fatal: not a branch",
+		},
+		{
+			name: "a silent command falls back to the error",
+			err:  &Error{Name: "git", Err: errors.New("exit status 1")},
+			want: "git: exit status 1",
+		},
+		{
+			name: "whitespace is nothing a person can read",
+			err:  &Error{Name: "git", Err: errors.New("exit status 1"), Stderr: []byte(" \n\t")},
+			want: "git: exit status 1",
+		},
+		{
+			name: "an error from no command at all",
+			err:  errors.New("not a git repository"),
+			want: "not a git repository",
+		},
+		{
+			name: "stderr is found through a wrapping",
+			err: fmt.Errorf("git branch -d topic in /repo: %w",
+				&Error{Name: "git", Err: errors.New("exit status 1"), Stderr: []byte("error: branch not found\n")}),
+			want: "error: branch not found",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Message(tt.err); got != tt.want {
+				t.Errorf("Message = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

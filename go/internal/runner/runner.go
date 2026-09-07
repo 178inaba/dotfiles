@@ -212,6 +212,19 @@ func Stderr(err error) []byte {
 	return nil
 }
 
+// Message is what a person should read about a command that failed: what the
+// command wrote to standard error, or the error itself where it wrote nothing
+// — a program that fails silently still has to be reported as something.
+//
+// It starts nothing. Every caller that hands a command's failure to a person
+// wants these two lines, and they were written out again in each of them.
+func Message(err error) string {
+	if message := strings.TrimSpace(string(Stderr(err))); message != "" {
+		return message
+	}
+	return err.Error()
+}
+
 var (
 	_ Runner    = Exec{}
 	_ Spawner   = Exec{}
