@@ -82,7 +82,7 @@ const (
 
 // Render describes t as the plain text a --help prints.
 func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
-	rows, err := tb.walk(t, mode, 0, map[reflect.Type]bool{})
+	rows, err := tb.walk(t, mode, 0, "", map[reflect.Type]bool{})
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +134,7 @@ func (tb Table) Render(t reflect.Type, mode Mode) (string, error) {
 // looks like one is a reference to something gone. Rendered from the same walk
 // as the help, so the two cannot disagree about what the contract contains.
 func (tb Table) Identifiers(t reflect.Type) ([]string, error) {
-	rows, err := tb.walk(t, Output, 0, map[reflect.Type]bool{})
+	rows, err := tb.walk(t, Output, 0, "", map[reflect.Type]bool{})
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +151,31 @@ func (tb Table) Identifiers(t reflect.Type) ([]string, error) {
 	return out, nil
 }
 
+// Paths is every path a contract publishes: each JSON key joined to the keys
+// it sits under with ".", a key that holds a list carrying "[]".
+//
+// What Identifiers is to a name a skill mentions, this is to a path something
+// points at: a name says only that the document has such a key somewhere, and
+// four of this module's types have a comments_truncated. Rendered from the
+// same walk as the help, so a path that no longer exists cannot go on being
+// named.
+func (tb Table) Paths(t reflect.Type) ([]string, error) {
+	rows, err := tb.walk(t, Output, 0, "", map[reflect.Type]bool{})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		// The rows that are not keys: a group's heading, and the members of a
+		// value set, which are what a key holds rather than keys under it.
+		if r.path == "" {
+			continue
+		}
+		out = append(out, r.path)
+	}
+	return out, nil
+}
+
 type row struct {
 	depth int
 	name  string
@@ -162,14 +187,23 @@ type row struct {
 	// heading marks the row that states an exclusive group's cardinality. It
 	// carries no kind and no doc, and is the one row that names nothing.
 	heading bool
+	// path is where the key is in the document: the keys it sits under before
+	// it, and "[]" on any of them that holds a list. Empty on the two rows
+	// that are not keys — a heading, and a value set's member.
+	path string
 }
 
 func (r row) indent() string { return strings.Repeat("  ", r.depth+1) }
 
-// walk turns a struct into rows. seen breaks a cycle rather than reporting one: no contract type is
+// walk turns a struct into rows. prefix is where in the document the struct
+// sits, which is what each row's path is written from — carried down rather
+// than reconstructed from the depths afterwards, since this is where both the
+// parent chain and the field's type are in hand.
+//
+// seen breaks a cycle rather than reporting one: no contract type is
 // self-referential today, and recursing for ever is a worse answer to one
 // appearing than a name printed without its fields.
-func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type]bool) ([]row, error) {
+func (tb Table) walk(t reflect.Type, mode Mode, depth int, prefix string, seen map[reflect.Type]bool) ([]row, error) {
 	t = deref(t)
 	if t.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("contract: %s is not a struct", t)
@@ -195,7 +229,7 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 		}
 
 		if !named {
-			group, err := tb.group(t, f, values, mode, depth, seen)
+			group, err := tb.group(t, f, values, mode, depth, prefix, seen)
 			if err != nil {
 				return nil, err
 			}
@@ -207,16 +241,23 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 		if err != nil {
 			return nil, err
 		}
+		// A key that holds a list is one segment of the path, not one per
+		// element, so what sits under it is written past a "[]".
+		segment := name
+		if tb.list(f.Type) {
+			segment += "[]"
+		}
 		rows = append(rows, row{
 			depth: depth, name: name, kind: kind,
 			doc:  tb.Fields[key(t, f.Name)],
 			enum: tb.Enums[typeKey(enumOf(f.Type))],
+			path: prefix + segment,
 		})
 
 		rows = append(rows, tb.values(f.Type, depth+1)...)
 
 		if inner, ok := tb.nested(f.Type); ok {
-			nested, err := tb.walk(inner, mode, depth+1, seen)
+			nested, err := tb.walk(inner, mode, depth+1, prefix+segment+".", seen)
 			if err != nil {
 				return nil, err
 			}
@@ -233,7 +274,7 @@ func (tb Table) walk(t reflect.Type, mode Mode, depth int, seen map[reflect.Type
 // With it the group has a cardinality of its own, which is a statement about
 // the fields together rather than about any one of them, so it goes on a
 // heading they sit under.
-func (tb Table) group(t reflect.Type, f reflect.StructField, values []string, mode Mode, depth int, seen map[reflect.Type]bool) ([]row, error) {
+func (tb Table) group(t reflect.Type, f reflect.StructField, values []string, mode Mode, depth int, prefix string, seen map[reflect.Type]bool) ([]row, error) {
 	// A field the wire never sees, embedded or not, has nothing to describe.
 	// json:"-" reaches here as an unnamed field too, and is not inlined.
 	inner := groupType(f)
@@ -266,7 +307,10 @@ func (tb Table) group(t reflect.Type, f reflect.StructField, values []string, mo
 		rows = append(rows, row{depth: depth, name: heading, heading: true})
 		depth++
 	}
-	members, err := tb.walk(inner, mode, depth, seen)
+	// The same prefix the parent's own fields get: json inlines a group's
+	// members, so they are keys of the document the parent describes however
+	// far in the heading indents them.
+	members, err := tb.walk(inner, mode, depth, prefix, seen)
 	if err != nil {
 		return nil, err
 	}
@@ -585,6 +629,19 @@ func jsonName(f reflect.StructField) (name, opts string, ok bool) {
 	}
 	name, opts, _ = strings.Cut(tag, ",")
 	return name, opts, name != ""
+}
+
+// list reports whether a field reaches the wire as an array, which is the same
+// question kindOf answers with "array of" and a path answers with "[]".
+//
+// A type that serialises itself is asked the way nested asks it: Elem is what
+// its wire form wraps, and having one is what makes that form a list.
+func (tb Table) list(t reflect.Type) bool {
+	if over, ok := tb.Marshalers[deref(t)]; ok {
+		return over.Elem != nil
+	}
+	k := deref(t).Kind()
+	return k == reflect.Slice || k == reflect.Array
 }
 
 // nested is the struct whose fields belong under a field. A type that

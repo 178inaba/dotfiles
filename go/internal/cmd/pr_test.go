@@ -249,12 +249,12 @@ func TestPRContextHelpPublishesEachLimit(t *testing.T) {
 		t.Fatalf("%d rows name a variable, want one each for %d:\n%s", len(rows), len(publishedLimits), text)
 	}
 
-	// Every name the document publishes, so a flag renamed in the contract is
-	// not left behind here: transcribing a json tag into a help is the
-	// arrangement the rendered contract exists to end.
-	published, err := contract.Identifiers(reflect.TypeFor[pullrequest.Context]())
+	// Every path the document walks, so a flag renamed in the contract is not
+	// left behind here: transcribing a json tag into a help is the arrangement
+	// the rendered contract exists to end.
+	published, err := contract.Paths(reflect.TypeFor[pullrequest.Context]())
 	if err != nil {
-		t.Fatalf("Identifiers: %v", err)
+		t.Fatalf("Paths: %v", err)
 	}
 
 	for _, l := range publishedLimits {
@@ -267,13 +267,12 @@ func TestPRContextHelpPublishesEachLimit(t *testing.T) {
 			if len(cols) < len(want) || !slices.Equal(cols[:len(want)], want) {
 				t.Errorf("row is %q, want it to open with %q", rows[l.variable], strings.Join(want, " "))
 			}
-			// Every segment, not just the last: comments_truncated is on three
-			// of the document's types, so a renamed review_threads would leave
-			// the path in front of it stale while the flag itself still stands.
-			for _, segment := range strings.Split(l.flag, ".") {
-				if name := strings.TrimSuffix(segment, "[]"); !slices.Contains(published, name) {
-					t.Errorf("the document publishes no %q, so %s names a path nobody walks", name, l.variable)
-				}
+			// The whole path, not its segments: comments_truncated is a key on
+			// four of the document's types, so a renamed review_threads would
+			// leave the path in front of it stale while every segment of it
+			// still stood somewhere.
+			if !slices.Contains(published, l.flag) {
+				t.Errorf("the document walks no %q, so %s sends a reader to a path nobody has", l.flag, l.variable)
 			}
 		})
 	}
