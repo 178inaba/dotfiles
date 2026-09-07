@@ -267,8 +267,13 @@ func TestPRContextHelpPublishesEachLimit(t *testing.T) {
 			if len(cols) < len(want) || !slices.Equal(cols[:len(want)], want) {
 				t.Errorf("row is %q, want it to open with %q", rows[l.variable], strings.Join(want, " "))
 			}
-			if field := l.flag[strings.LastIndex(l.flag, ".")+1:]; !slices.Contains(published, field) {
-				t.Errorf("the document publishes no %q, so %s names a flag nobody sets", field, l.variable)
+			// Every segment, not just the last: comments_truncated is on three
+			// of the document's types, so a renamed review_threads would leave
+			// the path in front of it stale while the flag itself still stands.
+			for _, segment := range strings.Split(l.flag, ".") {
+				if name := strings.TrimSuffix(segment, "[]"); !slices.Contains(published, name) {
+					t.Errorf("the document publishes no %q, so %s names a path nobody walks", name, l.variable)
+				}
 			}
 		})
 	}
