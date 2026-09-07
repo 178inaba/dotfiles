@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
@@ -1686,6 +1689,60 @@ func TestFetchLimitWarningNouns(t *testing.T) {
 					l.Flag, l.Subject, l.Collection, want.subject, want.collection)
 			}
 		})
+	}
+}
+
+// TestFetchLimitFlagsNamePaths holds every row's flag to a path the document
+// actually walks, in the package the table lives in.
+//
+// Derived rather than transcribed: nothing here says what the flags are, so a
+// row renamed along with the json tag it names goes on passing, and a row left
+// behind by a rename fails where it is written rather than only in the help
+// that publishes it.
+func TestFetchLimitFlagsNamePaths(t *testing.T) {
+	t.Parallel()
+
+	paths, err := contract.Paths(reflect.TypeFor[pullrequest.Context]())
+	if err != nil {
+		t.Fatalf("Paths: %v", err)
+	}
+	for _, l := range pullrequest.FetchLimits {
+		if !slices.Contains(paths, l.Flag) {
+			t.Errorf("%s reports %q, which is not a path the document walks", l.Variable, l.Flag)
+		}
+	}
+}
+
+// TestContextPathsTellRepeatedKeysApart is the oracle for what a path of this
+// document is, and is here because contract cannot import the package whose
+// types it would need to state it on.
+//
+// comments_truncated is a key on four of the types below, which is the mix-up
+// a flat list of names cannot see: all four spellings are separate paths, and
+// none of them is what a renamed one would leave behind. The absences are the
+// other half — a value set's members are named like keys a level in from the
+// key that holds them, and are not keys at all.
+func TestContextPathsTellRepeatedKeysApart(t *testing.T) {
+	t.Parallel()
+
+	paths, err := contract.Paths(reflect.TypeFor[pullrequest.Context]())
+	if err != nil {
+		t.Fatalf("Paths: %v", err)
+	}
+	for _, want := range []string{
+		"comments_truncated",
+		"review_threads[].comments_truncated",
+		"linked_issues[].comments_truncated",
+		"linked_issues[].parent.comments_truncated",
+	} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("the document walks no %q", want)
+		}
+	}
+	for _, member := range []string{"pr.state.OPEN", "diff.files[].status.added"} {
+		if slices.Contains(paths, member) {
+			t.Errorf("%q is a path, but a value of a key is not a key under it", member)
+		}
 	}
 }
 
