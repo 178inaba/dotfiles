@@ -192,7 +192,7 @@ func (s *sweeper) sweepWorktree(ctx context.Context, e Entry) {
 	if holders := s.table.holders(e.Path); holders != "" {
 		s.keep(Kept{
 			Type: KindWorktree, Target: e.Path, Branch: e.Branch,
-			Reason: KeptInUseByProcess, Detail: "使用中のプロセスあり: " + holders,
+			Reason: KeptInUseByProcess, Detail: inUseDetail(holders),
 		})
 		return
 	}
