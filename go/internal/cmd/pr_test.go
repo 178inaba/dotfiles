@@ -8,9 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/ghapi/ghapitest"
 	"github.com/178inaba/dotfiles/go/internal/gittest"
@@ -186,27 +190,90 @@ func TestPRBodyAppendRefusesBeforeItReachesGitHub(t *testing.T) {
 	}
 }
 
-// TestContextLimitsBindEachVariableToItsOwnCap pins the pairing a positional
-// list makes easy to get wrong: the variable names and the caps they raise are
-// two lists kept aligned by hand, and a swapped pair would quietly raise the
-// wrong collection.
+// publishedLimits is what each fetch limit owes a reader: the variable that
+// raises it, the cap it raises, and the flag that reports the cap was reached.
+//
+// Written out by hand, and deliberately not read from the table the command and
+// the help are rendered from — a test taking the pairing from that table would
+// agree with it however it was wired, which is the mistake both tests below
+// exist to catch.
+var publishedLimits = []struct {
+	variable string
+	cap      func(pullrequest.Limits) int
+	flag     string
+}{
+	{"MAX_COMMENTS", func(l pullrequest.Limits) int { return l.Comments }, "comments_truncated"},
+	{"MAX_REVIEWS", func(l pullrequest.Limits) int { return l.Reviews }, "reviews_truncated"},
+	{"MAX_THREADS", func(l pullrequest.Limits) int { return l.Threads }, "threads_truncated"},
+	{"MAX_THREAD_COMMENTS", func(l pullrequest.Limits) int { return l.ThreadComments }, "review_threads[].comments_truncated"},
+	{"MAX_ISSUE_COMMENTS", func(l pullrequest.Limits) int { return l.IssueComments }, "linked_issues[].comments_truncated"},
+}
+
+// TestContextLimitsBindEachVariableToItsOwnCap pins the pairing an accessor
+// makes easy to get wrong: nothing about a row says the closure beside a
+// variable reaches that variable's own cap, and a swapped pair would quietly
+// raise the wrong collection.
 func TestContextLimitsBindEachVariableToItsOwnCap(t *testing.T) {
-	for name, raised := range map[string]func(pullrequest.Limits) int{
-		"MAX_COMMENTS":        func(l pullrequest.Limits) int { return l.Comments },
-		"MAX_REVIEWS":         func(l pullrequest.Limits) int { return l.Reviews },
-		"MAX_THREADS":         func(l pullrequest.Limits) int { return l.Threads },
-		"MAX_THREAD_COMMENTS": func(l pullrequest.Limits) int { return l.ThreadComments },
-		"MAX_ISSUE_COMMENTS":  func(l pullrequest.Limits) int { return l.IssueComments },
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Setenv(name, "7")
+	for _, l := range publishedLimits {
+		t.Run(l.variable, func(t *testing.T) {
+			t.Setenv(l.variable, "7")
 
 			got, err := contextLimits()
 			if err != nil {
 				t.Fatalf("contextLimits: %v", err)
 			}
-			if raised(got) != 7 {
-				t.Errorf("%s left %+v, want it to raise its own cap to 7", name, got)
+			if l.cap(got) != 7 {
+				t.Errorf("%s left %+v, want it to raise its own cap to 7", l.variable, got)
+			}
+		})
+	}
+}
+
+// TestPRContextHelpPublishesEachLimit is what lets the skills point at the help
+// instead of copying the numbers into a table of their own: a reader answering
+// a truncation finds the variable to raise, what it is now, and which flag sent
+// them there, in one place. A help carrying its own copy of a number fails here
+// as soon as the struct moves, which is how the table drifted while it lived in
+// a skill.
+func TestPRContextHelpPublishesEachLimit(t *testing.T) {
+	t.Parallel()
+
+	text := longFor("pr context")
+	rows := map[string]string{}
+	for _, line := range strings.Split(text, "\n") {
+		if cols := strings.Fields(line); len(cols) > 0 && strings.HasPrefix(cols[0], "MAX_") {
+			rows[cols[0]] = line
+		}
+	}
+	if len(rows) != len(publishedLimits) {
+		t.Fatalf("%d rows name a variable, want one each for %d:\n%s", len(rows), len(publishedLimits), text)
+	}
+
+	// Every name the document publishes, so a flag renamed in the contract is
+	// not left behind here: transcribing a json tag into a help is the
+	// arrangement the rendered contract exists to end.
+	published, err := contract.Identifiers(reflect.TypeFor[pullrequest.Context]())
+	if err != nil {
+		t.Fatalf("Identifiers: %v", err)
+	}
+
+	for _, l := range publishedLimits {
+		t.Run(l.variable, func(t *testing.T) {
+			// By column rather than by substring: comments_truncated is a
+			// substring of both per-item flags, so a row showing the wrong one
+			// would pass a contains check — the very mix-up this catches.
+			cols := strings.Fields(rows[l.variable])
+			want := []string{l.variable, strconv.Itoa(l.cap(pullrequest.DefaultLimits)), l.flag}
+			if len(cols) < len(want) || !slices.Equal(cols[:len(want)], want) {
+				t.Errorf("row is %q, want it to open with %q", rows[l.variable], strings.Join(want, " "))
+			}
+			// Every segment, not just the last: comments_truncated is on three
+			// of the document's types, so a renamed review_threads would leave
+			// the path in front of it stale while the flag itself still stands.
+			for _, segment := range strings.Split(l.flag, ".") {
+				if name := strings.TrimSuffix(segment, "[]"); !slices.Contains(published, name) {
+					t.Errorf("the document publishes no %q, so %s names a path nobody walks", name, l.variable)
+				}
 			}
 		})
 	}

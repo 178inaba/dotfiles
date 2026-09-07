@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -210,7 +211,11 @@ it measures against is local to this machine and private to the skill, so a
 machine that has never run ` + "`ccx pr seen`" + ` counts everything — one reading, and
 nothing lost.
 
-` + limitSentence(),
+These environment variables raise what one fetch reads, each taking a plain
+non-negative integer. Beside each is the default it replaces and the flag that
+says the limit was reached, which for a linked issue is set on its parent as
+well:
+` + limitRows(),
 		blocks: []block{
 			prints(reflect.TypeFor[pullrequest.Stored]()),
 			writes("The document written to that path", reflect.TypeFor[pullrequest.Context]()),
@@ -674,15 +679,30 @@ func published() skill.Published {
 	return out
 }
 
-// limitSentence is read from the list the command itself uses, however long it
-// has grown.
-func limitSentence() string {
-	return contract.Wrap(andList(limitVars[:]) +
-		" raise the fetch limits; each takes a plain non-negative integer, and the " +
-		"truncated flags below say when one of them was reached.")
+// limitRows publishes every fetch limit from the table the command reads them
+// with, so the defaults reach a caller without being retyped anywhere.
+//
+// Rows rather than a sentence, and so assembled the way status.go assembles the
+// exit-status list: contract.Wrap re-flows what it is given into one paragraph,
+// and five entries in one paragraph do not read.
+func limitRows() string {
+	width := 0
+	for _, l := range fetchLimits {
+		width = max(width, len(l.variable))
+	}
+
+	defaults := pullrequest.DefaultLimits
+	var b strings.Builder
+	for _, l := range fetchLimits {
+		fmt.Fprintf(&b, "\n  %-*s  %3d  %s", width, l.variable, *l.cap(&defaults), l.flag)
+		if l.per != "" {
+			fmt.Fprintf(&b, " (per %s)", l.per)
+		}
+	}
+	return b.String()
 }
 
-// andList is how both sentences below name a list of things: A, B and C.
+// andList is how the sentence below names a list of things: A, B and C.
 func andList(xs []string) string {
 	last := len(xs) - 1
 	return strings.Join(xs[:last], ", ") + " and " + xs[last]

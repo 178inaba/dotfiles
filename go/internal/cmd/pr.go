@@ -309,39 +309,51 @@ func prPrepareReviewCmd(deps Deps) *cobra.Command {
 	return c
 }
 
-// contextLimits reads the caps a caller raises when a pull request was cut
-// short.
+// fetchLimit is one cap on what a fetch reads: the variable that raises it, the
+// cap it raises, the flag the document sets where it was reached, and what it
+// counts against where that is one item rather than the whole document.
 //
-// limitVars are the environment variables that raise the fetch limits, in the
-// order the limits are read.
+// The four are one declaration because two readers need the same pairing: the
+// command, which raises the cap the variable names, and the help, which
+// publishes it so a caller answering a truncation is not left to guess which
+// variable goes with which flag. Kept apart, the help could list a variable the
+// command does not read.
 //
-// Named here so that the help lists the same ones rather than a copy of them.
 // They stay environment variables rather than becoming flags: the only time
 // anybody sets one is to run the same command again with more room, and the
 // command line belongs to the skill.
-var limitVars = [5]string{"MAX_COMMENTS", "MAX_REVIEWS", "MAX_THREADS", "MAX_THREAD_COMMENTS", "MAX_ISSUE_COMMENTS"}
+type fetchLimit struct {
+	variable string
+	// A pointer into the limits handed in, since the command raises a copy of
+	// the defaults rather than the defaults themselves.
+	cap  func(*pullrequest.Limits) *int
+	flag string
+	// What the cap counts against, empty where it is the whole document.
+	per string
+}
+
+// fetchLimits are the caps a caller raises when a pull request was cut short,
+// in the order they are read.
+var fetchLimits = [...]fetchLimit{
+	{"MAX_COMMENTS", func(l *pullrequest.Limits) *int { return &l.Comments }, "comments_truncated", ""},
+	{"MAX_REVIEWS", func(l *pullrequest.Limits) *int { return &l.Reviews }, "reviews_truncated", ""},
+	{"MAX_THREADS", func(l *pullrequest.Limits) *int { return &l.Threads }, "threads_truncated", ""},
+	{"MAX_THREAD_COMMENTS", func(l *pullrequest.Limits) *int { return &l.ThreadComments }, "review_threads[].comments_truncated", "thread"},
+	{"MAX_ISSUE_COMMENTS", func(l *pullrequest.Limits) *int { return &l.IssueComments }, "linked_issues[].comments_truncated", "issue"},
+}
 
 func contextLimits() (pullrequest.Limits, error) {
 	limits := pullrequest.DefaultLimits
-	for _, l := range []struct {
-		name string
-		out  *int
-	}{
-		{limitVars[0], &limits.Comments},
-		{limitVars[1], &limits.Reviews},
-		{limitVars[2], &limits.Threads},
-		{limitVars[3], &limits.ThreadComments},
-		{limitVars[4], &limits.IssueComments},
-	} {
-		value := os.Getenv(l.name)
+	for _, l := range fetchLimits {
+		value := os.Getenv(l.variable)
 		if value == "" {
 			continue
 		}
 		n, err := strconv.Atoi(value)
 		if err != nil || strings.ContainsFunc(value, func(r rune) bool { return r < '0' || r > '9' }) {
-			return pullrequest.Limits{}, fmt.Errorf("invalid %s: %s", l.name, value)
+			return pullrequest.Limits{}, fmt.Errorf("invalid %s: %s", l.variable, value)
 		}
-		*l.out = n
+		*l.cap(&limits) = n
 	}
 	return limits, nil
 }
