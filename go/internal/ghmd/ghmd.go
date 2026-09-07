@@ -299,38 +299,66 @@ That keeps the link and does not trip this guard.`, distinct)
 // Unexported, and the reading exported instead as ClosingReferences: a caller
 // handed the pattern would derive the boundary and the keyword set from it for
 // itself, which is the second implementation this one exists to be instead of.
+// The same reason keeps the run a reference sits in inside the package.
 var closingKeyword = regexp.MustCompile(
 	`(?i)(?:^|[^[:alnum:]])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#([0-9]+)`)
 
-// ClosingReference is one reference a closing keyword names, and the run of the
-// body it sits in.
+// ClosingReference is one reference GitHub would close an issue on.
 type ClosingReference struct {
 	// Repo is the owner/repo a qualified reference names, and empty for a bare
 	// #N — which is how the body wrote it.
 	Repo string
 	// Number is the issue or pull request the reference names.
 	Number int
-	// Kind is the run the reference sits in. GitHub closes on a Prose one and
-	// on no other, so a consumer keeps one side of this and drops the rest.
+}
+
+// ClosingReferences returns the references GitHub would close on, in the order
+// the body writes them: those its prose names, and no others.
+//
+// GitHub's reading and nothing else, rather than every reference with the run
+// it sits in for the caller to sort out. Handed the latter, a caller that
+// forgets to drop the quoted ones has a body's own documentation of a closing
+// keyword counted as a closure — which is the reading pr context's
+// linked_issues shipped with until this became one function, and which the
+// type would let the next caller reintroduce without saying anything wrong.
+// What the refusal below wants — the references GitHub will not read — is the
+// same walk's remainder, and it is in this package because that is where the
+// judgement about a run of a body belongs.
+func ClosingReferences(body string) []ClosingReference {
+	var out []ClosingReference
+	for _, ref := range keywordReferences(body) {
+		if ref.Kind == Prose {
+			out = append(out, ClosingReference{Repo: ref.Repo, Number: ref.Number})
+		}
+	}
+	return out
+}
+
+// keywordReference is one reference a closing keyword names, and the run of the
+// body it sits in.
+type keywordReference struct {
+	Repo   string
+	Number int
+	// Kind is the run the reference sits in. It stays inside the package: the
+	// two readings taken from it are both here, and a caller holding it could
+	// only get them wrong.
 	Kind Kind
 }
 
-// ClosingReferences returns every closing-keyword reference in body, in the
-// order the body writes them.
+// keywordReferences is the one walk both judgements about a closing keyword are
+// filtered out of, in the order the body writes them.
 //
-// One reading for both the judgements made about a closing keyword: the
-// refusal below wants the references GitHub will not read, and pr context's
-// linked_issues the ones it will. Split in two, the two would come to disagree
-// about the same body — as they did, over an underscore before the keyword and
-// over a keyword quoted in code.
+// One walk with two filters rather than a reading for each consumer: split in
+// two they would come to disagree about the same body, as they did over an
+// underscore before the keyword and over a keyword quoted in code.
 //
 // The match runs on each segment's own text rather than on the body at the
 // segment's offsets, which is what makes the pattern's leading ^ mean the start
 // of a run. A reference is therefore attributed to the run it sits in, a
 // keyword parted from its number by a line end is read by nobody, and both
 // follow from Segments rather than from a rule of their own.
-func ClosingReferences(body string) []ClosingReference {
-	var out []ClosingReference
+func keywordReferences(body string) []keywordReference {
+	var out []keywordReference
 	for s := range Segments(body) {
 		text := body[s.Start:s.End]
 		// The pattern ends in a literal #, so a run without one cannot hold a
@@ -345,7 +373,7 @@ func ClosingReferences(body string) []ClosingReference {
 			// that reaches it; a number too long for an int comes back as
 			// the largest one rather than as a reason to abandon the body.
 			n, _ := strconv.Atoi(m[2])
-			out = append(out, ClosingReference{Repo: m[1], Number: n, Kind: s.Kind})
+			out = append(out, keywordReference{Repo: m[1], Number: n, Kind: s.Kind})
 		}
 	}
 	return out
@@ -354,7 +382,7 @@ func ClosingReferences(body string) []ClosingReference {
 // hasQuotedClosingKeyword reports whether body holds a closing keyword where
 // GitHub will not read it as one: inside a fence, or inside a code span.
 func hasQuotedClosingKeyword(body string) bool {
-	for _, ref := range ClosingReferences(body) {
+	for _, ref := range keywordReferences(body) {
 		if ref.Kind != Prose {
 			return true
 		}

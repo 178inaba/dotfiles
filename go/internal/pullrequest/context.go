@@ -698,20 +698,17 @@ func isLogin(login *string, want string) bool { return login != nil && *login ==
 
 // linkedIssues reads the issues a body says it closes.
 //
-// The prose references only, because the field's contract is what GitHub
-// itself would close on merge and GitHub reads no keyword inside a code span
-// or a fenced block. Which references those are is ghmd's to say — the same
-// reading the gh shim refuses a quoted keyword by, so that the two cannot come
-// to disagree about a body.
+// Which references those are is ghmd's to say, and it says only the ones
+// GitHub acts on: a keyword quoted in a code span or a fence never reaches
+// here, which is what the field's contract — what GitHub itself would close on
+// merge — has always claimed. The gh shim refuses such a keyword by the same
+// walk, so the two cannot come to disagree about a body.
 //
 // Sorted by number and then by repository, and deduplicated, because a body may
 // name the same issue twice and the order it does so in is not information.
 func linkedIssues(body string) []LinkedIssue {
 	out := []LinkedIssue{}
 	for _, ref := range ghmd.ClosingReferences(body) {
-		if ref.Kind != ghmd.Prose {
-			continue
-		}
 		issue := LinkedIssue{Number: ref.Number}
 		if ref.Repo != "" {
 			repo := ref.Repo

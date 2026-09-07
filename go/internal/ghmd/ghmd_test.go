@@ -124,104 +124,16 @@ func TestRefuseQuotedClosingKeywordSaysWhyAndWhatToDo(t *testing.T) {
 func TestClosingReferences(t *testing.T) {
 	t.Parallel()
 
-	// Both consumers read a body through this, and each keeps only one side of
-	// what it yields: the refusal wants the references GitHub will not read,
-	// and linked_issues the ones it will. So the kind a reference is
-	// attributed to is the whole of what is asserted here, beside the
-	// reference itself.
-	tests := []struct {
-		name string
-		body string
-		want []ghmd.ClosingReference
-	}{
-		{name: "empty", body: ""},
-		{
-			name: "a bare reference names no repository",
-			body: "Closes #5\n",
-			want: []ghmd.ClosingReference{{Number: 5, Kind: ghmd.Prose}},
-		},
-		{
-			name: "a qualified reference carries its repository",
-			body: "Resolves other/repo#12\n",
-			want: []ghmd.ClosingReference{{Repo: "other/repo", Number: 12, Kind: ghmd.Prose}},
-		},
-		{
-			// An underscore is not alphanumeric, so it does not join the
-			// keyword to a longer word — which is where this reading and the
-			// \b one it replaces used to disagree.
-			name: "an underscore leaves the keyword whole",
-			body: "_Closes #5\n",
-			want: []ghmd.ClosingReference{{Number: 5, Kind: ghmd.Prose}},
-		},
-		{
-			name: "a code span is where GitHub does not read it",
-			body: "see `Closes #11` here\n",
-			want: []ghmd.ClosingReference{{Number: 11, Kind: ghmd.Span}},
-		},
-		{
-			name: "a fenced block is the other such place",
-			body: "a\n```\ncloses #656\n```\n",
-			want: []ghmd.ClosingReference{{Number: 656, Kind: ghmd.Fence}},
-		},
-		{
-			// Every spelling GitHub accepts, in one body: the three verbs,
-			// their inflections, the optional colon and either case.
-			name: "the spellings the keyword takes",
-			body: "close #1\nCloses: #2\nclosed #3\nfix #4\nFIXES #5\nfixed: #6\n" +
-				"resolve #7\nResolves #8\nresolved #9\n",
-			want: []ghmd.ClosingReference{
-				{Number: 1, Kind: ghmd.Prose}, {Number: 2, Kind: ghmd.Prose},
-				{Number: 3, Kind: ghmd.Prose}, {Number: 4, Kind: ghmd.Prose},
-				{Number: 5, Kind: ghmd.Prose}, {Number: 6, Kind: ghmd.Prose},
-				{Number: 7, Kind: ghmd.Prose}, {Number: 8, Kind: ghmd.Prose},
-				{Number: 9, Kind: ghmd.Prose},
-			},
-		},
-		{
-			// References come in the order the body writes them, and the
-			// caller that deduplicates does so itself: #10 twice is twice
-			// here.
-			name: "references come in the order the body writes them",
-			body: "Closes #10\nResolves other/repo#12\nfix #10\n",
-			want: []ghmd.ClosingReference{
-				{Number: 10, Kind: ghmd.Prose},
-				{Repo: "other/repo", Number: 12, Kind: ghmd.Prose},
-				{Number: 10, Kind: ghmd.Prose},
-			},
-		},
-		{
-			// The case each consumer actually meets: one body holding both
-			// the references it means and the ones it quotes. Each keeps one
-			// kind and drops the rest, so what they are handed has to tell
-			// them apart within a body rather than about one.
-			name: "one body holds the meant and the quoted alike",
-			body: "Closes #10\nas in `Closes #11`\n```\nCloses #12\n```\nFixes other/repo#13\n",
-			want: []ghmd.ClosingReference{
-				{Number: 10, Kind: ghmd.Prose},
-				{Number: 11, Kind: ghmd.Span},
-				{Number: 12, Kind: ghmd.Fence},
-				{Repo: "other/repo", Number: 13, Kind: ghmd.Prose},
-			},
-		},
-		// The forms that name no issue to close.
-		{name: "a line break separates the keyword from the reference", body: "Closes\n#5\n"},
-		{name: "a placeholder names no issue", body: "docs update: `Closes #N` placeholder\n"},
-		{name: "a longer word merely ends in the keyword", body: "word `discloses #656` here\n"},
-		{name: "the keyword without a reference", body: "call `closes the stream` explicitly\n"},
-		// The one form that reaches the pattern and is turned away by it
-		// rather than by the run holding no # at all. GitHub links a bare
-		// reference and closes on none.
-		{name: "a reference without a keyword", body: "See #5\n"},
-		{name: "a url is not a reference GitHub closes on", body: "Fixes https://github.com/owner/repo/issues/14\n"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	// The reading GitHub acts on, and no way to ask for the rest: a body that
+	// documents a closing keyword beside the one it means gets back only the
+	// one it means. Which run each reference sat in is asserted where the walk
+	// is, in closing_internal_test.go — a caller of this cannot see it, which
+	// is the point of the shape.
+	body := "Closes #10\nas in `Closes #11`\n```\nCloses #12\n```\nFixes other/repo#13\n"
 
-			if diff := cmp.Diff(tt.want, ghmd.ClosingReferences(tt.body)); diff != "" {
-				t.Errorf("ClosingReferences(%q) (-want +got):\n%s", tt.body, diff)
-			}
-		})
+	want := []ghmd.ClosingReference{{Number: 10}, {Repo: "other/repo", Number: 13}}
+	if diff := cmp.Diff(want, ghmd.ClosingReferences(body)); diff != "" {
+		t.Errorf("ClosingReferences(%q) (-want +got):\n%s", body, diff)
 	}
 }
 
