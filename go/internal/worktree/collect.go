@@ -261,7 +261,7 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 		// is to leave first, and Delete checks again at the moment of removal.
 		if reason == "" && !isCurrent {
 			if holders := c.table.holders(e.Path); holders != "" {
-				reason, detail = SkipInUseByProcess, "使用中のプロセスあり: "+holders
+				reason, detail = SkipInUseByProcess, inUseDetail(holders)
 			}
 		}
 		if reason != "" {

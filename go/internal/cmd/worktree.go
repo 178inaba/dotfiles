@@ -158,7 +158,7 @@ func worktreeSweepCmd(deps Deps) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, deps.Build)
-			swept, err := worktree.Sweep(c.Context(), runner.Exec{}, ".")
+			swept, err := worktree.Sweep(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}

@@ -2,9 +2,7 @@ package worktree
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -76,17 +74,21 @@ func Delete(ctx context.Context, r runner.Runner, dir string, candidates Candida
 		return Deletion{}, err
 	}
 
-	d := &deleter{r: r, dir: dir, table: table}
+	d := &deleter{r: r, dir: dir}
 	d.out.Removed = Removed{Worktrees: []string{}, Branches: []string{}}
 	d.out.Failures = []Failure{}
 
 	for _, wt := range candidates.Worktrees {
 		if holders := table.holders(wt.Path); holders != "" {
-			d.fail(KindWorktree, wt.Path, "refusing to remove: in use by "+holders)
+			d.out.Failures = append(d.out.Failures, Failure{
+				Type: KindWorktree, Target: wt.Path, Error: "refusing to remove: in use by " + holders,
+			})
 			continue
 		}
-		if err := d.git(ctx, "worktree", "remove", wt.Path); err != nil {
-			d.fail(KindWorktree, wt.Path, err.Error())
+		if _, err := runner.Git(ctx, d.r, d.dir, "worktree", "remove", wt.Path); err != nil {
+			d.out.Failures = append(d.out.Failures, Failure{
+				Type: KindWorktree, Target: wt.Path, Error: runner.Message(err),
+			})
 			continue
 		}
 		d.out.Removed.Worktrees = append(d.out.Removed.Worktrees, wt.Path)
@@ -101,26 +103,9 @@ func Delete(ctx context.Context, r runner.Runner, dir string, candidates Candida
 }
 
 type deleter struct {
-	r     runner.Runner
-	dir   string
-	table cwdTable
-	out   Deletion
-}
-
-func (d *deleter) fail(kind TargetKind, target, message string) {
-	d.out.Failures = append(d.out.Failures, Failure{Type: kind, Target: target, Error: message})
-}
-
-// git runs one git command and turns a failure into what git said about it,
-// which is what reaches the caller as the reason.
-func (d *deleter) git(ctx context.Context, args ...string) error {
-	if _, err := d.r.Run(ctx, runner.Command{Name: "git", Args: append([]string{"-C", d.dir}, args...)}); err != nil {
-		if message := strings.TrimSpace(string(runner.Stderr(err))); message != "" {
-			return errors.New(message)
-		}
-		return err
-	}
-	return nil
+	r   runner.Runner
+	dir string
+	out Deletion
 }
 
 // deleteBranch removes a branch, with the flag its verdict has earned.
@@ -135,14 +120,18 @@ func (d *deleter) deleteBranch(ctx context.Context, branch string, verdict Verdi
 		flag = "-D"
 		current, _ := runner.Git(ctx, d.r, d.dir, "rev-parse", "refs/heads/"+branch)
 		if headOID == "" || current != headOID {
-			d.fail(KindBranch, branch, fmt.Sprintf(
-				"refusing -D: branch head no longer matches verified PR head (expected %s, got %s)",
-				or(headOID, "<missing>"), or(current, "<unresolved>")))
+			d.out.Failures = append(d.out.Failures, Failure{
+				Type: KindBranch, Target: branch, Error: fmt.Sprintf(
+					"refusing -D: branch head no longer matches verified PR head (expected %s, got %s)",
+					or(headOID, "<missing>"), or(current, "<unresolved>")),
+			})
 			return
 		}
 	}
-	if err := d.git(ctx, "branch", flag, branch); err != nil {
-		d.fail(KindBranch, branch, err.Error())
+	if _, err := runner.Git(ctx, d.r, d.dir, "branch", flag, branch); err != nil {
+		d.out.Failures = append(d.out.Failures, Failure{
+			Type: KindBranch, Target: branch, Error: runner.Message(err),
+		})
 		return
 	}
 	d.out.Removed.Branches = append(d.out.Removed.Branches, branch)

@@ -105,3 +105,10 @@ func (t cwdTable) holders(path string) string {
 	}
 	return strings.Join(found, ", ")
 }
+
+// inUseDetail is what a person reads about a worktree a process is standing
+// in, in the language the rules that print it speak. Collect skips such a
+// worktree and the sweep keeps one, and both say it in these words.
+func inUseDetail(holders string) string {
+	return "使用中のプロセスあり: " + holders
+}
