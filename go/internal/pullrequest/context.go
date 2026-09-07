@@ -393,8 +393,9 @@ type FetchLimit struct {
 	Cap  func(*Limits) *int
 	Flag string
 	// Per is what the cap counts against, empty where it is the whole
-	// document. The help renders it; the warning below does not, since it
-	// speaks of the collection that came up short rather than of the cap.
+	// document. The help renders it; the rerun warning in prepare.go does not,
+	// since it speaks of the collection that came up short rather than of the
+	// cap.
 	Per string
 	// Subject is what the rerun warning says was cut short, and Collection is
 	// what it says not to read until the limit is raised. Written out rather

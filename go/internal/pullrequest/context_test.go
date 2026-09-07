@@ -1659,6 +1659,36 @@ func limitRow(t *testing.T, flag string) pullrequest.FetchLimit {
 	return pullrequest.FetchLimit{}
 }
 
+// TestFetchLimitWarningNouns is the rerun warning's prose, written out by hand
+// rather than read from the row it is checking.
+//
+// Deliberately an oracle, for the reason cmd's is: a row that reads just as
+// well with another row's nouns — "issue comments ... before reading
+// linked_issues" under MAX_THREAD_COMMENTS — is wrong only to a reader that
+// does not hold the table, and the warning is the one output a person acts on.
+// All five here, since the rerun tests in prepare_test.go reach three of them.
+func TestFetchLimitWarningNouns(t *testing.T) {
+	t.Parallel()
+
+	for _, want := range []struct{ flag, subject, collection string }{
+		{"comments_truncated", "comments", "comments"},
+		{"reviews_truncated", "reviews", "reviews"},
+		{"threads_truncated", "review threads", "review_threads"},
+		{"review_threads[].comments_truncated", "thread comments", "review_threads"},
+		{"linked_issues[].comments_truncated", "issue comments", "linked_issues"},
+	} {
+		t.Run(want.flag, func(t *testing.T) {
+			t.Parallel()
+
+			l := limitRow(t, want.flag)
+			if l.Subject != want.subject || l.Collection != want.collection {
+				t.Errorf("%s says (%q, %q), want (%q, %q)",
+					l.Flag, l.Subject, l.Collection, want.subject, want.collection)
+			}
+		})
+	}
+}
+
 // TestFetchLimitReached pins the two things nothing about a row says: that the
 // reader beside a variable counts that variable's own collection, and that a
 // per-item cap goes to the largest of the totals that were actually cut short,
@@ -1678,8 +1708,17 @@ func TestFetchLimitReached(t *testing.T) {
 		total int
 	}{
 		{
+			// Items that arrived whole, so that a per-item row reporting the
+			// presence of a collection rather than a truncation in it is
+			// caught here rather than passing on the empty document.
 			name: "nothing truncated",
-			c:    pullrequest.Context{CommentsTotalCount: 3, ReviewsTotalCount: 3, ThreadsTotalCount: 3},
+			c: pullrequest.Context{
+				CommentsTotalCount: 3, ReviewsTotalCount: 3, ThreadsTotalCount: 3,
+				ReviewThreads: []pullrequest.Thread{{CommentsTotalCount: 3}},
+				LinkedIssues: []pullrequest.LinkedIssue{
+					{CommentsTotalCount: 3, Parent: &pullrequest.IssueParent{CommentsTotalCount: 3}},
+				},
+			},
 		},
 		{
 			name:  "comments",

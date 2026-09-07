@@ -973,14 +973,14 @@ func TestPrepareRaisesTheLimits(t *testing.T) {
 	// The warning only comes from the rerun path, so its presence is what says
 	// the second fetch happened — and that the rerun answered the same way, so
 	// the caller is told rather than kept waiting on a third attempt.
-	// The whole line, with the two nouns written out here rather than taken
-	// from the row: a subject or a collection swapped between two rows reads
-	// as well as the right one, so only a reader that does not hold the table
-	// can tell them apart. The variable still comes from the row, which is
-	// what leaves a rename to fail in cmd alone.
+	// The whole line, assembled from the row the way the warning itself is:
+	// this is what says the template puts each column where it belongs. That
+	// the columns hold the right words is a separate question, answered by
+	// TestFetchLimitWarningNouns against a hand-written oracle.
+	l := limitRow(t, "threads_truncated")
 	want := fmt.Sprintf(
-		"review threads still truncated after raising %[1]s to 400; rerun `ccx pr context` with a larger %[1]s before reading review_threads",
-		limitRow(t, "threads_truncated").Variable)
+		"%s still truncated after raising %s to 400; rerun `ccx pr context` with a larger %s before reading %s",
+		l.Subject, l.Variable, l.Variable, l.Collection)
 	if len(got.Warnings) != 1 || got.Warnings[0] != want {
 		t.Errorf("warnings = %v, want just %q", got.Warnings, want)
 	}
@@ -1066,9 +1066,10 @@ func TestPrepareReportsReviewsStillTruncated(t *testing.T) {
 		t.Fatalf("Prepare: %v", err)
 	}
 
+	l := limitRow(t, "reviews_truncated")
 	want := fmt.Sprintf(
-		"reviews still truncated after raising %[1]s to 400; rerun `ccx pr context` with a larger %[1]s before reading reviews",
-		limitRow(t, "reviews_truncated").Variable)
+		"%s still truncated after raising %s to 400; rerun `ccx pr context` with a larger %s before reading %s",
+		l.Subject, l.Variable, l.Variable, l.Collection)
 	if len(got.Warnings) != 1 || got.Warnings[0] != want {
 		t.Errorf("warnings = %v, want just %q", got.Warnings, want)
 	}
@@ -1147,9 +1148,10 @@ func TestPrepareReportsIssueCommentsStillTruncated(t *testing.T) {
 		t.Fatalf("Prepare: %v", err)
 	}
 
+	l := limitRow(t, "linked_issues[].comments_truncated")
 	want := fmt.Sprintf(
-		"issue comments still truncated after raising %[1]s to 900; rerun `ccx pr context` with a larger %[1]s before reading linked_issues",
-		limitRow(t, "linked_issues[].comments_truncated").Variable)
+		"%s still truncated after raising %s to 900; rerun `ccx pr context` with a larger %s before reading %s",
+		l.Subject, l.Variable, l.Variable, l.Collection)
 	if len(got.Warnings) != 1 || got.Warnings[0] != want {
 		t.Errorf("warnings = %v, want just %q", got.Warnings, want)
 	}
