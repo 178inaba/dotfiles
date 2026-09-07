@@ -32,7 +32,7 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			// The draft is otherwise a valid ja leaf, with one heading left in
-			// English: rule 2 knows the heading, so only rule 4 fires.
+			// English: rule 2 knows the heading, so only rule 3 fires.
 			name:  "one heading in the other language is a locale mismatch",
 			draft: swap(jaLeaf, "要件", "Requirements"), locale: issue.JA, kind: issue.Leaf,
 			wantClasses: []issue.Class{issue.HeadingLocaleMismatch},
