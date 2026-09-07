@@ -973,8 +973,9 @@ func TestPrepareRaisesTheLimits(t *testing.T) {
 	// The warning only comes from the rerun path, so its presence is what says
 	// the second fetch happened — and that the rerun answered the same way, so
 	// the caller is told rather than kept waiting on a third attempt.
-	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "MAX_THREADS to 400") {
-		t.Errorf("warnings = %v, want one naming the raised limit", got.Warnings)
+	want := fmt.Sprintf("%s to 400", limitRow(t, "threads_truncated").Variable)
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], want) {
+		t.Errorf("warnings = %v, want one naming %s", got.Warnings, want)
 	}
 }
 
@@ -1058,8 +1059,9 @@ func TestPrepareReportsReviewsStillTruncated(t *testing.T) {
 		t.Fatalf("Prepare: %v", err)
 	}
 
-	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "MAX_REVIEWS to 400") {
-		t.Errorf("warnings = %v, want one naming the raised limit", got.Warnings)
+	want := fmt.Sprintf("%s to 400", limitRow(t, "reviews_truncated").Variable)
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], want) {
+		t.Errorf("warnings = %v, want one naming %s", got.Warnings, want)
 	}
 }
 
@@ -1136,7 +1138,8 @@ func TestPrepareReportsIssueCommentsStillTruncated(t *testing.T) {
 		t.Fatalf("Prepare: %v", err)
 	}
 
-	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "MAX_ISSUE_COMMENTS to 900") {
-		t.Errorf("warnings = %v, want one naming the raised limit", got.Warnings)
+	want := fmt.Sprintf("%s to 900", limitRow(t, "linked_issues[].comments_truncated").Variable)
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], want) {
+		t.Errorf("warnings = %v, want one naming %s", got.Warnings, want)
 	}
 }
