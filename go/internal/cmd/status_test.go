@@ -14,8 +14,7 @@ func TestSectionsCheckStatusesCoverEveryClass(t *testing.T) {
 	want := map[issue.Class]int{
 		issue.MissingSection:        2,
 		issue.UnknownHeading:        3,
-		issue.MappedMachineKey:      4,
-		issue.HeadingLocaleMismatch: 5,
+		issue.HeadingLocaleMismatch: 4,
 	}
 	for class, code := range want {
 		got, ok := sectionsCheckStatus(class)

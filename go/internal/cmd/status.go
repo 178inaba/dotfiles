@@ -60,8 +60,7 @@ type classStatus struct {
 var sectionsCheckStatuses = []classStatus{
 	{issue.MissingSection, status{code: 2, symbol: "missing_section", meaning: "a section the kind requires and the draft lacks"}},
 	{issue.UnknownHeading, status{code: 3, symbol: "unknown_heading", meaning: "a heading in neither the schema nor the template mapping"}},
-	{issue.MappedMachineKey, status{code: 4, symbol: "mapped_machine_key", meaning: "a template renaming a heading other skills find by its text"}},
-	{issue.HeadingLocaleMismatch, status{code: 5, symbol: "heading_locale_mismatch", meaning: "a canonical heading written in the other language"}},
+	{issue.HeadingLocaleMismatch, status{code: 4, symbol: "heading_locale_mismatch", meaning: "a canonical heading written in the other language"}},
 }
 
 func sectionsCheckStatus(class issue.Class) (int, bool) {

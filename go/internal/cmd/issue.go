@@ -226,8 +226,9 @@ func sectionsCheckCmd(deps Deps) *cobra.Command {
 				if err != nil {
 					return silent(err)
 				}
+				// Named the way publish names it.
 				if mapping, err = issue.ParseMapping(content); err != nil {
-					return silent(err)
+					return silent(fmt.Errorf("%s: %v", mappingFile, err))
 				}
 			}
 

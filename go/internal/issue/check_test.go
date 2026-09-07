@@ -32,7 +32,7 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			// The draft is otherwise a valid ja leaf, with one heading left in
-			// English: rule 2 knows the heading, so only rule 4 fires.
+			// English: rule 2 knows the heading, so only rule 3 fires.
 			name:  "one heading in the other language is a locale mismatch",
 			draft: swap(jaLeaf, "要件", "Requirements"), locale: issue.JA, kind: issue.Leaf,
 			wantClasses: []issue.Class{issue.HeadingLocaleMismatch},
@@ -59,15 +59,6 @@ func TestCheck(t *testing.T) {
 			// therefore missing.
 			wantClasses: []issue.Class{issue.MissingSection, issue.UnknownHeading},
 			wantIn:      []string{"acceptance", "Definition of Done"},
-		},
-		{
-			// depends_on is machine-consumed: other skills find it by its
-			// heading, so a template may not rename it.
-			name:  "mapping a machine-consumed key is refused",
-			draft: jaLeaf, locale: issue.JA, kind: issue.Leaf,
-			mapping:     []issue.Mapping{{Key: "depends_on", Heading: "Prerequisites"}},
-			wantClasses: []issue.Class{issue.MappedMachineKey},
-			wantIn:      []string{"depends_on", "Prerequisites"},
 		},
 		{
 			name:   "headings inside a fence declare nothing",
@@ -154,8 +145,8 @@ func TestWorst(t *testing.T) {
 		},
 		{
 			name: "a single class is itself",
-			in:   []issue.Violation{{Class: issue.MappedMachineKey}},
-			want: issue.MappedMachineKey, wantFound: true,
+			in:   []issue.Violation{{Class: issue.HeadingLocaleMismatch}},
+			want: issue.HeadingLocaleMismatch, wantFound: true,
 		},
 	}
 
@@ -216,6 +207,12 @@ func TestParseMapping(t *testing.T) {
 		{name: "an unknown key", in: "nope Something\n", want: "unknown section key in the mapping"},
 		{name: "one key mapped twice", in: "acceptance A\nacceptance B\n", want: "mapped more than once"},
 		{name: "two keys on one heading", in: "acceptance Same\nbackground Same\n", want: "more than one key"},
+		{
+			// depends_on is machine-consumed: other skills find it by its
+			// heading, so a template may not rename it.
+			name: "a machine-consumed key", in: "depends_on Prerequisites\n",
+			want: "machine-consumed key must keep its canonical heading: depends_on",
+		},
 	}
 
 	for _, tt := range tests {

@@ -30,9 +30,6 @@ const (
 	// UnknownHeading is a `## ` heading that is in neither the table nor the
 	// template mapping.
 	UnknownHeading
-	// MappedMachineKey is a template renaming a heading that other skills find
-	// by its text.
-	MappedMachineKey
 	// HeadingLocaleMismatch is a canonical heading in the other language.
 	HeadingLocaleMismatch
 )
@@ -52,6 +49,11 @@ type Mapping struct {
 // getting it wrong is an error rather than a best effort: silently keeping one
 // of two entries for the same key would fail later as "a required section is
 // missing", which points at the draft instead of at the mapping.
+//
+// Renaming a machine-consumed key is refused here for the same reason it is an
+// error at all. Whether a template may rename a key is settled by the mapping
+// and the section table alone, so reporting it as something wrong with the
+// draft sends its reader to a file no edit to which would clear it.
 func ParseMapping(content string) ([]Mapping, error) {
 	var out []Mapping
 	byKey := map[string]bool{}
@@ -66,8 +68,12 @@ func ParseMapping(content string) ([]Mapping, error) {
 		if !ok || key == "" || heading == "" {
 			return nil, fmt.Errorf("malformed mapping line (expected: <key> <template heading>): %s", line)
 		}
-		if _, known := row(key); !known {
+		s, known := row(key)
+		if !known {
 			return nil, fmt.Errorf("unknown section key in the mapping: %s (see the section table in internal/issue)", key)
+		}
+		if !s.TemplateMappable {
+			return nil, fmt.Errorf("machine-consumed key must keep its canonical heading: %s (mapped to %q)", key, heading)
 		}
 		if byKey[key] {
 			return nil, fmt.Errorf("section key mapped more than once: %s", key)
@@ -83,16 +89,16 @@ func ParseMapping(content string) ([]Mapping, error) {
 
 // Check reports what is wrong with a draft written for locale and kind.
 //
-// Four rules, and the division of labour between the first two is deliberate.
+// Three rules, and the division of labour between the first two is deliberate.
 // A heading counts as known if it is the canonical heading in *either* locale,
 // not only in the one being checked — read strictly, every heading that is not
-// in the mapping would have to match the checked locale exactly, rule 4 could
+// in the mapping would have to match the checked locale exactly, rule 3 could
 // never fire, and a draft with its headings in two languages would pass as a
 // pile of unknown ones. Loosened, rule 2 catches headings from outside the
-// table and rule 4 catches the ones from the other locale, which is what a
+// table and rule 3 catches the ones from the other locale, which is what a
 // mixed draft actually is.
 //
-// Mapped headings are exempt from rule 4: where a repository template names the
+// Mapped headings are exempt from rule 3: where a repository template names the
 // sections, the template's language wins.
 func Check(draft string, l Locale, k Kind, mapping []Mapping) ([]Violation, error) {
 	if err := validLocale(l); err != nil {
@@ -150,12 +156,6 @@ func Check(draft string, l Locale, k Kind, mapping []Mapping) ([]Violation, erro
 	for _, r := range found {
 		if r.key == "" {
 			out = append(out, Violation{UnknownHeading, fmt.Sprintf("unknown heading: %q", r.heading)})
-		}
-	}
-	for _, m := range mapping {
-		if s, ok := row(m.Key); ok && !s.TemplateMappable {
-			out = append(out, Violation{MappedMachineKey,
-				fmt.Sprintf("machine-consumed key must keep its canonical heading: %s (mapped to %q)", m.Key, m.Heading)})
 		}
 	}
 	for _, r := range found {

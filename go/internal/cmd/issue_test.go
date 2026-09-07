@@ -83,14 +83,16 @@ func TestIssueSectionsStatus(t *testing.T) {
 			wantCode: 3, wantStderr: []string{"unknown heading"}, bareStdout: true,
 		},
 		{
+			// The mapping file is named ahead of the reason, which is the
+			// whole of what this command adds to ParseMapping's error.
 			name:     "a machine-consumed key in the mapping",
 			args:     []string{"issue", "sections", "check", clean, "--locale", "ja", "--kind", "leaf", "--mapping", badMapping},
-			wantCode: 4, wantStderr: []string{"machine-consumed key"}, bareStdout: true,
+			wantCode: 1, wantStderr: []string{badMapping + ": machine-consumed key"}, bareStdout: true,
 		},
 		{
 			name:     "a heading in the other language",
 			args:     []string{"issue", "sections", "check", mixed, "--locale", "ja", "--kind", "leaf"},
-			wantCode: 5, wantStderr: []string{"heading locale mismatch"}, bareStdout: true,
+			wantCode: 4, wantStderr: []string{"heading locale mismatch"}, bareStdout: true,
 		},
 		{
 			// Its own status, so that a caller can tell "this issue has no such
