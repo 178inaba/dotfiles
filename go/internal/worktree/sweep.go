@@ -2,7 +2,6 @@ package worktree
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -202,8 +201,10 @@ func (s *sweeper) sweepWorktree(ctx context.Context, e Entry) {
 	// Once rather than twice: git refuses a locked worktree to a single
 	// --force, which is a second net under the check above should the harness
 	// lock one between the listing and here.
-	if err := s.git(ctx, "worktree", "remove", "--force", e.Path); err != nil {
-		s.fail(KindWorktree, e.Path, err.Error())
+	if _, err := runner.Git(ctx, s.r, s.dir, "worktree", "remove", "--force", e.Path); err != nil {
+		s.out.Failures = append(s.out.Failures, Failure{
+			Type: KindWorktree, Target: e.Path, Error: runner.Message(err),
+		})
 		return
 	}
 	// Only once the worktree is gone: a branch checked out in one cannot be
@@ -235,8 +236,10 @@ func (s *sweeper) deleteBranch(ctx context.Context, branch string) bool {
 		})
 		return false
 	}
-	if err := s.git(ctx, "branch", "-D", branch); err != nil {
-		s.fail(KindBranch, branch, err.Error())
+	if _, err := runner.Git(ctx, s.r, s.dir, "branch", "-D", branch); err != nil {
+		s.out.Failures = append(s.out.Failures, Failure{
+			Type: KindBranch, Target: branch, Error: runner.Message(err),
+		})
 		return false
 	}
 	return true
@@ -244,20 +247,4 @@ func (s *sweeper) deleteBranch(ctx context.Context, branch string) bool {
 
 func (s *sweeper) keep(k Kept) {
 	s.out.Kept = append(s.out.Kept, k)
-}
-
-func (s *sweeper) fail(kind TargetKind, target, message string) {
-	s.out.Failures = append(s.out.Failures, Failure{Type: kind, Target: target, Error: message})
-}
-
-// git runs one git command and turns a failure into what git said about it,
-// which is what reaches the caller as the reason.
-func (s *sweeper) git(ctx context.Context, args ...string) error {
-	if _, err := runner.Git(ctx, s.r, s.dir, args...); err != nil {
-		if message := strings.TrimSpace(string(runner.Stderr(err))); message != "" {
-			return errors.New(message)
-		}
-		return err
-	}
-	return nil
 }
