@@ -209,8 +209,7 @@ func TestParseMapping(t *testing.T) {
 		{name: "two keys on one heading", in: "acceptance Same\nbackground Same\n", want: "more than one key"},
 		{
 			// depends_on is machine-consumed: other skills find it by its
-			// heading, so a template may not rename it. Refused here rather
-			// than by Check because the draft has no part in deciding it.
+			// heading, so a template may not rename it.
 			name: "a machine-consumed key", in: "depends_on Prerequisites\n",
 			want: "machine-consumed key must keep its canonical heading: depends_on",
 		},

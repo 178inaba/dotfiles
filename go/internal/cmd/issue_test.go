@@ -83,9 +83,8 @@ func TestIssueSectionsStatus(t *testing.T) {
 			wantCode: 3, wantStderr: []string{"unknown heading"}, bareStdout: true,
 		},
 		{
-			// A fault of the mapping rather than of the draft, so it stops the
-			// run the way the mapping's other faults do — exit 1, with the
-			// file that has to be fixed named ahead of the reason.
+			// The mapping file is named ahead of the reason, which is the
+			// whole of what this command adds to ParseMapping's error.
 			name:     "a machine-consumed key in the mapping",
 			args:     []string{"issue", "sections", "check", clean, "--locale", "ja", "--kind", "leaf", "--mapping", badMapping},
 			wantCode: 1, wantStderr: []string{badMapping + ": machine-consumed key"}, bareStdout: true,
