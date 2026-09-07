@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,9 +84,8 @@ func TestIssueSectionsStatus(t *testing.T) {
 			wantCode: 3, wantStderr: []string{"unknown heading"}, bareStdout: true,
 		},
 		{
-			// The one class the draft cannot clear: the loop over the mapping
-			// raises it, so the reason has to send the reader to the mapping
-			// file rather than to the file being checked.
+			// The draft here is the clean one, so the reason has nothing to
+			// say about it and sends the reader to the mapping file instead.
 			name:     "a machine-consumed key in the mapping",
 			args:     []string{"issue", "sections", "check", clean, "--locale", "ja", "--kind", "leaf", "--mapping", badMapping},
 			wantCode: 4, wantStderr: []string{"machine-consumed key", "fix: the mapping file"}, bareStdout: true,
@@ -130,16 +129,21 @@ func TestIssueSectionsStatus(t *testing.T) {
 	}
 }
 
-// TestSectionsCheckHelpSaysWhereEachClassIsFixed pins the place beside each
-// class in the rendered help.
+// TestSectionsCheckHelpSaysWhereEachClassIsFixed pins the place each class is
+// fixed in, and that the help a caller reads is where they are told it.
 //
-// Line by line, and by suffix: searching the whole output would pass with two
-// classes' places swapped, which is the very fault a caller reading a reason
-// and going to the wrong file makes. The places are written out here rather
-// than read from the classes so that the test disagrees when they change.
+// Two assertions rather than one search of the text. The block the help
+// carries has to be the one checkStatuses builds — the wiring TestStatusesRender
+// cannot see, since it renders a table of its own — and the places in it have
+// to be these, written out here so that the test disagrees when they change.
+// A search of the whole help for a phrase would pass with two classes' places
+// swapped, which is the very mistake a caller sent to the wrong file makes.
 func TestSectionsCheckHelpSaysWhereEachClassIsFixed(t *testing.T) {
 	t.Parallel()
 
+	// Status 1 is not a violation and has no class to carry its place, its
+	// reasons being the ones ParseMapping and the arguments raise.
+	const whereStatus1 = "fix: the mapping file or the invocation"
 	want := map[issue.Class]string{
 		issue.MissingSection:        "fix: the draft",
 		issue.UnknownHeading:        "fix: the draft",
@@ -152,71 +156,29 @@ func TestSectionsCheckHelpSaysWhereEachClassIsFixed(t *testing.T) {
 		strings.NewReader(""), &stdout, &stderr, Deps{}); code != 0 {
 		t.Fatalf("--help exited %d (stderr=%q)", code, stderr.String())
 	}
-	entries := exitStatusEntries(t, stdout.String())
-	entry := func(substr string) string {
-		for _, e := range entries {
-			if strings.Contains(e, substr) {
-				return e
-			}
-		}
-		return ""
+	all := checkStatuses()
+	if block := all.render(); !strings.Contains(stdout.String(), block) {
+		t.Fatalf("the help does not carry the status block:\n%s\nhelp:\n%s", block, stdout.String())
 	}
 
 	for _, cs := range sectionsCheckStatuses {
 		w, ok := want[cs.class]
 		if !ok {
-			t.Errorf("class %d is not among the places this test pins", cs.class)
+			t.Errorf("%s is not among the places this test pins", cs.status.symbol)
 			continue
 		}
-		got := entry(cs.status.symbol)
-		if got == "" {
-			t.Errorf("help has no exit-status entry for %s", cs.status.symbol)
-			continue
-		}
-		if !strings.HasSuffix(got, w) {
-			t.Errorf("help entry for %s = %q, want it to end with %q", cs.status.symbol, got, w)
+		if got := cs.class.Where(); got != w {
+			t.Errorf("%s is fixed in %q, want %q", cs.status.symbol, got, w)
 		}
 	}
 
-	// Status 1 is not a violation and has no class to carry its place, so it
-	// is the one entry whose place is written where the status is.
-	const wantOne = "fix: the mapping file or the invocation"
-	if got := entry("the check could not run"); !strings.HasSuffix(got, wantOne) {
-		t.Errorf("help entry for status 1 = %q, want it to end with %q", got, wantOne)
+	i := slices.IndexFunc(all, func(s status) bool { return s.code == 1 })
+	if i < 0 {
+		t.Fatal("the check publishes no status 1")
 	}
-}
-
-// opensExitStatus is a line that begins an entry of the block, as against one
-// continuing the entry above it.
-var opensExitStatus = regexp.MustCompile(`^  \d+  `)
-
-// exitStatusEntries is the Exit status block of a help, one string per status
-// with its wrapped continuations folded back in.
-//
-// Folded because an entry is what a reader takes in: asserting on a physical
-// line would make the assertion depend on where the wrapping happened to fall.
-func exitStatusEntries(t *testing.T, help string) []string {
-	t.Helper()
-
-	var out []string
-	var in bool
-	for _, l := range strings.Split(help, "\n") {
-		switch {
-		case !in:
-			in = l == "Exit status:"
-		case strings.TrimSpace(l) == "":
-			if len(out) == 0 {
-				t.Fatal("the Exit status block is empty")
-			}
-			return out
-		case opensExitStatus.MatchString(l):
-			out = append(out, strings.TrimSpace(l))
-		case len(out) > 0:
-			out[len(out)-1] += " " + strings.TrimSpace(l)
-		}
+	if all[i].where != whereStatus1 {
+		t.Errorf("status 1 is fixed in %q, want %q", all[i].where, whereStatus1)
 	}
-	t.Fatal("the help has no Exit status block")
-	return nil
 }
 
 func TestIssueSectionsJSON(t *testing.T) {

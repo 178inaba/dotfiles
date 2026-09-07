@@ -65,8 +65,17 @@ func (c Class) Where() string {
 // message, which is the only way they are put together: a Violation built
 // beside a message that already ends would be a reason a caller has to act on
 // without being told where.
+//
+// A class with no place is written without one rather than with a clause left
+// hanging off it. That it cannot happen is what the tests hold: unlike the
+// number, whose absence `ccx issue sections check` turns into an error it
+// exits with, `ccx issue publish` has no table to miss the place in.
 func newViolation(c Class, format string, a ...any) Violation {
-	return Violation{Class: c, Message: fmt.Sprintf(format, a...) + "; " + c.Where()}
+	msg := fmt.Sprintf(format, a...)
+	if where := c.Where(); where != "" {
+		msg += "; " + where
+	}
+	return Violation{Class: c, Message: msg}
 }
 
 // Mapping is one entry of a repository issue template's heading mapping: the

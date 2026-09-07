@@ -62,9 +62,8 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			// depends_on is machine-consumed: other skills find it by its
-			// heading, so a template may not rename it. The draft here is
-			// clean, which is why the reason names the mapping file: no edit
-			// to the draft clears this one.
+			// heading, so a template may not rename it. The draft is the clean
+			// one, which is what the reason's place has to reflect.
 			name:  "mapping a machine-consumed key is refused",
 			draft: jaLeaf, locale: issue.JA, kind: issue.Leaf,
 			mapping:     []issue.Mapping{{Key: "depends_on", Heading: "Prerequisites"}},
@@ -173,6 +172,27 @@ func TestWorst(t *testing.T) {
 				t.Errorf("Worst(%v) = %d, want %d", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestEveryClassSaysWhereItIsFixed is the guard the number has and the place
+// would otherwise lack.
+//
+// A class with no exit status stops `ccx issue sections check` with an error
+// naming it. A class with no place stops nothing: `ccx issue publish` builds
+// its refusals out of these messages and has no table to consult, so a reason
+// would go out saying what is wrong and not where. Only the four declared
+// here, a fifth being exactly what this is meant to catch.
+func TestEveryClassSaysWhereItIsFixed(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []issue.Class{
+		issue.MissingSection, issue.UnknownHeading,
+		issue.MappedMachineKey, issue.HeadingLocaleMismatch,
+	} {
+		if c.Where() == "" {
+			t.Errorf("class %d does not say where it is fixed", c)
+		}
 	}
 }
 
