@@ -266,15 +266,17 @@ func TestCollectOnRepositoriesWithNothingToWalk(t *testing.T) {
 		// in all of them, which is the point.
 		loaded []string
 	}{
-		// The 「対象なし」 signal: no project instruction file of any kind.
+		// Both lists empty is the 「対象なし」 signal, and no project
+		// instruction file of any kind is one way to reach it.
 		"no instruction file at all": {files: map[string]string{"README.md": "[x](x.md)\n"}},
 		// An empty documents list says nothing about the roots, which is why
-		// loaded is what the skills branch on.
+		// neither list is the signal on its own.
 		"instructions with no links": {
 			files:  map[string]string{"CLAUDE.md": "a mention of `docs/a.md` and nothing else\n"},
 			loaded: []string{"CLAUDE.md"},
 		},
-		// A scoped rule is not loaded at launch, and nothing links it here.
+		// A scoped rule is not loaded at launch, nothing links it here, and no
+		// path was given for it to match.
 		"only a scoped rule": {
 			files: map[string]string{".claude/rules/scoped.md": "---\npaths:\n  - \"**/*.go\"\n---\n"},
 		},

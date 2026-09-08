@@ -17,8 +17,8 @@ argument-hint: "[--no-exit]"
 ## 実行内容
 
 ### 1. 参照文書の収集
-1. `ccx plan docs` を実行する（出力の読み方は `ccx plan docs --help`）
-2. `loaded[]` が空なら「対象なし」として終了する（プロジェクトが指示文書を 1 つも持たない）
+1. `ccx plan docs` を、計画が名指すファイルのパスを引数にして実行する（出力の読み方は `ccx plan docs --help`）
+2. `loaded[]` と `documents[]` の両方が空なら「対象なし」として終了する（パスを渡すと、プロジェクトが指示文書を 1 つも持たなくてもマッチした path-scoped rule が `documents[]` に載るため、`loaded[]` だけでは判定できない）
 3. `documents[]` の各パスを Read で読む
 4. `warnings[]` の各項目を報告して続行する（リンク切れは停止理由ではない）
 5. `loaded[]` のファイルは既にコンテキストにあるので読み直さない
