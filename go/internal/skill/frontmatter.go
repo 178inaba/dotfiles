@@ -56,9 +56,11 @@ type Violation struct {
 
 // Frontmatter is the outcome of one check.
 type Frontmatter struct {
-	// Target is absolute, so that the output alone says which copy was read —
-	// ~/.claude/skills is a symlink to this repository, and both spellings
-	// reach the same files.
+	// Target is absolute, so that the output alone says which copy was read.
+	// There is more than one: ~/.claude/skills is a symlink to this
+	// repository, so both spellings reach the same files, and a linked
+	// worktree holds a copy of its own that a run from inside it checks
+	// instead.
 	Target     string      `json:"target"`
 	Violations []Violation `json:"violations"`
 	// Warnings name the directories that hold no SKILL.md. Not violations, but
