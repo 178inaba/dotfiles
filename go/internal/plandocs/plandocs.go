@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/goccy/go-yaml"
+
+	"github.com/178inaba/dotfiles/go/internal/frontmatter"
 )
 
 // importHops is how far Claude Code expands @ imports from a memory file:
@@ -469,37 +470,24 @@ type rule struct {
 // declaredPaths reads a rule's frontmatter for its paths field.
 //
 // Frontmatter that does not parse declares nothing, and so does a file with
-// no frontmatter at all: both are rules that load unconditionally.
+// no frontmatter at all: both are rules that load unconditionally. That is
+// what makes the reader's tolerance of line endings matter here — a scoped
+// rule read as an unscoped one is loaded at launch in this walk's model and
+// never listed as a document in either.
 func declaredPaths(path string) ([]string, bool, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, err
 	}
-	// Carriage returns come off first: a rule saved with CRLF whose fences
-	// then failed to match would be taken for a rule with no frontmatter, and
-	// a scoped rule read as an unscoped one is loaded at launch in this
-	// walk's model and never listed as a document in either.
-	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
-	if lines[0] != "---" {
+	block, found := frontmatter.Split(b)
+	if !found {
 		return nil, false, nil
 	}
-	end := 0
-	for i, line := range lines[1:] {
-		if line == "---" {
-			end = i + 1
-			break
-		}
-	}
-	if end == 0 {
+	fields, err := block.Fields()
+	if err != nil {
 		return nil, false, nil
 	}
-
-	var document any
-	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &document); err != nil {
-		return nil, false, nil
-	}
-	parsed, _ := document.(map[string]any)
-	declared, ok := parsed["paths"]
+	declared, ok := fields["paths"]
 	if !ok {
 		return nil, false, nil
 	}
