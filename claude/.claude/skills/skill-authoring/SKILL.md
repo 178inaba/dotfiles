@@ -78,7 +78,7 @@ description: ~/.claude/skills/ 配下のスキルを作成・編集する際の�
 
 ### frontmatter の検査
 
-`ccx skill frontmatter [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は自身が属する skills/。検出する違反とその条件は `ccx skill frontmatter --help` にある。Edit / Write / NotebookEdit で SKILL.md を保存すると `ccx hook skill-frontmatter-check`（PostToolUse フック）が同じ検査をそのファイルに走らせる。手で実行するのは、skills/ 全体をまとめて検査するときと、Bash 経由（`sed`・heredoc 等）で書き換えたとき（フックが発火しない）。
+`ccx skill frontmatter [<target>]`（SKILL.md 編集時に実行し、`violations` が空になるまで直す）。`<target>` はディレクトリか単一の SKILL.md で、省略時は実行中の checkout の skills/（worktree なら worktree 側）、checkout の外なら stow 元の skills/。検出する違反とその条件は `ccx skill frontmatter --help` にある。Edit / Write / NotebookEdit で SKILL.md を保存すると `ccx hook skill-frontmatter-check`（PostToolUse フック）が同じ検査をそのファイルに走らせる。手で実行するのは、skills/ 全体をまとめて検査するときと、Bash 経由（`sed`・heredoc 等）で書き換えたとき（フックが発火しない）。
 
 ## スキル間参照
 
