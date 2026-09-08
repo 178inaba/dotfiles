@@ -35,6 +35,11 @@ type ContractFinding struct {
 
 // Contract is the outcome of one check.
 type Contract struct {
+	// SkillsDir is absolute, so that the output alone says which copy was
+	// checked. There is more than one: ~/.claude/skills is a symlink to this
+	// repository, so both spellings reach the same files, and a linked
+	// worktree holds a copy of its own that a run from inside it checks
+	// instead.
 	SkillsDir  string            `json:"skills_dir"`
 	Violations []ContractFinding `json:"violations"`
 	// Warnings is always empty, and is here so that the shape matches the

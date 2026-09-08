@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 	"github.com/178inaba/dotfiles/go/internal/skill"
 )
@@ -25,7 +28,7 @@ func skillFrontmatterCmd(deps Deps) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
-			target, err := skillTarget(args)
+			target, err := skillTarget(c.Context(), deps.Dir, args)
 			if err != nil {
 				return silent(err)
 			}
@@ -42,21 +45,32 @@ func skillFrontmatterCmd(deps Deps) *cobra.Command {
 
 // skillTarget is the one positional argument, or the default where it was left
 // out.
-func skillTarget(args []string) (string, error) {
+func skillTarget(ctx context.Context, dir string, args []string) (string, error) {
 	if len(args) == 1 && args[0] != "" {
 		return args[0], nil
 	}
-	return skillsDir()
+	return skillsDir(ctx, dir)
 }
 
-// skillsDir is the default target: the skills of the repository this
-// configuration is stowed from.
+// skillsDir is the default target: the skills of the checkout dir belongs to,
+// and the skills of the repository this configuration is stowed from where dir
+// belongs to no checkout of it.
 //
-// The shell walked up from its own file, which resolved to ~/.claude/skills
-// through the stow symlink. A binary has no file to walk up from, so it asks
-// where the repository is — the same resolution the hook has used since it
-// moved to Go, and the copy worth editing either way.
-func skillsDir() (string, error) {
+// The checkout first, because that is the copy being edited and the one every
+// other command already acts on. The stowed repository alone was the answer
+// while the two could not differ; in a linked worktree they do, and checking
+// the main tree there is a pass that never looked at the file that changed.
+//
+// The fallback is not a lesser case: run from the home directory, where
+// ~/.claude/skills is the copy meant, there is no checkout to ask.
+func skillsDir(ctx context.Context, dir string) (string, error) {
+	if top, err := runner.Git(ctx, runner.Exec{}, dir, "rev-parse", "--show-toplevel"); err == nil {
+		skills := filepath.Join(top, "claude", ".claude", "skills")
+		if info, err := os.Stat(skills); err == nil && info.IsDir() {
+			return skills, nil
+		}
+	}
+
 	repo, ok := selfbuild.Repo()
 	if !ok {
 		return "", fmt.Errorf("this repository could not be located, so there is no default target to check")
@@ -73,7 +87,7 @@ func skillContractCmd(deps Deps) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
-			target, err := skillTarget(args)
+			target, err := skillTarget(c.Context(), deps.Dir, args)
 			if err != nil {
 				return silent(err)
 			}
