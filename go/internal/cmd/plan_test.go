@@ -3,13 +3,13 @@ package cmd
 import (
 	"bytes"
 	"encoding/json/v2"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/plandocs"
 )
 
@@ -19,9 +19,9 @@ import (
 func TestPlanDocsPassesItsArgumentsThrough(t *testing.T) {
 	dir, home := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
-	writeAt(t, filepath.Join(dir, ".git", "HEAD"), "ref: refs/heads/main\n")
-	writeAt(t, filepath.Join(dir, ".claude", "rules", "scoped.md"), "---\npaths:\n  - \"**/go/**\"\n---\n")
-	writeAt(t, filepath.Join(home, ".claude", "rules", "user.md"), "---\npaths:\n  - \"**/go/**\"\n---\n")
+	gittest.Write(t, filepath.Join(dir, ".git", "HEAD"), "ref: refs/heads/main\n")
+	gittest.Write(t, filepath.Join(dir, ".claude", "rules", "scoped.md"), "---\npaths:\n  - \"**/go/**\"\n---\n")
+	gittest.Write(t, filepath.Join(home, ".claude", "rules", "user.md"), "---\npaths:\n  - \"**/go/**\"\n---\n")
 
 	tests := map[string]struct {
 		args      []string
@@ -54,18 +54,5 @@ func TestPlanDocsPassesItsArgumentsThrough(t *testing.T) {
 				t.Errorf("documents mismatch (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-// writeAt lays down one fixture file at a path of the caller's choosing,
-// creating the directories above it. Unlike write, which puts a file in a
-// temporary directory of its own, these have to sit at fixed places in a tree.
-func writeAt(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
 	}
 }

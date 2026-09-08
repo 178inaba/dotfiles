@@ -43,9 +43,10 @@ their @ imports reach within the four hops the harness expands, and every .md
 under a .claude/rules/ of those directories that declares no paths field. A
 session started in a subdirectory still has the repository's own CLAUDE.md in
 context, and this says so. Those are never listed to read again. Above the top
-of the repository is somebody else's project, and no memory file of the user's
-is a root of this walk; neither is a root of it. An import written inside a
-rule is not expanded at launch, so it is followed as a link like the rest.
+of the repository is somebody else's project, and the user's own memory files
+are not roots of this walk either — a scoped one of theirs is matched below,
+not walked. An import written inside a rule is not expanded at launch, so it is
+followed as a link like the rest.
 
 From there the walk goes two levels: the targets found in the already-loaded
 files, then the targets found in those, and it stops. Both forms count as one
@@ -74,9 +75,10 @@ exist, since a task may be about to create it. Given any, documents also holds
 every path-scoped rule at least one of them matches: the .md files declaring a
 paths field under a .claude/rules/ of any directory on the walk above, and
 under the user's own ~/.claude/rules/. A project rule's patterns are matched
-against the path made relative to the directory holding that .claude/, a
-user-level rule's against the top of the repository; a path outside a basis
-matches nothing there. Those rules follow the linked documents, sorted by path,
+against the path made relative to the directory holding that .claude/, and a
+user-level rule's against the top of the repository for the reason below; a
+path outside a basis matches nothing there. Those rules follow the linked
+documents, sorted by path,
 and one file found under two spellings — this repository reaches its own rules
 both ways, through a symlink — is one entry. What loaded holds is unchanged: a
 scoped rule was never in it.
@@ -93,10 +95,11 @@ govern the file it opens, and that narrowing is a property of where somebody
 stood rather than of the rule's scope.
 
 Nothing about a repository is a failure here. One with no instruction file at
-all and no rule any given path matches answers with three empty lists and exit
-0, which is how a caller with nothing to read tells that from a project whose
-paths are all mentions — both lists being empty is what says so, since a rule a
-path matches is a document in a repository that states nothing at all. A link
+all and no rule a given path matches answers with three empty lists and exit 0.
+Nothing to read is loaded and documents both empty, and neither says it alone:
+a matched rule is a document in a project that states nothing at all, and a
+CLAUDE.md whose paths are all mentions leaves loaded full and documents empty.
+A link
 to a file that is not there is reported and the walk carries on. External
 imports are assumed to have been approved, since whether they were is not
 observable from here.`,

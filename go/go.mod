@@ -3,6 +3,7 @@ module github.com/178inaba/dotfiles/go
 go 1.27
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cli/go-gh/v2 v2.16.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-cmp v0.7.0
@@ -11,7 +12,6 @@ require (
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/cli/safeexec v1.0.1 // indirect
 	github.com/cli/shurcooL-graphql v0.0.4 // indirect
 	github.com/henvic/httpretty v0.2.0 // indirect

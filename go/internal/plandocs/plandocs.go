@@ -4,7 +4,6 @@ package plandocs
 import (
 	"errors"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,13 +34,11 @@ type Collection struct {
 	// instruction files, everything their @ imports reach, and the project
 	// rules that carry no paths field. The user's own unscoped rules are not
 	// here: they belong to the user rather than to the project. A non-empty
-	// list names what is already in context and must not be read again. It is
-	// this and documents together that say there is nothing to read — with a
-	// given path a scoped rule can be a document in a repository that states
-	// no instructions at all, so an empty list here is on its own no longer a
-	// "nothing to do" signal. Neither list says anything about the other: a
-	// CLAUDE.md whose paths are all backticked mentions leaves this one full
-	// and documents empty.
+	// list names what is already in context and must not be read again.
+	// Nothing to read is this and documents both empty, and neither list says
+	// it alone: with a given path a scoped rule is a document in a repository
+	// that states no instructions at all, and a CLAUDE.md whose paths are all
+	// backticked mentions leaves this one full and documents empty.
 	Loaded []string `json:"loaded"`
 	// The files to read, absolute: first the linked documents in walk order,
 	// then the path-scoped rules a given path matched, sorted by path. Neither
@@ -91,11 +88,10 @@ var roots = []string{"CLAUDE.md", filepath.Join(".claude", "CLAUDE.md"), "CLAUDE
 // ordinary answer. Only a filesystem that cannot be read is returned as one.
 func Collect(dir, home string, paths ...string) (Collection, error) {
 	c := collector{
-		home:     home,
-		seen:     map[string]bool{},
-		warned:   map[Warning]bool{},
-		patterns: map[string][]string{},
-		cache:    map[string][]reference{},
+		home:   home,
+		seen:   map[string]bool{},
+		warned: map[Warning]bool{},
+		cache:  map[string][]reference{},
 	}
 
 	dirs := directories(dir)
@@ -111,9 +107,17 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 	}
 
 	// The top of the repository is the first of the walk, and the basis every
-	// given path is resolved against.
+	// relative path given is read from.
 	top := dirs[0]
-	scoped := map[string][]string{}
+	absolute := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(top, path)
+		}
+		absolute = append(absolute, path)
+	}
+
+	scoped := map[string][]rule{}
 	for _, at := range dirs {
 		found, err := rulesIn(filepath.Join(at, ".claude", "rules"))
 		if err != nil {
@@ -121,26 +125,33 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 		}
 		for _, r := range found {
 			if r.scoped {
-				scoped[at] = append(scoped[at], r.path)
-				c.patterns[r.path] = r.patterns
+				scoped[at] = append(scoped[at], r)
 				continue
 			}
 			c.load(r.path)
 		}
-	}
-	// The user's own rules are matched but never walked: a scoped rule is a
-	// constraint the harness loads for the project's files, while the unscoped
-	// ones are the user's memory and no part of what the project states.
-	userRules, err := rulesIn(filepath.Join(home, ".claude", "rules"))
-	if err != nil {
-		return Collection{}, err
-	}
-	for _, r := range userRules {
-		if !r.scoped {
+		if at != top || len(absolute) == 0 {
 			continue
 		}
-		scoped[top] = append(scoped[top], r.path)
-		c.patterns[r.path] = r.patterns
+		// The user's own rules are matched but never walked: a scoped rule is
+		// a constraint the harness loads for the project's files, while the
+		// unscoped ones are the user's memory and no part of what the project
+		// states. They are matched against the top of the repository, which is
+		// the one deliberate difference from the harness — it matches them
+		// against the directory the session was started in, so a session
+		// started in a subdirectory loads fewer rules than govern the file it
+		// opens, and that narrowing is a property of where somebody stood
+		// rather than of the rule's scope. Read only when there is a path to
+		// match, since nothing else here looks at the user's rules at all.
+		userRules, err := rulesIn(filepath.Join(home, ".claude", "rules"))
+		if err != nil {
+			return Collection{}, err
+		}
+		for _, r := range userRules {
+			if r.scoped {
+				scoped[top] = append(scoped[top], r)
+			}
+		}
 	}
 
 	frontier := c.out.Loaded
@@ -153,7 +164,7 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 		frontier = next
 	}
 
-	c.out.Documents = append(c.out.Documents, c.matched(scoped, top, paths)...)
+	c.out.Documents = append(c.out.Documents, c.matched(dirs, scoped, absolute)...)
 	return c.out, nil
 }
 
@@ -190,9 +201,6 @@ type collector struct {
 	out    Collection
 	seen   map[string]bool
 	warned map[Warning]bool
-	// The patterns of every scoped rule found, by the spelling it was found
-	// under, so that matching reads them where the walk left them.
-	patterns map[string][]string
 	// Every loaded file is scanned twice — once to replay the harness's
 	// closure, once as the first frontier of the walk — and the second scan
 	// finds what the first one did.
@@ -322,48 +330,44 @@ func (c *collector) warn(target, source string) {
 	c.out.Warnings = append(c.out.Warnings, w)
 }
 
-// matched answers with the scoped rules the given paths reach: for each
-// directory holding a .claude/rules/, the rules under it whose patterns match
-// a given path made relative to that directory.
+// matched answers with the scoped rules the given absolute paths reach: for
+// each directory holding a .claude/rules/, the rules under it whose patterns
+// match a given path made relative to that directory. The basis is per
+// directory because that is what the harness matches a project rule against,
+// and a path outside a basis matches nothing there.
 //
-// The basis is per directory because that is what the harness matches a
-// project rule against, and a path outside a basis matches nothing there. The
-// user's rules are keyed under the top of the repository instead of under the
-// home directory, which is the one deliberate difference from the harness:
-// the harness matches them against the directory the session was started in,
-// so a session started in a subdirectory loads fewer rules than govern the
-// file. That narrowing is a property of where somebody stood, and the answer
-// here is a property of the repository and the paths.
-//
-// A rule already listed is not listed again, by identity rather than by
+// A rule already answered for is not listed again, by identity rather than by
 // spelling: this repository's own rules are reached both as
 // <repo>/claude/.claude/rules/x.md and as ~/.claude/rules/x.md through a stow
 // symlink, and they are one file to read. The spelling that survives is the
-// first the bases reach in order, which is why the bases are walked from the
-// top down: the user's rules are keyed at the top, so their spelling wins over
-// a deeper project directory's, and the answer stays the same from wherever
-// the command was run.
-func (c *collector) matched(scoped map[string][]string, top string, paths []string) []string {
+// first the walk reaches, which is why the bases are taken in the walk's own
+// order — the user's rules are keyed at the top, so their spelling wins over a
+// deeper project directory's and the answer stays the same from wherever the
+// command was run.
+func (c *collector) matched(dirs []string, scoped map[string][]rule, paths []string) []string {
 	if len(paths) == 0 {
 		return nil
 	}
 
-	// Seeded with the documents the walk already listed, since a rule some
-	// document links is a rule a given path can match under another spelling.
-	listed := make([]os.FileInfo, 0, len(c.out.Documents))
-	for _, document := range c.out.Documents {
-		if info, err := os.Stat(document); err == nil {
+	// Seeded with everything already answered for, since a rule a document
+	// links — or one an instruction file imports, which puts it in the loaded
+	// set whatever its frontmatter says — is a rule a given path can match
+	// under another spelling.
+	answered := slices.Concat(c.out.Loaded, c.out.Documents)
+	listed := make([]os.FileInfo, 0, len(answered))
+	for _, path := range answered {
+		if info, err := os.Stat(path); err == nil {
 			listed = append(listed, info)
 		}
 	}
 
 	var out []string
-	for _, basis := range slices.Sorted(maps.Keys(scoped)) {
-		for _, rule := range scoped[basis] {
-			if !matchesAny(c.patterns[rule], basis, top, paths) {
+	for _, basis := range dirs {
+		for _, r := range scoped[basis] {
+			if !matchesAny(r.patterns, basis, paths) {
 				continue
 			}
-			info, err := os.Stat(rule)
+			info, err := os.Stat(r.path)
 			if err != nil {
 				continue
 			}
@@ -371,24 +375,22 @@ func (c *collector) matched(scoped map[string][]string, top string, paths []stri
 				continue
 			}
 			listed = append(listed, info)
-			out = append(out, rule)
+			out = append(out, r.path)
 		}
 	}
 	slices.Sort(out)
 	return out
 }
 
-// matchesAny reports whether any pattern matches any of the given paths.
+// matchesAny reports whether any pattern matches any of the paths, each made
+// relative to the basis.
 //
 // A pattern that is not a valid glob matches nothing and does not fail the
 // run, as the documentation says of one the harness cannot read. The one
-// documented difference is the brace-expansion budget, which is not
-// reproduced here.
-func matchesAny(patterns []string, basis, top string, paths []string) bool {
+// documented difference in the syntax is the brace-expansion budget, which is
+// not reproduced here.
+func matchesAny(patterns []string, basis string, paths []string) bool {
 	for _, path := range paths {
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(top, path)
-		}
 		rel, err := filepath.Rel(basis, path)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue

@@ -421,13 +421,21 @@ func TestCollectListsOneFileFoundTwiceOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// An import puts a file in the loaded set whatever its frontmatter says,
+	// so a scoped rule reached that way is already in context and must not be
+	// listed to read.
+	writeTree(t, dir, map[string]string{
+		"CLAUDE.md":          "[l](shared/linked.md)\n@shared/imported.md\n",
+		"shared/imported.md": "---\npaths:\n  - \"**/go/**\"\n---\n",
+	})
+
 	got, err := Collect(dir, home, "go/x.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	want := Collection{
-		Loaded: abs(dir, "CLAUDE.md"),
+		Loaded: append(abs(dir, "CLAUDE.md"), filepath.Join(dir, "shared", "imported.md")),
 		Documents: []string{
 			// Listed by the link walk, and not a second time by the match
 			// that reached the same file as ~/.claude/rules/linked.md.
