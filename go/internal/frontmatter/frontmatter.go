@@ -60,16 +60,13 @@ func Split(content []byte) (Block, bool) {
 //
 // Into any rather than straight into a map: frontmatter that parses to a
 // sequence or a scalar is not a parse failure, it is a block with no fields —
-// which is the same as having none. The parse error is returned as it is, for
-// the caller that reports the parser's own words.
+// which is the same as having none, and comes back empty. The parse error is
+// returned as it is, for the caller that reports the parser's own words.
 func (b Block) Fields() (map[string]any, error) {
 	var document any
 	if err := yaml.Unmarshal([]byte(strings.Join(b.Lines, "\n")), &document); err != nil {
 		return nil, err
 	}
-	fields, ok := document.(map[string]any)
-	if !ok {
-		return map[string]any{}, nil
-	}
+	fields, _ := document.(map[string]any)
 	return fields, nil
 }

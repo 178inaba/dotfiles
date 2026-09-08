@@ -109,7 +109,7 @@ func TestBlockFields(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Fields: %v", err)
 			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Fields mismatch (-want +got):\n%s", diff)
 			}
 		})
