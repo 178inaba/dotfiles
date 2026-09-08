@@ -266,15 +266,17 @@ func TestCollectOnRepositoriesWithNothingToWalk(t *testing.T) {
 		// in all of them, which is the point.
 		loaded []string
 	}{
-		// The 「対象なし」 signal: no project instruction file of any kind.
+		// Both lists empty is the 「対象なし」 signal, and no project
+		// instruction file of any kind is one way to reach it.
 		"no instruction file at all": {files: map[string]string{"README.md": "[x](x.md)\n"}},
 		// An empty documents list says nothing about the roots, which is why
-		// loaded is what the skills branch on.
+		// neither list is the signal on its own.
 		"instructions with no links": {
 			files:  map[string]string{"CLAUDE.md": "a mention of `docs/a.md` and nothing else\n"},
 			loaded: []string{"CLAUDE.md"},
 		},
-		// A scoped rule is not loaded at launch, and nothing links it here.
+		// A scoped rule is not loaded at launch, nothing links it here, and no
+		// path was given for it to match.
 		"only a scoped rule": {
 			files: map[string]string{".claude/rules/scoped.md": "---\npaths:\n  - \"**/*.go\"\n---\n"},
 		},
@@ -294,5 +296,186 @@ func TestCollectOnRepositoriesWithNothingToWalk(t *testing.T) {
 				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// scopedTree is the fixture the path cases below run against: a repository
+// whose rules nobody links, so that the only way any of them reaches documents
+// is through a given path.
+func scopedTree(t *testing.T) (dir, home string) {
+	t.Helper()
+	dir, home = t.TempDir(), t.TempDir()
+	writeTree(t, dir, map[string]string{
+		".git/HEAD":                 "ref: refs/heads/main\n",
+		"CLAUDE.md":                 "[a](docs/a.md)\n",
+		"docs/a.md":                 "",
+		".claude/rules/unscoped.md": "",
+		".claude/rules/scoped.md":   "---\npaths:\n  - \"**/go/**\"\n---\n",
+	})
+	writeTree(t, home, map[string]string{
+		// The user's own rules. The scoped one is matched against a given
+		// path; the unscoped one is nobody's business here, since it belongs
+		// to the user rather than to the project, and must not reach loaded.
+		".claude/rules/user-scoped.md":   "---\npaths:\n  - \"**/go/**\"\n---\n",
+		".claude/rules/user-unscoped.md": "",
+	})
+	return dir, home
+}
+
+// A given path is what makes a scoped rule a document: the project's and the
+// user's alike, and only when the path is one their patterns match.
+func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
+	dir, home := scopedTree(t)
+	// The two trees are separate, so the want values are assembled from both.
+	userRule := filepath.Join(home, ".claude", "rules", "user-scoped.md")
+
+	tests := map[string]struct {
+		paths     []string
+		documents []string
+	}{
+		// The leading ** matches zero segments, which is what every rule in
+		// the repository this serves relies on.
+		"a path the patterns match": {
+			paths:     []string{"go/internal/x.go"},
+			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
+		},
+		"the same path spelled absolutely": {
+			paths:     []string{filepath.Join(dir, "go", "internal", "x.go")},
+			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
+		},
+		// One match is enough, and it is looked for in every path given
+		// rather than only in the first.
+		"several paths of which the last one matches": {
+			paths:     []string{"README.md", "docs/x.md", "go/internal/x.go"},
+			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
+		},
+		// A relative path is read from the top of the repository, not from the
+		// working directory, and it need not exist to be matched.
+		"a path the patterns do not match": {paths: []string{"docs/README.md"}},
+		"a path outside the repository":    {paths: []string{"/somewhere/else/go/x.go"}},
+		"no paths at all":                  {},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := Collect(dir, home, tt.paths...)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			want := Collection{
+				Loaded:    abs(dir, "CLAUDE.md", ".claude/rules/unscoped.md"),
+				Documents: append(abs(dir, "docs/a.md"), tt.documents...),
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// The two corners of the documented pattern syntax a naive matcher gets wrong:
+// a brace group is expanded, and a pattern that is not a glob at all matches
+// nothing rather than failing the run.
+func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		".git/HEAD":               "ref: refs/heads/main\n",
+		".claude/rules/braces.md": "---\npaths:\n  - \"src/*.{ts,tsx}\"\n---\n",
+		".claude/rules/broken.md": "---\npaths:\n  - \"photos [2024/**\"\n---\n",
+		// A paths key holding nothing usable is still a scoped rule, so it
+		// stays out of loaded, and it has no pattern to match anything with.
+		".claude/rules/empty.md":  "---\npaths: []\n---\n",
+		".claude/rules/scalar.md": "---\npaths: \"src/**\"\n---\n",
+	})
+
+	tests := map[string]struct {
+		path      string
+		documents []string
+	}{
+		"a brace alternative":             {path: "src/a.tsx", documents: []string{".claude/rules/braces.md"}},
+		"outside every alternative":       {path: "src/a.js"},
+		"what the invalid pattern spells": {path: "photos [2024/x.png"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := Collect(dir, t.TempDir(), tt.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			want := Collection{Documents: abs(dir, tt.documents...)}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// One file reached under two spellings is one entry. This repository's own
+// rules are the case: .claude/rules is a symlink into the checkout, so a rule
+// is both a project rule and the user's, and a document may link it besides.
+func TestCollectListsOneFileFoundTwiceOnce(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	writeTree(t, dir, map[string]string{
+		".git/HEAD": "ref: refs/heads/main\n",
+		// Both roots reach a rule by its place in the checkout, where the
+		// match below reaches the same file through the user's symlinked
+		// directory: a link for one, and for the other an import, which puts
+		// a file in the loaded set whatever its frontmatter says.
+		"CLAUDE.md":          "[l](shared/linked.md)\n@shared/imported.md\n",
+		"shared/linked.md":   "---\npaths:\n  - \"**/go/**\"\n---\n",
+		"shared/imported.md": "---\npaths:\n  - \"**/go/**\"\n---\n",
+		"shared/other.md":    "---\npaths:\n  - \"**/go/**\"\n---\n",
+	})
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "shared"), filepath.Join(home, ".claude", "rules")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Collect(dir, home, "go/x.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := Collection{
+		// The imported rule is already in context, so the match that reached
+		// it as ~/.claude/rules/imported.md lists nothing.
+		Loaded: abs(dir, "CLAUDE.md", "shared/imported.md"),
+		Documents: []string{
+			// Listed by the link walk, and not a second time by the match
+			// that reached the same file as ~/.claude/rules/linked.md.
+			filepath.Join(dir, "shared", "linked.md"),
+			// Named under the spelling it was found by, which says which
+			// entry matched, rather than under the link's target.
+			filepath.Join(home, ".claude", "rules", "other.md"),
+		},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// A project rule is matched against the path made relative to the directory
+// holding its own .claude/, which below the top is not the path the top's own
+// rules are matched against.
+func TestCollectMatchesEachProjectRuleAgainstItsOwnDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		".git/HEAD":                     "ref: refs/heads/main\n",
+		".claude/rules/top.md":          "---\npaths:\n  - \"go/internal/**\"\n---\n",
+		"go/.claude/rules/near.md":      "---\npaths:\n  - \"internal/**\"\n---\n",
+		"go/.claude/rules/as-if-top.md": "---\npaths:\n  - \"go/internal/**\"\n---\n",
+	})
+
+	got, err := Collect(filepath.Join(dir, "go"), t.TempDir(), "go/internal/x.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := Collection{Documents: abs(dir, ".claude/rules/top.md", "go/.claude/rules/near.md")}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
 	}
 }

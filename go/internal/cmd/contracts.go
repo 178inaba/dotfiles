@@ -44,8 +44,9 @@ under a .claude/rules/ of those directories that declares no paths field. A
 session started in a subdirectory still has the repository's own CLAUDE.md in
 context, and this says so. Those are never listed to read again. Above the top
 of the repository is somebody else's project, and the user's own memory files
-are not the project's constraints; neither is a root. An import written inside
-a rule is not expanded at launch, so it is followed as a link like the rest.
+are not roots of this walk either — a scoped one of theirs is matched below,
+not walked. An import written inside a rule is not expanded at launch, so it is
+followed as a link like the rest.
 
 From there the walk goes two levels: the targets found in the already-loaded
 files, then the targets found in those, and it stops. Both forms count as one
@@ -64,10 +65,40 @@ adds 93, almost all of them generated table definitions reached through the
 README. The whole closure is 117 files. The stop lands after the convention
 bodies and before the reference material.
 
+The arguments are the paths the task touches, and they are what reaches the
+rules nothing links. A relative one is read from the top of the repository
+rather than from the working directory, because a given path is a subject for
+pattern matching and not a file to open — the same spelling an issue's affected
+code uses, so that the answer is the repository's rather than that of wherever
+the caller happened to stand. An absolute one is taken as it is. None has to
+exist, since a task may be about to create it. Given any, documents also holds
+every path-scoped rule at least one of them matches: the .md files declaring a
+paths field under a .claude/rules/ of any directory on the walk above, and
+under the user's own ~/.claude/rules/. A project rule's patterns are matched
+against the path made relative to the directory holding that .claude/, and a
+user-level rule's against the top of the repository for the reason below; a
+path outside a basis matches nothing there. Those rules follow the linked
+documents, sorted by path, and one file found under two spellings — this
+repository reaches its own rules both ways, through a symlink — is one entry.
+What loaded holds is unchanged: a scoped rule was never in it.
+
+The patterns are the paths field's documented syntax — **, brace expansion,
+bracket expressions — and a pattern that is not a valid glob matches nothing
+rather than failing the run. Two things differ from the harness, both
+deliberate. The brace-expansion budget is not reproduced: the documentation
+uses patterns past 1,000 expansions unexpanded, and nothing here comes near it.
+And the harness matches a user-level rule against the directory the session was
+started in, measured with the InstructionsLoaded hook, where this uses the top
+of the repository — a session started in a subdirectory loads fewer rules than
+govern the file it opens, and that narrowing is a property of where somebody
+stood rather than of the rule's scope.
+
 Nothing about a repository is a failure here. One with no instruction file at
-all answers with three empty lists and exit 0, which is how a caller with
-nothing to read tells that from a project whose paths are all mentions. A link
-to a file that is not there is reported and the walk carries on. External
+all and no rule a given path matches answers with three empty lists and exit 0.
+Nothing to read is loaded and documents both empty, and neither says it alone:
+a matched rule is a document in a project that states nothing at all, and a
+CLAUDE.md whose paths are all mentions leaves loaded full and documents empty.
+A link to a file that is not there is reported and the walk carries on. External
 imports are assumed to have been approved, since whether they were is not
 observable from here.`,
 		blocks:   []block{prints(reflect.TypeFor[plandocs.Collection]())},

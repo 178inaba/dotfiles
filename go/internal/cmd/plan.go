@@ -17,15 +17,19 @@ func newPlanCmd(deps Deps) *cobra.Command {
 // newPlanDocsCmd builds `ccx plan docs`, which lists the documents a planner
 // reads before drafting.
 //
-// It takes no arguments and runs from anywhere inside the repository: the
-// instruction files a session has in context are decided by where it was
-// started, and the walk reads that off the checkout it was given upwards.
+// The arguments are the paths the task touches, and they are patterns' subjects
+// rather than files to open, so any number of them is a legitimate run: none
+// asks only what the walk finds, and cobra has no validator for that.
+//
+// It runs from anywhere inside the repository: the instruction files a session
+// has in context are decided by where it was started, and the walk reads that
+// off the checkout it was given upwards.
 func newPlanDocsCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "docs",
+		Use:   "docs [<path>...]",
 		Short: "List the documents a plan has to be drafted against",
-		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
 
 			home, err := os.UserHomeDir()
@@ -33,7 +37,7 @@ func newPlanDocsCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 
-			collection, err := plandocs.Collect(deps.Dir, home)
+			collection, err := plandocs.Collect(deps.Dir, home, args...)
 			if err != nil {
 				return silent(err)
 			}

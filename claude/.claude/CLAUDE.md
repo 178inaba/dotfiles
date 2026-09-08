@@ -98,7 +98,7 @@
 ## 計画立案原則
 
 実装計画を立てる際（plan モード含む）、計画起案の**前**に以下を実施し、制約を思考の前提として組み込む:
-- プロジェクトの `CLAUDE.md` と、`ccx plan docs` が挙げる文書を読む（何が既ロードで何を読むべきかの区別・深さ・除外は `ccx plan docs --help` が持つ）
+- プロジェクトの `CLAUDE.md` と、`ccx plan docs` が挙げる文書を読む。計画が触るパスが分かっているならそれを引数に渡す（何が既ロードで何を読むべきかの区別・深さ・除外・パスの扱いは `ccx plan docs --help` が持つ）
 - 計画完成後の準拠検証・修正が必要な場合は /check-plan-compliance スキルを使用
 - 計画完成後の設計妥当性・自己完結性の検証は /deep-plan-review スキルを使用（/check-plan-compliance と併用時は compliance 先。compliance は `--no-exit` を付けて実行する）
 
