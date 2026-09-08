@@ -338,7 +338,11 @@ func (c *collector) warn(target, source string) {
 // A rule already listed is not listed again, by identity rather than by
 // spelling: this repository's own rules are reached both as
 // <repo>/claude/.claude/rules/x.md and as ~/.claude/rules/x.md through a stow
-// symlink, and they are one file to read.
+// symlink, and they are one file to read. The spelling that survives is the
+// first the bases reach in order, which is why the bases are walked from the
+// top down: the user's rules are keyed at the top, so their spelling wins over
+// a deeper project directory's, and the answer stays the same from wherever
+// the command was run.
 func (c *collector) matched(scoped map[string][]string, top string, paths []string) []string {
 	if len(paths) == 0 {
 		return nil
