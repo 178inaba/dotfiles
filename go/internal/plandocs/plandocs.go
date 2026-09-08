@@ -4,11 +4,13 @@ package plandocs
 import (
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/goccy/go-yaml"
 )
 
@@ -30,16 +32,22 @@ const walkDepth = 2
 // it.
 type Collection struct {
 	// The files Claude Code loaded at launch, absolute: the project
-	// instruction files, everything their @ imports reach, and the rules that
-	// carry no paths field. Two things read this. An empty list is the
-	// skills' "nothing to do" signal, since it means the project states no
-	// instructions at all; a non-empty one names what is already in context
-	// and must not be read again. An empty documents list says nothing about
-	// this one — a CLAUDE.md whose paths are all backticked mentions leaves
-	// loaded full and documents empty.
+	// instruction files, everything their @ imports reach, and the project
+	// rules that carry no paths field. The user's own unscoped rules are not
+	// here: they belong to the user rather than to the project. A non-empty
+	// list names what is already in context and must not be read again. It is
+	// this and documents together that say there is nothing to read — with a
+	// given path a scoped rule can be a document in a repository that states
+	// no instructions at all, so an empty list here is on its own no longer a
+	// "nothing to do" signal. Neither list says anything about the other: a
+	// CLAUDE.md whose paths are all backticked mentions leaves this one full
+	// and documents empty.
 	Loaded []string `json:"loaded"`
-	// The files to read, absolute, in walk order. Neither what loaded already
-	// holds nor anything listed at a smaller depth appears twice.
+	// The files to read, absolute: first the linked documents in walk order,
+	// then the path-scoped rules a given path matched, sorted by path. Neither
+	// what loaded already holds nor anything listed once already appears
+	// twice, and a rule found under two spellings of the same file is one
+	// entry.
 	Documents []string `json:"documents"`
 	// A link whose target is not there. Reported rather than raised: one
 	// broken link is a document to fix, not a reason to collect nothing.
@@ -67,18 +75,27 @@ var roots = []string{"CLAUDE.md", filepath.Join(".claude", "CLAUDE.md"), "CLAUDE
 // and every directory above it, so a session started in a subdirectory has
 // the repository's own CLAUDE.md in context and loaded has to say so.
 //
-// home resolves the @~/ form of an import. It is a parameter because a test
-// has a fixture home and no business reading the real one.
+// home resolves the @~/ form of an import and is where the user's own
+// .claude/rules/ is looked for. It is a parameter because a test has a fixture
+// home and no business reading the real one.
+//
+// paths are the files a task touches, and they are subjects for pattern
+// matching rather than files to open: a relative one is read from the top of
+// the repository, an absolute one as it is, and neither has to exist. Given
+// any, the answer also holds every path-scoped rule whose patterns match one
+// of them — the rules the harness would load for those files, which is the
+// input a caller reading them through the shell never gets.
 //
 // Nothing about the repository is an error: no instruction file at all, a
 // scoped rule nobody links, a link to a file that was deleted — each is an
 // ordinary answer. Only a filesystem that cannot be read is returned as one.
-func Collect(dir, home string) (Collection, error) {
+func Collect(dir, home string, paths ...string) (Collection, error) {
 	c := collector{
-		home:   home,
-		seen:   map[string]bool{},
-		warned: map[Warning]bool{},
-		cache:  map[string][]reference{},
+		home:     home,
+		seen:     map[string]bool{},
+		warned:   map[Warning]bool{},
+		patterns: map[string][]string{},
+		cache:    map[string][]reference{},
 	}
 
 	dirs := directories(dir)
@@ -92,14 +109,38 @@ func Collect(dir, home string) (Collection, error) {
 			}
 		}
 	}
+
+	// The top of the repository is the first of the walk, and the basis every
+	// given path is resolved against.
+	top := dirs[0]
+	scoped := map[string][]string{}
 	for _, at := range dirs {
-		rules, err := unscopedRules(filepath.Join(at, ".claude", "rules"))
+		found, err := rulesIn(filepath.Join(at, ".claude", "rules"))
 		if err != nil {
 			return Collection{}, err
 		}
-		for _, path := range rules {
-			c.load(path)
+		for _, r := range found {
+			if r.scoped {
+				scoped[at] = append(scoped[at], r.path)
+				c.patterns[r.path] = r.patterns
+				continue
+			}
+			c.load(r.path)
 		}
+	}
+	// The user's own rules are matched but never walked: a scoped rule is a
+	// constraint the harness loads for the project's files, while the unscoped
+	// ones are the user's memory and no part of what the project states.
+	userRules, err := rulesIn(filepath.Join(home, ".claude", "rules"))
+	if err != nil {
+		return Collection{}, err
+	}
+	for _, r := range userRules {
+		if !r.scoped {
+			continue
+		}
+		scoped[top] = append(scoped[top], r.path)
+		c.patterns[r.path] = r.patterns
 	}
 
 	frontier := c.out.Loaded
@@ -111,6 +152,8 @@ func Collect(dir, home string) (Collection, error) {
 		c.out.Documents = append(c.out.Documents, next...)
 		frontier = next
 	}
+
+	c.out.Documents = append(c.out.Documents, c.matched(scoped, top, paths)...)
 	return c.out, nil
 }
 
@@ -147,6 +190,9 @@ type collector struct {
 	out    Collection
 	seen   map[string]bool
 	warned map[Warning]bool
+	// The patterns of every scoped rule found, by the spelling it was found
+	// under, so that matching reads them where the walk left them.
+	patterns map[string][]string
 	// Every loaded file is scanned twice — once to replay the harness's
 	// closure, once as the first frontier of the walk — and the second scan
 	// finds what the first one did.
@@ -276,10 +322,89 @@ func (c *collector) warn(target, source string) {
 	c.out.Warnings = append(c.out.Warnings, w)
 }
 
-// unscopedRules lists the rules Claude Code loads at launch: every .md under
-// the directory, recursively, that carries no paths field. A scoped rule is
-// left out because the harness has not loaded it, which is what makes it a
-// document to read when something links it.
+// matched answers with the scoped rules the given paths reach: for each
+// directory holding a .claude/rules/, the rules under it whose patterns match
+// a given path made relative to that directory.
+//
+// The basis is per directory because that is what the harness matches a
+// project rule against, and a path outside a basis matches nothing there. The
+// user's rules are keyed under the top of the repository instead of under the
+// home directory, which is the one deliberate difference from the harness:
+// the harness matches them against the directory the session was started in,
+// so a session started in a subdirectory loads fewer rules than govern the
+// file. That narrowing is a property of where somebody stood, and the answer
+// here is a property of the repository and the paths.
+//
+// A rule already listed is not listed again, by identity rather than by
+// spelling: this repository's own rules are reached both as
+// <repo>/claude/.claude/rules/x.md and as ~/.claude/rules/x.md through a stow
+// symlink, and they are one file to read.
+func (c *collector) matched(scoped map[string][]string, top string, paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	// Seeded with the documents the walk already listed, since a rule some
+	// document links is a rule a given path can match under another spelling.
+	listed := make([]os.FileInfo, 0, len(c.out.Documents))
+	for _, document := range c.out.Documents {
+		if info, err := os.Stat(document); err == nil {
+			listed = append(listed, info)
+		}
+	}
+
+	var out []string
+	for _, basis := range slices.Sorted(maps.Keys(scoped)) {
+		for _, rule := range scoped[basis] {
+			if !matchesAny(c.patterns[rule], basis, top, paths) {
+				continue
+			}
+			info, err := os.Stat(rule)
+			if err != nil {
+				continue
+			}
+			if slices.ContainsFunc(listed, func(l os.FileInfo) bool { return os.SameFile(l, info) }) {
+				continue
+			}
+			listed = append(listed, info)
+			out = append(out, rule)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// matchesAny reports whether any pattern matches any of the given paths.
+//
+// A pattern that is not a valid glob matches nothing and does not fail the
+// run, as the documentation says of one the harness cannot read. The one
+// documented difference is the brace-expansion budget, which is not
+// reproduced here.
+func matchesAny(patterns []string, basis, top string, paths []string) bool {
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(top, path)
+		}
+		rel, err := filepath.Rel(basis, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		for _, pattern := range patterns {
+			if ok, err := doublestar.Match(pattern, filepath.ToSlash(rel)); err == nil && ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rulesIn lists the rules under a .claude/rules/, recursively, saying of each
+// whether it declares a paths field and what that field holds. The two answers
+// come from one walk because they come from one parse.
+//
+// Only an unscoped rule is loaded at launch. A scoped one is left out of that
+// set because the harness has not loaded it, which is what makes it a document
+// to read — when something links it, or when a given path matches it.
 //
 // The directory is descended through its link target, since sharing one set
 // of rules across projects by symlinking .claude/rules is a documented
@@ -287,13 +412,13 @@ func (c *collector) warn(target, source string) {
 // comes back is still named under the directory as it was asked for: the
 // resolved spelling is the one nobody recognises, which is the same reason
 // nothing else here canonicalises a path.
-func unscopedRules(dir string) ([]string, error) {
+func rulesIn(dir string) ([]rule, error) {
 	root := dir
 	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
 		root = resolved
 	}
 
-	var out []string
+	var out []rule
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -301,18 +426,15 @@ func unscopedRules(dir string) ([]string, error) {
 		if d.IsDir() || !strings.HasSuffix(path, ".md") {
 			return nil
 		}
-		scoped, err := hasPaths(path)
+		patterns, scoped, err := declaredPaths(path)
 		if err != nil {
 			return err
-		}
-		if scoped {
-			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		out = append(out, filepath.Join(dir, rel))
+		out = append(out, rule{path: filepath.Join(dir, rel), scoped: scoped, patterns: patterns})
 		return nil
 	})
 	if errors.Is(err, fs.ErrNotExist) {
@@ -321,15 +443,27 @@ func unscopedRules(dir string) ([]string, error) {
 	return out, err
 }
 
-// hasPaths reports whether a rule's frontmatter declares a paths field, which
-// is the whole of what decides when the rule loads.
+// rule is one .md under a .claude/rules/.
+type rule struct {
+	// The file, under the spelling of the directory it was asked for.
+	path string
+	// Whether the frontmatter declares a paths field, which is the whole of
+	// what decides when the harness loads the rule.
+	scoped bool
+	// The patterns that field holds. A scoped rule can have none — the field
+	// can be empty, or hold something that is not a list of strings — and it
+	// is still scoped, since the key is what the harness reads.
+	patterns []string
+}
+
+// declaredPaths reads a rule's frontmatter for its paths field.
 //
 // Frontmatter that does not parse declares nothing, and so does a file with
 // no frontmatter at all: both are rules that load unconditionally.
-func hasPaths(path string) (bool, error) {
+func declaredPaths(path string) ([]string, bool, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	// Carriage returns come off first: a rule saved with CRLF whose fences
 	// then failed to match would be taken for a rule with no frontmatter, and
@@ -337,7 +471,7 @@ func hasPaths(path string) (bool, error) {
 	// walk's model and never listed as a document in either.
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 	if lines[0] != "---" {
-		return false, nil
+		return nil, false, nil
 	}
 	end := 0
 	for i, line := range lines[1:] {
@@ -347,16 +481,30 @@ func hasPaths(path string) (bool, error) {
 		}
 	}
 	if end == 0 {
-		return false, nil
+		return nil, false, nil
 	}
 
 	var document any
 	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &document); err != nil {
-		return false, nil
+		return nil, false, nil
 	}
 	parsed, _ := document.(map[string]any)
-	_, ok := parsed["paths"]
-	return ok, nil
+	declared, ok := parsed["paths"]
+	if !ok {
+		return nil, false, nil
+	}
+
+	// Anything the field holds that is not a string is no pattern, and the
+	// rule stays scoped either way: the key is what decides that the harness
+	// does not load it at launch.
+	list, _ := declared.([]any)
+	var patterns []string
+	for _, entry := range list {
+		if pattern, ok := entry.(string); ok {
+			patterns = append(patterns, pattern)
+		}
+	}
+	return patterns, true, nil
 }
 
 // isFile reports whether path is there and is not a directory, since a link
