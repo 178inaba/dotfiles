@@ -62,16 +62,7 @@ func TestSkillFrontmatterDefaultsToTheCheckout(t *testing.T) {
 	// and the answer must not depend on standing at the top.
 	sub := filepath.Join(repo, "claude", ".claude")
 
-	var stdout, stderr bytes.Buffer
-	if code := run(t.Context(), []string{"skill", "frontmatter"},
-		strings.NewReader(""), &stdout, &stderr, Deps{Dir: sub}); code != 0 {
-		t.Fatalf("`ccx skill frontmatter` = %d, want 0: %s", code, stderr.String())
-	}
-
-	var got skill.Frontmatter
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("decode: %v\n%s", err, stdout.String())
-	}
+	got := frontmatterDefault(t, sub)
 	// git rev-parse answers with symlinks resolved, which on macOS is what a
 	// temporary directory under /var is not.
 	want, err := filepath.EvalSymlinks(filepath.Join(repo, "claude", ".claude", "skills"))
@@ -92,9 +83,38 @@ func TestSkillFrontmatterDefaultsToTheCheckout(t *testing.T) {
 func TestSkillFrontmatterFallsBackToTheStowedRepository(t *testing.T) {
 	repo := stowedRepository(t)
 
+	got := frontmatterDefault(t, t.TempDir())
+
+	if want := filepath.Join(repo, "claude", ".claude", "skills"); got.Target != want {
+		t.Errorf("target = %q, want %q", got.Target, want)
+	}
+}
+
+// TestSkillFrontmatterFallsBackFromACheckoutWithoutSkills covers the fallback's
+// other trigger: git answers, and what it answered with holds no skills. A
+// checkout of some other repository is one, and it must not be checked as
+// though it were this one.
+func TestSkillFrontmatterFallsBackFromACheckoutWithoutSkills(t *testing.T) {
+	gittest.SkipWithoutGit(t)
+
+	repo := stowedRepository(t)
+	elsewhere := gittest.Init(t, filepath.Join(t.TempDir(), "elsewhere"))
+
+	got := frontmatterDefault(t, elsewhere)
+
+	if want := filepath.Join(repo, "claude", ".claude", "skills"); got.Target != want {
+		t.Errorf("target = %q, want %q", got.Target, want)
+	}
+}
+
+// frontmatterDefault runs the check with no argument from dir, and returns what
+// it reported.
+func frontmatterDefault(t *testing.T, dir string) skill.Frontmatter {
+	t.Helper()
+
 	var stdout, stderr bytes.Buffer
 	if code := run(t.Context(), []string{"skill", "frontmatter"},
-		strings.NewReader(""), &stdout, &stderr, Deps{Dir: t.TempDir()}); code != 0 {
+		strings.NewReader(""), &stdout, &stderr, Deps{Dir: dir}); code != 0 {
 		t.Fatalf("`ccx skill frontmatter` = %d, want 0: %s", code, stderr.String())
 	}
 
@@ -102,9 +122,7 @@ func TestSkillFrontmatterFallsBackToTheStowedRepository(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v\n%s", err, stdout.String())
 	}
-	if want := filepath.Join(repo, "claude", ".claude", "skills"); got.Target != want {
-		t.Errorf("target = %q, want %q", got.Target, want)
-	}
+	return got
 }
 
 // stowedRepository points HOME at a checkout stowed the way selfbuild reads
