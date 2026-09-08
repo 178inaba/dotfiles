@@ -83,7 +83,6 @@ func TestBlockFields(t *testing.T) {
 			// fields, which is the same as holding none.
 			name:    "a sequence",
 			content: "---\n- a\n- b\n---\n",
-			want:    map[string]any{},
 		},
 		{
 			name:    "a block that does not parse",
