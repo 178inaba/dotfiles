@@ -78,10 +78,9 @@ under the user's own ~/.claude/rules/. A project rule's patterns are matched
 against the path made relative to the directory holding that .claude/, and a
 user-level rule's against the top of the repository for the reason below; a
 path outside a basis matches nothing there. Those rules follow the linked
-documents, sorted by path,
-and one file found under two spellings — this repository reaches its own rules
-both ways, through a symlink — is one entry. What loaded holds is unchanged: a
-scoped rule was never in it.
+documents, sorted by path, and one file found under two spellings — this
+repository reaches its own rules both ways, through a symlink — is one entry.
+What loaded holds is unchanged: a scoped rule was never in it.
 
 The patterns are the paths field's documented syntax — **, brace expansion,
 bracket expressions — and a pattern that is not a valid glob matches nothing
@@ -99,8 +98,7 @@ all and no rule a given path matches answers with three empty lists and exit 0.
 Nothing to read is loaded and documents both empty, and neither says it alone:
 a matched rule is a document in a project that states nothing at all, and a
 CLAUDE.md whose paths are all mentions leaves loaded full and documents empty.
-A link
-to a file that is not there is reported and the walk carries on. External
+A link to a file that is not there is reported and the walk carries on. External
 imports are assumed to have been approved, since whether they were is not
 observable from here.`,
 		blocks:   []block{prints(reflect.TypeFor[plandocs.Collection]())},

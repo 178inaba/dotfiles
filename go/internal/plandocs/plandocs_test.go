@@ -343,6 +343,12 @@ func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
 			paths:     []string{filepath.Join(dir, "go", "internal", "x.go")},
 			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
 		},
+		// One match is enough, and it is looked for in every path given
+		// rather than only in the first.
+		"several paths of which the last one matches": {
+			paths:     []string{"README.md", "docs/x.md", "go/internal/x.go"},
+			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
+		},
 		// A relative path is read from the top of the repository, not from the
 		// working directory, and it need not exist to be matched.
 		"a path the patterns do not match": {paths: []string{"docs/README.md"}},
@@ -376,6 +382,10 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 		".git/HEAD":               "ref: refs/heads/main\n",
 		".claude/rules/braces.md": "---\npaths:\n  - \"src/*.{ts,tsx}\"\n---\n",
 		".claude/rules/broken.md": "---\npaths:\n  - \"photos [2024/**\"\n---\n",
+		// A paths key holding nothing usable is still a scoped rule, so it
+		// stays out of loaded, and it has no pattern to match anything with.
+		".claude/rules/empty.md":  "---\npaths: []\n---\n",
+		".claude/rules/scalar.md": "---\npaths: \"src/**\"\n---\n",
 	})
 
 	tests := map[string]struct {
@@ -408,11 +418,14 @@ func TestCollectListsOneFileFoundTwiceOnce(t *testing.T) {
 	dir, home := t.TempDir(), t.TempDir()
 	writeTree(t, dir, map[string]string{
 		".git/HEAD": "ref: refs/heads/main\n",
-		// The link reaches the rule by its place in the checkout; the match
-		// below reaches the same file through the user's symlinked directory.
-		"CLAUDE.md":        "[l](shared/linked.md)\n",
-		"shared/linked.md": "---\npaths:\n  - \"**/go/**\"\n---\n",
-		"shared/other.md":  "---\npaths:\n  - \"**/go/**\"\n---\n",
+		// Both roots reach a rule by its place in the checkout, where the
+		// match below reaches the same file through the user's symlinked
+		// directory: a link for one, and for the other an import, which puts
+		// a file in the loaded set whatever its frontmatter says.
+		"CLAUDE.md":          "[l](shared/linked.md)\n@shared/imported.md\n",
+		"shared/linked.md":   "---\npaths:\n  - \"**/go/**\"\n---\n",
+		"shared/imported.md": "---\npaths:\n  - \"**/go/**\"\n---\n",
+		"shared/other.md":    "---\npaths:\n  - \"**/go/**\"\n---\n",
 	})
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
@@ -421,21 +434,15 @@ func TestCollectListsOneFileFoundTwiceOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// An import puts a file in the loaded set whatever its frontmatter says,
-	// so a scoped rule reached that way is already in context and must not be
-	// listed to read.
-	writeTree(t, dir, map[string]string{
-		"CLAUDE.md":          "[l](shared/linked.md)\n@shared/imported.md\n",
-		"shared/imported.md": "---\npaths:\n  - \"**/go/**\"\n---\n",
-	})
-
 	got, err := Collect(dir, home, "go/x.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	want := Collection{
-		Loaded: append(abs(dir, "CLAUDE.md"), filepath.Join(dir, "shared", "imported.md")),
+		// The imported rule is already in context, so the match that reached
+		// it as ~/.claude/rules/imported.md lists nothing.
+		Loaded: abs(dir, "CLAUDE.md", "shared/imported.md"),
 		Documents: []string{
 			// Listed by the link walk, and not a second time by the match
 			// that reached the same file as ~/.claude/rules/linked.md.

@@ -130,19 +130,23 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 			}
 			c.load(r.path)
 		}
-		if at != top || len(absolute) == 0 {
-			continue
-		}
-		// The user's own rules are matched but never walked: a scoped rule is
-		// a constraint the harness loads for the project's files, while the
-		// unscoped ones are the user's memory and no part of what the project
-		// states. They are matched against the top of the repository, which is
-		// the one deliberate difference from the harness — it matches them
-		// against the directory the session was started in, so a session
-		// started in a subdirectory loads fewer rules than govern the file it
-		// opens, and that narrowing is a property of where somebody stood
-		// rather than of the rule's scope. Read only when there is a path to
-		// match, since nothing else here looks at the user's rules at all.
+	}
+
+	// The user's own rules are matched but never walked: a scoped rule is a
+	// constraint the harness loads for the project's files, while the unscoped
+	// ones are the user's memory and no part of what the project states. They
+	// are keyed at the top of the repository, and that basis is the one
+	// deliberate difference from the harness — it matches them against the
+	// directory the session was started in, so a session started in a
+	// subdirectory loads fewer rules than govern the file it opens, and that
+	// narrowing is a property of where somebody stood rather than of the
+	// rule's scope. Keyed there rather than under the home directory also puts
+	// their spelling ahead of any deeper project directory's when the two
+	// reach one file, which is how this repository's stow symlink resolves.
+	//
+	// Read at all only when there is a path to match, since nothing else here
+	// looks at the user's rules.
+	if len(absolute) > 0 {
 		userRules, err := rulesIn(filepath.Join(home, ".claude", "rules"))
 		if err != nil {
 			return Collection{}, err
