@@ -61,10 +61,7 @@ func TestSkillFrontmatterDefaultsToTheCheckout(t *testing.T) {
 		"---\nname: not-demo\ndescription: a skill whose name does not match its directory\n---\n\nbody\n")
 	// From a subdirectory, because that is where a run starts as often as not
 	// and the answer must not depend on standing at the top.
-	sub := filepath.Join(repo, "go")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
+	sub := filepath.Join(repo, "claude", ".claude")
 
 	var stdout, stderr bytes.Buffer
 	if code := run(t.Context(), []string{"skill", "frontmatter"},
@@ -94,8 +91,6 @@ func TestSkillFrontmatterDefaultsToTheCheckout(t *testing.T) {
 // from outside any checkout — the home directory is the case the help text
 // describes — the stowed copy is still the one meant.
 func TestSkillFrontmatterFallsBackToTheStowedRepository(t *testing.T) {
-	gittest.SkipWithoutGit(t)
-
 	repo, ok := selfbuild.Repo()
 	if !ok {
 		t.Skip("this repository is not stowed on this machine, so there is no fallback to check")

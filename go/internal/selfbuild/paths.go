@@ -12,9 +12,9 @@ import (
 
 // Repo derives the repository from the stow symlink at ~/.claude/settings.json.
 //
-// It is exported for the hooks, which reach for files elsewhere in the
-// repository — the frontmatter checker, until Sub 3 brings it in process — and
-// have no Deps to resolve a home directory from.
+// It is exported for the one caller with no checkout to ask: the fallback the
+// skill checks take when the directory they run in belongs to no checkout of
+// this repository, which has no Deps to resolve a home directory from either.
 func Repo() (string, bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {

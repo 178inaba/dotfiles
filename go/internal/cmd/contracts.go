@@ -618,11 +618,10 @@ flow sequences on one line sat broken in two files until somebody happened to
 look.
 
 <target> is a directory or a single SKILL.md; left out, it is the skills
-directory of the checkout this runs in — a linked worktree included, which is
-where the edits being checked usually are — and, for a run from outside any
-checkout of this repository, the skills directory of the repository this
-configuration is stowed from. Violations are not a failure of the check — the
-caller reads them and decides. Only being unable to check at all is.`,
+directory of the checkout this runs in — a linked worktree included — or,
+outside any checkout of this repository, of the repository this configuration
+is stowed from. Violations are not a failure of the check — the caller reads
+them and decides. Only being unable to check at all is.`,
 		blocks:   []block{prints(reflect.TypeFor[skill.Frontmatter]())},
 		statuses: with(),
 	},
@@ -640,9 +639,8 @@ bare word cannot be told from ordinary prose. A skill that runs none of these
 commands is exempt, its snake_case words being about something else entirely.
 
 <skills-dir> defaults to the skills directory of the checkout this runs in — a
-linked worktree included — and, for a run from outside any checkout of this
-repository, to the skills directory of the repository this configuration is
-stowed from.`,
+linked worktree included — or, outside any checkout of this repository, of the
+repository this configuration is stowed from.`,
 		blocks:   []block{prints(reflect.TypeFor[skill.Contract]())},
 		statuses: with(),
 	},
