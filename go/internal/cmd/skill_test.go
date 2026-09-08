@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/gittest"
-	"github.com/178inaba/dotfiles/go/internal/selfbuild"
 	"github.com/178inaba/dotfiles/go/internal/skill"
 )
 
@@ -91,10 +90,7 @@ func TestSkillFrontmatterDefaultsToTheCheckout(t *testing.T) {
 // from outside any checkout — the home directory is the case the help text
 // describes — the stowed copy is still the one meant.
 func TestSkillFrontmatterFallsBackToTheStowedRepository(t *testing.T) {
-	repo, ok := selfbuild.Repo()
-	if !ok {
-		t.Skip("this repository is not stowed on this machine, so there is no fallback to check")
-	}
+	repo := stowedRepository(t)
 
 	var stdout, stderr bytes.Buffer
 	if code := run(t.Context(), []string{"skill", "frontmatter"},
@@ -109,4 +105,36 @@ func TestSkillFrontmatterFallsBackToTheStowedRepository(t *testing.T) {
 	if want := filepath.Join(repo, "claude", ".claude", "skills"); got.Target != want {
 		t.Errorf("target = %q, want %q", got.Target, want)
 	}
+}
+
+// stowedRepository points HOME at a checkout stowed the way selfbuild reads
+// one, and returns that checkout. The layout is selfbuild_test.go's newHarness,
+// built here because that one is unexported to its own package.
+//
+// A fake rather than the machine's own, so that the fallback is checked on a
+// machine where this repository is not stowed rather than skipped there.
+func stowedRepository(t *testing.T) string {
+	t.Helper()
+
+	home := t.TempDir()
+	repo := filepath.Join(home, ".dotfiles")
+	gittest.Write(t, filepath.Join(repo, "claude", ".claude", "settings.json"), "{}")
+	// The sentinel selfbuild checks before believing what the link resolved to.
+	gittest.Write(t, filepath.Join(repo, "go", "go.mod"), "module example\n\ngo 1.27\n")
+	// One skill, because a skills directory holding no SKILL.md is an error
+	// rather than a clean check.
+	gittest.Write(t, filepath.Join(repo, "claude", ".claude", "skills", "demo", "SKILL.md"),
+		"---\nname: demo\ndescription: a skill the fallback has something to check\n---\n\nbody\n")
+
+	// stow links relatively, which is the case the resolution has to handle.
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.Symlink(filepath.Join("..", ".dotfiles", "claude", ".claude", "settings.json"),
+		filepath.Join(home, ".claude", "settings.json")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	t.Setenv("HOME", home)
+	return repo
 }
