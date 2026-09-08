@@ -14,7 +14,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/goccy/go-yaml"
+	"github.com/178inaba/dotfiles/go/internal/frontmatter"
 )
 
 // FrontmatterViolation is one thing wrong with a SKILL.md's frontmatter.
@@ -176,28 +176,17 @@ func checkFile(path, rel string) []Violation {
 	if err != nil {
 		return []Violation{{Type: InvalidYAML, File: rel, Message: err.Error()}}
 	}
-	lines := strings.Split(string(content), "\n")
-
-	// The block's extent is decided from the raw text. A parser's verdict
-	// cannot stand in for it: with no fence at all it would read the body
-	// instead, and the answer would depend on what the body happened to say.
-	end, ok := frontmatterEnd(lines)
+	block, ok := frontmatter.Split(content)
 	if !ok {
 		return []Violation{
 			{Type: MissingField, File: rel, Field: "name"},
 			{Type: MissingField, File: rel, Field: "description"},
 		}
 	}
-	block := strings.Join(lines[1:end-1], "\n")
-
-	// Into any rather than a map: frontmatter that parses to a sequence or a
-	// scalar is not a parse failure, it is a block with no fields — which is
-	// the same as having none.
-	var document any
-	if err := yaml.Unmarshal([]byte(block), &document); err != nil {
+	parsed, err := block.Fields()
+	if err != nil {
 		return []Violation{{Type: InvalidYAML, File: rel, Message: message(err)}}
 	}
-	parsed, _ := document.(map[string]any)
 
 	out := []Violation{}
 	switch name := field(parsed, "name"); {
@@ -212,26 +201,13 @@ func checkFile(path, rel string) []Violation {
 
 	// Every key rather than the one that has gone wrong before: singling out
 	// argument-hint would leave the next key free to repeat the mistake.
-	for i, line := range lines[1 : end-1] {
+	for i, line := range block.Lines {
 		if flowKey.MatchString(line) {
 			key, _, _ := strings.Cut(line, ":")
-			out = append(out, Violation{Type: UnquotedFlow, File: rel, Key: key, Line: i + 2})
+			out = append(out, Violation{Type: UnquotedFlow, File: rel, Key: key, Line: block.Start + i})
 		}
 	}
 	return out
-}
-
-// frontmatterEnd returns the line number of the block's closing fence.
-func frontmatterEnd(lines []string) (int, bool) {
-	if len(lines) == 0 || lines[0] != "---" {
-		return 0, false
-	}
-	for i, line := range lines[1:] {
-		if line == "---" {
-			return i + 2, true
-		}
-	}
-	return 0, false
 }
 
 // field reads one frontmatter value as a string.

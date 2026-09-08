@@ -95,6 +95,13 @@ func TestCheckFrontmatterFile(t *testing.T) {
 			},
 		},
 		{
+			// A file saved with CRLF has the frontmatter it looks like it has.
+			// It used to have none — the fences went unrecognised, both fields
+			// were reported missing, and the hook refused the save.
+			name: "a skill saved with CRLF", skill: "crlf",
+			body: "---\r\nname: crlf\r\ndescription: a skill\r\n---\r\n\r\nbody\r\n",
+		},
+		{
 			// Frontmatter that parses to something other than a mapping has no
 			// fields to find.
 			name: "frontmatter that is a sequence", skill: "seq",
