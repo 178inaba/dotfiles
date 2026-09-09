@@ -12,9 +12,9 @@ import (
 )
 
 // The document the count is taken from. Everything the rules turn on is here
-// once — an approved review, a dismissed one, one of ours, an empty one, a
-// skill comment, a bot's comment, our own comment — so that a case below says
-// only what it is about.
+// once — an approval that says something, one that says nothing, a dismissed
+// review, one of ours, an empty one, a skill comment, a bot's comment, our own
+// comment — so that a case below says only what it is about.
 func countable() pullrequest.Context {
 	user, bot := "User", "Bot"
 	return pullrequest.Context{
@@ -25,6 +25,9 @@ func countable() pullrequest.Context {
 			// Ours: we do not answer our own reviews.
 			{Author: new("me"), AuthorType: &user, State: "COMMENTED", Body: "a note of mine",
 				URL: "https://example.com/r2", SubmittedAt: "2026-01-05T00:00:00Z"},
+			// An approval with something in it: a reviewer is expected to
+			// approve and write their remaining questions in the body, so the
+			// verdict is no reason to leave the body unanswered.
 			{Author: new("reviewer"), AuthorType: &user, State: "APPROVED", Body: "looks good",
 				URL: "https://example.com/r3", SubmittedAt: "2026-01-05T00:00:00Z"},
 			{Author: new("reviewer"), AuthorType: &user, State: "DISMISSED", Body: "withdrawn",
@@ -33,6 +36,10 @@ func countable() pullrequest.Context {
 			// remarks being the threads it left.
 			{Author: new("reviewer"), AuthorType: &user, State: "COMMENTED", Body: "",
 				URL: "https://example.com/r5", SubmittedAt: "2026-01-05T00:00:00Z"},
+			// The same emptiness under an approval: what excludes it is the
+			// missing body, not the verdict above it.
+			{Author: new("reviewer"), AuthorType: &user, State: "APPROVED", Body: "",
+				URL: "https://example.com/r7", SubmittedAt: "2026-01-05T00:00:00Z"},
 		},
 		Comments: []pullrequest.Comment{
 			{Author: new("reviewer"), AuthorType: &user, Body: "a remark",
@@ -88,8 +95,9 @@ func TestPendingCountsWithoutASince(t *testing.T) {
 	if got.Since != nil {
 		t.Errorf("since = %v, want null: with no state file everything counts", got.Since)
 	}
-	// r2 is ours, r3 approved, r4 dismissed, r5 has no body.
-	if diff := cmp.Diff([]string{"https://example.com/r1"}, urls(got.Reviews, reviewURL)); diff != "" {
+	// r2 is ours, r4 dismissed, r5 and r7 have no body.
+	wantReviews := []string{"https://example.com/r1", "https://example.com/r3"}
+	if diff := cmp.Diff(wantReviews, urls(got.Reviews, reviewURL)); diff != "" {
 		t.Errorf("reviews (-want +got):\n%s", diff)
 	}
 	// c2 carries the marker; the bot's and our own unmarked one both count.
