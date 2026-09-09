@@ -23,9 +23,10 @@ type PendingSet struct {
 	Threads []PendingThread `json:"threads" contract:"required"`
 	// The reviews with something to answer that have arrived or
 	// been rewritten since. One of ours and one whose body is empty because
-	// its remarks were left inline are not among them; the verdict is not
-	// consulted, a reviewer with questions left being expected to approve and
-	// write them in the body, and a dismissal being a review comment.
+	// its remarks were left inline are not among them; the state is not
+	// consulted, since an approval or a dismissal can still carry something to
+	// answer. A review nobody has submitted yet is visible to its author
+	// alone, so it is one of ours and needs no state of its own here.
 	Reviews []PendingReview `json:"reviews" contract:"required"`
 	// The conversation's comments that have arrived or been
 	// rewritten since, our own marked posts aside. A bot's counts, and so does

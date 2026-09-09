@@ -12,9 +12,9 @@ import (
 )
 
 // The document the count is taken from. Everything the rules turn on is here
-// once — a body under each of the three verdicts, one of ours, an empty body
-// under two of them, a skill comment, a bot's comment, our own comment — so
-// that a case below says only what it is about.
+// once — a body under each state that used to exclude one, an empty body, one
+// of ours, a skill comment, a bot's comment, our own comment — so that a case
+// below says only what it is about.
 func countable() pullrequest.Context {
 	user, bot := "User", "Bot"
 	return pullrequest.Context{
@@ -25,9 +25,7 @@ func countable() pullrequest.Context {
 			// Ours: we do not answer our own reviews.
 			{Author: new("me"), AuthorType: &user, State: "COMMENTED", Body: "a note of mine",
 				URL: "https://example.com/r2", SubmittedAt: "2026-01-05T00:00:00Z"},
-			// A body under a verdict that settles something, and one under a
-			// verdict GitHub itself turned back into a comment: neither
-			// verdict excuses the body.
+			// A body under each state that used to exclude it.
 			{Author: new("reviewer"), AuthorType: &user, State: "APPROVED", Body: "looks good",
 				URL: "https://example.com/r3", SubmittedAt: "2026-01-05T00:00:00Z"},
 			{Author: new("reviewer"), AuthorType: &user, State: "DISMISSED", Body: "withdrawn",
@@ -36,8 +34,8 @@ func countable() pullrequest.Context {
 			// remarks being the threads it left.
 			{Author: new("reviewer"), AuthorType: &user, State: "COMMENTED", Body: "",
 				URL: "https://example.com/r5", SubmittedAt: "2026-01-05T00:00:00Z"},
-			// The same emptiness under the remaining verdict: what excludes a
-			// review is the missing body, never the verdict above it.
+			// An empty body under one of those states: what excludes a review
+			// is the missing body, never the state.
 			{Author: new("reviewer"), AuthorType: &user, State: "APPROVED", Body: "",
 				URL: "https://example.com/r7", SubmittedAt: "2026-01-05T00:00:00Z"},
 		},

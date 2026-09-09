@@ -68,7 +68,7 @@ Skill ツールで `pr-reading` を起動し、その手順に従って読む。
 - PR: 番号と、自分の PR か他人の PR か（`is_own_pr` と `pr.author`）
 - ブランチ: `pr.head_ref`
 - CI: PR コンテキストの取得で得た `gh pr checks` の結果
-- レビュー: `reviewers[]` の各要素を `author` と `state` で 1 行ずつ書く（実効状態はドキュメントが確定させているので、ここで導出しない）。`reviews_truncated: true` のときは、一覧が取得窓の内側しか表さない旨を併記する（理由は `ccx pr context --help` の `reviewers` にある）
+- レビュー: `reviewers[]` の各要素を `author` と `state` で 1 行ずつ書く（実効状態はドキュメントが確定させているので、ここで導出しない）。`reviews_truncated: true` のときは、一覧が取得窓の内側しか表さない旨を併記する（理由は `ccx pr context --help` の `reviewers` にある）。報告するだけで、上限を上げての再取得はしない
 - 未コミット変更: `git status`
 - ローカルと PR head の整合: `git rev-parse HEAD` を `pr.head_oid`（PR コンテキストの取得を終えていればローカルに在る — 同コマンドの契約）と比較し、一致しなければ `git merge-base --is-ancestor` で ahead（未 push commit あり）/ behind（未取得 commit あり）/ diverged を判別する。push・pull どちらが必要かの引き継ぎ情報になる。`--worktree` 指定時は worktree 解決が同期済みのため通常は一致する
 
