@@ -2,7 +2,7 @@
 
 `db-schema-design` スキルの判断プロセス（ステップ3）から引く、論点ごとの使い分け基準。判断プロセス本体は SKILL.md を正とする。
 
-本文はエンジン中立の意図を述べ、PostgreSQL / MySQL 固有の記述は**知らないと踏む罠**に絞る。論点は2種類ある: **既定を置き、そこから離脱する条件を示す**もの（FK 制約、ソフトデリート、従属テーブルの PK）と、**勝者を決めず判断軸だけを示す**もの（auto-increment と UUID の選択、テーブル名の単数/複数）。
+本文はエンジン中立の意図を述べ、PostgreSQL / MySQL 固有の記述は**知らないと踏む罠**に絞る。論点は2種類ある: **既定を置き、そこから離脱する条件を示す**もの（例: FK 制約、ソフトデリート、従属テーブルの PK）と、**勝者を決めず判断軸だけを示す**もの（例: auto-increment と UUID の選択、テーブル名の単数/複数）。
 
 ## 目次
 
@@ -103,7 +103,9 @@
 
 上の UNIQUE 規則から導ける。1:1 の属性テーブルで `id` + 親 FK への UNIQUE と、親 FK を PK にするのは同じ不変条件の宣言で（4節の NOT NULL 既定に従うなら等価。UNIQUE 単独は NULL を許すため）、junction の `id` + 参照列の組への UNIQUE と、参照列の組を PK にするのも同じ。サロゲートを足しても、同じ制約をカラム1本とインデックス1本ぶん余計に払って実現するだけになる。
 
-ここで PK になるのは親のサロゲート `id` への参照で不変なので、上の「可変な業務識別子を PK にしない」は当たらない（[Elmasri & Navathe, ER- and EER-to-Relational Mapping](https://www.cs.purdue.edu/homes/bb/cs448_Spring2014/lecture-files/pdf/ch07-Relational%20Database%20Design%20by%20ER-%20and%20EERR-to-Relational%20Mapping.pdf) の Step 5 とオプション 8A、[Karwin, SQL Antipatterns, Volume 1](https://pragprog.com/titles/bksap1/sql-antipatterns-volume-1/) 3章 "ID Required"、[Wikipedia, Associative entity](https://en.wikipedia.org/wiki/Associative_entity)）。
+ここで PK になるのは親のサロゲート `id` への参照で不変なので、上の「可変な業務識別子を PK にしない」は当たらない。
+
+規範も同じ形を定める: [Elmasri & Navathe, ER- and EER-to-Relational Mapping](https://www.cs.purdue.edu/homes/bb/cs448_Spring2014/lecture-files/pdf/ch07-Relational%20Database%20Design%20by%20ER-%20and%20EERR-to-Relational%20Mapping.pdf) の Step 5（M:N の PK は参照列の組）とオプション 8A（サブタイプの PK はスーパークラスのキー）、[Karwin, SQL Antipatterns, Volume 1](https://pragprog.com/titles/bksap1/sql-antipatterns-volume-1/) 3章 "ID Required"、[Wikipedia, Associative entity](https://en.wikipedia.org/wiki/Associative_entity)。
 
 ただしサロゲートに倒す行がある。判断はテーブルの種類ではなく**行の性質**で決める（1:1・サブタイプテーブルにもリンク行にも同じ軸を当てる）:
 
