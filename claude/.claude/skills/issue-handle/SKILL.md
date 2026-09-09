@@ -206,8 +206,13 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
        - [ ] プッシュ・PR作成（draft で作成。Issue番号指定時は `Closes #<issue-number>` を含める。Sub の場合は `Part of #<parent>` と、最後の Sub なら親の `Closes` も — 実装完了処理の規則に従う）
        - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
        - [ ] 同期検証を通過して PR を Ready 化
-   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を、`--no-plan-review` 未指定時は引数 `--no-exit` で、指定時は引数なしで起動する（ExitPlanMode を担うのは、`--no-plan-review` 未指定時は後続の計画検証、指定時は `check-plan-compliance` 自身）
+   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を、`--no-plan-review` の有無にかかわらず引数 `--no-exit` で起動する（ExitPlanMode を担うのは、`--no-plan-review` 未指定時は後続の計画検証、指定時は本スキル自身。いずれも下の参照・コマンドチェックが clean になってから）
+   - **参照・コマンドチェック**: `ccx plan check <計画ファイルパス>` を実行する。計画準拠チェックの**後**に走らせる（準拠チェックが計画を編集するので、こちらは編集後の版を見る必要がある）
+     - finding は計画の著者が解消する: 参照を直す / 新規に作る成果物なら注記を足す / コマンドを実行して結果を記録する（実行できないなら理由を記録する）。直したら再実行し、**clean になるまで繰り返す**
+     - finding が残る計画で、計画検証（fresh reader）を起動しない・`ExitPlanMode` を呼ばない
+     - このチェックが強制する 2 つの規約を、計画を書く時点で守っておくと再実行が減る: **計画が挙げる検証コマンドには結果を記録する**（形式は `ccx plan check --help`）、**計画がこれから作る成果物は `(new)` または `（新規）` を注記する**（注記の無い新規成果物は「実在しない参照」として報告される）
    - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。修正後の計画での ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない
+   - **ExitPlanMode**（`--no-plan-review` 指定時のみ）: 参照・コマンドチェックが clean になった時点で本スキルが `ExitPlanMode` を呼ぶ
    - ユーザーの承認を待つ
 
 4. **実装フェーズへ**（承認後）
