@@ -65,29 +65,29 @@ import (
 )
 
 // launch is the command whose run this guard holds open, and reviewer is the
-// subagent type that stands for the review of step 6-1.
+// subagent type that stands for the review the skill launches.
 const (
 	launch   = "/issue-handle"
 	reviewer = "independent-reviewer"
 )
 
-// step is the one the run has yet to take, named as the skill names it.
-type step struct {
-	number string
-	what   string
-}
+// step is what the run has yet to do, in the words the skill uses for it. It
+// names the action rather than the skill's step number: the number is the
+// step's position in the skill and moves whenever a step is added or removed,
+// while the action does not.
+type step string
 
-var (
-	createPR  = step{"5", "push the branch and create the draft pull request"}
-	askReview = step{"6-1", "launch the independent-reviewer subagent for the review"}
-	answerIt  = step{"6-2 / 6-3", "apply what the review found, then pass the sync check and mark the pull request ready"}
+const (
+	createPR  step = "push the branch and create the draft pull request"
+	askReview step = "launch the independent-reviewer subagent for the review"
+	answerIt  step = "apply what the review found, then pass the sync check and mark the pull request ready"
 )
 
 // reason is what the model is told. It names the step rather than repeating the
 // rule, because the run stopped with the rule already in context.
 const reason = `Blocked: this /issue-handle run has not reached a Ready pull request.
 
-The next step is step %s: %s.
+The next step is to %s.
 
 The skill finishes by marking the pull request ready after the sync check, so
 the turn does not end before that. Carry on from there in this same turn.
@@ -99,7 +99,7 @@ twice in one turn.
 
 // systemMessage is what the user sees, so that a turn continuing on its own is
 // not a mystery.
-const systemMessage = "issue-handle-guard: refused the end of the turn — the run is still before step %s."
+const systemMessage = "issue-handle-guard: refused the end of the turn — the run still has to %s."
 
 // Hook is the guard.
 type Hook struct{}
@@ -126,15 +126,15 @@ func (Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 	if err != nil {
 		return hooks.Result{}
 	}
-	next, blocked := r.next()
-	if !blocked {
+	next := r.next()
+	if next == "" {
 		return hooks.Result{}
 	}
 
 	return hooks.Result{Directive: hooks.Directive{
-		SystemMessage: fmt.Sprintf(systemMessage, next.number),
+		SystemMessage: fmt.Sprintf(systemMessage, next),
 		StopDecision:  "block",
-		Reason:        fmt.Sprintf(reason, next.number, next.what),
+		Reason:        fmt.Sprintf(reason, next),
 	}}
 }
 
@@ -149,18 +149,18 @@ type run struct {
 	ready        bool
 }
 
-// next names the step the run owes, and reports false when there is nothing to
-// hold the turn open for.
-func (r run) next() (step, bool) {
+// next names the step the run owes, and is empty when there is nothing to hold
+// the turn open for.
+func (r run) next() step {
 	switch {
 	case !r.active || !r.planApproved || r.ready:
-		return step{}, false
+		return ""
 	case !r.prCreated:
-		return createPR, true
+		return createPR
 	case !r.reviewed:
-		return askReview, true
+		return askReview
 	default:
-		return answerIt, true
+		return answerIt
 	}
 }
 
