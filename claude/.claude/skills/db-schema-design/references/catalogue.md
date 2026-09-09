@@ -2,7 +2,7 @@
 
 `db-schema-design` スキルの判断プロセス（ステップ3）から引く、論点ごとの使い分け基準。判断プロセス本体は SKILL.md を正とする。
 
-本文はエンジン中立の意図を述べ、PostgreSQL / MySQL 固有の記述は**知らないと踏む罠**に絞る。論争のある論点（キーの選択、ソフトデリート、FK のオプトアウト、テーブル名の単数/複数）は勝者を決めず、判断軸だけを示す。
+本文はエンジン中立の意図を述べ、PostgreSQL / MySQL 固有の記述は**知らないと踏む罠**に絞る。論点は2種類ある: **既定を置き、そこから離脱する条件を示す**もの（FK 制約、ソフトデリート、従属テーブルの PK）と、**勝者を決めず判断軸だけを示す**もの（auto-increment と UUID の選択、テーブル名の単数/複数）。
 
 ## 目次
 
@@ -61,7 +61,7 @@
 
 ## 2. 構造のアンチパターン
 
-以下はいずれも [SQL Antipatterns (Bill Karwin)](https://pragprog.com/titles/bksqla/sql-antipatterns/) が扱う古典。
+以下はいずれも [SQL Antipatterns (Bill Karwin)](https://pragprog.com/titles/bksap1/sql-antipatterns-volume-1/) が扱う古典。
 
 ### EAV（Entity-Attribute-Value）
 
@@ -93,9 +93,37 @@
 
 ### サロゲート PK を既定に、業務上の一意性は UNIQUE で
 
-主キーはサロゲート（意味を持たない ID）を既定にする。業務的な識別子（メールアドレス、商品コード）は変わりうるため、PK にすると変更時に全参照の更新が要る。
+主キーはサロゲート（意味を持たない ID）を既定にする（親に従属するテーブルは次項）。メールアドレス・商品コードのような**可変な業務識別子**を PK にすると、値が変わるたびに全参照の更新が要るため。
 
 ただし**サロゲート PK を置いたら、業務上の一意性には必ず UNIQUE 制約を別に張る**。ここを省くと、DB は重複を止めなくなる（サロゲート PK 導入で最も多い事故）。
+
+### 従属テーブルは参照列をそのまま PK にする
+
+**親1行につき高々1行の属性・サブタイプテーブルは親への FK を、junction テーブルの行（リンク行）は参照列の組を、そのまま PK にする**。
+
+上の UNIQUE 規則から導ける。1:1 の属性テーブルで `id` + 親 FK への UNIQUE と、親 FK を PK にするのは同じ不変条件の宣言で（4節の NOT NULL 既定に従うなら等価。UNIQUE 単独は NULL を許すため）、junction の `id` + 参照列の組への UNIQUE と、参照列の組を PK にするのも同じ。サロゲートを足しても、同じ制約をカラム1本とインデックス1本ぶん余計に払って実現するだけになる。
+
+ここで PK になるのは親のサロゲート `id` への参照で不変なので、上の「可変な業務識別子を PK にしない」は当たらない。
+
+規範も同じ形を定める: [Elmasri & Navathe, ER- and EER-to-Relational Mapping](https://www.cs.purdue.edu/homes/bb/cs448_Spring2014/lecture-files/pdf/ch07-Relational%20Database%20Design%20by%20ER-%20and%20EERR-to-Relational%20Mapping.pdf) の Step 5（M:N の PK は参照列の組）とオプション 8A（サブタイプの PK はスーパークラスのキー）、[Karwin, SQL Antipatterns, Volume 1](https://pragprog.com/titles/bksap1/sql-antipatterns-volume-1/) 3章 "ID Required"、[Wikipedia, Associative entity](https://en.wikipedia.org/wiki/Associative_entity)。
+
+ただしサロゲートに倒すリンク行がある。判断はテーブルの名前ではなく**行の性質**で決める:
+
+| 行の性質 | PK |
+|---|---|
+| 行そのものが独立した識別・管理の対象ではなく、ハードデリートする | 参照列の組をそのまま複合 PK |
+| 行そのものが独立した識別・管理の対象である、またはソフトデリートする | サロゲート `id` + 参照列の組への UNIQUE（ソフトデリートなら生存行に限った部分 UNIQUE） |
+
+「独立した識別・管理の対象」とは、他テーブルから参照される（またはその見込みがある）、外部公開 ID を持つ、行ごとに管理する属性を持つ、のいずれか。行ごとの `sort_order` を持つリンク行はこれに当たる。これに当たる行は、1節の意味でもう「関連」ではなくエンティティなので、上の「サロゲート PK を既定に」に戻る — 下の2つは、そこで複合 PK を選ばない理由。
+
+**1:1 の属性・サブタイプ行はこの軸に載らない**。その行の識別は親のもので、PK は親の不変な単一カラムであり、他テーブルから参照されても自分の属性を持っても動かない — 単一カラムの親キー PK はサロゲートと同じだけ安定した参照先だからで、下の理由 (a) が噛むには複合キーが要る。だから Elmasri & Navathe のオプション 8A はすべてのサブタイプ関係をスーパークラスのキーで張り、Django の multi-table inheritance も `place_ptr`（`OneToOneField` の `parent_link=True, primary_key=True`）を子の PK に保ったまま他モデルから子を参照させる（[Django, Models（multi-table inheritance）](https://docs.djangoproject.com/en/5.2/topics/db/models/)）。1:1・サブタイプ行で切り替わるのはソフトデリート（下の理由 (b)）のときだけ。
+
+サロゲートに倒す理由は2つ:
+
+- **(a) 複合キーは伝播する**: 後から複合キーにカラムが1本増えると、そのキーを写している子の FK・JOIN・インデックスをすべて直すことになる。子が `id` を参照していれば子側は無傷で済む
+- **(b) ソフトデリートは「生存行の中で一意」を要求する**: PK では表現できない（部分 PK は無く、PK に NULL も置けない）が、部分 UNIQUE インデックスなら表現できる（PostgreSQL は `WHERE deleted_at IS NULL`、部分インデックスを持たない MySQL は NOT NULL のセンチネル値を UNIQUE に含める）。ソフトデリートを選ぶかの判断自体は6節「ソフトデリートは既定ではない」
+
+エコシステムもサロゲートを置かない形を採る: Django の 1:1 の例は `Restaurant` の FK を `primary_key=True` で主キーにし（[Django, One-to-one relationships](https://docs.djangoproject.com/en/5.2/topics/db/examples/one_to_one/)）、Rails の [`create_join_table`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html) は `id` を作らない。Django が自動生成する M2M の中間テーブルだけはサロゲート + 複合 UNIQUE だが、これは Django のリレーション系フィールドが複合主キーを扱えない実装制約による（[5.2](https://docs.djangoproject.com/en/5.2/releases/5.2/) で `CompositePrimaryKey` が入った後も、[リレーションは複合主キーを持つモデルを参照できない](https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/)）。
 
 ### auto-increment vs UUID: 判断軸
 
@@ -109,7 +137,9 @@
 | インデックスのサイズ | 8 バイト | 16 バイト（+ 全セカンダリインデックスに載る） |
 | インデックスの局所性 | 末尾に追記されるので挿入が局所的 | ランダムだとページが分散し、書き込み増幅が起きる |
 
-**UUID を選ぶなら時系列順序を持つ UUIDv7 を使う**。ランダムな v4 をクラスタ化主キー（InnoDB の PK、PostgreSQL でクラスタ化したインデックス）にすると、挿入のたびに B-Tree の全域が触られ、書き込み性能とキャッシュ効率が落ちる。
+**UUID を選ぶなら時系列順序を持つ UUIDv7 を使う**。ランダムな v4 は挿入位置が B-Tree の全域に散り、上の表の「インデックスの局所性」の代償を最大で払う。コストが最も大きいのは InnoDB のようにテーブル本体が PK でクラスタ化されるエンジンで、挿入のたびにテーブルの全域が触られる（PostgreSQL の [`CLUSTER`](https://www.postgresql.org/docs/current/sql-cluster.html) は一度きりの物理的な並べ替えで、以後の更新は追随しない。クラスタ化主キーと呼べるものは無い）。
+
+ただしこの推奨は**単一ノードの B-Tree 前提**。範囲分割する分散 DB は逆で、時系列順のキーは挿入を1つの範囲に集中させる — [Cloud Spanner のスキーマ設計](https://docs.cloud.google.com/spanner/docs/schema-design)は書き込みの多いテーブルの先頭キーに単調増加する値を使わないよう求め、ランダムな UUIDv4 を推奨する（同ページが名指しするのはタイムスタンプを上位ビットに置く v1 で、UUIDv7 の名前は出ない。理屈が同じというだけ）。
 
 **ハイブリッドも有効**: 内部の PK・FK は bigint、外部に見せる ID だけ別カラムの UUID/ULID にする。インデックス効率と列挙耐性を両取りでき、内部 ID の露出だけを塞げる。代償はカラムが1本増えることと、外部 ID からの引き当てに追加のインデックスが要ること。
 
@@ -271,6 +301,8 @@ PostgreSQL は DDL をトランザクション内で実行でき、途中で失�
 
 **既定は第3正規形（3NF）**。各非キー属性が主キーだけに依存し、他の非キー属性に依存しない状態を目指す。3NF を守っていれば、更新時異常（同じ事実が複数行にあり片方だけ更新される）は構造的に起きない。
 
+この既定と下の非正規化の条件は**運用系（OLTP）のスキーマに対するもの**。分析用に次元モデル（スタースキーマ、1節の SCD Type 2）として設計するストアは、設計としてそもそも非正規化する — Kimball は「長年の運用系 DB 設計に由来する正規化の衝動に抗い、多対1の固定深度の階層をフラットな次元行の個別の属性へ非正規化せよ」と述べる（[Denormalized Flattened Dimensions](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/denormalized-flattened-dimension/)）。その設計指針は本カタログの範囲外で、下の条件も当てはまらない。
+
 非正規化するのは、以下がすべて揃うときだけ:
 
 1. **計測された根拠**がある（実際のデータ量・クエリで遅いことを確認した。「遅くなりそう」は根拠ではない）
@@ -282,8 +314,17 @@ PostgreSQL は DDL をトランザクション内で実行でき、途中で失�
 ## 11. 参考文献
 
 - [PostgreSQL wiki, Don't Do This](https://wiki.postgresql.org/wiki/Don't_Do_This) — PostgreSQL で避けるべき型・機能の一覧（`timestamp`・`char(n)`・`money`・`SERIAL`）
-- [Bill Karwin, SQL Antipatterns](https://pragprog.com/titles/bksqla/sql-antipatterns/) — 構造のアンチパターンの古典
+- [Bill Karwin, SQL Antipatterns, Volume 1](https://pragprog.com/titles/bksap1/sql-antipatterns-volume-1/) — 構造のアンチパターンの古典。3章 "ID Required" はキー設計を扱う
 - [Bytebase, Choose Primary Key: UUID or Auto Increment](https://www.bytebase.com/blog/choose-primary-key-uuid-or-auto-increment/) — キー選択の判断軸
+- [Elmasri & Navathe, ER- and EER-to-Relational Mapping](https://www.cs.purdue.edu/homes/bb/cs448_Spring2014/lecture-files/pdf/ch07-Relational%20Database%20Design%20by%20ER-%20and%20EERR-to-Relational%20Mapping.pdf) — M:N 関連（Step 5）とサブクラス（オプション 8A）の PK の置き方
+- [Wikipedia, Associative entity](https://en.wikipedia.org/wiki/Associative_entity) — 連関テーブルの PK は通常 FK 列そのもの
+- [Django, One-to-one relationships](https://docs.djangoproject.com/en/5.2/topics/db/examples/one_to_one/) — 1:1 の FK を主キーにする例
+- [Django, Models（multi-table inheritance）](https://docs.djangoproject.com/en/5.2/topics/db/models/) — サブタイプの PK を親へのリンクに保つ形
+- [Django 5.2 release notes](https://docs.djangoproject.com/en/5.2/releases/5.2/) — `CompositePrimaryKey` の追加
+- [Django, Composite primary keys](https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/) — リレーション系フィールドが複合主キーを扱えない制約
+- [Rails, `create_join_table`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html) — 結合テーブルを `id` なしで作る
+- [PostgreSQL, CLUSTER](https://www.postgresql.org/docs/current/sql-cluster.html) — クラスタ化は一度きりで、更新は追随しない
+- [Cloud Spanner, Schema design best practices](https://docs.cloud.google.com/spanner/docs/schema-design) — 範囲分割の分散 DB では逆にランダムなキーを推奨する
 - [Bytebase, SQL Table Naming Dilemma: Singular vs Plural](https://www.bytebase.com/blog/sql-table-naming-dilemma-singular-vs-plural/) — 単数/複数の両論
 - [Crunchy Data, Enums vs Check Constraints in Postgres](https://www.crunchydata.com/blog/enums-vs-check-constraints-in-postgres) — enum 表現の比較
 - [CYBERTEC, Lookup table or enum type?](https://www.cybertec-postgresql.com/en/lookup-table-or-enum-type/) — ルックアップテーブルとの使い分け
@@ -291,5 +332,6 @@ PostgreSQL は DDL をトランザクション内で実行でき、途中で失�
 - [Expand and Contract Method for Database Changes](https://medium.com/@jasminfluri/expand-and-contract-method-for-database-changes-414d236f236f) — 段階的なスキーマ変更
 - [PostgreSQL JSONB: powerful storage](https://www.architecture-weekly.com/p/postgresql-jsonb-powerful-storage) — JSON カラムの使いどころ
 - [Temporal Tables vs Slowly Changing Dimensions](https://sivaro.in/articles/temporal-tables-vs-slowly-changing-dimensions-the-real/) — 履歴モデリングの形の違い
+- [Kimball Group, Denormalized Flattened Dimensions](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/denormalized-flattened-dimension/) — 次元モデルは設計として非正規化する
 - [MySQL Reference, FOREIGN KEY Constraints](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html) — FK インデックスの自動作成
 - [MySQL Reference, The DATE, DATETIME, and TIMESTAMP Types](https://dev.mysql.com/doc/refman/8.4/en/datetime.html) — 範囲とタイムゾーン変換
