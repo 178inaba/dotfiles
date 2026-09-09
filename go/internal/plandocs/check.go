@@ -210,17 +210,45 @@ func (c *checker) resolve(t tree) {
 // rather than before the lookup, so that a real file spelled like one of them
 // is found rather than excused.
 func (c *checker) found(t tree, raw string) bool {
-	s := strings.TrimSuffix(lineNumbers.ReplaceAllString(raw, ""), "/")
+	s := lineNumbers.ReplaceAllString(raw, "")
 	switch {
 	case strings.HasPrefix(s, "~/"):
-		return exists(filepath.Join(c.home, filepath.FromSlash(s[2:])))
+		return exists(filepath.Join(c.home, filepath.FromSlash(withoutTrailingSlash(s[2:]))))
 	case path.IsAbs(s):
 		return exists(filepath.FromSlash(s)) || slashCommand.MatchString(s)
 	}
+
+	s = strings.TrimPrefix(withoutTrailingSlash(s), "./")
 	return exists(filepath.Join(c.top, filepath.FromSlash(s))) ||
-		t.endsWith(strings.TrimPrefix(s, "./")) ||
-		branchLike(s, "/")
+		t.endsWith(s) ||
+		branchLike(s, "/") ||
+		c.namesSomethingElse(s)
 }
+
+// namesSomethingElse reports whether a path nothing in the tree answers for is
+// one this check cannot answer for either.
+//
+// Two of those. The repository's own directory is not walked, so nothing under
+// it can be found here however plainly it is there. And a path with no known
+// extension whose first segment is not at the top of the repository is not a
+// path into this checkout at all: it is a module path, a directory in another
+// project, a branch. Reporting either would hand the author a finding with
+// nothing to do about it, which costs more than the miss.
+//
+// Held to paths with no known extension because that is what separates the two
+// cases from a file: a plan writing a filename means a file, wherever it puts
+// it, and one of those under a first segment nobody has is worth saying.
+func (c *checker) namesSomethingElse(s string) bool {
+	if hasKnownExtension(s) {
+		return false
+	}
+	first, _, _ := strings.Cut(s, "/")
+	return first == ".git" || !exists(filepath.Join(c.top, first))
+}
+
+// withoutTrailingSlash is a path written as a directory, read as a path. An
+// empty result names the directory it was relative to.
+func withoutTrailingSlash(s string) string { return strings.TrimSuffix(s, "/") }
 
 // pathLike reports whether a span reads as a path: it has a directory in it,
 // it opens with a dot the way a configuration file at the top of a repository
@@ -239,6 +267,12 @@ func pathLike(s string) bool {
 	if len(s) > 1 && s[0] == '.' && isLetter(s[1]) {
 		return true
 	}
+	return hasKnownExtension(s)
+}
+
+// hasKnownExtension reports whether a span ends in one of the extensions this
+// check reads as naming a file.
+func hasKnownExtension(s string) bool {
 	return slices.Contains(knownExtensions, strings.TrimPrefix(path.Ext(s), "."))
 }
 
@@ -258,7 +292,7 @@ func skippedSymbol(s string) bool { return branchLike(s, "-") }
 // A span carrying a known extension is a file under a directory that happens
 // to be spelled like a branch type, not a branch.
 func branchLike(s, sep string) bool {
-	if slices.Contains(knownExtensions, strings.TrimPrefix(path.Ext(s), ".")) {
+	if hasKnownExtension(s) {
 		return false
 	}
 	for _, t := range branchTypes {

@@ -88,6 +88,29 @@ func TestCheckReadsThePathsAPlanCites(t *testing.T) {
 		"a planned artifact annotated in Japanese": {
 			plan: "`go/internal/plandocs/check.go`（新規）を足す。\n",
 		},
+		"the home directory itself": {
+			plan: "A `~/` path is read from the home directory.\n",
+		},
+		// Not a path into this checkout: a module path, a directory in another
+		// project, a branch. The check has no answer for any of them.
+		"a path whose first segment is not at the top": {
+			plan: "It decodes with `encoding/json/v2`.\n",
+		},
+		// The walk skips the repository's own directory, so nothing under it
+		// can be found here however plainly it is there.
+		"a path under the repository's own directory": {
+			plan: "The fixture writes `.git/HEAD`.\n",
+		},
+		// A filename means a file wherever the plan puts it, so the rule above
+		// may not swallow one.
+		"a missing file under a first segment that is not at the top": {
+			plan: "Edit `elsewhere/nope.go`.\n",
+			want: []Finding{{Line: 1, Ref: "elsewhere/nope.go"}},
+		},
+		"a missing directory under a real one": {
+			plan: "Add it under `go/internal/nosuchpackage/`.\n",
+			want: []Finding{{Line: 1, Ref: "go/internal/nosuchpackage/"}},
+		},
 		"a path that is nowhere in the tree": {
 			plan: "Edit `go/internal/missing/nope.go` first.\n",
 			want: []Finding{{Line: 1, Ref: "go/internal/missing/nope.go"}},
