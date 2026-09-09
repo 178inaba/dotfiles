@@ -103,14 +103,14 @@ func TestRunBlocks(t *testing.T) {
 		{
 			name:    "a review that has not been answered",
 			records: withReview(),
-			want:    "mark the pull request ready",
+			want:    "apply what the review found",
 		},
 		{
 			// The draft check after each PR write runs this, and undoing
 			// ready is the opposite of finishing.
 			name:    "undoing ready is not reaching it",
 			records: append(withReview(), bash("b9", "gh pr ready --undo 7 -R o/r"), okResult("b9")),
-			want:    "mark the pull request ready",
+			want:    "apply what the review found",
 		},
 		{
 			name:    "a pull request whose creation failed",
@@ -122,7 +122,7 @@ func TestRunBlocks(t *testing.T) {
 			// run exactly where it was.
 			name:    "a ready that failed",
 			records: append(withReview(), bash("b8", "gh pr ready 7 -R o/r"), errResult("b8")),
-			want:    "mark the pull request ready",
+			want:    "apply what the review found",
 		},
 		{
 			// A built-in command is not a skill: no body follows it, so it
