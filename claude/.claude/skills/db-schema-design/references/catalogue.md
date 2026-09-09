@@ -2,7 +2,7 @@
 
 `db-schema-design` スキルの判断プロセス（ステップ3）から引く、論点ごとの使い分け基準。判断プロセス本体は SKILL.md を正とする。
 
-本文はエンジン中立の意図を述べ、PostgreSQL / MySQL 固有の記述は**知らないと踏む罠**に絞る。論争のある論点（auto-increment と UUID の選択、ソフトデリート、FK のオプトアウト、テーブル名の単数/複数）は勝者を決めず、判断軸だけを示す。
+本文はエンジン中立の意図を述べ、PostgreSQL / MySQL 固有の記述は**知らないと踏む罠**に絞る。論点は2種類ある: **既定を置き、そこから離脱する条件を示す**もの（FK 制約、ソフトデリート、従属テーブルの PK）と、**勝者を決めず判断軸だけを示す**もの（auto-increment と UUID の選択、テーブル名の単数/複数）。
 
 ## 目次
 
@@ -297,6 +297,8 @@ PostgreSQL は DDL をトランザクション内で実行でき、途中で失�
 
 **既定は第3正規形（3NF）**。各非キー属性が主キーだけに依存し、他の非キー属性に依存しない状態を目指す。3NF を守っていれば、更新時異常（同じ事実が複数行にあり片方だけ更新される）は構造的に起きない。
 
+この既定と下の非正規化の条件は**運用系（OLTP）のスキーマに対するもの**。分析用に次元モデル（スタースキーマ、1節の SCD Type 2）として設計するストアは、設計としてそもそも非正規化する — Kimball は「長年の運用系 DB 設計に由来する正規化の衝動に抗い、多対1の固定深度の階層をフラットな次元行の個別の属性へ非正規化せよ」と述べる（[Denormalized Flattened Dimensions](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/denormalized-flattened-dimension/)）。その設計指針は本カタログの範囲外で、下の条件も当てはまらない。
+
 非正規化するのは、以下がすべて揃うときだけ:
 
 1. **計測された根拠**がある（実際のデータ量・クエリで遅いことを確認した。「遅くなりそう」は根拠ではない）
@@ -325,5 +327,6 @@ PostgreSQL は DDL をトランザクション内で実行でき、途中で失�
 - [Expand and Contract Method for Database Changes](https://medium.com/@jasminfluri/expand-and-contract-method-for-database-changes-414d236f236f) — 段階的なスキーマ変更
 - [PostgreSQL JSONB: powerful storage](https://www.architecture-weekly.com/p/postgresql-jsonb-powerful-storage) — JSON カラムの使いどころ
 - [Temporal Tables vs Slowly Changing Dimensions](https://sivaro.in/articles/temporal-tables-vs-slowly-changing-dimensions-the-real/) — 履歴モデリングの形の違い
+- [Kimball Group, Denormalized Flattened Dimensions](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/denormalized-flattened-dimension/) — 次元モデルは設計として非正規化する
 - [MySQL Reference, FOREIGN KEY Constraints](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html) — FK インデックスの自動作成
 - [MySQL Reference, The DATE, DATETIME, and TIMESTAMP Types](https://dev.mysql.com/doc/refman/8.4/en/datetime.html) — 範囲とタイムゾーン変換
