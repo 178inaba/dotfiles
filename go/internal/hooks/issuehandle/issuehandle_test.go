@@ -93,50 +93,50 @@ func TestRunBlocks(t *testing.T) {
 		{
 			name:    "a run that has committed but not created the pull request",
 			records: append(planned(), bash("b1", "git commit -m x"), okResult("b1")),
-			want:    "step 5",
+			want:    "create the draft pull request",
 		},
 		{
 			name:    "a pull request nobody has reviewed",
 			records: withPR(),
-			want:    "step 6-1",
+			want:    "independent-reviewer",
 		},
 		{
 			name:    "a review that has not been answered",
 			records: withReview(),
-			want:    "step 6-2",
+			want:    "mark the pull request ready",
 		},
 		{
-			// The draft check of step 5 runs this, and undoing ready is the
-			// opposite of finishing.
+			// The draft check after each PR write runs this, and undoing
+			// ready is the opposite of finishing.
 			name:    "undoing ready is not reaching it",
 			records: append(withReview(), bash("b9", "gh pr ready --undo 7 -R o/r"), okResult("b9")),
-			want:    "step 6-2",
+			want:    "mark the pull request ready",
 		},
 		{
 			name:    "a pull request whose creation failed",
 			records: append(planned(), bash("b2", "gh pr create --draft -R o/r"), errResult("b2")),
-			want:    "step 5",
+			want:    "create the draft pull request",
 		},
 		{
 			// The mirror of the one above: a ready that did not take leaves the
 			// run exactly where it was.
 			name:    "a ready that failed",
 			records: append(withReview(), bash("b8", "gh pr ready 7 -R o/r"), errResult("b8")),
-			want:    "step 6-2",
+			want:    "mark the pull request ready",
 		},
 		{
 			// A built-in command is not a skill: no body follows it, so it
 			// leaves the run it interrupted running.
 			name:    "a built-in command does not end the run",
 			records: append(withPR(), invokeModel, stdout),
-			want:    "step 6-1",
+			want:    "independent-reviewer",
 		},
 		{
 			// Nor does a launch of this very skill that never started; the
 			// run it was typed over is still the one that counts.
 			name:    "a launch that failed does not end the run",
 			records: append(withPR(), invokeFailed, stderr),
-			want:    "step 6-1",
+			want:    "independent-reviewer",
 		},
 		{
 			// Only the last launch is judged, so a finished run before it says
@@ -145,14 +145,14 @@ func TestRunBlocks(t *testing.T) {
 			records: append(append(withReview(),
 				bash("b8", "gh pr ready 7 -R o/r"), okResult("b8")),
 				planned()...),
-			want: "step 5",
+			want: "create the draft pull request",
 		},
 		{
 			// A tool result of a megabyte is ordinary here, and a scan that
 			// stopped at one would miss everything after it.
 			name:    "a record far longer than a scanner's default buffer",
 			records: append(planned(), longResult(), bash("b1", "git commit -m x"), okResult("b1")),
-			want:    "step 5",
+			want:    "create the draft pull request",
 		},
 	}
 
