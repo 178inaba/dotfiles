@@ -56,3 +56,54 @@ func TestPlanDocsPassesItsArgumentsThrough(t *testing.T) {
 		})
 	}
 }
+
+// The findings leave through two doors and both have to open: the report goes
+// out whole, and the status says whether there was anything in it, since the
+// skill that runs this reads the number to decide whether to run it again.
+//
+// What counts as a finding is the package's own and is tested there; this is
+// the wiring between the two doors.
+func TestPlanCheckAnswersOnStandardOutputAndInTheStatus(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	gittest.Write(t, filepath.Join(dir, ".git", "HEAD"), "ref: refs/heads/main\n")
+
+	tests := map[string]struct {
+		plan string
+		code int
+		want []plandocs.Finding
+	}{
+		// Empty rather than nil: the lists crossed the wire, where the absence
+		// of a finding is the empty array the skills read.
+		"a plan with nothing wrong in it": {plan: "All good.\n", want: []plandocs.Finding{}},
+		"a plan citing a path that is not there": {
+			plan: "Edit `go/nope.go`.\n",
+			code: 2,
+			want: []plandocs.Finding{{Line: 1, Ref: "go/nope.go"}},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			plan := filepath.Join(dir, "plan.md")
+			gittest.Write(t, plan, tt.plan)
+
+			var stdout, stderr bytes.Buffer
+			args := []string{"plan", "check", plan}
+			if code := run(t.Context(), args,
+				strings.NewReader(""), &stdout, &stderr, Deps{Dir: dir}); code != tt.code {
+				t.Fatalf("`ccx plan check` = %d, want %d: %s", code, tt.code, stderr.String())
+			}
+
+			var got plandocs.Checked
+			if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+				t.Fatalf("decode: %v\n%s", err, stdout.String())
+			}
+			if diff := cmp.Diff(tt.want, got.MissingPaths); diff != "" {
+				t.Errorf("missing paths mismatch (-want +got):\n%s", diff)
+			}
+			if got.UnresolvedSymbols == nil || got.UnrecordedCommands == nil {
+				t.Errorf("a list reached the wire absent rather than empty: %+v", got)
+			}
+		})
+	}
+}

@@ -131,6 +131,65 @@ func Segments(body string) iter.Seq[Segment] {
 	}
 }
 
+// Block is one fenced code block: what its opening marker declared, and the
+// content between the markers.
+type Block struct {
+	// Info is the opening marker's info string as written, the language tag
+	// and whatever follows it. What a language tag means is the caller's —
+	// this package reads a body, and which tags name a shell is a judgement
+	// about what is in one.
+	Info string
+	// Line is the 1-based line of the opening marker, so the first line of
+	// the content is the one after it.
+	Line int
+	// Start and End are the byte offsets of the content, markers excluded.
+	// They are equal for a block with nothing between its markers.
+	Start, End int
+}
+
+// Blocks yields the fenced blocks of a body, in order.
+//
+// Here rather than assembled by each caller out of Fence segments, which is
+// what two of them had started to do: Segments yields a fenced line without
+// saying whether it opened the block, closed it or sat inside, so a caller
+// wanting the language or the contents reimplements the marker measurement to
+// find out — and that measurement is the thing this package exists to keep one
+// copy of. The Fence kind stays as it is, since what it promises is still
+// true; this is the other question about the same lines, answered where the
+// answer already is.
+//
+// An unclosed fence yields a block running to the end of the body, which is
+// what Segments already says such a fence covers.
+func Blocks(body string) iter.Seq[Block] {
+	return func(yield func(Block) bool) {
+		var open fence
+		var current Block
+		inside := false
+		line, offset := 1, 0
+		for text := range strings.Lines(body) {
+			offset += len(text)
+			was := open.n
+			switch {
+			case !open.step(text):
+			case was == 0:
+				_, _, info := markerRun(text)
+				current, inside = Block{Info: info, Line: line, Start: offset, End: offset}, true
+			case open.n == 0:
+				if !yield(current) {
+					return
+				}
+				inside = false
+			default:
+				current.End = offset
+			}
+			line++
+		}
+		if inside {
+			yield(current)
+		}
+	}
+}
+
 // BlankCode returns body with every byte Segments does not yield as Prose — a
 // Fence segment or a Span segment — replaced by a space, and every newline
 // kept.

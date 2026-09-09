@@ -399,6 +399,67 @@ func TestSegmentsPartitionTheBody(t *testing.T) {
 	}
 }
 
+// TestBlocks reads a block back as its info string and its content, so that a
+// case says what a caller sees rather than a pair of offsets.
+func TestBlocks(t *testing.T) {
+	t.Parallel()
+
+	type block struct {
+		info    string
+		line    int
+		content string
+	}
+	tests := map[string]struct {
+		body string
+		want []block
+	}{
+		"a block with a language": {
+			body: "text\n```bash\nls\n```\n",
+			want: []block{{info: "bash\n", line: 2, content: "ls\n"}},
+		},
+		// The info string is what follows the marker, as written, so a block
+		// declaring nothing carries the line end and no more.
+		"a block with no info string at all": {
+			body: "```\nls\n```\n",
+			want: []block{{info: "\n", line: 1, content: "ls\n"}},
+		},
+		"a block with nothing between its markers": {
+			body: "```go\n```\n",
+			want: []block{{info: "go\n", line: 1}},
+		},
+		// The closing marker of the first may not be read as the opening one
+		// of the second, which is what a caller splitting fenced lines into
+		// blocks for itself gets wrong.
+		"two blocks written back to back": {
+			body: "```sh\na\n```\n```zsh\nb\n```\n",
+			want: []block{{info: "sh\n", line: 1, content: "a\n"}, {info: "zsh\n", line: 4, content: "b\n"}},
+		},
+		// A shorter run, or one of the other character, is content.
+		"a block quoting a marker": {
+			body: "````md\n```\ninner\n```\n````\n",
+			want: []block{{info: "md\n", line: 1, content: "```\ninner\n```\n"}},
+		},
+		"an unclosed block runs to the end": {
+			body: "```bash\nls\npwd\n",
+			want: []block{{info: "bash\n", line: 1, content: "ls\npwd\n"}},
+		},
+		"a body with no block in it": {body: "text and `a span`\n"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var got []block
+			for b := range ghmd.Blocks(tt.body) {
+				got = append(got, block{info: b.Info, line: b.Line, content: tt.body[b.Start:b.End]})
+			}
+			if diff := cmp.Diff(tt.want, got, cmp.AllowUnexported(block{})); diff != "" {
+				t.Errorf("blocks mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestBlankCode reads the results as literals rather than as a length and a
 // count, because what a caller depends on is not only that the code is gone
 // but that everything else sits where the body put it: the widths below are
