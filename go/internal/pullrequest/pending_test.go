@@ -12,9 +12,9 @@ import (
 )
 
 // The document the count is taken from. Everything the rules turn on is here
-// once — a body under each state that used to exclude one, an empty body, one
-// of ours, a skill comment, a bot's comment, our own comment — so that a case
-// below says only what it is about.
+// once — a body under each state that used to exclude one, two empty bodies,
+// one of ours, a skill comment, a bot's comment, our own comment — so that a
+// case below says only what it is about.
 func countable() pullrequest.Context {
 	user, bot := "User", "Bot"
 	return pullrequest.Context{
@@ -130,9 +130,9 @@ func TestPendingCountsFromASince(t *testing.T) {
 	if got.Since == nil || *got.Since != "2026-01-10T00:00:00Z" {
 		t.Errorf("since = %v, want the state file's value", got.Since)
 	}
-	// r1 and r3 were submitted before the watermark and never edited, so the
-	// approval the case above counts is absent here; r6 was edited after it,
-	// which is a remark again.
+	// r1, r3 and r4 were submitted before the watermark and never edited, so
+	// the approval and the dismissal the case above counts are absent here;
+	// r6 was edited after it, which is a remark again.
 	if diff := cmp.Diff([]string{"https://example.com/r6"}, urls(got.Reviews, reviewURL)); diff != "" {
 		t.Errorf("reviews (-want +got):\n%s", diff)
 	}
