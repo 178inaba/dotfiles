@@ -89,7 +89,7 @@
 
 **隔離** — 起動元セッション自身のコミット済みツリーをレビュー・批評し、finding の検証のためにそのツリーへ書きうるエージェントは、`isolation: "worktree"` で 1 エージェント 1 worktree に隔離して起動する（`/simplify` が並列起動する 4 つのレビューエージェントが該当）。共有 worktree で並列に実験させると、あるエージェントの未復元の変更の上で別エージェントの計測が走る（178inaba/dotfiles#228 / 178inaba/dotfiles#236 で実測）。前提はレビュー対象がコミット済みであること — 隔離 worktree は `worktree.baseRef: "head"` により HEAD 起点で作られ、未コミットの作業を持たない。
 
-- **対象外**: `/deep-review` を走らせるエージェント。どちらも `--no-autofix` でツリーへ書かないうえ、隔離ではレビュー対象に届かない — `assigned-pr-reviewer` は `ccx review clone` で自前の checkout を解決する（`isolation` は起動元の HEAD 起点で PR head を見られない）、`independent-reviewer`（issue-handle Step 7）は設計上親の worktree を共有する（隔離 worktree は新規ブランチ上に作られ、`ccx pr prepare-review` が `branch_mismatch` で止まる）
+- **対象外**: `/deep-review` を走らせるエージェント。どちらも `--no-autofix` でツリーへ書かないうえ、隔離ではレビュー対象に届かない — `assigned-pr-reviewer` は `ccx review clone` で自前の checkout を解決する（`isolation` は起動元の HEAD 起点で PR head を見られない）、`independent-reviewer`（issue-handle Step 6）は設計上親の worktree を共有する（隔離 worktree は新規ブランチ上に作られ、`ccx pr prepare-review` が `branch_mismatch` で止まる）
 - diff を渡さず、**ベース ref を渡して各自の worktree で `git diff <base>...HEAD` を取らせる**（隔離 worktree はそのエージェント専用で、親の diff をそのまま貼っても対象が一致しない）
 - **未コミットの変更があるときは隔離しない**。起動前に `git status --porcelain -uno` で tracked な変更を見て、あれば従来どおり隔離なしで起動し、その旨を要約に書く（組み込み `/simplify` はコミット前に走ることが多く `git diff HEAD` をスコープに畳み込む。何も見えていないレビューは干渉より悪く、いつコミットするかはユーザーの領分）
 - finding が名指しするパスは `.claude/worktrees/<name>/` 配下になる。親は自分のツリーのパスへ読み替えて適用する（`ccx hook worktree-edit-guard` は worktree 側からの流出しか見ないので、メインツリーの親では止まらない）
