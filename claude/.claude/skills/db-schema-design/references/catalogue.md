@@ -107,21 +107,23 @@
 
 規範も同じ形を定める: [Elmasri & Navathe, ER- and EER-to-Relational Mapping](https://www.cs.purdue.edu/homes/bb/cs448_Spring2014/lecture-files/pdf/ch07-Relational%20Database%20Design%20by%20ER-%20and%20EERR-to-Relational%20Mapping.pdf) の Step 5（M:N の PK は参照列の組）とオプション 8A（サブタイプの PK はスーパークラスのキー）、[Karwin, SQL Antipatterns, Volume 1](https://pragprog.com/titles/bksap1/sql-antipatterns-volume-1/) 3章 "ID Required"、[Wikipedia, Associative entity](https://en.wikipedia.org/wiki/Associative_entity)。
 
-ただしサロゲートに倒す行がある。判断はテーブルの種類ではなく**行の性質**で決める（1:1・サブタイプテーブルにもリンク行にも同じ軸を当てる）:
+ただしサロゲートに倒すリンク行がある。判断はテーブルの名前ではなく**行の性質**で決める:
 
 | 行の性質 | PK |
 |---|---|
-| 行そのものが独立した識別・管理の対象ではなく、ハードデリートする | 参照列（の組）をそのまま PK |
-| 行そのものが独立した識別・管理の対象である、またはソフトデリートする | サロゲート `id` + 参照列（の組）への UNIQUE（ソフトデリートなら生存行に限った部分 UNIQUE） |
+| 行そのものが独立した識別・管理の対象ではなく、ハードデリートする | 参照列の組をそのまま複合 PK |
+| 行そのものが独立した識別・管理の対象である、またはソフトデリートする | サロゲート `id` + 参照列の組への UNIQUE（ソフトデリートなら生存行に限った部分 UNIQUE） |
 
-「独立した識別・管理の対象」とは、他テーブルから参照される（またはその見込みがある）、外部公開 ID を持つ、行ごとに管理する属性を持つ、のいずれか。行ごとの `sort_order` を持つリンク行はこれに当たり、下記 Django の例の `Restaurant` のように親の属性を切り出しただけの 1:1 テーブルは当たらない。
+「独立した識別・管理の対象」とは、他テーブルから参照される（またはその見込みがある）、外部公開 ID を持つ、行ごとに管理する属性を持つ、のいずれか。行ごとの `sort_order` を持つリンク行はこれに当たる。
+
+**1:1 の属性・サブタイプ行はこの軸に載らない**。その行の識別は親のもので、PK は親の不変な単一カラムであり、他テーブルから参照されても自分の属性を持っても動かない — 単一カラムの親キー PK はサロゲートと同じだけ安定した参照先だからで、下の理由 (a) が噛むには複合キーが要る。だから Elmasri & Navathe のオプション 8A はすべてのサブタイプ関係をスーパークラスのキーで張り、Django の multi-table inheritance も `place_ptr`（`OneToOneField` の `parent_link=True, primary_key=True`）を子の PK に保ったまま他モデルから子を参照させる（[Django, Models（multi-table inheritance）](https://docs.djangoproject.com/en/5.2/topics/db/models/)）。1:1・サブタイプ行で切り替わるのはソフトデリート（下の理由 (b)）のときだけ。
 
 サロゲートに倒す理由は2つ:
 
-- **複合キーは伝播する**: 後から複合キーにカラムが1本増えると、そのキーを写している子の FK・JOIN・インデックスをすべて直すことになる。子が `id` を参照していれば子側は無傷で済む
-- **ソフトデリートは「生存行の中で一意」を要求する**: PK では表現できない（部分 PK は無く、PK に NULL も置けない）が、部分 UNIQUE インデックスなら表現できる（PostgreSQL は `WHERE deleted_at IS NULL`、部分インデックスを持たない MySQL は NOT NULL のセンチネル値を UNIQUE に含める）。ソフトデリートを選ぶかの判断自体は6節「ソフトデリートは既定ではない」
+- **(a) 複合キーは伝播する**: 後から複合キーにカラムが1本増えると、そのキーを写している子の FK・JOIN・インデックスをすべて直すことになる。子が `id` を参照していれば子側は無傷で済む
+- **(b) ソフトデリートは「生存行の中で一意」を要求する**: PK では表現できない（部分 PK は無く、PK に NULL も置けない）が、部分 UNIQUE インデックスなら表現できる（PostgreSQL は `WHERE deleted_at IS NULL`、部分インデックスを持たない MySQL は NOT NULL のセンチネル値を UNIQUE に含める）。ソフトデリートを選ぶかの判断自体は6節「ソフトデリートは既定ではない」
 
-エコシステムもサロゲートを置かない形を採る: Django の 1:1 の例は、親の属性だけを持つ `Restaurant` の FK を `primary_key=True` で主キーにし（[Django, One-to-one relationships](https://docs.djangoproject.com/en/5.2/topics/db/examples/one_to_one/)）、Rails の [`create_join_table`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html) は `id` を作らない。Django が自動生成する M2M の中間テーブルだけはサロゲート + 複合 UNIQUE だが、これは Django のリレーション系フィールドが複合主キーを扱えない実装制約による（[5.2](https://docs.djangoproject.com/en/5.2/releases/5.2/) で `CompositePrimaryKey` が入った後も、[リレーションは複合主キーを持つモデルを参照できない](https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/)）。
+エコシステムもサロゲートを置かない形を採る: Django の 1:1 の例は `Restaurant` の FK を `primary_key=True` で主キーにし（[Django, One-to-one relationships](https://docs.djangoproject.com/en/5.2/topics/db/examples/one_to_one/)）、Rails の [`create_join_table`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html) は `id` を作らない。Django が自動生成する M2M の中間テーブルだけはサロゲート + 複合 UNIQUE だが、これは Django のリレーション系フィールドが複合主キーを扱えない実装制約による（[5.2](https://docs.djangoproject.com/en/5.2/releases/5.2/) で `CompositePrimaryKey` が入った後も、[リレーションは複合主キーを持つモデルを参照できない](https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/)）。
 
 ### auto-increment vs UUID: 判断軸
 
@@ -317,6 +319,7 @@ PostgreSQL は DDL をトランザクション内で実行でき、途中で失�
 - [Elmasri & Navathe, ER- and EER-to-Relational Mapping](https://www.cs.purdue.edu/homes/bb/cs448_Spring2014/lecture-files/pdf/ch07-Relational%20Database%20Design%20by%20ER-%20and%20EERR-to-Relational%20Mapping.pdf) — M:N 関連（Step 5）とサブクラス（オプション 8A）の PK の置き方
 - [Wikipedia, Associative entity](https://en.wikipedia.org/wiki/Associative_entity) — 連関テーブルの PK は通常 FK 列そのもの
 - [Django, One-to-one relationships](https://docs.djangoproject.com/en/5.2/topics/db/examples/one_to_one/) — 1:1 の FK を主キーにする例
+- [Django, Models（multi-table inheritance）](https://docs.djangoproject.com/en/5.2/topics/db/models/) — サブタイプの PK を親へのリンクに保つ形
 - [Django 5.2 release notes](https://docs.djangoproject.com/en/5.2/releases/5.2/) — `CompositePrimaryKey` の追加
 - [Django, Composite primary keys](https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/) — リレーション系フィールドが複合主キーを扱えない制約
 - [Rails, `create_join_table`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html) — 結合テーブルを `id` なしで作る
