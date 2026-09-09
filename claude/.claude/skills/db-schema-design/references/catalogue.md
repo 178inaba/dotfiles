@@ -110,7 +110,7 @@
 | 行の性質 | PK |
 |---|---|
 | 行そのものが独立した識別・管理の対象ではなく、ハードデリートする | 参照列（の組）をそのまま PK |
-| 行そのものが独立した識別・管理の対象である、またはソフトデリートする | サロゲート `id` + 参照列（の組）への UNIQUE |
+| 行そのものが独立した識別・管理の対象である、またはソフトデリートする | サロゲート `id` + 参照列（の組）への UNIQUE（ソフトデリートなら生存行に限った部分 UNIQUE） |
 
 「独立した識別・管理の対象」とは、他テーブルから参照される（またはその見込みがある）、外部公開 ID を持つ、行ごとに管理する属性を持つ、のいずれか。行ごとの `sort_order` を持つリンク行はこれに当たり、下記 Django の例の `Restaurant` のように親の属性を切り出しただけの 1:1 テーブルは当たらない。
 
@@ -119,7 +119,7 @@
 - **複合キーは伝播する**: 後から複合キーにカラムが1本増えると、そのキーを写している子の FK・JOIN・インデックスをすべて直すことになる。子が `id` を参照していれば子側は無傷で済む
 - **ソフトデリートは「生存行の中で一意」を要求する**: PK では表現できない（部分 PK は無く、PK に NULL も置けない）が、部分 UNIQUE インデックスなら表現できる（PostgreSQL は `WHERE deleted_at IS NULL`、部分インデックスを持たない MySQL は NOT NULL のセンチネル値を UNIQUE に含める）。ソフトデリートを選ぶかの判断自体は6節「ソフトデリートは既定ではない」
 
-エコシステムも同じ形を採る: Django の 1:1 の例は、親の属性だけを持つ `Restaurant` の FK を `primary_key=True` で主キーにし（[Django, One-to-one relationships](https://docs.djangoproject.com/en/5.2/topics/db/examples/one_to_one/)）、Rails の [`create_join_table`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html) は `id` を作らない。Django が自動生成する M2M の中間テーブルだけはサロゲート + 複合 UNIQUE だが、これは Django のリレーション系フィールドが複合主キーを扱えない実装制約による（[5.2](https://docs.djangoproject.com/en/5.2/releases/5.2/) で `CompositePrimaryKey` が入った後も、[リレーションは複合主キーを持つモデルを参照できない](https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/)）。
+エコシステムもサロゲートを置かない形を採る: Django の 1:1 の例は、親の属性だけを持つ `Restaurant` の FK を `primary_key=True` で主キーにし（[Django, One-to-one relationships](https://docs.djangoproject.com/en/5.2/topics/db/examples/one_to_one/)）、Rails の [`create_join_table`](https://api.rubyonrails.org/classes/ActiveRecord/ConnectionAdapters/SchemaStatements.html) は `id` を作らない。Django が自動生成する M2M の中間テーブルだけはサロゲート + 複合 UNIQUE だが、これは Django のリレーション系フィールドが複合主キーを扱えない実装制約による（[5.2](https://docs.djangoproject.com/en/5.2/releases/5.2/) で `CompositePrimaryKey` が入った後も、[リレーションは複合主キーを持つモデルを参照できない](https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/)）。
 
 ### auto-increment vs UUID: 判断軸
 
