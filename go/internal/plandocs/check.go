@@ -47,8 +47,9 @@ type Finding struct {
 	// The 1-based line of the plan the finding is on.
 	Line int `json:"line"`
 	// The text as the plan writes it, so that it can be found in the plan and
-	// corrected there. It is never normalised: a reference carrying line
-	// numbers is reported with them on.
+	// corrected there. A reference is not normalised at all — one carrying
+	// line numbers is reported with them on — and a command carries only the
+	// indentation of its block stripped.
 	Ref string `json:"ref"`
 }
 
@@ -132,7 +133,18 @@ func Check(planFile, dir, home string) (Checked, error) {
 		return Checked{}, err
 	}
 
-	c := checker{top: directories(dir)[0], home: home, out: Checked{Plan: planFile}}
+	// Outside a repository the walk up finds no top and answers with the
+	// directory it started in, which here would mean searching whatever
+	// happens to be under it and calling a plan clean on that evidence. The
+	// collection walk can degrade to it — its answer is then "no documents" —
+	// but a gate may not: this is a precondition, and a precondition that
+	// does not hold is a failure with a reason rather than an answer.
+	top := directories(dir)[0]
+	if !hasGitEntry(top) {
+		return Checked{}, fmt.Errorf("%s is not inside a repository", dir)
+	}
+
+	c := checker{top: top, home: home, out: Checked{Plan: planFile}}
 	body := string(b)
 
 	c.readSpans(body)
@@ -240,11 +252,19 @@ func (c *checker) found(t tree, raw string) bool {
 // Held to paths with no known extension because that is what separates the two
 // cases from a file: a plan writing a filename means a file, wherever it puts
 // it, and one of those under a first segment nobody has is worth saying.
+//
+// Held to paths with a directory in them for the same kind of reason. Every
+// spelling the second case is about — a module path, another project's
+// directory, a branch — has one, while a span of a single segment that reads
+// as a path is a file or directory at the top of this repository and nothing
+// else. Without that, the first segment is the whole span and the rule says
+// "not there, so not ours" of every one of them, which would leave the
+// dotfile spelling that makes such a span path-like unable to report anything.
 func (c *checker) namesSomethingElse(s string) bool {
-	if hasKnownExtension(s) {
+	first, _, nested := strings.Cut(s, "/")
+	if hasKnownExtension(s) || !nested {
 		return false
 	}
-	first, _, _ := strings.Cut(s, "/")
 	return first == ".git" || !exists(filepath.Join(c.top, first))
 }
 
@@ -479,15 +499,6 @@ func (c *checker) read(t tree, p string) {
 // warn records a place under the repository that could not be read.
 func (c *checker) warn(p string, err error) {
 	c.out.Warnings = append(c.out.Warnings, fmt.Sprintf("%s could not be read: %v", p, err))
-}
-
-// hasGitEntry reports whether a directory is a checkout of its own, which is
-// what stops the walk upwards and what stops this one descending. Read as an
-// entry rather than as a directory because a linked worktree marks itself
-// with a file.
-func hasGitEntry(dir string) bool {
-	_, err := os.Lstat(filepath.Join(dir, ".git"))
-	return err == nil
 }
 
 // isBinary reports whether the head of a file holds a zero byte.

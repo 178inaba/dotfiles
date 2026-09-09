@@ -505,6 +505,15 @@ func declaredPaths(path string) ([]string, bool, error) {
 	return patterns, true, nil
 }
 
+// hasGitEntry reports whether a directory is a checkout of its own, which is
+// what stops the walk above going further up and what stops the check's walk
+// descending into another branch's. Read as an entry rather than as a
+// directory because a linked worktree marks itself with a file.
+func hasGitEntry(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
 // isFile reports whether path is there and is not a directory, since a link
 // to a directory is not a document to read.
 func isFile(path string) bool {

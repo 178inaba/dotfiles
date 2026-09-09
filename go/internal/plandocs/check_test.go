@@ -59,6 +59,12 @@ func TestCheckReadsThePathsAPlanCites(t *testing.T) {
 		"a path under the home directory": {
 			plan: "See `~/notes/reference.md`.\n",
 		},
+		// The home form returns on its own rather than falling through to the
+		// excuses, so what it reports is fixed here and not only in the code.
+		"a path under the home directory that is not there": {
+			plan: "See `~/notes/nope.md`.\n",
+			want: []Finding{{Line: 1, Ref: "~/notes/nope.md"}},
+		},
 		// The spelling a plan actually uses once it has named a file in full.
 		"a bare basename found anywhere in the tree": {
 			plan: "Then `pending.go` gets the change.\n",
@@ -115,6 +121,17 @@ func TestCheckReadsThePathsAPlanCites(t *testing.T) {
 		"a missing directory under a real one": {
 			plan: "Add it under `go/internal/nosuchpackage/`.\n",
 			want: []Finding{{Line: 1, Ref: "go/internal/nosuchpackage/"}},
+		},
+		// A span of one segment is a file or directory at the top of this
+		// repository and nothing else, so the excuse above may not reach it —
+		// left unguarded it swallowed every dotfile the spelling admits.
+		"a dotfile at the top that is not there": {
+			plan: "Follow `.nosuchrc`.\n",
+			want: []Finding{{Line: 1, Ref: ".nosuchrc"}},
+		},
+		"a directory at the top that is not there": {
+			plan: "Add it under `nosuchdir/`.\n",
+			want: []Finding{{Line: 1, Ref: "nosuchdir/"}},
 		},
 		"a path that is nowhere in the tree": {
 			plan: "Edit `go/internal/missing/nope.go` first.\n",
@@ -204,18 +221,35 @@ func TestCheckReadsTheSymbolsAPlanCites(t *testing.T) {
 // with nothing behind it.
 //
 // The real skill and not a fixture, like the marker test that pins the other
-// copy of this kind, and skipped where the skills are not there.
+// copy of this kind. A failure to read it is a failure and not a skip: a test
+// runs from its own package directory, so the only way the path misses is
+// that it is written wrong, and a skip would hide that for good.
 func TestBranchTypesMatchTheSkill(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "claude", ".claude", "skills", "issue-handle", "SKILL.md")
 	b, err := os.ReadFile(path)
 	if err != nil {
-		t.Skipf("the repository's skills are not there: %v", err)
+		t.Fatalf("ReadFile(%q): %v", path, err)
 	}
 
 	// The line the skill's worktree-naming step spells the enum on.
 	want := "- type: " + strings.Join(branchTypes, " / ")
 	if !strings.Contains(string(b), want) {
 		t.Errorf("%s does not carry %q, so the branch types here and there have parted", path, want)
+	}
+}
+
+// Outside a repository there is no tree to check a plan against, and the walk
+// up answers with the directory it started in. That is a precondition that
+// does not hold, not a plan with nothing wrong in it — a caller reading the
+// status would otherwise take a search of somebody's home directory for a
+// clean run.
+func TestCheckFailsOutsideARepository(t *testing.T) {
+	_, home := checkFixture(t)
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{"plan.md": "Edit `go/internal/plandocs/check.go`.\n"})
+
+	if _, err := Check(filepath.Join(dir, "plan.md"), dir, home); err == nil {
+		t.Error("Check outside a repository = nil, want an error")
 	}
 }
 

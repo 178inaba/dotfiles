@@ -2,6 +2,7 @@
 paths:
   - "**/go/**"
   - "**/.claude/skills/review-response/SKILL.md"
+  - "**/.claude/skills/issue-handle/SKILL.md"
 ---
 
 # Go モジュール編集時のテスト実行
@@ -24,6 +25,7 @@ Go モジュール `go/` を編集したら、対応するリグレッション�
 
 規約から導出できない例外:
 - `skills/review-response/SKILL.md`（`<!-- review-response -->` マーカー変更時のみ）: `go -C go test ./internal/pullrequest/`（マーカー同期テスト `TestSkillMarkerMatchesTheSkill`）
+- `skills/issue-handle/SKILL.md`（worktree 名確定ステップの `- type:` 行の enum 変更時のみ）: `go -C go test ./internal/plandocs/`（`TestBranchTypesMatchTheSkill` が `ccx plan check` 側の写しをこの行に固定している）
 
 **CI（`.github/workflows/ci.yml`）は `go vet`・golangci-lint・`go test -race` の 3 つだけを実行する**ので、CI の失敗はローカルで再現できる。**lint も push 前に回す**: `cd go && golangci-lint run`。`go test` が通っても `revive` の exported ルール等は落ちるので、テストだけでは代替にならない。バージョンは `go/.tool-versions` のピンを mise が解決するので、新しいマシンでは `mise install`（`go/` で実行。または `mise -C go install`）で取得する。
 
@@ -34,7 +36,7 @@ Go モジュール `go/` を編集したら、対応するリグレッション�
 - テストは実環境に触れない: 外部コマンドは注入した runner インターフェース、HTTP は `httptest` で差し替える（バイナリにテスト専用の env を残さないため。シェル時代の `YQ_BIN`・`LSOF_BIN` 等はこれに置き換わって消えた）。git 操作は `t.TempDir()` の使い捨てリポジトリで完結させ、実 gh・実リポジトリに触れない
   - **`GH_BIN` だけは残る**（`go/internal/ghshim`）。実体の `gh` を探すこと自体が gh shim の仕事なので、これはテスト用の穴ではなく本番の入力
   - ファイルシステムは runner 注入の対象外で、`t.TempDir()` に実際のツリーを組んで検証してよい（`go/internal/selfbuild` の symlink 解決、`go/internal/ghshim` の本文ファイルがこの形）
-  - 例外として実リポジトリを読むテストが 4 つある（`go/internal/skill` の frontmatter 検査と `go/internal/cmd` の契約検査は実 `skills/` の検査自体が仕様、`go/internal/pullrequest` のマーカー同期テストは上記の例外、`go/internal/plandocs` の `TestBranchTypesMatchTheSkill` は Go 側の定数と issue-handle の散文にしか無いブランチ type 一覧を突き合わせる）。いずれもネットワーク・認証情報・実 GitHub には触れない。この種のテストは「正が散文にしか無く共有できる定数を作れない」場合に限る（skills/ が無い環境では `t.Skipf` する）
+  - 例外として実リポジトリを読むテストが 4 つある（`go/internal/skill` の frontmatter 検査と `go/internal/cmd` の契約検査は実 `skills/` の検査自体が仕様、`go/internal/pullrequest` のマーカー同期テストと `go/internal/plandocs` の `TestBranchTypesMatchTheSkill` は上記の例外）。いずれもネットワーク・認証情報・実 GitHub には触れない。この種のテストは「正が散文にしか無く共有できる定数を作れない」場合に限る
   - 契約検査が `go/internal/cmd` にあるのは、突き合わせる契約識別子を組み立てられるのがそこだけだから（どのコマンドがどの型を描画するかを知っているのは `internal/cmd`）
 - 外部コマンドを実際に起動するテストは、**production がそのコマンドを叩く経路の検証**に限る（`gittest` の実 git、`go/internal/worktree` の実 `lsof`）。テスト都合のビルドやスタブスクリプトを起こす形は採らない
 - テストが無いコードを新規追加する場合は、配置規約に従う場所へテストも同時に追加する。規約から導出できない対応になる場合のみ、例外として上記へ追記する
