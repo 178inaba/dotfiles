@@ -1,7 +1,9 @@
 package plandocs
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -191,6 +193,29 @@ func TestCheckReadsTheSymbolsAPlanCites(t *testing.T) {
 				t.Errorf("unresolved symbols mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// The branch types the two excuses read are decided in prose, in the skill
+// that names a working branch, and there is nothing to share between a
+// markdown file and a Go declaration. So the copy is pinned instead: a type
+// added to the skill and not here silently teaches the check to report every
+// branch of that type, and one dropped from the skill leaves an excuse here
+// with nothing behind it.
+//
+// The real skill and not a fixture, like the marker test that pins the other
+// copy of this kind, and skipped where the skills are not there.
+func TestBranchTypesMatchTheSkill(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "claude", ".claude", "skills", "issue-handle", "SKILL.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("the repository's skills are not there: %v", err)
+	}
+
+	// The line the skill's worktree-naming step spells the enum on.
+	want := "- type: " + strings.Join(branchTypes, " / ")
+	if !strings.Contains(string(b), want) {
+		t.Errorf("%s does not carry %q, so the branch types here and there have parted", path, want)
 	}
 }
 

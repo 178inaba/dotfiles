@@ -73,9 +73,11 @@ var shellLanguages = []string{"bash", "console", "sh", "shell", "zsh"}
 var recordedResultForms = []string{"# => exit <status>: <what it printed>", "# => not run: <why not>"}
 
 // branchTypes open a branch name. They are this repository's own convention
-// for a working branch, kept in step with the step of the issue-handle skill
-// that decides one; nothing in this module publishes them to share.
-var branchTypes = []string{"chore", "docs", "feature", "fix", "hotfix", "refactor"}
+// for a working branch, decided in the prose of the skill that names one;
+// nothing publishes them to share, so this is a copy and a test pins it to
+// that prose. Written in the skill's order for that test's sake — nothing
+// here reads them in order.
+var branchTypes = []string{"feature", "fix", "hotfix", "refactor", "chore", "docs"}
 
 var (
 	// A span that reads as a name: no whitespace, and none of the punctuation
