@@ -187,7 +187,7 @@ func directories(dir string) []string {
 	var out []string
 	for at := dir; ; {
 		out = append(out, at)
-		if _, err := os.Lstat(filepath.Join(at, ".git")); err == nil {
+		if hasGitEntry(at) {
 			slices.Reverse(out)
 			return out
 		}

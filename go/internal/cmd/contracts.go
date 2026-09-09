@@ -121,7 +121,15 @@ the author cannot act on costs a rerun for nothing.
 
 ` + planCheckPaths() + `
 
-` + planCheckSymbols() + `
+A span reads as a name when it holds only letters, digits, underscores, dots
+and dashes, at least one of them a letter, and is neither a flag nor a branch's
+worktree name — a flag is spelled like a name and belongs to a command line,
+and a worktree is named after the branch in it and written nowhere. The
+repository is walked once and every text file searched for the name as a whole
+word; the repository's own directory, a nested checkout and any binary are not
+searched, so a name only another branch's worktree holds is reported. A
+qualified name the tree does not write whole is held when it writes the last
+part of it, which is where an unexported declaration is spelled.
 
 ` + planCheckCommands() + `
 
@@ -802,17 +810,6 @@ func planCheckPaths() string {
 		"a plan naming a file by its bare name after naming it in full still resolves. A spelling " +
 		"that survives all of that and still names nothing is reported, unless it is a skill " +
 		"invoked by name or a branch name, neither of which is a file.")
-}
-
-func planCheckSymbols() string {
-	return contract.Wrap("A span reads as a name when it holds only letters, digits, underscores, " +
-		"dots and dashes, at least one of them a letter, and does not open with a dash — a flag " +
-		"is spelled like a name and belongs to a command line. The repository is walked once and " +
-		"every text file searched for it as a whole word; the repository's own directory, a " +
-		"nested checkout and any binary are not searched, so a name only another branch's " +
-		"worktree holds is reported. A qualified name the tree does not write whole is held when " +
-		"it writes the last part of it, which is where an unexported declaration is spelled. A " +
-		"name nothing writes is reported, unless it is a worktree name.")
 }
 
 func planCheckCommands() string {

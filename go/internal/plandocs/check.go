@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
@@ -80,9 +81,6 @@ var (
 	// A span that reads as a name: no whitespace, and none of the punctuation
 	// that would make it prose or a call.
 	symbolSpan = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-	// A span with no letter in it is a number or a date, and neither is a
-	// name to look for.
-	hasLetter = regexp.MustCompile(`[A-Za-z]`)
 	// The line numbers a reference to a place in a file carries, in the
 	// spellings this repository's own documents use.
 	lineNumbers = regexp.MustCompile(`:[0-9]+(?:[-,][0-9]+)*$`)
@@ -132,14 +130,13 @@ func Check(planFile, dir, home string) (Checked, error) {
 		return Checked{}, err
 	}
 
-	top := directories(dir)[0]
-	c := checker{top: top, home: home, out: Checked{Plan: planFile, Warnings: []string{}}}
+	c := checker{top: directories(dir)[0], home: home, out: Checked{Plan: planFile}}
 	body := string(b)
 
 	c.readSpans(body)
 	c.readCommands(body)
 
-	tree, err := walkTree(top, planFile, c.symbols, &c.out.Warnings)
+	tree, err := c.walkTree(planFile)
 	if err != nil {
 		return Checked{}, err
 	}
@@ -172,7 +169,10 @@ func (c *checker) readSpans(body string) {
 		}
 		text := strings.Trim(body[s.Start:s.End], "`")
 		switch {
-		case strings.ContainsFunc(text, isSpace):
+		// Whitespace by Unicode's reading and not ASCII's: a plan written in
+		// Japanese separates words in a span with a full-width space, and one
+		// read as a single token would be looked up as a name.
+		case strings.ContainsFunc(text, unicode.IsSpace):
 		case pathLike(text):
 			c.paths = append(c.paths, Finding{Line: s.Line, Ref: text})
 		case symbolLike(text):
@@ -190,7 +190,7 @@ func (c *checker) resolve(t tree) {
 		}
 	}
 	for _, f := range c.symbols {
-		if !t.holds(f.Ref) && !skippedSymbol(f.Ref) {
+		if !t.holds(f.Ref) {
 			c.out.UnresolvedSymbols = append(c.out.UnresolvedSymbols, f)
 		}
 	}
@@ -276,17 +276,18 @@ func hasKnownExtension(s string) bool {
 	return slices.Contains(knownExtensions, strings.TrimPrefix(path.Ext(s), "."))
 }
 
-// symbolLike reports whether a span reads as a name to look for. A flag is
-// not one: it is spelled like a name and belongs to a command line rather
-// than to the code.
+// symbolLike reports whether a span reads as a name to look for.
+//
+// Three things spelled like a name are not one, and they are refused here
+// rather than excused after the search, so that nothing is looked for that
+// could not be found: a flag, which belongs to a command line; a span with no
+// letter in it, which is a number or a date; and a worktree, which is named
+// after the branch in it with the separator changed and is written nowhere in
+// the tree under either spelling.
 func symbolLike(s string) bool {
-	return symbolSpan.MatchString(s) && hasLetter.MatchString(s) && !strings.HasPrefix(s, "-")
+	return symbolSpan.MatchString(s) && containsLetter(s) &&
+		!strings.HasPrefix(s, "-") && !branchLike(s, "-")
 }
-
-// skippedSymbol reports whether a name nothing holds is one to keep quiet
-// about: a worktree is named after the branch in it, with the separator
-// changed, and neither name is written anywhere in the tree.
-func skippedSymbol(s string) bool { return branchLike(s, "-") }
 
 // branchLike reports whether a span opens with a branch type followed by sep.
 // A span carrying a known extension is a file under a directory that happens
@@ -320,102 +321,38 @@ func plannedLines(body string) map[int]bool {
 // readCommands reads the shell blocks and reports the commands in them whose
 // result was never written down.
 //
-// A block's language decides whether it holds commands, and the reading of a
-// body this module shares yields a fenced line whole rather than saying what
-// opened it, so the marker and the info string are read here.
+// The blocks come from the shared reading, which is what says where one ends
+// and what its opening marker declared. Which declarations name a shell is
+// this check's judgement and stays here.
+//
+// The findings come out in line order because the blocks do and each yields
+// at most one.
 func (c *checker) readCommands(body string) {
-	for _, blk := range fencedBlocks(body) {
-		if !slices.Contains(shellLanguages, blk.language) {
+	for blk := range ghmd.Blocks(body) {
+		if !slices.Contains(shellLanguages, language(blk.Info)) {
 			continue
 		}
-		open := Finding{}
-		for _, l := range blk.lines {
-			text := strings.TrimSpace(l.text)
+
+		open, at := Finding{}, blk.Line
+		for text := range strings.Lines(body[blk.Start:blk.End]) {
+			at++
+			text = strings.TrimSpace(text)
 			switch {
 			case recordedResult.MatchString(text):
 				open = Finding{}
 			case text == "" || strings.HasPrefix(text, "#"):
 			case open.Line == 0:
-				open = Finding{Line: l.number, Ref: text}
+				open = Finding{Line: at, Ref: text}
 			}
 		}
 		if open.Line != 0 {
 			c.out.UnrecordedCommands = append(c.out.UnrecordedCommands, open)
 		}
 	}
-	slices.SortStableFunc(c.out.UnrecordedCommands, func(a, b Finding) int { return a.Line - b.Line })
-}
-
-// line is one line of a plan and where it is.
-type line struct {
-	number int
-	text   string
-}
-
-// block is one fenced block: the language its info string names, and the
-// lines between the markers.
-type block struct {
-	language string
-	lines    []line
-}
-
-// fencedBlocks reads the fenced blocks out of a body.
-//
-// Which lines are fenced is the shared reading's answer, deviations included.
-// What is this function's own is the split of those lines into blocks: the
-// shared reading yields them as one kind, so the marker that opens a block
-// and the one that closes it are told apart here, by the rule that closes a
-// block on a bare marker of the opening character and at least its length.
-// That is also what keeps two blocks written back to back from reading as one.
-func fencedBlocks(body string) []block {
-	var fenced []line
-	for s := range ghmd.Segments(body) {
-		if s.Kind == ghmd.Fence {
-			fenced = append(fenced, line{number: s.Line, text: body[s.Start:s.End]})
-		}
-	}
-
-	var out []block
-	for i := 0; i < len(fenced); {
-		char, n, info := marker(fenced[i].text)
-		j := i + 1
-		for j < len(fenced) && !closes(fenced[j].text, char, n) {
-			j++
-		}
-		out = append(out, block{language: language(info), lines: fenced[i+1 : j]})
-		i = j + 1
-	}
-	return out
-}
-
-// marker reads the fence marker a line opens with: its character, the length
-// of its run, and the info string after it. A copy of the shared reading's
-// own measurement, which it does not publish; the two agree on what a marker
-// is because both read a run of one character.
-func marker(text string) (char byte, n int, info string) {
-	i := 0
-	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
-		i++
-	}
-	if i == len(text) || (text[i] != '`' && text[i] != '~') {
-		return 0, 0, ""
-	}
-	for n = 0; i+n < len(text) && text[i+n] == text[i]; n++ {
-		continue
-	}
-	return text[i], n, text[i+n:]
-}
-
-// closes reports whether a line closes a block opened by a run of n of char.
-// A closing marker carries no info string, so anything but whitespace after
-// the run leaves the block open.
-func closes(text string, char byte, n int) bool {
-	c, m, rest := marker(text)
-	return c == char && m >= n && strings.TrimSpace(rest) == ""
 }
 
 // language is the first word of an info string, lowercased, which is what
-// names the block's language when it names anything.
+// names a block's language when it names anything.
 func language(info string) string {
 	fields := strings.Fields(info)
 	if len(fields) == 0 {
@@ -477,9 +414,9 @@ func (t tree) endsWith(s string) bool {
 // The plan itself is skipped even when it is kept inside the repository. A
 // plan naming something it invented would otherwise be its own evidence that
 // the name exists, which is the opposite of what this walk is for.
-func walkTree(top, planFile string, symbols []Finding, warnings *[]string) (tree, error) {
+func (c *checker) walkTree(planFile string) (tree, error) {
 	t := tree{holding: map[string]bool{}}
-	for _, f := range symbols {
+	for _, f := range c.symbols {
 		t.holding[f.Ref] = false
 		if last, qualified := lastSegment(f.Ref); qualified {
 			t.holding[last] = false
@@ -491,24 +428,22 @@ func walkTree(top, planFile string, symbols []Finding, warnings *[]string) (tree
 		return tree{}, err
 	}
 
-	err = filepath.WalkDir(top, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(c.top, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			*warnings = append(*warnings, fmt.Sprintf("%s could not be read: %v", p, err))
+			c.warn(p, err)
 			if d != nil && d.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if p == top {
+		if p == c.top {
 			return nil
 		}
-		if d.IsDir() {
-			if d.Name() == ".git" || hasGitEntry(p) {
-				return fs.SkipDir
-			}
+		if d.IsDir() && (d.Name() == ".git" || hasGitEntry(p)) {
+			return fs.SkipDir
 		}
 
-		rel, err := filepath.Rel(top, p)
+		rel, err := filepath.Rel(c.top, p)
 		if err != nil {
 			return err
 		}
@@ -516,30 +451,38 @@ func walkTree(top, planFile string, symbols []Finding, warnings *[]string) (tree
 		if d.IsDir() || p == plan {
 			return nil
 		}
-		return t.read(p, warnings)
+		c.read(t, p)
+		return nil
 	})
 	return t, err
 }
 
 // read searches one file for the names not yet found.
-func (t tree) read(p string, warnings *[]string) error {
+func (c *checker) read(t tree, p string) {
 	b, err := os.ReadFile(p)
 	if err != nil {
-		*warnings = append(*warnings, fmt.Sprintf("%s could not be read: %v", p, err))
-		return nil
+		c.warn(p, err)
+		return
 	}
 	if isBinary(b) {
-		return nil
+		return
 	}
 	for symbol, found := range t.holding {
 		if !found && wholeWord(b, symbol) {
 			t.holding[symbol] = true
 		}
 	}
-	return nil
 }
 
-// hasGitEntry reports whether a directory is a checkout of its own.
+// warn records a place under the repository that could not be read.
+func (c *checker) warn(p string, err error) {
+	c.out.Warnings = append(c.out.Warnings, fmt.Sprintf("%s could not be read: %v", p, err))
+}
+
+// hasGitEntry reports whether a directory is a checkout of its own, which is
+// what stops the walk upwards and what stops this one descending. Read as an
+// entry rather than as a directory because a linked worktree marks itself
+// with a file.
 func hasGitEntry(dir string) bool {
 	_, err := os.Lstat(filepath.Join(dir, ".git"))
 	return err == nil
@@ -572,7 +515,12 @@ func isWord(c byte) bool {
 
 func isLetter(c byte) bool { return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') }
 
-func isSpace(r rune) bool { return r == ' ' || r == '\t' || r == '\n' || r == '\r' }
+// containsLetter reports whether a span holds a letter. Only the span grammar
+// above reaches this, which admits nothing outside ASCII, so the byte reading
+// is the whole of it.
+func containsLetter(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return r < 128 && isLetter(byte(r)) }) >= 0
+}
 
 // exists reports whether a path is there, as a file or as a directory: a plan
 // names both, and a directory that is there is not a missing path.

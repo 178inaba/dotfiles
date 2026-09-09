@@ -82,11 +82,14 @@ func TestCheckReadsThePathsAPlanCites(t *testing.T) {
 		"a branch name": {
 			plan: "Branch `feature/293-count-bodied-approvals` holds it.\n",
 		},
+		// The branch excuse is the tree's layout's to confirm nowhere: a
+		// repository with a directory named after a branch type would
+		// otherwise have every branch of that type reported.
+		"a branch name whose type is also a directory at the top": {
+			plan: "Branch `docs/293-count-bodied-approvals` holds it.\n",
+		},
 		"a planned artifact annotated in English": {
 			plan: "Add `go/internal/plandocs/check.go` (new) beside it.\n",
-		},
-		"a planned artifact annotated in Japanese": {
-			plan: "`go/internal/plandocs/check.go`（新規）を足す。\n",
 		},
 		"the home directory itself": {
 			plan: "A `~/` path is read from the home directory.\n",
@@ -161,8 +164,11 @@ func TestCheckReadsTheSymbolsAPlanCites(t *testing.T) {
 		"a span carrying whitespace": {
 			plan: "Run `go -C go test ./...` afterwards.\n",
 		},
-		"a planned artifact annotated in English": {
-			plan: "Add a `noSuchFixture` case (new) to the table.\n",
+		// The annotation is read before a span is classified, so the two
+		// spellings of it are asserted once each across the two tables rather
+		// than twice each.
+		"a planned artifact annotated in Japanese": {
+			plan: "`noSuchFixture` のケースを足す（新規）。\n",
 		},
 		"a name nothing holds": {
 			plan: "The `noSuchFixture` case decides it.\n",
@@ -272,9 +278,11 @@ func TestCheckOrdersFindingsByLine(t *testing.T) {
 	}
 }
 
-// The plan a report is about is named in it, and a clean plan reports three
-// empty lists rather than three absences.
-func TestCheckNamesThePlanAndAnswersEmpty(t *testing.T) {
+// The report names the plan it is about, as the plan was named: a caller
+// running this over several plans has nothing else to tell them apart by.
+// That the lists reach the wire as arrays rather than as absences is the
+// command's promise and is asserted where the command is.
+func TestCheckNamesThePlan(t *testing.T) {
 	dir, home := checkFixture(t)
 	file := filepath.Join(t.TempDir(), "plan.md")
 	writeTree(t, filepath.Dir(file), map[string]string{"plan.md": "Nothing to check here.\n"})
@@ -285,9 +293,6 @@ func TestCheckNamesThePlanAndAnswersEmpty(t *testing.T) {
 	}
 	if got.Plan != file {
 		t.Errorf("plan = %q, want %q", got.Plan, file)
-	}
-	if len(got.MissingPaths) != 0 || len(got.UnresolvedSymbols) != 0 || len(got.UnrecordedCommands) != 0 {
-		t.Errorf("a plan with nothing in it carries findings: %+v", got)
 	}
 }
 
