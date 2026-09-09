@@ -89,9 +89,8 @@ const reason = `Blocked: this /issue-handle run has not reached a Ready pull req
 
 The next step is step %s: %s.
 
-The skill finishes by marking the pull request ready in step 6-3, after the
-sync check, so the turn does not end before that. Carry on from there in this
-same turn.
+The skill finishes by marking the pull request ready after the sync check, so
+the turn does not end before that. Carry on from there in this same turn.
 
 If this stop is intentional — an escalation, or a question only the user can
 answer — say why you are stopping and stop again. This guard does not block
