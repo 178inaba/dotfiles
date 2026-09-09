@@ -126,8 +126,8 @@ func (Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 	if err != nil {
 		return hooks.Result{}
 	}
-	next, blocked := r.next()
-	if !blocked {
+	next := r.next()
+	if next == "" {
 		return hooks.Result{}
 	}
 
@@ -149,18 +149,18 @@ type run struct {
 	ready        bool
 }
 
-// next names the step the run owes, and reports false when there is nothing to
-// hold the turn open for.
-func (r run) next() (step, bool) {
+// next names the step the run owes, and is empty when there is nothing to hold
+// the turn open for.
+func (r run) next() step {
 	switch {
 	case !r.active || !r.planApproved || r.ready:
-		return "", false
+		return ""
 	case !r.prCreated:
-		return createPR, true
+		return createPR
 	case !r.reviewed:
-		return askReview, true
+		return askReview
 	default:
-		return answerIt, true
+		return answerIt
 	}
 }
 
