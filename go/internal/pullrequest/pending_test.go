@@ -128,8 +128,9 @@ func TestPendingCountsFromASince(t *testing.T) {
 	if got.Since == nil || *got.Since != "2026-01-10T00:00:00Z" {
 		t.Errorf("since = %v, want the state file's value", got.Since)
 	}
-	// r1 was submitted before the watermark and never edited; r6 was edited
-	// after it, which is a remark again.
+	// r1 and r3 were submitted before the watermark and never edited, so the
+	// approval the case above counts is absent here; r6 was edited after it,
+	// which is a remark again.
 	if diff := cmp.Diff([]string{"https://example.com/r6"}, urls(got.Reviews, reviewURL)); diff != "" {
 		t.Errorf("reviews (-want +got):\n%s", diff)
 	}
