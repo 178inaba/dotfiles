@@ -12,9 +12,9 @@ import (
 )
 
 // The document the count is taken from. Everything the rules turn on is here
-// once — an approval with a body, a dismissed review, one of ours, an empty
-// body under each of a comment and an approval, a skill comment, a bot's
-// comment, our own comment — so that a case below says only what it is about.
+// once — a body under each of the three verdicts, one of ours, an empty body
+// under two of them, a skill comment, a bot's comment, our own comment — so
+// that a case below says only what it is about.
 func countable() pullrequest.Context {
 	user, bot := "User", "Bot"
 	return pullrequest.Context{
@@ -25,7 +25,9 @@ func countable() pullrequest.Context {
 			// Ours: we do not answer our own reviews.
 			{Author: new("me"), AuthorType: &user, State: "COMMENTED", Body: "a note of mine",
 				URL: "https://example.com/r2", SubmittedAt: "2026-01-05T00:00:00Z"},
-			// An approval with a body: the verdict does not excuse it.
+			// A body under a verdict that settles something, and one under a
+			// verdict GitHub itself turned back into a comment: neither
+			// verdict excuses the body.
 			{Author: new("reviewer"), AuthorType: &user, State: "APPROVED", Body: "looks good",
 				URL: "https://example.com/r3", SubmittedAt: "2026-01-05T00:00:00Z"},
 			{Author: new("reviewer"), AuthorType: &user, State: "DISMISSED", Body: "withdrawn",
@@ -34,8 +36,8 @@ func countable() pullrequest.Context {
 			// remarks being the threads it left.
 			{Author: new("reviewer"), AuthorType: &user, State: "COMMENTED", Body: "",
 				URL: "https://example.com/r5", SubmittedAt: "2026-01-05T00:00:00Z"},
-			// The same emptiness under an approval: what excludes it is the
-			// missing body, not the verdict above it.
+			// The same emptiness under the remaining verdict: what excludes a
+			// review is the missing body, never the verdict above it.
 			{Author: new("reviewer"), AuthorType: &user, State: "APPROVED", Body: "",
 				URL: "https://example.com/r7", SubmittedAt: "2026-01-05T00:00:00Z"},
 		},
@@ -93,8 +95,10 @@ func TestPendingCountsWithoutASince(t *testing.T) {
 	if got.Since != nil {
 		t.Errorf("since = %v, want null: with no state file everything counts", got.Since)
 	}
-	// r2 is ours, r4 dismissed, r5 and r7 have no body.
-	wantReviews := []string{"https://example.com/r1", "https://example.com/r3"}
+	// r2 is ours; r5 and r7 have no body.
+	wantReviews := []string{
+		"https://example.com/r1", "https://example.com/r3", "https://example.com/r4",
+	}
 	if diff := cmp.Diff(wantReviews, urls(got.Reviews, reviewURL)); diff != "" {
 		t.Errorf("reviews (-want +got):\n%s", diff)
 	}

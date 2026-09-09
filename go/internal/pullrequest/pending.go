@@ -22,10 +22,10 @@ type PendingSet struct {
 	// resolved, which is the point of it.
 	Threads []PendingThread `json:"threads" contract:"required"`
 	// The reviews with something to answer that have arrived or
-	// been rewritten since. A dismissal, one of ours, and one whose body is
-	// empty because its remarks were left inline are not among them — an
-	// approval that carries a body is, since a reviewer with questions left is
-	// expected to approve and write them there.
+	// been rewritten since. One of ours and one whose body is empty because
+	// its remarks were left inline are not among them; the verdict is not
+	// consulted, a reviewer with questions left being expected to approve and
+	// write them in the body, and a dismissal being a review comment.
 	Reviews []PendingReview `json:"reviews" contract:"required"`
 	// The conversation's comments that have arrived or been
 	// rewritten since, our own marked posts aside. A bot's counts, and so does
@@ -105,7 +105,7 @@ func Pending(c Context, since *string) PendingSet {
 	}
 
 	for _, r := range c.Reviews {
-		if isLogin(r.Author, c.CurrentUser) || r.Body == "" || r.State == "DISMISSED" {
+		if isLogin(r.Author, c.CurrentUser) || r.Body == "" {
 			continue
 		}
 		if !arrivedSince(r.SubmittedAt, r.LastEditedAt, mark) {
