@@ -12,9 +12,9 @@ import (
 )
 
 // The document the count is taken from. Everything the rules turn on is here
-// once — an approval that says something, one that says nothing, a dismissed
-// review, one of ours, an empty one, a skill comment, a bot's comment, our own
-// comment — so that a case below says only what it is about.
+// once — an approval with a body, a dismissed review, one of ours, an empty
+// body under each of a comment and an approval, a skill comment, a bot's
+// comment, our own comment — so that a case below says only what it is about.
 func countable() pullrequest.Context {
 	user, bot := "User", "Bot"
 	return pullrequest.Context{
@@ -25,9 +25,7 @@ func countable() pullrequest.Context {
 			// Ours: we do not answer our own reviews.
 			{Author: new("me"), AuthorType: &user, State: "COMMENTED", Body: "a note of mine",
 				URL: "https://example.com/r2", SubmittedAt: "2026-01-05T00:00:00Z"},
-			// An approval with something in it: a reviewer is expected to
-			// approve and write their remaining questions in the body, so the
-			// verdict is no reason to leave the body unanswered.
+			// An approval with a body: the verdict does not excuse it.
 			{Author: new("reviewer"), AuthorType: &user, State: "APPROVED", Body: "looks good",
 				URL: "https://example.com/r3", SubmittedAt: "2026-01-05T00:00:00Z"},
 			{Author: new("reviewer"), AuthorType: &user, State: "DISMISSED", Body: "withdrawn",
