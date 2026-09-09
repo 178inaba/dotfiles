@@ -86,6 +86,11 @@ func checkStatuses() statuses {
 	return out
 }
 
+// planCheckFindings is one status for all three kinds of finding, because the
+// caller branches on whether the plan is clean and not on what is wrong with
+// it — what is wrong is in the output, per finding, with the line it is on.
+var planCheckFindings = status{code: 2, symbol: "findings", meaning: "the plan carries at least one finding"}
+
 // sectionNotFound is separate from the table above because a body that does
 // not carry a section is not a violation of the schema; it is an answer, and a
 // caller branches on it without reading the message.

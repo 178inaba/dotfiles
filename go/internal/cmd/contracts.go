@@ -105,6 +105,39 @@ observable from here.`,
 		statuses: with(),
 	},
 
+	"plan check": {
+		intro: `Check a drafted plan's paths, names and recorded commands.
+
+The fact-checking a plan wants before it goes to a reader, done here so that
+the reader reads for design. Three questions, all of them about the text: does
+a path the plan cites name a file, does a name it cites appear anywhere in the
+repository, and did whoever wrote a command in the plan say what running it
+did. Nothing in the plan is executed — a command in it is read, never run.
+
+Only code spans are read for the first two. A span carrying whitespace is
+prose in backticks and is skipped, and so is one that is neither path-like nor
+name-like: false negatives are the deliberate side to err on, since a finding
+the author cannot act on costs a rerun for nothing.
+
+` + planCheckPaths() + `
+
+` + planCheckSymbols() + `
+
+` + planCheckCommands() + `
+
+A plan names things it is about to create, and those are not references. A
+line carrying (new) or （新規） has every span on it read as a planned artifact
+and skipped by both checks above — annotating the line is how a finding on a
+name that does not exist yet is resolved, and how a later reader tells the two
+apart. Commands are not affected by the annotation.
+
+The plan itself is never searched, even when it is kept inside the repository:
+a plan naming something it invented would otherwise be its own evidence that
+the name exists.`,
+		blocks:   []block{prints(reflect.TypeFor[plandocs.Checked]())},
+		statuses: with(planCheckFindings),
+	},
+
 	"issue tree": {
 		intro: `Resolve where an issue sits among its parent, its children and its blockers.
 
@@ -748,6 +781,50 @@ func andList(xs []string) string {
 // added to it appears here without anyone remembering to.
 func sectionKeys() string {
 	return contract.Wrap("The keys are " + andList(issue.Keys()) + ".")
+}
+
+// planCheckPaths, planCheckSymbols and planCheckCommands are the paragraphs of
+// the plan check's help that name its lists — the extensions that make a span
+// a path, the languages that make a block commands, and the two forms a result
+// is recorded in.
+//
+// Read from the check rather than retyped here, for the reason the section keys
+// below are: a list is data and not a type, so the rendering cannot reach it,
+// and a copy in the help is one nobody updates when the list grows.
+func planCheckPaths() string {
+	return contract.Wrap("A span reads as a path when it holds a slash, opens with a dot the way a " +
+		"configuration file does, or ends in one of " + andList(plandocs.KnownExtensions()) + ". " +
+		"One carrying a glob or a placeholder names a shape rather than a file and is skipped. " +
+		"Trailing line numbers come off, so a reference to a place in a file is a reference to " +
+		"the file. What is left is resolved from the home directory for the ~/ form, from the " +
+		"root when it is absolute, and otherwise from the top of the repository — and a relative " +
+		"one the top does not have is looked for at the end of any path in the tree, which is how " +
+		"a plan naming a file by its bare name after naming it in full still resolves. A spelling " +
+		"that survives all of that and still names nothing is reported, unless it is a skill " +
+		"invoked by name or a branch name, neither of which is a file.")
+}
+
+func planCheckSymbols() string {
+	return contract.Wrap("A span reads as a name when it holds only letters, digits, underscores, " +
+		"dots and dashes, at least one of them a letter, and does not open with a dash — a flag " +
+		"is spelled like a name and belongs to a command line. The repository is walked once and " +
+		"every text file searched for it as a whole word; the repository's own directory, a " +
+		"nested checkout and any binary are not searched, so a name only another branch's " +
+		"worktree holds is reported. A qualified name the tree does not write whole is held when " +
+		"it writes the last part of it, which is where an unexported declaration is spelled. A " +
+		"name nothing writes is reported, unless it is a worktree name.")
+}
+
+func planCheckCommands() string {
+	forms := plandocs.RecordedResultForms()
+	return contract.Wrap("A block whose info string is one of "+andList(plandocs.ShellLanguages())+
+		" holds commands, and every command in one wants its result written down. A run of "+
+		"command lines is one command, closed by a recorded result or by the end of the block; a "+
+		"blank line and an ordinary comment close nothing, so a script of several lines wants one "+
+		"record. A record says either what running it did or why it could not be run, and both "+
+		"count:") + "\n  " + strings.Join(forms, "\n  ") + "\n" +
+		contract.Wrap("Written as a comment so that the block stays runnable by copy-paste. A run "+
+			"that reaches the end of its block unrecorded is reported at its first line.")
 }
 
 // longFor is a command's help text, empty where none is registered.
