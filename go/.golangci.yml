@@ -38,6 +38,15 @@ linters:
           deny:
             - pkg: encoding/json
               desc: decode a contract document with contract.Unmarshal, which holds it to its declaration
+        # syscall's own documentation asks new code to prefer golang.org/x/sys,
+        # so the package is denied rather than the calls that would be made
+        # from it: a rule about the import needs no allowlist, and it reaches
+        # a call site nobody has written yet. No files exclusion, unlike the
+        # rule above: nothing in the module needs syscall, tests included.
+        no-syscall:
+          deny:
+            - pkg: syscall
+              desc: use golang.org/x/sys/unix instead
     errcheck:
       # Informational writes to a diagnostic stream or a hash, and best-effort
       # cleanup where there is no meaningful recovery from a failure.

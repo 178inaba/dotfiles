@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // childEnv turns an invocation of the test binary into the detached child that
@@ -212,8 +213,8 @@ func TestTerminateSendsSIGTERM(t *testing.T) {
 	if !status.Signaled() {
 		t.Fatalf("wait status = %v, want the process to have been signalled", status)
 	}
-	if got := status.Signal(); got != syscall.SIGTERM {
-		t.Errorf("signal = %v, want %v", got, syscall.SIGTERM)
+	if got := status.Signal(); got != unix.SIGTERM {
+		t.Errorf("signal = %v, want %v", got, unix.SIGTERM)
 	}
 }
 
@@ -232,16 +233,16 @@ func TestAliveIsFalseForAProcessThatHasGone(t *testing.T) {
 // reap waits for a detached child of this process and returns how it ended.
 // Nothing in production does this — a hook never starts the caffeinate it
 // later kills — but the test process would otherwise collect zombies.
-func reap(t *testing.T, pid int) syscall.WaitStatus {
+func reap(t *testing.T, pid int) unix.WaitStatus {
 	t.Helper()
-	var status syscall.WaitStatus
+	var status unix.WaitStatus
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		got, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+		got, err := unix.Wait4(pid, &status, unix.WNOHANG, nil)
 		if got == pid {
 			return status
 		}
-		if err != nil && err != syscall.EINTR {
+		if err != nil && err != unix.EINTR {
 			t.Fatalf("Wait4(%d): %v", pid, err)
 		}
 		if time.Now().After(deadline) {

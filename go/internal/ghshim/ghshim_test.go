@@ -20,7 +20,7 @@ import (
 // The stub proved three things at once — that the shim execs, that it passes
 // argv through, and that standard output, standard error, the exit status and
 // standard input all survive. Only the first two are this program's doing: the
-// rest is what replacing the process means, and syscall.Exec is what does it.
+// rest is what replacing the process means, and unix.Exec is what does it.
 // Standard input is stronger here than it was there: Execute has no reader to
 // pass on and this package opens none, so it cannot consume what gh will read.
 

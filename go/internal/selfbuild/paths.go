@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Repo derives the repository from the stow symlink at ~/.claude/settings.json.
@@ -165,5 +166,5 @@ func samePath(a, b string) bool {
 // invocation that noticed it was stale. Exec rather than a child process keeps
 // the exit code and the standard streams exactly where the caller expects them.
 func reExec(argv0 string, argv, env []string) error {
-	return syscall.Exec(argv0, argv, env)
+	return unix.Exec(argv0, argv, env)
 }

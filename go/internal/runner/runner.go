@@ -14,7 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Command is one external invocation.
@@ -148,13 +149,14 @@ func detach(name string, env, args []string) (int, error) {
 	// in the caller's process group: a harness that kills the statusline's
 	// process group on timeout cannot take the refresh down with it.
 	//
-	// syscall rather than golang.org/x/sys, which the syscall package asks new
-	// code to prefer "where possible": exec.Cmd.SysProcAttr is typed
-	// *syscall.SysProcAttr, and x/sys only aliases it, so the choice is forced
-	// here. The module's four other system calls (Terminate and Alive below,
-	// Flock and Exec in selfbuild) stay on syscall rather than have it import
-	// both packages for five calls.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// The module uses golang.org/x/sys/unix for system calls rather than
+	// syscall: the syscall package's own documentation asks new code to
+	// prefer x/sys, and depguard denies the syscall package outright so the
+	// rule does not rely on a reviewer noticing a stray import. Assigning
+	// &unix.SysProcAttr{} here compiles because unix.SysProcAttr is an alias
+	// for syscall.SysProcAttr, the type exec.Cmd.SysProcAttr is declared
+	// with.
+	cmd.SysProcAttr = &unix.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return 0, err
 	}
@@ -174,7 +176,7 @@ func (Exec) Terminate(pid int) error {
 	if err != nil {
 		return err
 	}
-	return p.Signal(syscall.SIGTERM)
+	return p.Signal(unix.SIGTERM)
 }
 
 // Alive implements Signaller. Signal 0 performs the permission and existence
@@ -186,7 +188,7 @@ func (Exec) Alive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return p.Signal(syscall.Signal(0)) == nil
+	return p.Signal(unix.Signal(0)) == nil
 }
 
 // Git runs one git command in dir and returns its trimmed output.
