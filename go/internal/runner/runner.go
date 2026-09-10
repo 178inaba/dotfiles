@@ -150,11 +150,12 @@ func detach(name string, env, args []string) (int, error) {
 	// process group on timeout cannot take the refresh down with it.
 	//
 	// The module uses golang.org/x/sys/unix for system calls rather than
-	// syscall, which the syscall package's own documentation asks new code to
-	// prefer; depguard enforces the rule, so it does not rely on a reviewer
-	// noticing a stray import. Assigning &unix.SysProcAttr{} here compiles
-	// because unix.SysProcAttr is an alias for syscall.SysProcAttr, the type
-	// exec.Cmd.SysProcAttr is declared with.
+	// syscall: the syscall package's own documentation asks new code to
+	// prefer x/sys, and depguard denies the syscall package outright so the
+	// rule does not rely on a reviewer noticing a stray import. Assigning
+	// &unix.SysProcAttr{} here compiles because unix.SysProcAttr is an alias
+	// for syscall.SysProcAttr, the type exec.Cmd.SysProcAttr is declared
+	// with.
 	cmd.SysProcAttr = &unix.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return 0, err
