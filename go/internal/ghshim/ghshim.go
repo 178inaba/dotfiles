@@ -64,7 +64,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/selfbuild"
@@ -120,7 +121,7 @@ func Execute(ctx context.Context, argv []string, stderr io.Writer) int {
 		ghBin:    os.Getenv("GH_BIN"),
 		pathList: os.Getenv("PATH"),
 		selfDir:  selfDir,
-		exec:     syscall.Exec,
+		exec:     unix.Exec,
 		environ:  os.Environ,
 		build:    build,
 	})

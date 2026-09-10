@@ -3,7 +3,8 @@ package selfbuild
 import (
 	"os"
 	"path/filepath"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // lock serialises rebuilds across the processes that start together — a
@@ -22,7 +23,7 @@ func lock(d Deps) (func(), bool) {
 	if err != nil {
 		return nil, false
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
 		return nil, false
 	}
