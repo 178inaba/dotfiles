@@ -225,13 +225,10 @@ func IsClaude(ctx context.Context, r runner.Runner, pid int) bool {
 		return false
 	}
 	comm := strings.TrimSpace(string(out))
-	// A background worker rewrites its title to "claude bg-spare", so this is
-	// a prefix match rather than an exact one.
-	if strings.HasPrefix(filepath.Base(comm), "claude") {
-		return true
-	}
-	// A daemon-hosted background or Remote Control session does not rewrite
-	// its title at all, and comm is the absolute path it was launched from,
-	// ending in a version-numbered directory rather than in "claude" itself.
-	return strings.Contains(comm, "/claude/")
+	// Two shapes, either of which is Claude Code: a process that rewrote its
+	// title, which a background worker spells "claude bg-spare"; and one that
+	// did not, where comm is the absolute path it was launched from and ends
+	// in a version-numbered directory rather than in "claude" itself.
+	return strings.HasPrefix(filepath.Base(comm), "claude") ||
+		strings.Contains(comm, "/claude/")
 }
