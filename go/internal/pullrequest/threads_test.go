@@ -261,9 +261,9 @@ func TestReplyRefuses(t *testing.T) {
 			// The thread is there, it is simply settled — which the message
 			// says by naming it and its ball, rather than reading as "nothing
 			// here" and sending the caller to try another line.
-			name:    "a path with nothing we may act on",
+			name:    "a path with nothing we may reach",
 			actions: []pullrequest.ThreadAction{{Path: "src/settled.go", Body: new("fixed"), Resolve: true}},
-			wantErr: []string{"src/settled.go", "PRRT_none", "settled (ball none)"},
+			wantErr: []string{"src/settled.go", "PRRT_none", "ball none"},
 		},
 		{
 			// A thread waiting on the reviewer is reachable — the author adds
@@ -923,6 +923,46 @@ func TestReplyStops(t *testing.T) {
 				t.Errorf("the record (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestReplyAfterAReplyWithNoURL drives the whole round trip of the record a
+// failed mutation leaves behind: written by one run, read by the next, and
+// refusing it whatever it says.
+//
+// Written rather than hand-placed, because the placeholder the writing side
+// puts in the url column is what the reading side recognises: drop it and the
+// line is two columns, which the parser discards, and every existing case still
+// passes while a resend goes through.
+func TestReplyAfterAReplyWithNoURL(t *testing.T) {
+	t.Parallel()
+
+	file := threadsFile(t)
+	first := &mutations{urlless: "PRRT_bot"}
+	_, err := pullrequest.Reply(t.Context(), first.client(t), pullrequest.ReplyRequest{
+		Actions:     []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("confirmed"), Resolve: true}},
+		Threads:     contextThreads,
+		ContextFile: "context.json", ThreadsFile: file,
+	})
+	if err == nil {
+		t.Fatal("the first Reply succeeded, want it to stop on the missing url")
+	}
+
+	// A different body, so that only the missing url can be what refuses it.
+	second := &mutations{}
+	_, err = pullrequest.Reply(t.Context(), second.client(t), pullrequest.ReplyRequest{
+		Actions:     []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("saying something else"), Resolve: true}},
+		Threads:     contextThreads,
+		ContextFile: "context.json", ThreadsFile: file,
+	})
+	if err == nil {
+		t.Fatal("the second Reply succeeded, want the record to refuse it")
+	}
+	if !strings.Contains(err.Error(), "without learning where the reply landed") {
+		t.Errorf("error = %q, want it to say the reply's whereabouts are unknown", err)
+	}
+	if len(second.replied)+len(second.resolved) > 0 {
+		t.Errorf("replied %v and resolved %v, want the refusal to send neither", second.replied, second.resolved)
 	}
 }
 

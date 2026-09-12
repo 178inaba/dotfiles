@@ -370,7 +370,7 @@ func atPath(threads []KnownThread, path string) string {
 	if len(others) == 0 {
 		return "no thread at all is recorded at " + path
 	}
-	return "every thread at " + path + " is settled (ball none), so none is one we may reach:\n" + list(others)
+	return "no thread at " + path + " is one we may reach (every one there is ball none):\n" + list(others)
 }
 
 // list renders threads one to a line, with everything a caller picks between
