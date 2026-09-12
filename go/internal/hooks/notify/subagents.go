@@ -12,10 +12,9 @@ import (
 
 // dir holds one directory per session, holding one marker per subagent.
 //
-// The caffeinate pid files are not reused for this. They belong to sleep
-// suppression, whose lifecycle can be changed for reasons that have nothing to
-// do with notifications, and a leftover pid file would push the notification
-// towards silence — the direction that loses the notification the user needed.
+// A marker is owned by notify alone. A file left behind by something with a
+// lifecycle of its own would push busy towards silence — the direction that
+// loses the notification the user needed.
 const dir = "subagents"
 
 // markerDir names the directory holding one session's markers.

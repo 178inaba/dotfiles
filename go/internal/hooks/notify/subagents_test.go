@@ -46,9 +46,9 @@ func TestTrackerRun(t *testing.T) {
 			wantMarkers: []string{"a1", "a2", "a3"}, wantWatched: "4242",
 		},
 		{
-			name: "start records the watched process when the parent is node",
+			name: "start records the watched process when the parent is a background worker",
 			mode: Start, in: hooks.Payload{SessionID: session, AgentID: "a3"},
-			parent:      "node",
+			parent:      "claude bg-spare",
 			wantMarkers: []string{"a1", "a2", "a3"}, wantWatched: "4242",
 		},
 		{

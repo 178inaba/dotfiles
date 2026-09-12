@@ -4,11 +4,11 @@
 //
 // The hooks live in packages beneath this one, cut by what they do rather than
 // by where Claude Code calls them from: notify holds those that decide and
-// deliver a notification, caffeinate those that hold the machine awake, and one
-// package each for the guards, which inspect a tool call or the end of a turn
-// and share nothing but that. What every one of them has in common is only this
-// contract; the dispatcher in internal/cmd declares the interface that binds
-// them together, because it is the one that consumes it.
+// deliver a notification, and one package each for the guards, which inspect a
+// tool call or the end of a turn and share nothing but that. What every one of
+// them has in common is only this contract; the dispatcher in internal/cmd
+// declares the interface that binds them together, because it is the one that
+// consumes it.
 package hooks
 
 import (
@@ -214,10 +214,9 @@ func (d Directive) IsEmpty() bool { return d == Directive{} }
 
 // IsClaude reports whether a process is Claude Code itself.
 //
-// Two hooks ask: caffeinate, to tie a suppression's lifetime to the session,
-// and notify, to record something a later reader can verify. Both would
-// break in the same way if the answer drifted — Claude Code has already been
-// both names once — so the rule has one owner.
+// notify is the only caller, recording a pid a later reader can verify. comm
+// has already changed shape once, so the rule keeping up with it has one
+// owner rather than each reader guessing at the process's name for itself.
 func IsClaude(ctx context.Context, r runner.Runner, pid int) bool {
 	out, err := r.Run(ctx, runner.Command{
 		Name: "ps", Args: []string{"-o", "comm=", "-p", strconv.Itoa(pid)},
@@ -225,9 +224,14 @@ func IsClaude(ctx context.Context, r runner.Runner, pid int) bool {
 	if err != nil {
 		return false
 	}
-	switch strings.TrimSpace(string(out)) {
-	case "claude", "node":
+	comm := strings.TrimSpace(string(out))
+	// A background worker rewrites its title to "claude bg-spare", so this is
+	// a prefix match rather than an exact one.
+	if strings.HasPrefix(filepath.Base(comm), "claude") {
 		return true
 	}
-	return false
+	// A daemon-hosted background or Remote Control session does not rewrite
+	// its title at all, and comm is the absolute path it was launched from,
+	// ending in a version-numbered directory rather than in "claude" itself.
+	return strings.Contains(comm, "/claude/")
 }
