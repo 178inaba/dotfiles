@@ -133,6 +133,14 @@ func TestRunBlocks(t *testing.T) {
 			want:    "apply what the review found",
 		},
 		{
+			// Reading the help succeeds and marks nothing ready: the skill points
+			// at it for how to read the output, and a run that read it has still
+			// to make the call.
+			name:    "a ccx pr ready --help read before the call",
+			records: append(withReview(), bash("b8", "ccx pr ready --help"), okResult("b8")),
+			want:    "apply what the review found",
+		},
+		{
 			// A built-in command is not a skill: no body follows it, so it
 			// leaves the run it interrupted running.
 			name:    "a built-in command does not end the run",
@@ -214,7 +222,7 @@ func TestRunAllows(t *testing.T) {
 			},
 		},
 		{
-			// The replacement for the case above: one command rather than two.
+			// The same gate through ccx pr ready, which is one command.
 			name: "a run that reached the ccx pr ready gate",
 			in: func(t *testing.T) hooks.Payload {
 				return stopping(transcript(t, append(withReview(),

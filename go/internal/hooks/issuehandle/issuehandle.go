@@ -298,7 +298,10 @@ func scan(path string) (run, error) {
 					r.reviewed = true
 				case b.Name == "Bash" && strings.Contains(b.Input.Command, "gh pr create"):
 					pending[b.ID] = creating
-				case b.Name == "Bash" && strings.Contains(b.Input.Command, "ccx pr ready"):
+				// --help is excluded because the skill sends the run to it for how
+				// to read the output, and reading it is not the call.
+				case b.Name == "Bash" && strings.Contains(b.Input.Command, "ccx pr ready") &&
+					!strings.Contains(b.Input.Command, "--help"):
 					pending[b.ID] = readying
 				case b.Name == "Bash" && strings.Contains(b.Input.Command, "gh pr ready") &&
 					!strings.Contains(b.Input.Command, "--undo"):
