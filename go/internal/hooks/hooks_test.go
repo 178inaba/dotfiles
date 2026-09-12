@@ -160,11 +160,12 @@ func TestDirectiveMarshalsOnlyWhatIsSet(t *testing.T) {
 	}
 }
 
-// TestIsClaude covers the two shapes a Claude Code comm takes, beside the one
-// it no longer does. A worker rewrites its title to a "claude "-prefixed
-// name; a daemon-hosted background or Remote Control session does not
-// rewrite it at all, and ps reports the absolute path it was launched from,
-// ending in a version-numbered directory rather than a plain "claude".
+// TestIsClaude covers the two shapes a Claude Code comm takes, and the
+// programs that share neither. A worker rewrites its title to a
+// "claude "-prefixed name; a daemon-hosted background or Remote Control
+// session does not rewrite it at all, and ps reports the absolute path it was
+// launched from, ending in a version-numbered directory rather than a plain
+// "claude".
 func TestIsClaude(t *testing.T) {
 	t.Parallel()
 
@@ -181,7 +182,7 @@ func TestIsClaude(t *testing.T) {
 			out:  "/Users/x/.local/share/claude/versions/2.1.269\n", want: true,
 		},
 		{name: "an absolute path to the claude binary", out: "/Users/x/.local/bin/claude\n", want: true},
-		{name: "the npm build this rule no longer accepts", out: "node\n"},
+		{name: "the npm build's node process", out: "node\n"},
 		{name: "an absolute path to node", out: "/usr/bin/node\n"},
 		{name: "an unrelated process", out: "bash\n"},
 		{name: "ps produced no output", out: ""},

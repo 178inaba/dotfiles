@@ -82,9 +82,9 @@ func (s *Store) RemoveAll(name string) error { return s.root.RemoveAll(name) }
 //
 // A directory that is not there has no entries and no error: that is the state
 // every hook starts from. A directory that is there and cannot be listed is a
-// different thing, and what to do about it is the caller's to decide — folding
-// the two together would have busy read a directory it could not open as no
-// subagents running at all, notifying a session while one still is.
+// different thing, and what to do about it is the caller's to decide — busy
+// answers a question about notifying, so it discards the error and errs
+// towards one notification too many, which is not a choice to make here.
 func (s *Store) Names(dir string) ([]string, error) {
 	f, err := s.root.Open(dir)
 	if errors.Is(err, fs.ErrNotExist) {
