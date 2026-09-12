@@ -29,8 +29,8 @@ type PendingSet struct {
 	// alone, so it is one of ours and needs no state of its own here.
 	Reviews []PendingReview `json:"reviews" contract:"required"`
 	// The conversation's comments that have arrived or been
-	// rewritten since, by whoever is not us. A bot's counts, and the body is
-	// never consulted: what excludes one of ours is the author's login alone.
+	// rewritten since, by whoever is not us. A bot's counts; what excludes one
+	// of ours is the author's login.
 	Comments []PendingComment `json:"comments" contract:"required"`
 }
 

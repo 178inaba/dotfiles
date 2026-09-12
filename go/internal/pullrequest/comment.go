@@ -18,11 +18,10 @@ type Commented struct {
 // context file.
 //
 // Here rather than at the command line so that every body a run posts — a
-// review's, a reply's, a comment's — is read the same way. What is in it is
-// judged exactly as written, since that is the text GitHub renders. A bare
-// name for the reason the two documents declare one: a path would reach round
-// the directory binding that keeps parallel runs on different pull requests
-// out of each other's files.
+// review's, a reply's, a comment's — is read the same way. A bare name for
+// the reason the two documents declare one: a path would reach round the
+// directory binding that keeps parallel runs on different pull requests out
+// of each other's files.
 func ParseCommentBody(workDir, bodyFile string) (string, error) {
 	if bodyFile == "" || bodyFile != filepath.Base(bodyFile) {
 		return "", fmt.Errorf("the body file must be a bare file name, not a path: %s", bodyFile)

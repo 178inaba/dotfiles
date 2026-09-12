@@ -15,13 +15,6 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// posted captures what reached the comment endpoint, so that a case can assert
-// it without a second copy of the request handler.
-type posted struct {
-	path string
-	body string
-}
-
 func TestParseCommentBody(t *testing.T) {
 	t.Parallel()
 
@@ -85,7 +78,7 @@ func TestPostComment(t *testing.T) {
 	// fetch.
 	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD~")}
 
-	var seen posted
+	var seenPath, seenBody string
 	c := ghapitest.New(t, withLiveHead(t, head, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Body string `json:"body"`
@@ -93,7 +86,7 @@ func TestPostComment(t *testing.T) {
 		if err := json.UnmarshalRead(r.Body, &req); err != nil {
 			t.Errorf("decode the request body: %v", err)
 		}
-		seen = posted{path: r.URL.Path, body: req.Body}
+		seenPath, seenBody = r.URL.Path, req.Body
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"html_url":"https://github.com/owner/repo/pull/5#issuecomment-1"}`)
 	})))
@@ -107,12 +100,12 @@ func TestPostComment(t *testing.T) {
 	if got.URL != "https://github.com/owner/repo/pull/5#issuecomment-1" {
 		t.Errorf("url = %q, want the one GitHub answered with", got.URL)
 	}
-	if want := "/repos/owner/repo/issues/5/comments"; seen.path != want {
-		t.Errorf("posted to %q, want %q", seen.path, want)
+	if want := "/repos/owner/repo/issues/5/comments"; seenPath != want {
+		t.Errorf("posted to %q, want %q", seenPath, want)
 	}
 	want := "# Done\n\nEverything is answered.\n"
-	if seen.body != want {
-		t.Errorf("body = %q, want %q", seen.body, want)
+	if seenBody != want {
+		t.Errorf("body = %q, want %q", seenBody, want)
 	}
 }
 

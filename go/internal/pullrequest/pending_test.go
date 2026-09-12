@@ -42,7 +42,7 @@ func countable() pullrequest.Context {
 		Comments: []pullrequest.Comment{
 			{Author: new("reviewer"), AuthorType: &user, Body: "a remark",
 				CreatedAt: "2026-01-05T00:00:00Z", URL: "https://example.com/c1"},
-			// Ours: excluded by login regardless of what the body says.
+			// Ours: we do not answer our own comments.
 			{Author: new("me"), AuthorType: &user, Body: "done",
 				CreatedAt: "2026-01-05T00:00:00Z", URL: "https://example.com/c2"},
 			{Author: new("ci"), AuthorType: &bot, Body: "the build failed",
