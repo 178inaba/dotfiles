@@ -337,6 +337,28 @@ caller is standing in.`,
 		statuses: with(),
 	},
 
+	"pr ready": {
+		intro: `Mark a pull request ready for review once the checkout here matches it.
+
+Checks, in order, stopping at the first failure: the working tree has nothing
+uncommitted, untracked files included; then the checkout is fetched and
+compared with the pull request's head, and only an exact match passes — a
+behind checkout is reported rather than fast-forwarded, which is what sets
+this apart from ` + "`ccx pr freshness`" + `. When the only failing check is the
+author's own unpushed-looking commits, the command waits a few seconds and
+re-reads the pull request once before deciding; no other case is retried.
+
+A pull request that is already out of draft is answered already_ready with
+nothing written. Exits 0 whenever the command reached an answer, including a
+failed check, and never moves the checkout; a non-zero exit is only for a
+question it could not answer.
+
+<pr-number> is the pull request, inferred from the branch checked out here
+when omitted — the same inference ` + "`ccx pr context`" + ` makes.`,
+		blocks:   []block{prints(reflect.TypeFor[pullrequest.ReadyReport]())},
+		statuses: with(),
+	},
+
 	"pr prepare-review": {
 		intro: `Settle what a review needs before it starts, in one call.
 
