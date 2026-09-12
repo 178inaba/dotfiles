@@ -73,13 +73,7 @@ type Detacher interface {
 	Detach(name string, args ...string) error
 }
 
-// Signaller reaches a process this one need not have started.
-type Signaller interface {
-	// Alive reports whether the process exists.
-	Alive(pid int) bool
-}
-
-// Exec is the real Runner, Spawner, Detacher and Signaller.
+// Exec is the real Runner, Spawner and Detacher.
 type Exec struct {
 	// Executable names the binary Spawn re-runs. Empty means this process,
 	// which is what production wants; a test points it at the test binary so
@@ -161,18 +155,6 @@ func detach(name string, env, args []string) (int, error) {
 	return pid, cmd.Process.Release()
 }
 
-// Alive implements Signaller. Signal 0 performs the permission and existence
-// checks and delivers nothing, which is the shell's kill -0: a process owned by
-// somebody else reads as gone, and one that has exited but not been waited for
-// reads as alive. Both are what the hooks have always seen.
-func (Exec) Alive(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return p.Signal(unix.Signal(0)) == nil
-}
-
 // Git runs one git command in dir and returns its trimmed output.
 //
 // git is asked with -C rather than a working directory, because the answer is
@@ -210,8 +192,7 @@ func Message(err error) string {
 }
 
 var (
-	_ Runner    = Exec{}
-	_ Spawner   = Exec{}
-	_ Detacher  = Exec{}
-	_ Signaller = Exec{}
+	_ Runner   = Exec{}
+	_ Spawner  = Exec{}
+	_ Detacher = Exec{}
 )

@@ -1,14 +1,10 @@
 package hooks
 
 import (
-	"context"
 	"encoding/json/v2"
-	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-
-	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
 func TestParse(t *testing.T) {
@@ -160,59 +156,6 @@ func TestDirectiveMarshalsOnlyWhatIsSet(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestIsClaude covers the two shapes a Claude Code comm takes, and the
-// programs that share neither. A worker rewrites its title to a
-// "claude "-prefixed name; a daemon-hosted background or Remote Control
-// session does not rewrite it at all, and ps reports the absolute path it was
-// launched from, ending in a version-numbered directory rather than a plain
-// "claude".
-func TestIsClaude(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		out  string
-		fail bool
-		want bool
-	}{
-		{name: "a terminal-launched session", out: "claude\n", want: true},
-		{name: "a background worker that rewrote its title", out: "claude bg-spare\n", want: true},
-		{
-			name: "a daemon-hosted session running from an installed version",
-			out:  "/Users/x/.local/share/claude/versions/2.1.269\n", want: true,
-		},
-		{name: "an absolute path to the claude binary", out: "/Users/x/.local/bin/claude\n", want: true},
-		{name: "the npm build's node process", out: "node\n"},
-		{name: "an absolute path to node", out: "/usr/bin/node\n"},
-		{name: "an unrelated process", out: "bash\n"},
-		{name: "ps produced no output", out: ""},
-		{name: "ps itself failed", fail: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			r := fakePS{out: tt.out, fail: tt.fail}
-			if got := IsClaude(t.Context(), r, 4242); got != tt.want {
-				t.Errorf("IsClaude() = %t, want %t", got, tt.want)
-			}
-		})
-	}
-}
-
-// fakePS answers ps with one line of output, or fails when asked to.
-type fakePS struct {
-	out  string
-	fail bool
-}
-
-func (f fakePS) Run(context.Context, runner.Command) ([]byte, error) {
-	if f.fail {
-		return nil, &runner.Error{Name: "ps", Err: errors.New("no such process")}
-	}
-	return []byte(f.out), nil
 }
 
 func TestDirectiveIsEmpty(t *testing.T) {

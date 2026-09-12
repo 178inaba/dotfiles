@@ -46,25 +46,16 @@ func Open(dir string) (*Store, error) {
 // Close releases the tree.
 func (s *Store) Close() error { return s.root.Close() }
 
-// Read returns a file's contents, and whether there was one to read. A file
-// that cannot be read is a file that is not there: every caller's next step is
-// the same either way.
-func (s *Store) Read(name string) (string, bool) {
-	b, err := s.root.ReadFile(name)
-	if err != nil {
-		return "", false
-	}
-	return string(b), true
-}
-
-// Write stores a value, creating the parent directory.
-func (s *Store) Write(name, value string) error {
+// Create makes an empty marker, creating the parent directory. A marker's
+// existence is everything it has to say, so there is nothing here to read
+// back.
+func (s *Store) Create(name string) error {
 	if dir := path.Dir(name); dir != "." {
 		if err := s.root.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
 	}
-	return s.root.WriteFile(name, []byte(value), 0o600)
+	return s.root.WriteFile(name, nil, 0o600)
 }
 
 // Remove deletes a file, and reports nothing for one that has already gone.

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -190,20 +189,8 @@ func TestDetachDoesNotWait(t *testing.T) {
 		reap(t, pid)
 	})
 
-	if !(Exec{}).Alive(pid) {
-		t.Errorf("Alive(%d) = false, want the process just started to be alive", pid)
-	}
-}
-
-func TestAliveIsFalseForAProcessThatHasGone(t *testing.T) {
-	// Run and reap, so the pid names nothing at all: a terminated child that
-	// nobody has waited for is a zombie, which kill -0 still reports as alive.
-	cmd := exec.Command("sh", "-c", "exit 0")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if (Exec{}).Alive(cmd.Process.Pid) {
-		t.Errorf("Alive(%d) = true, want false for a process that has been reaped", cmd.Process.Pid)
+	if err := unix.Kill(pid, 0); err != nil {
+		t.Errorf("Kill(%d, 0) = %v, want the process just started to be alive", pid, err)
 	}
 }
 

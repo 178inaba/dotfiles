@@ -63,9 +63,8 @@ func TestIdleRun(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "ccx")
 			if tt.agent {
 				s := openStore(t, dir)
-				// A marker recording nothing is the plainest "still running".
-				if err := s.Write(marker(session, "a1"), ""); err != nil {
-					t.Fatalf("Write: %v", err)
+				if err := s.Create(marker(session, "a1")); err != nil {
+					t.Fatalf("Create: %v", err)
 				}
 			}
 			srv := newWebhook(t, http.StatusOK)
@@ -121,12 +120,11 @@ func TestIdleRunRingsTheBellWhenSlackFails(t *testing.T) {
 
 func deps(dir string, srv *webhook, sound runner.Detacher) Deps {
 	return Deps{
-		Dir:       dir,
-		Sound:     sound,
-		Client:    srv.Client(),
-		Runner:    fixedRunner{toplevel: "/r/proj", common: "/r/proj/.git"},
-		Signaller: fakeSignaller{},
-		Getenv:    func(string) string { return srv.URL },
+		Dir:    dir,
+		Sound:  sound,
+		Client: srv.Client(),
+		Runner: fixedRunner{toplevel: "/r/proj", common: "/r/proj/.git"},
+		Getenv: func(string) string { return srv.URL },
 	}
 }
 

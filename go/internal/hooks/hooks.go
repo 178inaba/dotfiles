@@ -12,14 +12,10 @@
 package hooks
 
 import (
-	"context"
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-
-	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
 // unknownSession stands in for a payload that names no session, so that a
@@ -216,24 +212,3 @@ type Directive struct {
 
 // IsEmpty reports whether there is nothing here worth writing.
 func (d Directive) IsEmpty() bool { return d == Directive{} }
-
-// IsClaude reports whether a process is Claude Code itself.
-//
-// notify is the only caller, recording a pid a later reader can verify. comm
-// has already changed shape once, so the rule keeping up with it has one
-// owner rather than each reader guessing at the process's name for itself.
-func IsClaude(ctx context.Context, r runner.Runner, pid int) bool {
-	out, err := r.Run(ctx, runner.Command{
-		Name: "ps", Args: []string{"-o", "comm=", "-p", strconv.Itoa(pid)},
-	})
-	if err != nil {
-		return false
-	}
-	comm := strings.TrimSpace(string(out))
-	// Two shapes, either of which is Claude Code: a process that rewrote its
-	// title, which a background worker spells "claude bg-spare"; and one that
-	// did not, where comm is the absolute path it was launched from and ends
-	// in a version-numbered directory rather than in "claude" itself.
-	return strings.HasPrefix(filepath.Base(comm), "claude") ||
-		strings.Contains(comm, "/claude/")
-}

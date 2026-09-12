@@ -33,56 +33,29 @@ func TestOpenCreatesThePrivateRoot(t *testing.T) {
 	}
 }
 
-func TestWriteReadRemove(t *testing.T) {
+func TestCreateRemove(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	if _, ok := s.Read(marker); ok {
-		t.Error("Read found a file that was never written")
+	if got := names(t, s, markerDir); len(got) != 0 {
+		t.Fatalf("Names = %v, want none before Create", got)
 	}
-	if err := s.Write(marker, "4242"); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := s.Create(marker); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
-	got, ok := s.Read(marker)
-	if !ok {
-		t.Fatal("Read did not find the file just written")
-	}
-	if want := "4242"; got != want {
-		t.Errorf("Read = %q, want %q", got, want)
+	if got := names(t, s, markerDir); !slices.Equal(got, []string{"a1"}) {
+		t.Errorf("Names = %v, want [a1]", got)
 	}
 
 	if err := s.Remove(marker); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if _, ok := s.Read(marker); ok {
-		t.Error("Read found the file after it was removed")
+	if got := names(t, s, markerDir); len(got) != 0 {
+		t.Errorf("Names = %v, want none after Remove", got)
 	}
 	// Removing what is not there is how every stop path begins.
 	if err := s.Remove(marker); err != nil {
 		t.Errorf("Remove of a missing file: %v", err)
-	}
-}
-
-func TestWriteStoresExactlyWhatItWasGiven(t *testing.T) {
-	t.Parallel()
-	root := filepath.Join(t.TempDir(), "ccx")
-	s := openAt(t, root)
-
-	// The value round-trips unchanged: what a hook writes is the format its
-	// own reader defines, and the store adds nothing to it.
-	if err := s.Write(marker, ""); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if got, ok := s.Read(marker); !ok || got != "" {
-		t.Errorf("Read = %q, %t, want %q, true", got, ok, "")
-	}
-
-	raw, err := os.ReadFile(filepath.Join(root, marker))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if len(raw) != 0 {
-		t.Errorf("file contents = %q, want it empty", raw)
 	}
 }
 
@@ -91,8 +64,8 @@ func TestListNames(t *testing.T) {
 	s := open(t)
 
 	for _, name := range []string{marker, markerDir + "/a2", markerDir + "/a3"} {
-		if err := s.Write(name, "1"); err != nil {
-			t.Fatalf("Write(%s): %v", name, err)
+		if err := s.Create(name); err != nil {
+			t.Fatalf("Create(%s): %v", name, err)
 		}
 	}
 
@@ -112,8 +85,8 @@ func TestRemoveAll(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	if err := s.Write(marker, "1"); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := s.Create(marker); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 	if err := s.RemoveAll(markerDir); err != nil {
 		t.Fatalf("RemoveAll: %v", err)
@@ -146,8 +119,8 @@ func TestSymlinkCannotEscape(t *testing.T) {
 		t.Fatalf("Symlink: %v", err)
 	}
 
-	if err := s.Write(marker, "4242"); err == nil {
-		t.Error("Write followed a symlink out of the root")
+	if err := s.Create(marker); err == nil {
+		t.Error("Create followed a symlink out of the root")
 	}
 	if _, err := os.Stat(outside); err == nil {
 		t.Error("the file outside the root was created")
