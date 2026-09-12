@@ -23,7 +23,7 @@ func lastURL(id string) string { return "https://example.com/last/" + id }
 
 // contextThreads is one context's review_threads, covering every shape a
 // selector has to tell apart: two threads on one line, one whose line has left
-// the diff, one waiting on somebody else and one that is nobody's move.
+// the diff, two waiting on somebody else and one that is nobody's move.
 var contextThreads = []pullrequest.KnownThread{
 	{
 		ID: "PRRT_bot", Path: "src/a.go", Line: new(10), OriginalLine: new(10),
@@ -54,9 +54,18 @@ var contextThreads = []pullrequest.KnownThread{
 		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_dup2"),
 	},
 	{
+		// Ours, answered by us: the reviewer has everything they need, and we
+		// may still add to it.
 		ID: "PRRT_theirs", Path: "src/waiting.go", Line: new(5), OriginalLine: new(5),
 		OpenedBy: new("testuser"), Ball: pullrequest.BallTheirs,
 		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_theirs"),
+	},
+	{
+		// A person's remark we have already answered: ours to add to after a
+		// change of design, theirs to close.
+		ID: "PRRT_answered", Path: "src/answered.go", Line: new(30), OriginalLine: new(30),
+		OpenedBy: new("reviewer1"), Ball: pullrequest.BallTheirs,
+		LastCommentURL: lastURL("PRRT_answered"),
 	},
 	{
 		ID: "PRRT_none", Path: "src/settled.go", Line: new(6), OriginalLine: new(6),
@@ -240,11 +249,11 @@ func TestReplyRefuses(t *testing.T) {
 			wantErr: []string{"src/settled.go", "PRRT_none", "ball none"},
 		},
 		{
-			// The same for a thread waiting on the reviewer: not ours to
-			// reopen, and the refusal says whose move it is.
-			name:    "a thread waiting on somebody else",
-			actions: []pullrequest.ThreadAction{{Path: "src/waiting.go", Body: new("fixed"), Resolve: true}},
-			wantErr: []string{"src/waiting.go", "PRRT_theirs", "ball theirs"},
+			// A thread waiting on the reviewer is reachable — the author adds
+			// to it after a change of design — but closing it is still theirs.
+			name:    "resolving a person's remark we have answered",
+			actions: []pullrequest.ThreadAction{{Path: "src/answered.go", Body: new("the design changed"), Resolve: true}},
+			wantErr: []string{"resolve", "PRRT_answered", "src/answered.go:30"},
 		},
 		{
 			name:    "a path no thread is on at all",
@@ -372,6 +381,20 @@ func TestReplyResolvesSelectors(t *testing.T) {
 			name:   "an id breaking a tie",
 			action: pullrequest.ThreadAction{Path: "src/dup.go", Line: new(7), ID: new("PRRT_dup2"), Body: new("fixed"), Resolve: true},
 			wantID: "PRRT_dup2",
+		},
+		{
+			// Ours, on somebody else's pull request, answered by us: the
+			// follow-up a change of design calls for, and ours to close.
+			name:   "a thread we opened and answered",
+			action: pullrequest.ThreadAction{Path: "src/waiting.go", Line: new(5), Body: new("the design changed"), Resolve: true},
+			wantID: "PRRT_theirs",
+		},
+		{
+			// The same on our own pull request, where the remark is a person's:
+			// the reply lands and the thread stays open.
+			name:   "a person's remark we have answered",
+			action: pullrequest.ThreadAction{Path: "src/answered.go", Body: new("the design changed")},
+			wantID: "PRRT_answered",
 		},
 	}
 
@@ -566,6 +589,7 @@ func TestDryRun(t *testing.T) {
 		Actions: []pullrequest.ThreadAction{
 			{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true},
 			{Path: "src/b.go", Line: new(55), Resolve: true},
+			{Path: "src/answered.go", Body: new("the design changed")},
 		},
 		Threads: contextThreads, ContextFile: "context.json", ThreadsFile: file,
 	})
@@ -582,6 +606,10 @@ func TestDryRun(t *testing.T) {
 			ID: "PRRT_outdated", Path: "src/b.go", OriginalLine: new(55),
 			OpenedBy: new("testuser"), Resolve: true,
 		},
+		{
+			ID: "PRRT_answered", Path: "src/answered.go", Line: new(30), OriginalLine: new(30),
+			OpenedBy: new("reviewer1"), Reply: true,
+		},
 	}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("DryRun (-want +got):\n%s", diff)
@@ -590,7 +618,7 @@ func TestDryRun(t *testing.T) {
 		t.Errorf("replied %v and resolved %v, want a dry run to send neither", m.replied, m.resolved)
 	}
 	// The live read did happen, which is what makes the plan trustworthy.
-	if diff := cmp.Diff([]string{"PRRT_bot", "PRRT_outdated"}, m.read); diff != "" {
+	if diff := cmp.Diff([]string{"PRRT_bot", "PRRT_outdated", "PRRT_answered"}, m.read); diff != "" {
 		t.Errorf("threads read (-want +got):\n%s", diff)
 	}
 	// A dry run leaves no trace, so the real run that follows is not refused

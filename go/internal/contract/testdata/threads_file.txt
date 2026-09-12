@@ -2,15 +2,18 @@
 
   threads            array of object (required)
                      The threads to act on, named by where they are rather than by their
-                     ids. Only threads the pull request context flagged as ours to move
-                     on are reachable, so that one run cannot settle somebody else's
-                     remark or reopen a resolved one.
+                     ids. Reachable are the unresolved threads on our own pull request
+                     and the ones we opened — whether the ball is ours or theirs, since
+                     a change of design is answered on a thread we have already replied
+                     in. A thread the context flagged as nobody's move is not, so that
+                     one run cannot settle somebody else's remark or reopen a resolved
+                     one.
     path             string (required)
                      The thread's path, as the context records it.
     line             integer (optional)
                      The line, matching either line or original_line. Leave it out where
-                     the path has only one thread we may act on; a path with several and
-                     no line is refused rather than guessed at.
+                     the path has only one reachable thread; a path with several and no
+                     line is refused rather than guessed at.
     id               string (optional)
                      The thread's id, to break a tie where a path and a line reach more
                      than one. It has to be one of them: an id from elsewhere is

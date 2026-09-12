@@ -131,9 +131,11 @@ type ReplyPlan struct {
 // ThreadsFile is the document `ccx pr reply-threads` reads.
 type ThreadsFile struct {
 	// The threads to act on, named by where they are rather than by their
-	// ids. Only threads the pull request context flagged as ours to move on
-	// are reachable, so that one run cannot settle somebody else's remark or
-	// reopen a resolved one.
+	// ids. Reachable are the unresolved threads on our own pull request and
+	// the ones we opened — whether the ball is ours or theirs, since a change
+	// of design is answered on a thread we have already replied in. A thread
+	// the context flagged as nobody's move is not, so that one run cannot
+	// settle somebody else's remark or reopen a resolved one.
 	Threads []ThreadsFileEntry `json:"threads" contract:"required"`
 }
 
@@ -142,8 +144,8 @@ type ThreadsFileEntry struct {
 	// The thread's path, as the context records it.
 	Path *string `json:"path" contract:"required"`
 	// The line, matching either line or original_line. Leave it out where the
-	// path has only one thread we may act on; a path with several and no line
-	// is refused rather than guessed at.
+	// path has only one reachable thread; a path with several and no line is
+	// refused rather than guessed at.
 	Line *int `json:"line"`
 	// The thread's id, to break a tie where a path and a line reach more than
 	// one. It has to be one of them: an id from elsewhere is refused, which is
@@ -289,17 +291,23 @@ func resolveSelectors(actions []checkedAction, threads []KnownThread, contextFil
 		case 1:
 			out = append(out, plannedAction{thread: candidates[0], body: a.reply, resolve: a.Resolve})
 		case 0:
-			return nil, fmt.Errorf("no thread we may act on matches %s\n%s", a.selector(), atPath(threads, a.Path))
+			return nil, fmt.Errorf("no thread we may reach matches %s\n%s", a.selector(), atPath(threads, a.Path))
 		default:
-			return nil, fmt.Errorf("%d threads we may act on match %s; add \"id\" to say which:\n%s",
+			return nil, fmt.Errorf("%d threads we may reach match %s; add \"id\" to say which:\n%s",
 				len(candidates), a.selector(), list(candidates))
 		}
 	}
 	return out, nil
 }
 
-// matching is the threads a selector reaches: ours to move on, at that path,
-// and on that line if one was given.
+// matching is the threads a selector reaches: every one somebody still owes
+// something on, at that path, and on that line if one was given.
+//
+// Whose move it is does not narrow this, only whether anybody's does: a thread
+// waiting on the reviewer is one we have answered, and answering it again is
+// what a change of design calls for. What is left out is the thread nobody owes
+// anything on — resolved, or somebody else's remark on somebody else's pull
+// request.
 //
 // A line matches either line or original_line, because line is null on a thread
 // whose lines have left the diff — which for the author is the state right
@@ -307,7 +315,7 @@ func resolveSelectors(actions []checkedAction, threads []KnownThread, contextFil
 func matching(threads []KnownThread, a ThreadAction) []KnownThread {
 	var out []KnownThread
 	for _, t := range threads {
-		if t.Ball != BallMine || t.Path != a.Path {
+		if t.Ball == BallNone || t.Path != a.Path {
 			continue
 		}
 		if a.Line != nil && !onLine(t, *a.Line) {
@@ -333,7 +341,7 @@ func wrongID(id string, a ThreadAction, threads []KnownThread, contextFile strin
 		if t.ID != id {
 			continue
 		}
-		return fmt.Errorf("id %s is not a thread we may act on at %s: it is %s, opened by %s, ball %s\n%s",
+		return fmt.Errorf("id %s is not a thread we may reach at %s: it is %s, opened by %s, ball %s\n%s",
 			id, a.selector(), position(t), login(t.OpenedBy), t.Ball, atPath(threads, a.Path))
 	}
 	return fmt.Errorf("id %s is not a thread in %s", id, contextFile)
@@ -341,13 +349,13 @@ func wrongID(id string, a ThreadAction, threads []KnownThread, contextFile strin
 
 // atPath is the "you could have meant these" half of a refusal.
 //
-// Where the path holds nothing we may act on it names the threads that are
-// there with the ball each is waiting on, rather than reporting an empty match:
-// "there is a thread here, it is just not yours to move" sends the caller to
-// the protocol, and "nothing matches" sends them back to try another line.
+// Where the path holds nothing reachable it names the threads that are there
+// with the ball each is waiting on, rather than reporting an empty match:
+// "there is a thread here, it is just settled" sends the caller to the
+// protocol, and "nothing matches" sends them back to try another line.
 func atPath(threads []KnownThread, path string) string {
 	if ours := matching(threads, ThreadAction{Path: path}); len(ours) > 0 {
-		return "threads we may act on at " + path + ":\n" + list(ours)
+		return "threads we may reach at " + path + ":\n" + list(ours)
 	}
 
 	var others []string
@@ -360,7 +368,7 @@ func atPath(threads []KnownThread, path string) string {
 	if len(others) == 0 {
 		return "no thread at all is recorded at " + path
 	}
-	return "no thread at " + path + " is ours to act on; the threads there are:\n" + strings.Join(others, "\n")
+	return "no thread at " + path + " is one we may reach; the threads there are:\n" + strings.Join(others, "\n")
 }
 
 // list renders threads one to a line, with everything a caller picks between
