@@ -51,12 +51,12 @@ func TestTrackerRun(t *testing.T) {
 			wantMarkers: nil,
 		},
 		{
-			name: "session start purges the residue of a session resumed under the same id",
+			name: "session start purges whatever a previous run left under the id",
 			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "startup"},
 			wantMarkers: nil,
 		},
 		{
-			name: "session start purges on resume too, since --resume reuses the session id",
+			name: "session start purges on resume, which reuses the session id",
 			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "resume"},
 			wantMarkers: nil,
 		},
