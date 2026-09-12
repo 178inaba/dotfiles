@@ -176,45 +176,22 @@ func TestSpawnDoesNotWait(t *testing.T) {
 	}
 }
 
-func TestDetachReturnsAPidAndDoesNotWait(t *testing.T) {
+func TestDetachDoesNotWait(t *testing.T) {
 	start := time.Now()
-	pid, err := Exec{}.Detach("sh", "-c", "sleep 30")
+	pid, err := detach("sh", nil, []string{"-c", "sleep 30"})
 	if err != nil {
-		t.Fatalf("Detach: %v", err)
+		t.Fatalf("detach: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
-		t.Errorf("Detach blocked for %v, want it to return immediately", elapsed)
-	}
-	if pid <= 0 {
-		t.Fatalf("pid = %d, want a real process id", pid)
+		t.Errorf("detach blocked for %v, want it to return immediately", elapsed)
 	}
 	t.Cleanup(func() {
-		_ = Exec{}.Terminate(pid)
+		_ = unix.Kill(pid, unix.SIGTERM)
 		reap(t, pid)
 	})
 
 	if !(Exec{}).Alive(pid) {
 		t.Errorf("Alive(%d) = false, want the process just started to be alive", pid)
-	}
-}
-
-func TestTerminateSendsSIGTERM(t *testing.T) {
-	// SIGTERM rather than SIGKILL is what lets caffeinate release its power
-	// assertion, so the test pins the signal and not merely the death.
-	pid, err := Exec{}.Detach("sh", "-c", "sleep 30")
-	if err != nil {
-		t.Fatalf("Detach: %v", err)
-	}
-	if err := (Exec{}).Terminate(pid); err != nil {
-		t.Fatalf("Terminate: %v", err)
-	}
-
-	status := reap(t, pid)
-	if !status.Signaled() {
-		t.Fatalf("wait status = %v, want the process to have been signalled", status)
-	}
-	if got := status.Signal(); got != unix.SIGTERM {
-		t.Errorf("signal = %v, want %v", got, unix.SIGTERM)
 	}
 }
 
@@ -231,8 +208,8 @@ func TestAliveIsFalseForAProcessThatHasGone(t *testing.T) {
 }
 
 // reap waits for a detached child of this process and returns how it ended.
-// Nothing in production does this — a hook never starts the caffeinate it
-// later kills — but the test process would otherwise collect zombies.
+// Nothing in production does this — a detached child outlives the process
+// that started it — but the test process would otherwise collect zombies.
 func reap(t *testing.T, pid int) unix.WaitStatus {
 	t.Helper()
 	var status unix.WaitStatus

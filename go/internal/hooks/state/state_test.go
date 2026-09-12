@@ -8,11 +8,10 @@ import (
 )
 
 const (
-	pidFile   = "caffeinate/s1.pid"
-	doneFile  = "caffeinate/s1.done"
-	otherFile = "caffeinate/s2.pid"
-	marker    = "subagents/s1/a1"
-	markerDir = "subagents/s1"
+	marker      = "subagents/s1/a1"
+	otherMarker = "subagents/s1/a2"
+	thirdMarker = "subagents/s1/a3"
+	markerDir   = "subagents/s1"
 )
 
 func TestOpenCreatesThePrivateRoot(t *testing.T) {
@@ -30,7 +29,7 @@ func TestOpenCreatesThePrivateRoot(t *testing.T) {
 		t.Fatalf("Stat: %v", err)
 	}
 	// The tree lives in world-writable /tmp, so nobody else may read a session
-	// id out of it or drop a pid file in.
+	// id out of it or drop a marker in.
 	if got, want := info.Mode().Perm(), os.FileMode(0o700); got != want {
 		t.Errorf("mode = %v, want %v", got, want)
 	}
@@ -40,13 +39,13 @@ func TestWriteReadRemove(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	if _, ok := s.Read(pidFile); ok {
+	if _, ok := s.Read(marker); ok {
 		t.Error("Read found a file that was never written")
 	}
-	if err := s.Write(pidFile, "4242"); err != nil {
+	if err := s.Write(marker, "4242"); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	got, ok := s.Read(pidFile)
+	got, ok := s.Read(marker)
 	if !ok {
 		t.Fatal("Read did not find the file just written")
 	}
@@ -54,14 +53,14 @@ func TestWriteReadRemove(t *testing.T) {
 		t.Errorf("Read = %q, want %q", got, want)
 	}
 
-	if err := s.Remove(pidFile); err != nil {
+	if err := s.Remove(marker); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if _, ok := s.Read(pidFile); ok {
+	if _, ok := s.Read(marker); ok {
 		t.Error("Read found the file after it was removed")
 	}
 	// Removing what is not there is how every stop path begins.
-	if err := s.Remove(pidFile); err != nil {
+	if err := s.Remove(marker); err != nil {
 		t.Errorf("Remove of a missing file: %v", err)
 	}
 }
@@ -89,37 +88,19 @@ func TestWriteStoresExactlyWhatItWasGiven(t *testing.T) {
 	}
 }
 
-func TestRename(t *testing.T) {
-	t.Parallel()
-	s := open(t)
-
-	if err := s.Write(pidFile, "7"); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if err := s.Rename(pidFile, doneFile); err != nil {
-		t.Fatalf("Rename: %v", err)
-	}
-	if _, ok := s.Read(pidFile); ok {
-		t.Error("the running pid file survived the rename")
-	}
-	if got, ok := s.Read(doneFile); !ok || got != "7" {
-		t.Errorf("Read(done) = %q, %t, want %q, true", got, ok, "7")
-	}
-}
-
 func TestListNames(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	for _, name := range []string{pidFile, doneFile, otherFile} {
+	for _, name := range []string{marker, otherMarker, thirdMarker} {
 		if err := s.Write(name, "1"); err != nil {
 			t.Fatalf("Write(%s): %v", name, err)
 		}
 	}
 
-	got := names(t, s, "caffeinate")
+	got := names(t, s, markerDir)
 	slices.Sort(got)
-	want := []string{"s1.done", "s1.pid", "s2.pid"}
+	want := []string{"a1", "a2", "a3"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}
@@ -160,14 +141,14 @@ func TestSymlinkCannotEscape(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 
 	outside := filepath.Join(t.TempDir(), "outside")
-	if err := os.MkdirAll(filepath.Join(dir, "caffeinate"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "subagents", "s1"), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.Symlink(outside, filepath.Join(dir, "caffeinate", "s1.pid")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(dir, "subagents", "s1", "a1")); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
 
-	if err := s.Write(pidFile, "4242"); err == nil {
+	if err := s.Write(marker, "4242"); err == nil {
 		t.Error("Write followed a symlink out of the root")
 	}
 	if _, err := os.Stat(outside); err == nil {
@@ -190,8 +171,7 @@ func openAt(t *testing.T, dir string) *Store {
 	return s
 }
 
-// names lists a directory, failing the test if it cannot be read. This package
-// cannot use statetest, which is built on it.
+// names lists a directory, failing the test if it cannot be read.
 func names(t *testing.T, s *Store, dir string) []string {
 	t.Helper()
 	got, err := s.Names(dir)

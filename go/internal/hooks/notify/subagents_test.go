@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/state/statetest"
+	"github.com/178inaba/dotfiles/go/internal/hooks/state"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -103,8 +103,8 @@ func TestTrackerRun(t *testing.T) {
 				t.Fatalf("Run() = %+v, want %+v", got, want)
 			}
 
-			s := statetest.OpenStore(t, dir)
-			got := statetest.Names(t, s, markerDir(session))
+			s := openStore(t, dir)
+			got := names(t, s, markerDir(session))
 			slices.Sort(got)
 			if !slices.Equal(got, tt.wantMarkers) {
 				t.Errorf("markers = %v, want %v", got, tt.wantMarkers)
@@ -120,7 +120,7 @@ func TestTrackerRun(t *testing.T) {
 
 func seed(t *testing.T, dir, session string, agents []string) {
 	t.Helper()
-	s := statetest.OpenStore(t, dir)
+	s := openStore(t, dir)
 	for _, a := range agents {
 		if err := s.Write(marker(session, a), ""); err != nil {
 			t.Fatalf("Write(%s): %v", a, err)
@@ -168,7 +168,7 @@ func TestBusy(t *testing.T) {
 			t.Parallel()
 
 			dir := filepath.Join(t.TempDir(), "ccx")
-			s := statetest.OpenStore(t, dir)
+			s := openStore(t, dir)
 			for agent, pid := range tt.markers {
 				if err := s.Write(marker(session, agent), pid); err != nil {
 					t.Fatalf("Write(%s): %v", agent, err)
@@ -186,5 +186,25 @@ func TestBusy(t *testing.T) {
 // fakeSignaller knows one live process.
 type fakeSignaller struct{}
 
-func (fakeSignaller) Terminate(int) error { return nil }
-func (fakeSignaller) Alive(pid int) bool  { return pid == 111 }
+func (fakeSignaller) Alive(pid int) bool { return pid == 111 }
+
+// openStore opens a state tree that closes itself when the test ends.
+func openStore(t *testing.T, dir string) *state.Store {
+	t.Helper()
+	s, err := state.Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+// names lists a directory in the store, failing the test if it cannot be read.
+func names(t *testing.T, s *state.Store, dir string) []string {
+	t.Helper()
+	names, err := s.Names(dir)
+	if err != nil {
+		t.Fatalf("Names(%q): %v", dir, err)
+	}
+	return names
+}

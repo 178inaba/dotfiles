@@ -2,8 +2,8 @@
 //
 // Every process the module starts goes through here. The shell scripts this
 // module replaces made themselves testable with environment seams (GH_BIN,
-// CURL_BIN, CAFFEINATE_BIN); the Go code injects a Runner instead, so the
-// binary has no test-only environment variables to honour at runtime.
+// CURL_BIN); the Go code injects a Runner instead, so the binary has no
+// test-only environment variables to honour at runtime.
 package runner
 
 import (
@@ -70,15 +70,11 @@ type Spawner interface {
 
 // Detacher starts another program that outlives this process.
 type Detacher interface {
-	// Detach returns the child's process id, which is the only handle on it
-	// once this process is gone.
-	Detach(name string, args ...string) (int, error)
+	Detach(name string, args ...string) error
 }
 
 // Signaller reaches a process this one need not have started.
 type Signaller interface {
-	// Terminate asks the process to exit.
-	Terminate(pid int) error
 	// Alive reports whether the process exists.
 	Alive(pid int) bool
 }
@@ -127,11 +123,10 @@ func (e Exec) Spawn(env []string, args ...string) error {
 }
 
 // Detach implements Detacher. It is Spawn for a program that is not this
-// binary, and it hands back the process id because a caffeinate outlives the
-// hook that started it and only its pid identifies it to the hook that stops
-// it.
-func (Exec) Detach(name string, args ...string) (int, error) {
-	return detach(name, nil, args)
+// binary.
+func (Exec) Detach(name string, args ...string) error {
+	_, err := detach(name, nil, args)
+	return err
 }
 
 // detach starts name and forgets about it, returning the child's process id.
@@ -164,19 +159,6 @@ func detach(name string, env, args []string) (int, error) {
 	// Release rather than Wait: nothing here cares about the outcome, and the
 	// child must survive this process.
 	return pid, cmd.Process.Release()
-}
-
-// Terminate implements Signaller.
-//
-// SIGTERM rather than os.Process.Kill's SIGKILL, so that a caffeinate releases
-// its power assertion on the way out instead of leaving the machine awake until
-// the kernel notices.
-func (Exec) Terminate(pid int) error {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	return p.Signal(unix.SIGTERM)
 }
 
 // Alive implements Signaller. Signal 0 performs the permission and existence

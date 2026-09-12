@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/state/statetest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -63,7 +62,7 @@ func TestIdleRun(t *testing.T) {
 
 			dir := filepath.Join(t.TempDir(), "ccx")
 			if tt.agent {
-				s := statetest.OpenStore(t, dir)
+				s := openStore(t, dir)
 				// A marker recording nothing is the plainest "still running".
 				if err := s.Write(marker(session, "a1"), ""); err != nil {
 					t.Fatalf("Write: %v", err)
@@ -137,11 +136,11 @@ type recordingDetacher struct {
 	started bool
 }
 
-func (r *recordingDetacher) Detach(string, ...string) (int, error) {
+func (r *recordingDetacher) Detach(string, ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.started = true
-	return 1, nil
+	return nil
 }
 
 func (r *recordingDetacher) played() bool {

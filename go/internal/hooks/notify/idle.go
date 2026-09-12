@@ -44,7 +44,7 @@ func (h Idle) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 	// Detached, not run: the sound is a second and a half long, and waiting for
 	// it would hold the bell and the post back by that much. Best effort, since
 	// a machine with no sound is still owed both.
-	_, _ = h.deps.Sound.Detach(soundBin, soundFile)
+	_ = h.deps.Sound.Detach(soundBin, soundFile)
 
 	directive := ring()
 	if err := post(ctx, h.deps, in); err != nil {

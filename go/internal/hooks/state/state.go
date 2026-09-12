@@ -1,10 +1,11 @@
-// Package state holds what the hooks have to remember between invocations: the
-// process id of a running caffeinate, and a marker per live subagent.
+// Package state holds what the hooks have to remember between invocations: a
+// marker per live subagent.
 //
 // This is runtime state and not cached data, which is why it does not join the
-// status line's caches under os.UserCacheDir. Deleting a cache costs the time
-// to rebuild it; deleting a pid file leaks a caffeinate that keeps the machine
-// awake, with nothing left to say which session it belonged to. It goes to
+// status line's caches under os.UserCacheDir. Deleting a cache costs only the
+// time to rebuild it; a marker cannot be rebuilt, because a subagent's start is
+// an event observable only at the moment it happens — losing the marker leaves
+// that session notified while a subagent of it is still running. It goes to
 // /tmp, where macOS's dirhelper sweeps what a session that died without its
 // stop hook left behind.
 package state
@@ -77,15 +78,13 @@ func (s *Store) Remove(name string) error {
 // RemoveAll deletes a directory and everything under it.
 func (s *Store) RemoveAll(name string) error { return s.root.RemoveAll(name) }
 
-// Rename moves a file within the tree.
-func (s *Store) Rename(from, to string) error { return s.root.Rename(from, to) }
-
 // Names lists the entries of a directory, in no particular order.
 //
 // A directory that is not there has no entries and no error: that is the state
 // every hook starts from. A directory that is there and cannot be listed is a
 // different thing, and what to do about it is the caller's to decide — folding
-// the two together would have a stop hook collect nothing and say nothing.
+// the two together would have busy read a directory it could not open as no
+// subagents running at all, notifying a session while one still is.
 func (s *Store) Names(dir string) ([]string, error) {
 	f, err := s.root.Open(dir)
 	if errors.Is(err, fs.ErrNotExist) {
