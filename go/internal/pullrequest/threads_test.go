@@ -1,6 +1,8 @@
 package pullrequest_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -21,9 +23,24 @@ import (
 // live read is compared against.
 func lastURL(id string) string { return "https://example.com/last/" + id }
 
+// replyURL is where the mutations mock puts a reply of ours, and so the newest
+// comment a context re-fetched after one reports.
+func replyURL(id string) string { return "https://example.com/" + id }
+
+// hashOf is the digest a record carries beside a reply, computed here rather
+// than by calling into the package: the test is the second opinion on what
+// "the same reply" means.
+func hashOf(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])
+}
+
+// recordLine is one line of the posted log.
+func recordLine(id, url, body string) string { return id + " " + url + " " + hashOf(body) }
+
 // contextThreads is one context's review_threads, covering every shape a
 // selector has to tell apart: two threads on one line, one whose line has left
-// the diff, one waiting on somebody else and one that is nobody's move.
+// the diff, two waiting on somebody else and one that is nobody's move.
 var contextThreads = []pullrequest.KnownThread{
 	{
 		ID: "PRRT_bot", Path: "src/a.go", Line: new(10), OriginalLine: new(10),
@@ -54,9 +71,18 @@ var contextThreads = []pullrequest.KnownThread{
 		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_dup2"),
 	},
 	{
+		// Ours, answered by us: the reviewer has everything they need, and we
+		// may still add to it.
 		ID: "PRRT_theirs", Path: "src/waiting.go", Line: new(5), OriginalLine: new(5),
 		OpenedBy: new("testuser"), Ball: pullrequest.BallTheirs,
 		ResolvableByMe: true, LastCommentURL: lastURL("PRRT_theirs"),
+	},
+	{
+		// A person's remark we have already answered: ours to add to after a
+		// change of design, theirs to close.
+		ID: "PRRT_answered", Path: "src/answered.go", Line: new(30), OriginalLine: new(30),
+		OpenedBy: new("reviewer1"), Ball: pullrequest.BallTheirs,
+		LastCommentURL: lastURL("PRRT_answered"),
 	},
 	{
 		ID: "PRRT_none", Path: "src/settled.go", Line: new(6), OriginalLine: new(6),
@@ -235,16 +261,16 @@ func TestReplyRefuses(t *testing.T) {
 			// The thread is there, it is simply settled — which the message
 			// says by naming it and its ball, rather than reading as "nothing
 			// here" and sending the caller to try another line.
-			name:    "a path with nothing we may act on",
+			name:    "a path with nothing we may reach",
 			actions: []pullrequest.ThreadAction{{Path: "src/settled.go", Body: new("fixed"), Resolve: true}},
 			wantErr: []string{"src/settled.go", "PRRT_none", "ball none"},
 		},
 		{
-			// The same for a thread waiting on the reviewer: not ours to
-			// reopen, and the refusal says whose move it is.
-			name:    "a thread waiting on somebody else",
-			actions: []pullrequest.ThreadAction{{Path: "src/waiting.go", Body: new("fixed"), Resolve: true}},
-			wantErr: []string{"src/waiting.go", "PRRT_theirs", "ball theirs"},
+			// A thread waiting on the reviewer is reachable — the author adds
+			// to it after a change of design — but closing it is still theirs.
+			name:    "resolving a person's remark we have answered",
+			actions: []pullrequest.ThreadAction{{Path: "src/answered.go", Body: new("the design changed"), Resolve: true}},
+			wantErr: []string{"resolve", "PRRT_answered", "src/answered.go:30"},
 		},
 		{
 			name:    "a path no thread is on at all",
@@ -278,10 +304,10 @@ func TestReplyRefuses(t *testing.T) {
 			// again would pass every check and reply a second time. Our reply
 			// is still the newest comment, so nothing has happened that a
 			// second one would be answering.
-			name:    "a thread an earlier run already replied to",
+			name:    "a thread an earlier run already posted this reply to",
 			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true}},
-			posted:  []string{"PRRT_bot " + lastURL("PRRT_bot")},
-			wantErr: []string{"already replied to in an earlier run"},
+			posted:  []string{recordLine("PRRT_bot", lastURL("PRRT_bot"), "fixed")},
+			wantErr: []string{"the same reply this file already posted"},
 		},
 		{
 			// The body rule reaches a reply too, and the refusal lands with
@@ -298,9 +324,21 @@ func TestReplyRefuses(t *testing.T) {
 			// A record written before the reply url was kept says only that
 			// something was posted, which is the conservative side.
 			name:    "a record from before the url was written down",
-			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true}},
-			posted:  []string{"PRRT_bot"},
-			wantErr: []string{"already replied to in an earlier run"},
+			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("said something else"), Resolve: true}},
+			posted:  []string{recordLine("PRRT_bot", "-", "fixed")},
+			wantErr: []string{"without learning where the reply landed", "PRRT_bot"},
+		},
+		{
+			// A thread this file has replied to twice: the record that says
+			// what is there now is the one whose url is still the newest
+			// comment, and it is not the first one found.
+			name:    "the newest of several records repeats this reply",
+			actions: []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("fixed again"), Resolve: true}},
+			posted: []string{
+				recordLine("PRRT_bot", "https://example.com/older", "fixed"),
+				recordLine("PRRT_bot", lastURL("PRRT_bot"), "fixed again"),
+			},
+			wantErr: []string{"the same reply this file already posted"},
 		},
 	}
 
@@ -373,6 +411,20 @@ func TestReplyResolvesSelectors(t *testing.T) {
 			action: pullrequest.ThreadAction{Path: "src/dup.go", Line: new(7), ID: new("PRRT_dup2"), Body: new("fixed"), Resolve: true},
 			wantID: "PRRT_dup2",
 		},
+		{
+			// Ours, on somebody else's pull request, answered by us: the
+			// follow-up a change of design calls for, and ours to close.
+			name:   "a thread we opened and answered",
+			action: pullrequest.ThreadAction{Path: "src/waiting.go", Line: new(5), Body: new("the design changed"), Resolve: true},
+			wantID: "PRRT_theirs",
+		},
+		{
+			// The same on our own pull request, where the remark is a person's:
+			// the reply lands and the thread stays open.
+			name:   "a person's remark we have answered",
+			action: pullrequest.ThreadAction{Path: "src/answered.go", Body: new("the design changed")},
+			wantID: "PRRT_answered",
+		},
 	}
 
 	for _, tc := range tests {
@@ -397,47 +449,57 @@ func TestReplyResolvesSelectors(t *testing.T) {
 	}
 }
 
-// TestReplyAfterAnEarlierReply covers the two ways a thread this file has
-// already been replied to comes back legitimately.
+// TestReplyAfterAnEarlierReply covers the ways a thread this file has already
+// been replied to comes back legitimately.
 //
-// The record exists to stop a reply being posted twice, and both of these post
-// something a duplicate check has no business refusing — which matters because
-// the skills tell the caller to do exactly this, into the same threads file,
-// and the refusal's advice is to drop the entry.
+// The record exists to stop the same reply being posted twice, and every one of
+// these posts something a duplicate check has no business refusing — which
+// matters because the skills tell the caller to do exactly this, into the same
+// threads file, and the refusal's advice is to drop the entry.
 func TestReplyAfterAnEarlierReply(t *testing.T) {
 	t.Parallel()
 
+	// step is one run of the same threads file after the first: the reply it
+	// writes (none for a run that only resolves) and the newest comment the
+	// re-fetched context and the live read agree on. What the run should post
+	// follows from the body, so it is derived rather than written down.
+	type step struct {
+		body        *string
+		lastComment string
+	}
+	ourReply := replyURL("PRRT_bot")
+
 	tests := []struct {
-		name   string
-		action pullrequest.ThreadAction
-		// threads is the context as it stands on the second run.
-		threads []pullrequest.KnownThread
-		// wantReplied is what the second run should post.
-		wantReplied []string
+		name  string
+		steps []step
 	}{
 		{
 			// The resolve half failed the first time — write access, a fork —
 			// and the skills say to retry it with the body left out. It cannot
-			// duplicate a reply, because it posts none. The context has been
-			// re-fetched, so our own reply is now its newest comment.
-			name:   "a resolve retried without the reply",
-			action: pullrequest.ThreadAction{Path: "src/a.go", Line: new(10), Resolve: true},
-			threads: replacing(contextThreads, "PRRT_bot", func(t pullrequest.KnownThread) pullrequest.KnownThread {
-				t.LastCommentURL = "https://example.com/PRRT_bot"
-				return t
-			}),
-			wantReplied: nil,
+			// duplicate a reply, because it posts none.
+			name:  "a resolve retried without the reply",
+			steps: []step{{lastComment: ourReply}},
 		},
 		{
 			// A later /loop iteration on a thread somebody has spoken in since:
 			// a genuinely new remark to answer, not the old one resent.
-			name:   "the thread was answered since we replied",
-			action: pullrequest.ThreadAction{Path: "src/a.go", Line: new(10), Body: new("fixed again"), Resolve: true},
-			threads: replacing(contextThreads, "PRRT_bot", func(t pullrequest.KnownThread) pullrequest.KnownThread {
-				t.LastCommentURL = "https://example.com/reviewer-came-back"
-				return t
-			}),
-			wantReplied: []string{"PRRT_bot"},
+			name:  "the thread was answered since we replied",
+			steps: []step{{body: new("fixed again"), lastComment: "https://example.com/reviewer-came-back"}},
+		},
+		{
+			// Nobody has spoken since, and there is still something new to
+			// say: the design changed under the answer we already gave.
+			name:  "a follow-up saying something else",
+			steps: []step{{body: new("the design changed"), lastComment: ourReply}},
+		},
+		{
+			// And again on top of that one: the record now holds two replies
+			// of ours on this thread, and neither is what is being written.
+			name: "a follow-up on a follow-up",
+			steps: []step{
+				{body: new("the design changed"), lastComment: ourReply},
+				{body: new("and once more"), lastComment: ourReply},
+			},
 		},
 	}
 
@@ -457,26 +519,33 @@ func TestReplyAfterAnEarlierReply(t *testing.T) {
 				t.Fatalf("the first Reply: %v", err)
 			}
 
-			m := &mutations{}
-			// The live read has to agree with the context it is handed, or the
-			// staleness check stops the run before the record is consulted.
-			for _, known := range tc.threads {
-				if known.ID == "PRRT_bot" {
-					m.liveURL = known.LastCommentURL
+			for i, s := range tc.steps {
+				action := pullrequest.ThreadAction{Path: "src/a.go", Line: new(10), Body: s.body, Resolve: true}
+				var wantReplied []string
+				if s.body != nil {
+					wantReplied = []string{"PRRT_bot"}
 				}
-			}
-			_, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
-				Actions: []pullrequest.ThreadAction{tc.action}, Threads: tc.threads,
-				ContextFile: "context.json", ThreadsFile: file,
-			})
-			if err != nil {
-				t.Fatalf("Reply: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantReplied, m.replied); diff != "" {
-				t.Errorf("replies posted (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff([]string{"PRRT_bot"}, m.resolved); diff != "" {
-				t.Errorf("threads resolved (-want +got):\n%s", diff)
+				threads := replacing(contextThreads, "PRRT_bot", func(t pullrequest.KnownThread) pullrequest.KnownThread {
+					t.LastCommentURL = s.lastComment
+					return t
+				})
+				// The live read has to agree with the context it is handed, or
+				// the staleness check stops the run before the record is
+				// consulted.
+				m := &mutations{liveURL: s.lastComment}
+				_, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
+					Actions: []pullrequest.ThreadAction{action}, Threads: threads,
+					ContextFile: "context.json", ThreadsFile: file,
+				})
+				if err != nil {
+					t.Fatalf("Reply %d: %v", i+1, err)
+				}
+				if diff := cmp.Diff(wantReplied, m.replied); diff != "" {
+					t.Errorf("replies posted by run %d (-want +got):\n%s", i+1, diff)
+				}
+				if diff := cmp.Diff([]string{"PRRT_bot"}, m.resolved); diff != "" {
+					t.Errorf("threads resolved by run %d (-want +got):\n%s", i+1, diff)
+				}
 			}
 		})
 	}
@@ -566,6 +635,7 @@ func TestDryRun(t *testing.T) {
 		Actions: []pullrequest.ThreadAction{
 			{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true},
 			{Path: "src/b.go", Line: new(55), Resolve: true},
+			{Path: "src/answered.go", Body: new("the design changed")},
 		},
 		Threads: contextThreads, ContextFile: "context.json", ThreadsFile: file,
 	})
@@ -582,6 +652,10 @@ func TestDryRun(t *testing.T) {
 			ID: "PRRT_outdated", Path: "src/b.go", OriginalLine: new(55),
 			OpenedBy: new("testuser"), Resolve: true,
 		},
+		{
+			ID: "PRRT_answered", Path: "src/answered.go", Line: new(30), OriginalLine: new(30),
+			OpenedBy: new("reviewer1"), Reply: true,
+		},
 	}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("DryRun (-want +got):\n%s", diff)
@@ -590,7 +664,7 @@ func TestDryRun(t *testing.T) {
 		t.Errorf("replied %v and resolved %v, want a dry run to send neither", m.replied, m.resolved)
 	}
 	// The live read did happen, which is what makes the plan trustworthy.
-	if diff := cmp.Diff([]string{"PRRT_bot", "PRRT_outdated"}, m.read); diff != "" {
+	if diff := cmp.Diff([]string{"PRRT_bot", "PRRT_outdated", "PRRT_answered"}, m.read); diff != "" {
 		t.Errorf("threads read (-want +got):\n%s", diff)
 	}
 	// A dry run leaves no trace, so the real run that follows is not refused
@@ -695,7 +769,7 @@ func (m *mutations) client(t *testing.T) *ghapi.Client {
 				fmt.Fprint(w, `{"data":{"addPullRequestReviewThreadReply":{"comment":{}}}}`)
 				return
 			}
-			fmt.Fprintf(w, `{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://example.com/%s"}}}}`, id)
+			fmt.Fprintf(w, `{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":%q}}}}`, replyURL(id))
 			return
 		}
 		if id == m.failResolve {
@@ -732,7 +806,7 @@ func TestReply(t *testing.T) {
 	want := pullrequest.ThreadReplies{
 		Replied: []pullrequest.RepliedThread{{
 			ID: "PRRT_bot", Path: "src/a.go", Line: new(10), OriginalLine: new(10),
-			URL: "https://example.com/PRRT_bot",
+			URL: replyURL("PRRT_bot"),
 		}},
 		Resolved:      []string{"PRRT_bot", "PRRT_outdated"},
 		ResolveFailed: []pullrequest.FailedResolve{},
@@ -749,8 +823,8 @@ func TestReply(t *testing.T) {
 	// The record is what a second run of the same file consults: the thread,
 	// and where the reply landed, which is what says whether anything has been
 	// said since.
-	if posted := read(t, pullrequest.PostedLog(file)); posted != "PRRT_bot https://example.com/PRRT_bot\n" {
-		t.Errorf("the record holds %q, want the thread replied to and the reply's url", posted)
+	if posted := read(t, pullrequest.PostedLog(file)); posted != recordLine("PRRT_bot", replyURL("PRRT_bot"), "confirmed")+"\n" {
+		t.Errorf("the record holds %q, want the thread, the reply's url and the reply's hash", posted)
 	}
 }
 
@@ -849,6 +923,46 @@ func TestReplyStops(t *testing.T) {
 				t.Errorf("the record (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestReplyAfterAReplyWithNoURL drives the whole round trip of the record a
+// failed mutation leaves behind: written by one run, read by the next, and
+// refusing it whatever it says.
+//
+// Written rather than hand-placed, because the placeholder the writing side
+// puts in the url column is what the reading side recognises: drop it and the
+// line is two columns, which the parser discards, and every existing case still
+// passes while a resend goes through.
+func TestReplyAfterAReplyWithNoURL(t *testing.T) {
+	t.Parallel()
+
+	file := threadsFile(t)
+	first := &mutations{urlless: "PRRT_bot"}
+	_, err := pullrequest.Reply(t.Context(), first.client(t), pullrequest.ReplyRequest{
+		Actions:     []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("confirmed"), Resolve: true}},
+		Threads:     contextThreads,
+		ContextFile: "context.json", ThreadsFile: file,
+	})
+	if err == nil {
+		t.Fatal("the first Reply succeeded, want it to stop on the missing url")
+	}
+
+	// A different body, so that only the missing url can be what refuses it.
+	second := &mutations{}
+	_, err = pullrequest.Reply(t.Context(), second.client(t), pullrequest.ReplyRequest{
+		Actions:     []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("saying something else"), Resolve: true}},
+		Threads:     contextThreads,
+		ContextFile: "context.json", ThreadsFile: file,
+	})
+	if err == nil {
+		t.Fatal("the second Reply succeeded, want the record to refuse it")
+	}
+	if !strings.Contains(err.Error(), "without learning where the reply landed") {
+		t.Errorf("error = %q, want it to say the reply's whereabouts are unknown", err)
+	}
+	if len(second.replied)+len(second.resolved) > 0 {
+		t.Errorf("replied %v and resolved %v, want the refusal to send neither", second.replied, second.resolved)
 	}
 }
 

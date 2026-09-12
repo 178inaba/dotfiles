@@ -2,6 +2,8 @@ package pullrequest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"slices"
@@ -131,9 +133,11 @@ type ReplyPlan struct {
 // ThreadsFile is the document `ccx pr reply-threads` reads.
 type ThreadsFile struct {
 	// The threads to act on, named by where they are rather than by their
-	// ids. Only threads the pull request context flagged as ours to move on
-	// are reachable, so that one run cannot settle somebody else's remark or
-	// reopen a resolved one.
+	// ids. Reachable are the unresolved threads on our own pull request and
+	// the ones we opened — whether the ball is ours or theirs, since a change
+	// of design is answered on a thread we have already replied in. A thread
+	// the context flagged as nobody's move is not, so that one run cannot
+	// settle somebody else's remark or reopen a resolved one.
 	Threads []ThreadsFileEntry `json:"threads" contract:"required"`
 }
 
@@ -142,8 +146,8 @@ type ThreadsFileEntry struct {
 	// The thread's path, as the context records it.
 	Path *string `json:"path" contract:"required"`
 	// The line, matching either line or original_line. Leave it out where the
-	// path has only one thread we may act on; a path with several and no line
-	// is refused rather than guessed at.
+	// path has only one reachable thread; a path with several and no line is
+	// refused rather than guessed at.
 	Line *int `json:"line"`
 	// The thread's id, to break a tie where a path and a line reach more than
 	// one. It has to be one of them: an id from elsewhere is refused, which is
@@ -289,17 +293,23 @@ func resolveSelectors(actions []checkedAction, threads []KnownThread, contextFil
 		case 1:
 			out = append(out, plannedAction{thread: candidates[0], body: a.reply, resolve: a.Resolve})
 		case 0:
-			return nil, fmt.Errorf("no thread we may act on matches %s\n%s", a.selector(), atPath(threads, a.Path))
+			return nil, fmt.Errorf("no thread we may reach matches %s\n%s", a.selector(), atPath(threads, a.Path))
 		default:
-			return nil, fmt.Errorf("%d threads we may act on match %s; add \"id\" to say which:\n%s",
+			return nil, fmt.Errorf("%d threads we may reach match %s; add \"id\" to say which:\n%s",
 				len(candidates), a.selector(), list(candidates))
 		}
 	}
 	return out, nil
 }
 
-// matching is the threads a selector reaches: ours to move on, at that path,
-// and on that line if one was given.
+// matching is the threads a selector reaches: every one somebody still owes
+// something on, at that path, and on that line if one was given.
+//
+// Whose move it is does not narrow this, only whether anybody's does: a thread
+// waiting on the reviewer is one we have answered, and answering it again is
+// what a change of design calls for. What is left out is the thread nobody owes
+// anything on — resolved, or somebody else's remark on somebody else's pull
+// request.
 //
 // A line matches either line or original_line, because line is null on a thread
 // whose lines have left the diff — which for the author is the state right
@@ -307,7 +317,7 @@ func resolveSelectors(actions []checkedAction, threads []KnownThread, contextFil
 func matching(threads []KnownThread, a ThreadAction) []KnownThread {
 	var out []KnownThread
 	for _, t := range threads {
-		if t.Ball != BallMine || t.Path != a.Path {
+		if t.Ball == BallNone || t.Path != a.Path {
 			continue
 		}
 		if a.Line != nil && !onLine(t, *a.Line) {
@@ -333,7 +343,7 @@ func wrongID(id string, a ThreadAction, threads []KnownThread, contextFile strin
 		if t.ID != id {
 			continue
 		}
-		return fmt.Errorf("id %s is not a thread we may act on at %s: it is %s, opened by %s, ball %s\n%s",
+		return fmt.Errorf("id %s is not a thread we may reach at %s: it is %s, opened by %s, ball %s\n%s",
 			id, a.selector(), position(t), login(t.OpenedBy), t.Ball, atPath(threads, a.Path))
 	}
 	return fmt.Errorf("id %s is not a thread in %s", id, contextFile)
@@ -341,26 +351,26 @@ func wrongID(id string, a ThreadAction, threads []KnownThread, contextFile strin
 
 // atPath is the "you could have meant these" half of a refusal.
 //
-// Where the path holds nothing we may act on it names the threads that are
-// there with the ball each is waiting on, rather than reporting an empty match:
-// "there is a thread here, it is just not yours to move" sends the caller to
-// the protocol, and "nothing matches" sends them back to try another line.
+// Where the path holds nothing reachable it names the threads that are there,
+// rather than reporting an empty match: "there is a thread here, it is just
+// settled" sends the caller to the protocol, and "nothing matches" sends them
+// back to try another line. Unreachable is one state and not several, so it is
+// said once in the sentence rather than in a column beside each thread.
 func atPath(threads []KnownThread, path string) string {
 	if ours := matching(threads, ThreadAction{Path: path}); len(ours) > 0 {
-		return "threads we may act on at " + path + ":\n" + list(ours)
+		return "threads we may reach at " + path + ":\n" + list(ours)
 	}
 
-	var others []string
+	var others []KnownThread
 	for _, t := range threads {
 		if t.Path == path {
-			others = append(others, fmt.Sprintf("  %s  %s  opened by %s  ball %s",
-				t.ID, position(t), login(t.OpenedBy), t.Ball))
+			others = append(others, t)
 		}
 	}
 	if len(others) == 0 {
 		return "no thread at all is recorded at " + path
 	}
-	return "no thread at " + path + " is ours to act on; the threads there are:\n" + strings.Join(others, "\n")
+	return "no thread at " + path + " is one we may reach (every one there is ball none):\n" + list(others)
 }
 
 // list renders threads one to a line, with everything a caller picks between
@@ -418,9 +428,14 @@ func checkResolved(planned []plannedAction, threadsFile string) error {
 	// file again would pass every check and reply twice. The record of what was
 	// posted is what stops that.
 	log := PostedLog(threadsFile)
-	if resent := wouldResend(log, planned); len(resent) > 0 {
-		return fmt.Errorf("thread(s) already replied to in an earlier run of this file, with nothing said since: %s\nremove them from %s (resending would post duplicate replies); the record is in %s",
-			strings.Join(resent, ","), threadsFile, log)
+	repeats, unplaced := wouldResend(log, planned)
+	if len(repeats) > 0 {
+		return fmt.Errorf("thread(s) whose newest comment is the same reply this file already posted: %s\nsay something else in %s, or remove the entry (posting it again would say it twice); the record is in %s",
+			strings.Join(repeats, ", "), threadsFile, log)
+	}
+	if len(unplaced) > 0 {
+		return fmt.Errorf("thread(s) this file replied to without learning where the reply landed, so a second reply cannot be judged: %s\nremove them from %s and read the thread on GitHub; the record is in %s",
+			strings.Join(unplaced, ", "), threadsFile, log)
 	}
 	return nil
 }
@@ -539,7 +554,7 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 			// Recorded before anything else can fail, so that a run which
 			// stops after this still refuses to resend it. A missing url is
 			// recorded as one, which is the unconditional refusal.
-			if err := record(log, id, url); err != nil {
+			if err := record(log, id, url, *p.body); err != nil {
 				return ThreadReplies{}, err
 			}
 			if url == "" {
@@ -588,31 +603,56 @@ func abort(t KnownThread, reason, log string, planned []plannedAction) error {
 	return &AbortedReply{Message: strings.TrimSuffix(b.String(), "\n")}
 }
 
-// record notes a reply in the log, by the thread it landed on and the url it
-// landed at.
+// noURL stands in the record for a reply whose url never came back.
 //
-// The url is what makes the record answer the question it is asked. Written
-// before the reply's url is known — a mutation that failed after posting — the
-// line carries the id alone, which reads as "posted, whereabouts unknown" and
-// is refused unconditionally.
-func record(log, id, url string) error {
+// A column of its own rather than a short line, so that every record parses the
+// same way and the hash beside it is still read.
+const noURL = "-"
+
+// record notes a reply in the log, by the thread it landed on, the url it
+// landed at and what it said.
+//
+// The url and the hash are what make the record answer the question it is
+// asked: whether the newest comment on that thread is this very reply of ours.
+// Written before the reply's url is known — a mutation that failed after
+// posting — the url column is noURL, which reads as "posted, whereabouts
+// unknown" and is refused whatever the body says.
+func record(log, id, url string, body ghapi.Body) error {
+	if url == "" {
+		url = noURL
+	}
 	f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("record the reply to %s: %w", id, err)
 	}
 	defer f.Close()
-	if _, err := fmt.Fprintln(f, strings.TrimSpace(id+" "+url)); err != nil {
+	if _, err := fmt.Fprintln(f, id+" "+url+" "+bodyHash(body)); err != nil {
 		return fmt.Errorf("record the reply to %s: %w", id, err)
 	}
 	return nil
 }
 
-// postedReply is one line of the log: a thread, and where our reply to it
-// landed.
-type postedReply struct{ id, url string }
+// bodyHash is how one reply is told from another in the record.
+//
+// Over the body as it goes to GitHub, and the one place it is computed: a
+// record written from one spelling and read against another would refuse a
+// follow-up or admit a resend, and neither failure says anything about itself.
+func bodyHash(body ghapi.Body) string {
+	sum := sha256.Sum256([]byte(body.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+// postedReply is one line of the log: a thread, where our reply to it landed,
+// and what that reply said.
+type postedReply struct{ id, url, hash string }
 
 // postedReplies reads the log, treating its absence as nothing having been
 // posted.
+//
+// A line without all three columns is one this package never wrote, and it
+// names no reply this run could be repeating; dropping it is what keeps every
+// postedReply complete, so that "we do not know where the reply landed" has one
+// spelling rather than two.
 func postedReplies(log string) []postedReply {
 	b, err := os.ReadFile(log)
 	if err != nil {
@@ -620,40 +660,62 @@ func postedReplies(log string) []postedReply {
 	}
 	var out []postedReply
 	for line := range strings.SplitSeq(string(b), "\n") {
-		if line == "" {
+		columns := strings.Fields(line)
+		if len(columns) != 3 {
 			continue
 		}
-		id, url, _ := strings.Cut(line, " ")
-		out = append(out, postedReply{id: id, url: url})
+		out = append(out, postedReply{id: columns[0], url: columns[1], hash: columns[2]})
 	}
 	return out
 }
 
 // wouldResend is the threads an entry would say the same thing on twice.
 //
-// Two entries the record must not refuse, because neither can duplicate
-// anything and both are what a caller is told to do next: one that resolves
-// without replying, which is how a resolve is retried where only it failed, and
-// a fresh reply to a thread somebody has spoken in since — a later /loop
-// iteration answering a new remark, not resending the old one. What is left is
-// a reply to a thread whose newest comment is still the reply we posted, and
-// that is the mistake worth stopping.
-func wouldResend(log string, planned []plannedAction) []string {
+// Three entries the record must not refuse, because none of them can duplicate
+// anything and each is what a caller is told to do next: one that resolves
+// without replying, which is how a resolve is retried where only it failed; a
+// fresh reply to a thread somebody has spoken in since — a later /loop
+// iteration answering a new remark, not resending the old one; and a reply
+// saying something else on a thread our own reply is still the newest comment
+// on, which is what a change of design calls for. What is left is the same
+// reply, on a thread still showing the reply we posted, and that is the mistake
+// worth stopping.
+//
+// Every record of the thread is read, not the first one found: a thread
+// answered twice has two, and the one that says what is there now is the one
+// whose url is still the newest comment.
+//
+// The two refusals are answered apart because their ways out are: a repeat is
+// undone by saying something else, and a record with no url is not — nothing in
+// the file can make it say whether that reply is still the newest comment.
+func wouldResend(log string, planned []plannedAction) (repeats, unplaced []string) {
 	posted := postedReplies(log)
-	var found []string
 	for _, p := range planned {
 		if p.body == nil {
 			continue
 		}
+		hash := bodyHash(*p.body)
 		for _, r := range posted {
-			if r.id == p.thread.ID && (r.url == "" || r.url == p.thread.LastCommentURL) {
-				found = append(found, describe(p.thread))
+			if r.id != p.thread.ID {
+				continue
+			}
+			if r.url == noURL {
+				unplaced = append(unplaced, describe(p.thread))
+				break
+			}
+			if r.url == p.thread.LastCommentURL && r.hash == hash {
+				repeats = append(repeats, describe(p.thread))
 				break
 			}
 		}
 	}
-	slices.Sort(found)
-	return slices.Compact(found)
+	return sorted(repeats), sorted(unplaced)
+}
+
+// sorted is one refusal's threads, in a fixed order and without repeats.
+func sorted(threads []string) []string {
+	slices.Sort(threads)
+	return slices.Compact(threads)
 }
 
 // postedHere is the threads of this run the log already holds, whatever was
