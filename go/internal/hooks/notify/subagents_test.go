@@ -84,6 +84,32 @@ func TestTrackerRun(t *testing.T) {
 			mode: SessionEnd, in: hooks.Payload{SessionID: session},
 			wantMarkers: nil,
 		},
+		{
+			name: "session start purges the residue of a session resumed under the same id",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "startup"},
+			wantMarkers: nil,
+		},
+		{
+			name: "session start purges on resume too, since --resume reuses the session id",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "resume"},
+			wantMarkers: nil,
+		},
+		{
+			// Compaction happens mid-session, and a background subagent survives
+			// it: purging here would forget one that is still running.
+			name: "session start leaves the markers when the source is a compaction",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "compact"},
+			wantMarkers: started,
+		},
+		{
+			// Only "compact" is excluded, rather than an allowlist of the known
+			// sources: a source Claude Code adds later purges by default instead
+			// of silently stopping, which is the direction that risks one extra
+			// notification rather than a marker that never gets forgotten.
+			name: "session start purges for a source this rule does not recognize",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "future"},
+			wantMarkers: nil,
+		},
 	}
 
 	for _, tt := range tests {

@@ -33,6 +33,10 @@ const (
 	Stop
 	// SessionEnd forgets the whole session.
 	SessionEnd
+	// SessionStart purges the session's markers: below a session that is only
+	// now starting, every marker is the residue of a previous run that ended
+	// without going through SessionEnd.
+	SessionStart
 )
 
 // Tracker keeps one marker per running subagent, which is how Idle tells a
@@ -53,7 +57,7 @@ func NewTracker(d Deps, mode Mode) Tracker { return Tracker{deps: d, mode: mode}
 func (h Tracker) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 	// Start and Stop are about one agent, and an event that names none is not
 	// about a subagent at all.
-	if h.mode != SessionEnd && in.AgentID == "" {
+	if h.mode != SessionEnd && h.mode != SessionStart && in.AgentID == "" {
 		return hooks.Result{}
 	}
 
@@ -70,6 +74,14 @@ func (h Tracker) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 		err = s.Remove(marker(in.SessionID, in.AgentID))
 	case SessionEnd:
 		err = s.RemoveAll(markerDir(in.SessionID))
+	case SessionStart:
+		// Compaction is excluded by name rather than the rest allowed by name,
+		// because it is the one source that happens mid-session with a
+		// background subagent still running; every other source, known or not,
+		// purges.
+		if in.Source != "compact" {
+			err = s.RemoveAll(markerDir(in.SessionID))
+		}
 	}
 	if err != nil {
 		return failed(err)

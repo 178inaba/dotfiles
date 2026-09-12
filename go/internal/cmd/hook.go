@@ -57,12 +57,12 @@ func newHookCmd(deps Deps) *cobra.Command {
 	return c
 }
 
-// subagentTrackerCmd is the one hook registered on three different events, one
+// subagentTrackerCmd is the one hook registered on four different events, one
 // flag each. cobra rejects a wrong number of them rather than picking one, so
 // an entry in settings.json that asks for two, or for none, is a startup error
 // and not a marker quietly written for the wrong event.
 func subagentTrackerCmd(deps Deps) *cobra.Command {
-	var start, stop, sessionEnd bool
+	var start, stop, sessionEnd, sessionStart bool
 	c := leafHookCmd("subagent-tracker", "Track which subagents are running", deps,
 		func() hook {
 			mode := notify.Start
@@ -71,17 +71,20 @@ func subagentTrackerCmd(deps Deps) *cobra.Command {
 				mode = notify.Stop
 			case sessionEnd:
 				mode = notify.SessionEnd
+			case sessionStart:
+				mode = notify.SessionStart
 			}
 			return notify.NewTracker(notify.Default(), mode)
 		})
 	c.Flags().BoolVar(&start, "start", false, "a subagent has started")
 	c.Flags().BoolVar(&stop, "stop", false, "a subagent has finished")
 	c.Flags().BoolVar(&sessionEnd, "session-end", false, "the session has ended")
-	c.MarkFlagsMutuallyExclusive("start", "stop", "session-end")
+	c.Flags().BoolVar(&sessionStart, "session-start", false, "the session has started")
+	c.MarkFlagsMutuallyExclusive("start", "stop", "session-end", "session-start")
 	// And one is required. A registration that lost its flag would otherwise
 	// track nothing and exit 0, and the only symptom would be idle-notify
 	// falling silent — the failure this pair exists to prevent.
-	c.MarkFlagsOneRequired("start", "stop", "session-end")
+	c.MarkFlagsOneRequired("start", "stop", "session-end", "session-start")
 	return c
 }
 

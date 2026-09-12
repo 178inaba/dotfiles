@@ -25,13 +25,15 @@ func TestParse(t *testing.T) {
 			      "message":"hello","notification_type":"idle_prompt",
 			      "tool_input":{"command":"ls","file_path":"/w/SKILL.md"},
 			      "transcript_path":"/p/s.jsonl","stop_hook_active":true,
-			      "permission_mode":"plan","background_tasks":[{"id":"t-1"},{"id":"t-2"}]}`,
+			      "permission_mode":"plan","background_tasks":[{"id":"t-1"},{"id":"t-2"}],
+			      "source":"startup"}`,
 			want: Payload{
 				SessionID: "s-1", AgentID: "a-1", ToolName: "Edit", Dir: "/w",
 				Message: "hello", NotificationType: "idle_prompt",
 				Command: "ls", FilePath: "/w/SKILL.md",
 				TranscriptPath: "/p/s.jsonl", StopHookActive: true,
 				PermissionMode: "plan", BackgroundTasks: new(2),
+				Source: "startup",
 			},
 		},
 		{

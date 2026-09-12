@@ -58,6 +58,9 @@ type Payload struct {
 	// input gave no answer: the array is absent when Claude Code could not
 	// reach the task registry, which is not the same as nothing running.
 	BackgroundTasks *int
+	// Source is what triggered a SessionStart event: startup, resume, clear,
+	// compact, or fork.
+	Source string
 }
 
 // wire is the input as it arrives. Keeping it separate from Payload is what
@@ -81,6 +84,7 @@ type wire struct {
 	// BackgroundTasks is a pointer so that an absent array stays distinct from
 	// an empty one, and holds no fields because only its length is read.
 	BackgroundTasks *[]struct{} `json:"background_tasks"`
+	Source          string      `json:"source"`
 }
 
 // Parse reads the hook input.
@@ -109,6 +113,7 @@ func Parse(in []byte) Payload {
 		TranscriptPath:   expandHome(w.TranscriptPath),
 		StopHookActive:   w.StopHookActive,
 		PermissionMode:   w.PermissionMode,
+		Source:           w.Source,
 	}
 	if w.BackgroundTasks != nil {
 		n := len(*w.BackgroundTasks)

@@ -102,6 +102,16 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/go/bin/ccx hook subagent-tracker --session-start"
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "hooks": [
