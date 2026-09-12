@@ -994,18 +994,19 @@ func TestReplyRefusesARepeat(t *testing.T) {
 	}
 }
 
-// TestReplyIgnoresAStrayFileBesideTheThreadsFile is the check against a file
-// happening to sit where the old on-disk record used to live: nothing in this
-// package writes one, and nothing reads one either.
+// TestReplyIgnoresAStrayFileBesideTheThreadsFile pins that a run keeps no state
+// of its own. Whether a reply would repeat one already there is answered from
+// the thread on GitHub, so the work dir holding the threads file is read for
+// the bodies that file names and for nothing else.
 func TestReplyIgnoresAStrayFileBesideTheThreadsFile(t *testing.T) {
 	t.Parallel()
 
 	file := threadsFile(t)
 	stray := file + ".posted"
-	// The old record format, naming the very reply this run is about to post:
-	// under the old rule this content would have refused it.
-	old := "PRRT_bot " + lastURL("PRRT_bot") + " 0000000000000000000000000000000000000000000000000000000000000000\n"
-	if err := os.WriteFile(stray, []byte(old), 0o644); err != nil {
+	// Naming the very thread this run is about to reply to, so that a run
+	// reading anything here would have something to refuse it with.
+	content := "PRRT_bot " + lastURL("PRRT_bot") + " 0000000000000000000000000000000000000000000000000000000000000000\n"
+	if err := os.WriteFile(stray, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -1026,7 +1027,7 @@ func TestReplyIgnoresAStrayFileBesideTheThreadsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%q): %v", stray, err)
 	}
-	if string(b) != old {
-		t.Errorf("the stray file changed from %q to %q, want it untouched", old, string(b))
+	if string(b) != content {
+		t.Errorf("the stray file changed from %q to %q, want it untouched", content, string(b))
 	}
 }
