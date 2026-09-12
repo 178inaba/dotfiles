@@ -447,11 +447,10 @@ func describe(t KnownThread) string {
 //
 // Eligibility is otherwise frozen at the moment the context was fetched, so
 // running the same file again would pass every other check and reply twice.
-// The live newest comment is what stops that, without needing a record of
-// what a previous run posted: the resend check runs only where staleness does
-// not already stop the thread, so a thread somebody else has since answered
-// is caught above and the body comparison only ever sees a newest comment the
-// context also saw.
+// The live newest comment is what stops that. The resend check runs only where
+// staleness does not already stop the thread, so a thread somebody else has
+// since answered is caught above and the body comparison only ever sees a
+// newest comment the context also saw.
 func checkLive(ctx context.Context, c *ghapi.Client, planned []plannedAction, req ReplyRequest) error {
 	var moved, repeats []string
 	for _, p := range planned {
