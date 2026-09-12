@@ -245,13 +245,13 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 		}
 
 		isCurrent := e.Path == currentWorktree
-		// Untracked files count here and nowhere else in this package: this is
-		// about to delete the directory they are in, not fast-forward past
-		// them. It is also the last dirty guard on the path that deletes with
-		// -D, so it comes before the closed pull request's exemption.
+		// Untracked files count here, as IsClean counts them: this is about to
+		// delete the directory they are in, not fast-forward past them. It is
+		// also the last dirty guard on the path that deletes with -D, so it comes
+		// before the closed pull request's exemption.
 		var reason SkipReason
 		var detail string
-		if status, _ := runner.Git(ctx, c.r, e.Path, "status", "--porcelain"); status != "" {
+		if clean, err := IsClean(ctx, c.r, e.Path); err == nil && !clean {
 			reason, detail = SkipUncommittedChanges, skipDetails[SkipUncommittedChanges]
 		} else {
 			reason, detail = c.safety(ctx, e.Path, "HEAD", j.verdict)
