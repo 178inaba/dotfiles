@@ -207,17 +207,17 @@ func TestAliveIsFalseForAProcessThatHasGone(t *testing.T) {
 	}
 }
 
-// reap waits for a detached child of this process and returns how it ended.
-// Nothing in production does this — a detached child outlives the process
-// that started it — but the test process would otherwise collect zombies.
-func reap(t *testing.T, pid int) unix.WaitStatus {
+// reap waits for a detached child of this process. Nothing in production does
+// this — a detached child outlives the process that started it — but the test
+// process would otherwise collect zombies.
+func reap(t *testing.T, pid int) {
 	t.Helper()
 	var status unix.WaitStatus
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		got, err := unix.Wait4(pid, &status, unix.WNOHANG, nil)
 		if got == pid {
-			return status
+			return
 		}
 		if err != nil && err != unix.EINTR {
 			t.Fatalf("Wait4(%d): %v", pid, err)

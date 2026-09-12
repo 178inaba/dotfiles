@@ -8,10 +8,8 @@ import (
 )
 
 const (
-	marker      = "subagents/s1/a1"
-	otherMarker = "subagents/s1/a2"
-	thirdMarker = "subagents/s1/a3"
-	markerDir   = "subagents/s1"
+	marker    = "subagents/s1/a1"
+	markerDir = "subagents/s1"
 )
 
 func TestOpenCreatesThePrivateRoot(t *testing.T) {
@@ -92,7 +90,7 @@ func TestListNames(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	for _, name := range []string{marker, otherMarker, thirdMarker} {
+	for _, name := range []string{marker, markerDir + "/a2", markerDir + "/a3"} {
 		if err := s.Write(name, "1"); err != nil {
 			t.Fatalf("Write(%s): %v", name, err)
 		}
