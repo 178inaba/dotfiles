@@ -8,11 +8,11 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// The two commands that bring a checkout up to a pull request's head share what
-// follows: what counts as dirty, and how far a synchronisation may go on its
-// own. One definition, because a checkout that one command called safe to
+// What counts as uncommitted work, and how far a synchronisation may go on its
+// own, is defined here once. The two commands that bring a checkout up to a
+// pull request's head share it, because a checkout that one called safe to
 // fast-forward and the other called dirty would be a difference nobody could
-// explain.
+// explain; the checks that must not move the checkout read the same status.
 
 // statusLines is what `git status --porcelain` printed, one entry per line.
 func statusLines(ctx context.Context, r runner.Runner, dir string) ([]string, error) {
