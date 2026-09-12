@@ -530,6 +530,7 @@ func prReplyThreadsCmd(deps Deps) *cobra.Command {
 
 			req := pullrequest.ReplyRequest{
 				Actions: actions, Threads: prContext.KnownThreads(), ContextFile: contextFile, ThreadsFile: threadsFile,
+				CurrentUser: prContext.CurrentUser,
 			}
 			if dryRun {
 				planned, err := pullrequest.DryRun(c.Context(), client, req)

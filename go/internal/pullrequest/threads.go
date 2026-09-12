@@ -2,10 +2,7 @@ package pullrequest
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -205,10 +202,11 @@ type ReplyRequest struct {
 	// by naming where it does belong, which needs the rest of them.
 	Threads []KnownThread
 	// ContextFile and ThreadsFile are named in the refusals, because what a
-	// caller does about one is to edit the file it names. ThreadsFile also
-	// decides where the record of what has been posted lives.
+	// caller does about one is to edit the file it names.
 	ContextFile string
 	ThreadsFile string
+	// CurrentUser is the login the newest comment's author is compared against.
+	CurrentUser string
 }
 
 // plan resolves every selector and runs every check, up to but not including
@@ -225,10 +223,10 @@ func plan(ctx context.Context, c *ghapi.Client, req ReplyRequest) ([]plannedActi
 	if err != nil {
 		return nil, err
 	}
-	if err := checkResolved(planned, req.ThreadsFile); err != nil {
+	if err := checkResolved(planned); err != nil {
 		return nil, err
 	}
-	if err := checkLive(ctx, c, planned, req.ContextFile); err != nil {
+	if err := checkLive(ctx, c, planned, req); err != nil {
 		return nil, err
 	}
 	return planned, nil
@@ -404,7 +402,7 @@ func login(l *string) string {
 }
 
 // checkResolved rejects what only becomes visible once the threads are known.
-func checkResolved(planned []plannedAction, threadsFile string) error {
+func checkResolved(planned []plannedAction) error {
 	var unresolvable, dupes []string
 	seen := map[string]bool{}
 	for _, p := range planned {
@@ -423,20 +421,6 @@ func checkResolved(planned []plannedAction, threadsFile string) error {
 	if len(dupes) > 0 {
 		return fmt.Errorf("duplicate thread(s) would post duplicate replies: %s", strings.Join(dupes, ", "))
 	}
-
-	// Eligibility was frozen when the context was fetched, so running the same
-	// file again would pass every check and reply twice. The record of what was
-	// posted is what stops that.
-	log := PostedLog(threadsFile)
-	repeats, unplaced := wouldResend(log, planned)
-	if len(repeats) > 0 {
-		return fmt.Errorf("thread(s) whose newest comment is the same reply this file already posted: %s\nsay something else in %s, or remove the entry (posting it again would say it twice); the record is in %s",
-			strings.Join(repeats, ", "), threadsFile, log)
-	}
-	if len(unplaced) > 0 {
-		return fmt.Errorf("thread(s) this file replied to without learning where the reply landed, so a second reply cannot be judged: %s\nremove them from %s and read the thread on GitHub; the record is in %s",
-			strings.Join(unplaced, ", "), threadsFile, log)
-	}
 	return nil
 }
 
@@ -451,24 +435,30 @@ func describe(t KnownThread) string {
 	return where + " (" + t.ID + ")"
 }
 
-// checkLive re-reads every thread a run would touch and stops the whole run if
-// any of them has moved since the context was fetched.
+// checkLive re-reads every thread a run would touch, stopping the whole run if
+// any of them has moved since the context was fetched, and refusing an entry
+// whose reply would say, again, what our own newest comment already says.
 //
 // The context is a snapshot, and between fetching it and writing the replies a
 // reviewer may answer or resolve. Replying then puts an answer under a remark
 // that has already been withdrawn, and resolving discards an answer nobody has
 // read. One thread stops all of them, since the file was written as one
 // judgement of one view.
-func checkLive(ctx context.Context, c *ghapi.Client, planned []plannedAction, contextFile string) error {
-	var moved []string
+//
+// Eligibility is otherwise frozen at the moment the context was fetched, so
+// running the same file again would pass every other check and reply twice.
+// The live newest comment is what stops that. The resend check runs only where
+// staleness does not already stop the thread, so a thread somebody else has
+// since answered is caught above and the body comparison only ever sees a
+// newest comment the context also saw.
+func checkLive(ctx context.Context, c *ghapi.Client, planned []plannedAction, req ReplyRequest) error {
+	var moved, repeats []string
 	for _, p := range planned {
 		var live struct {
 			Node struct {
 				IsResolved bool `json:"isResolved"`
 				Comments   struct {
-					Nodes []struct {
-						URL string `json:"url"`
-					} `json:"nodes"`
+					Nodes []commentNode `json:"nodes"`
 				} `json:"comments"`
 			} `json:"node"`
 		}
@@ -476,35 +466,35 @@ func checkLive(ctx context.Context, c *ghapi.Client, planned []plannedAction, co
 			return fmt.Errorf("failed to re-read thread %s before posting (GraphQL): %v", p.thread.ID, err)
 		}
 
-		var url string
+		var newest commentNode
 		if nodes := live.Node.Comments.Nodes; len(nodes) > 0 {
-			url = nodes[0].URL
+			newest = nodes[0]
 		}
 		switch {
 		case live.Node.IsResolved:
 			moved = append(moved, describe(p.thread)+": resolved since the context was fetched")
-		case url != p.thread.LastCommentURL:
+		case newest.URL != p.thread.LastCommentURL:
 			moved = append(moved, describe(p.thread)+": answered since the context was fetched")
+		case p.body != nil && isLogin(newest.Author.login(), req.CurrentUser) && newest.Body == p.body.String():
+			repeats = append(repeats, describe(p.thread))
 		}
 	}
-	if len(moved) == 0 {
-		return nil
+	if len(moved) > 0 {
+		return fmt.Errorf("the pull request has moved since %s was fetched:\n  %s\nrerun `ccx pr context` and write the replies against the new view (nothing was posted)",
+			req.ContextFile, strings.Join(moved, "\n  "))
 	}
-	return fmt.Errorf("the pull request has moved since %s was fetched:\n  %s\nrerun `ccx pr context` and write the replies against the new view (nothing was posted)",
-		contextFile, strings.Join(moved, "\n  "))
+	if len(repeats) > 0 {
+		return fmt.Errorf("thread(s) whose newest comment is the reply this entry would post again: %s\nsay something else in %s, or remove the entry (posting it again would say it twice)",
+			strings.Join(repeats, ", "), req.ThreadsFile)
+	}
+	return nil
 }
-
-// PostedLog is where the threads replied to from one file are recorded.
-//
-// Beside the file itself, which is already bound to one pull request's work
-// dir, so the record is bound to it too.
-func PostedLog(threadsFile string) string { return threadsFile + ".posted" }
 
 // AbortedReply is a run that stopped partway through replying.
 //
 // It carries what was posted and what was not, because the way out is to run
 // again with the posted ones removed, and a person needs to know which those
-// are even though the record on disk already prevents the mistake.
+// are.
 type AbortedReply struct {
 	Message string
 }
@@ -542,28 +532,24 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 	}
 
 	out := ThreadReplies{Replied: []RepliedThread{}, Resolved: []string{}, ResolveFailed: []FailedResolve{}, Warnings: []string{}}
-	log := PostedLog(req.ThreadsFile)
 
 	for _, p := range planned {
 		id := p.thread.ID
 		if p.body != nil {
 			url, err := c.ReplyToReviewThread(ctx, id, *p.body)
 			if err != nil {
-				return ThreadReplies{}, abort(p.thread, err.Error(), log, planned)
+				return ThreadReplies{}, abort(p.thread, err.Error(), out.Replied, planned)
 			}
-			// Recorded before anything else can fail, so that a run which
-			// stops after this still refuses to resend it. A missing url is
-			// recorded as one, which is the unconditional refusal.
-			if err := record(log, id, url, *p.body); err != nil {
-				return ThreadReplies{}, err
-			}
-			if url == "" {
-				return ThreadReplies{}, abort(p.thread, "reply was posted but comment url is missing in the API response", log, planned)
-			}
+			// Added before the url is checked, so a run that stops right
+			// after still reports this reply as posted rather than
+			// unprocessed.
 			out.Replied = append(out.Replied, RepliedThread{
 				ID: id, Path: p.thread.Path, Line: p.thread.Line, OriginalLine: p.thread.OriginalLine,
 				URL: url,
 			})
+			if url == "" {
+				return ThreadReplies{}, abort(p.thread, "reply was posted but comment url is missing in the API response", out.Replied, planned)
+			}
 		}
 
 		if p.resolve {
@@ -591,9 +577,12 @@ func Reply(ctx context.Context, c *ghapi.Client, req ReplyRequest) (ThreadReplie
 //
 // The unprocessed threads are named the way the file names them, since writing
 // a file holding only those is what a retry does; the id goes beside each so
-// the record on disk can be read against it.
-func abort(t KnownThread, reason, log string, planned []plannedAction) error {
-	done := postedHere(log, planned)
+// a person can read it against what already landed.
+func abort(t KnownThread, reason string, replied []RepliedThread, planned []plannedAction) error {
+	done := make([]string, 0, len(replied))
+	for _, r := range replied {
+		done = append(done, r.ID)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "failed to reply to thread %s:\n%s\n", describe(t), reason)
 	if len(done) > 0 {
@@ -603,136 +592,7 @@ func abort(t KnownThread, reason, log string, planned []plannedAction) error {
 	return &AbortedReply{Message: strings.TrimSuffix(b.String(), "\n")}
 }
 
-// noURL stands in the record for a reply whose url never came back.
-//
-// A column of its own rather than a short line, so that every record parses the
-// same way and the hash beside it is still read.
-const noURL = "-"
-
-// record notes a reply in the log, by the thread it landed on, the url it
-// landed at and what it said.
-//
-// The url and the hash are what make the record answer the question it is
-// asked: whether the newest comment on that thread is this very reply of ours.
-// Written before the reply's url is known — a mutation that failed after
-// posting — the url column is noURL, which reads as "posted, whereabouts
-// unknown" and is refused whatever the body says.
-func record(log, id, url string, body ghapi.Body) error {
-	if url == "" {
-		url = noURL
-	}
-	f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("record the reply to %s: %w", id, err)
-	}
-	defer f.Close()
-	if _, err := fmt.Fprintln(f, id+" "+url+" "+bodyHash(body)); err != nil {
-		return fmt.Errorf("record the reply to %s: %w", id, err)
-	}
-	return nil
-}
-
-// bodyHash is how one reply is told from another in the record.
-//
-// Over the body as it goes to GitHub, and the one place it is computed: a
-// record written from one spelling and read against another would refuse a
-// follow-up or admit a resend, and neither failure says anything about itself.
-func bodyHash(body ghapi.Body) string {
-	sum := sha256.Sum256([]byte(body.String()))
-	return hex.EncodeToString(sum[:])
-}
-
-// postedReply is one line of the log: a thread, where our reply to it landed,
-// and what that reply said.
-type postedReply struct{ id, url, hash string }
-
-// postedReplies reads the log, treating its absence as nothing having been
-// posted.
-//
-// A line without all three columns is one this package never wrote, and it
-// names no reply this run could be repeating; dropping it is what keeps every
-// postedReply complete, so that "we do not know where the reply landed" has one
-// spelling rather than two.
-func postedReplies(log string) []postedReply {
-	b, err := os.ReadFile(log)
-	if err != nil {
-		return nil
-	}
-	var out []postedReply
-	for line := range strings.SplitSeq(string(b), "\n") {
-		columns := strings.Fields(line)
-		if len(columns) != 3 {
-			continue
-		}
-		out = append(out, postedReply{id: columns[0], url: columns[1], hash: columns[2]})
-	}
-	return out
-}
-
-// wouldResend is the threads an entry would say the same thing on twice.
-//
-// Three entries the record must not refuse, because none of them can duplicate
-// anything and each is what a caller is told to do next: one that resolves
-// without replying, which is how a resolve is retried where only it failed; a
-// fresh reply to a thread somebody has spoken in since — a later /loop
-// iteration answering a new remark, not resending the old one; and a reply
-// saying something else on a thread our own reply is still the newest comment
-// on, which is what a change of design calls for. What is left is the same
-// reply, on a thread still showing the reply we posted, and that is the mistake
-// worth stopping.
-//
-// Every record of the thread is read, not the first one found: a thread
-// answered twice has two, and the one that says what is there now is the one
-// whose url is still the newest comment.
-//
-// The two refusals are answered apart because their ways out are: a repeat is
-// undone by saying something else, and a record with no url is not — nothing in
-// the file can make it say whether that reply is still the newest comment.
-func wouldResend(log string, planned []plannedAction) (repeats, unplaced []string) {
-	posted := postedReplies(log)
-	for _, p := range planned {
-		if p.body == nil {
-			continue
-		}
-		hash := bodyHash(*p.body)
-		for _, r := range posted {
-			if r.id != p.thread.ID {
-				continue
-			}
-			if r.url == noURL {
-				unplaced = append(unplaced, describe(p.thread))
-				break
-			}
-			if r.url == p.thread.LastCommentURL && r.hash == hash {
-				repeats = append(repeats, describe(p.thread))
-				break
-			}
-		}
-	}
-	return sorted(repeats), sorted(unplaced)
-}
-
-// sorted is one refusal's threads, in a fixed order and without repeats.
-func sorted(threads []string) []string {
-	slices.Sort(threads)
-	return slices.Compact(threads)
-}
-
-// postedHere is the threads of this run the log already holds, whatever was
-// said since: what a stopped run reports as done, rather than what a fresh one
-// would refuse.
-func postedHere(log string, planned []plannedAction) []string {
-	var found []string
-	for _, r := range postedReplies(log) {
-		if slices.ContainsFunc(planned, func(p plannedAction) bool { return p.thread.ID == r.id }) {
-			found = append(found, r.id)
-		}
-	}
-	slices.Sort(found)
-	return slices.Compact(found)
-}
-
-// remaining is the threads the log does not hold, in the order they were given.
+// remaining is the planned threads not among done, in the order they were given.
 func remaining(done []string, planned []plannedAction) []string {
 	var left []string
 	for _, p := range planned {
