@@ -19,9 +19,10 @@ import (
 const readyBranch = "feature/x"
 
 // readyOrigin builds a bare repository whose head branch has two commits past
-// main, so a clone can be put behind or ahead of the pull request's head. It
-// returns the bare repository, the head branch's tip, and the commit before
-// it.
+// main, so a clone can be put behind or ahead of the pull request's head. main
+// carries a tracked file, so a case can dirty the tree with a tracked
+// modification rather than only an untracked one. It returns the bare
+// repository, the head branch's tip, and the commit before it.
 func readyOrigin(t *testing.T) (bare, head, previous string) {
 	t.Helper()
 	gittest.SkipWithoutGit(t)
@@ -29,7 +30,9 @@ func readyOrigin(t *testing.T) (bare, head, previous string) {
 	base := t.TempDir()
 	bare = gittest.Init(t, filepath.Join(base, "origin.git"), "--bare", "-b", "main")
 	seed := gittest.Clone(t, bare, filepath.Join(base, "seed"))
-	gittest.Run(t, seed, "commit", "-q", "--allow-empty", "-m", "initial")
+	gittest.Write(t, filepath.Join(seed, "file.txt"), "base\n")
+	gittest.Run(t, seed, "add", "file.txt")
+	gittest.Run(t, seed, "commit", "-qm", "initial")
 	gittest.Run(t, seed, "push", "-q", "origin", "main")
 
 	gittest.Run(t, seed, "switch", "-qc", readyBranch)
@@ -103,21 +106,29 @@ func TestRun(t *testing.T) {
 		// this origin never had.
 		headRef string
 		want    pullrequest.ReadyStatus
+		// wantStatusLine pins what `git status --porcelain` shows after setUp,
+		// for the two dirty cases whose only difference is that line.
+		wantStatusLine string
 	}{
 		{name: "clean and at the head, still a draft", draft: true, want: pullrequest.ReadyMarked},
 		{name: "clean and at the head, already out of draft", draft: false, want: pullrequest.ReadyAlready},
 		{
-			name:  "an uncommitted change",
-			setUp: func(t *testing.T, repo string) { gittest.Write(t, filepath.Join(repo, "file.txt"), "x\n") },
-			want:  pullrequest.ReadyDirty,
+			// A tracked file, changed but not staged — distinct from the
+			// untracked case below, which git status reports with a
+			// different marker (`??` rather than ` M`).
+			name:           "an uncommitted change",
+			setUp:          func(t *testing.T, repo string) { gittest.Write(t, filepath.Join(repo, "file.txt"), "changed\n") },
+			want:           pullrequest.ReadyDirty,
+			wantStatusLine: "M file.txt",
 		},
 		{
 			// Untracked is still dirty here, unlike worktree.isDirty: a file
 			// that was never added is exactly a fix that exists only
 			// locally.
-			name:  "an untracked file and nothing else",
-			setUp: func(t *testing.T, repo string) { gittest.Write(t, filepath.Join(repo, "untracked.txt"), "x\n") },
-			want:  pullrequest.ReadyDirty,
+			name:           "an untracked file and nothing else",
+			setUp:          func(t *testing.T, repo string) { gittest.Write(t, filepath.Join(repo, "untracked.txt"), "x\n") },
+			want:           pullrequest.ReadyDirty,
+			wantStatusLine: "?? untracked.txt",
 		},
 		{
 			name:  "a different branch is checked out",
@@ -140,6 +151,11 @@ func TestRun(t *testing.T) {
 			repo := readyCheckout(t, bare)
 			if tc.setUp != nil {
 				tc.setUp(t, repo)
+			}
+			if tc.wantStatusLine != "" {
+				if got := strings.TrimSpace(gittest.Run(t, repo, "status", "--porcelain")); got != tc.wantStatusLine {
+					t.Fatalf("git status --porcelain = %q, want %q", got, tc.wantStatusLine)
+				}
 			}
 			before := gittest.Rev(t, repo, "HEAD")
 
