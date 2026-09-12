@@ -598,9 +598,6 @@ func (m *mutations) client(t *testing.T) *ghapi.Client {
 			if id == m.movedNow {
 				url += "-newer"
 			}
-			// Neither default matches a reply any test posts, nor our own
-			// login, so a case that says nothing about the newest comment is
-			// never read as a repeat of ours.
 			body := "please fix this"
 			if m.liveBody != "" {
 				body = m.liveBody
@@ -882,13 +879,20 @@ func TestReplyRefusesARepeat(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Reply: %v", err)
 				}
-				// Derived from the entry: a body posts, and only a body does.
-				var wantReplied []string
+				// Derived from the entry: a body posts, resolve resolves, and
+				// the case that only resolves still has to send that resolve.
+				var wantReplied, wantResolved []string
 				if tc.body != nil {
 					wantReplied = []string{"PRRT_bot"}
 				}
+				if tc.resolve {
+					wantResolved = []string{"PRRT_bot"}
+				}
 				if diff := cmp.Diff(wantReplied, m.replied); diff != "" {
 					t.Errorf("replies posted (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(wantResolved, m.resolved); diff != "" {
+					t.Errorf("threads resolved (-want +got):\n%s", diff)
 				}
 				return
 			}
@@ -930,7 +934,7 @@ func TestReplyIgnoresAStrayFileBesideTheThreadsFile(t *testing.T) {
 	got, err := pullrequest.Reply(t.Context(), m.client(t), pullrequest.ReplyRequest{
 		Actions:     []pullrequest.ThreadAction{{Path: "src/a.go", Line: new(10), Body: new("fixed"), Resolve: true}},
 		Threads:     contextThreads,
-		ContextFile: "context.json", ThreadsFile: "threads.json", CurrentUser: "testuser",
+		ContextFile: "context.json", ThreadsFile: file, CurrentUser: "testuser",
 	})
 	if err != nil {
 		t.Fatalf("Reply: %v", err)
