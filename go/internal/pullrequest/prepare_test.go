@@ -123,9 +123,9 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 			fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":{"reviews":%s}}}}`,
 				reviews(req.Variables.Reviews, req.Variables.Cursor))
 		case strings.Contains(string(body), "pullRequests("):
-			fmt.Fprintf(w, `{"data":{"repository":{"pullRequests":{"nodes":[%s]}}}}`, node)
+			fmt.Fprintf(w, `{"data":{"viewer":{"login":"me"},"repository":{"pullRequests":{"nodes":[%s]}}}}`, node)
 		default:
-			fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, node)
+			fmt.Fprintf(w, `{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":%s}}}`, node)
 		}
 	}))
 }
@@ -158,7 +158,7 @@ func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Cli
 			fmt.Fprint(w, `{"errors":[{"message":"conversation unavailable"}]}`)
 			return
 		}
-		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, prNode("me", headOID))
+		fmt.Fprintf(w, `{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":%s}}}`, prNode("me", headOID))
 	}))
 }
 

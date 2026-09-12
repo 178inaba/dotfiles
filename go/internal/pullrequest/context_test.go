@@ -35,6 +35,7 @@ var meta = ghapi.PullRequest{
 	HeadRefName: "feature/x",
 	BaseRefName: "main",
 	HeadRefOid:  "abc123",
+	IsOwn:       true,
 }
 
 // pages is what one fake GitHub answers with: the first response to each query,
@@ -676,6 +677,7 @@ func TestFetchOnAnotherAuthorsPR(t *testing.T) {
 
 	others := meta
 	others.Author = "othercoder"
+	others.IsOwn = false
 	got := fetch(t, pages{body: fixtureBody, issues: linkedIssues}, others, pullrequest.DefaultLimits)
 
 	if got.IsOwnPR {

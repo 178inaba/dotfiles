@@ -143,6 +143,24 @@ func TestPullRequestKeepsAMissingAuthor(t *testing.T) {
 	}
 }
 
+// TestPullRequestEmptyViewerOwnsNothing pins the other half of the vacuous pass:
+// a response whose viewer login is empty does not own a pull request whose
+// author is empty too.
+func TestPullRequestEmptyViewerOwnsNothing(t *testing.T) {
+	t.Parallel()
+
+	body := withViewer("", `{"pullRequest":{"number":9,"state":"MERGED","author":null}}`)
+	c := ghapitest.New(t, graphQL(t, body, nil))
+
+	got, err := c.PullRequest(t.Context(), repo, 9)
+	if err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+	if got.IsOwn {
+		t.Error("IsOwn = true, want false: an empty viewer is nobody")
+	}
+}
+
 // TestPullRequestNotFound is the distinction issue-hierarchy needs from every
 // other failure, so it has to survive the wrapping this adds.
 func TestPullRequestNotFound(t *testing.T) {

@@ -78,6 +78,11 @@ const prFields = `
 // request already carries who is asking.
 const viewerField = `viewer { login }`
 
+// viewerNode is what viewerField decodes into.
+type viewerNode struct {
+	Login string `json:"login"`
+}
+
 const prByNumberQuery = `
 query($owner: String!, $name: String!, $number: Int!) {
   ` + viewerField + `
@@ -124,7 +129,9 @@ type prNode struct {
 }
 
 // pullRequest builds PullRequest out of the node, with IsOwn decided against
-// viewer — the login the same response carried in its viewer field.
+// viewer — the login the same response carried in its viewer field. An empty
+// login owns nothing: it would otherwise match a pull request whose author
+// GitHub no longer reports.
 func (n prNode) pullRequest(viewer string) PullRequest {
 	return PullRequest{
 		ID:             n.ID,
@@ -139,7 +146,7 @@ func (n prNode) pullRequest(viewer string) PullRequest {
 		HeadRefOid:     n.HeadRefOid,
 		ReviewDecision: n.ReviewDecision,
 		IsDraft:        n.IsDraft,
-		IsOwn:          n.Author.Login == viewer,
+		IsOwn:          viewer != "" && n.Author.Login == viewer,
 	}
 }
 
@@ -151,9 +158,7 @@ func (n prNode) pullRequest(viewer string) PullRequest {
 // values the output contracts already publish.
 func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRequest, error) {
 	var out struct {
-		Viewer struct {
-			Login string `json:"login"`
-		} `json:"viewer"`
+		Viewer     viewerNode `json:"viewer"`
 		Repository struct {
 			PullRequest prNode `json:"pullRequest"`
 		} `json:"repository"`
@@ -298,9 +303,7 @@ func head(ctx context.Context, r runner.Runner, dir string, repo Repo, branch st
 // the pull request itself is still one of repo's.
 func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName, headOwner string) (PullRequest, error) {
 	var out struct {
-		Viewer struct {
-			Login string `json:"login"`
-		} `json:"viewer"`
+		Viewer     viewerNode `json:"viewer"`
 		Repository struct {
 			PullRequests struct {
 				Nodes []prNode `json:"nodes"`

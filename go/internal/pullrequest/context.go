@@ -542,7 +542,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		FetchedAt:   fetchedAt,
 		Repo:        repo.String(),
 		CurrentUser: me,
-		IsOwnPR:     pr.Author == me,
+		IsOwnPR:     pr.IsOwn,
 		PR: PR{
 			Number: pr.Number, Title: pr.Title, Body: pr.Body, URL: pr.URL, State: pr.State,
 			Author: pr.Author, HeadRef: pr.HeadRefName, BaseRef: pr.BaseRefName, HeadOID: pr.HeadRefOid,
