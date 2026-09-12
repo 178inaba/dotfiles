@@ -125,6 +125,14 @@ func TestRunBlocks(t *testing.T) {
 			want:    "apply what the review found",
 		},
 		{
+			// The same failure through ccx pr ready: a Bash error, which is a
+			// question the command could not answer at all — distinct from a
+			// refused check, which this guard cannot see and does not block on.
+			name:    "a ccx pr ready call that errored",
+			records: append(withReview(), bash("b8", "ccx pr ready 7"), errResult("b8")),
+			want:    "apply what the review found",
+		},
+		{
 			// A built-in command is not a skill: no body follows it, so it
 			// leaves the run it interrupted running.
 			name:    "a built-in command does not end the run",
@@ -203,6 +211,14 @@ func TestRunAllows(t *testing.T) {
 			in: func(t *testing.T) hooks.Payload {
 				return stopping(transcript(t, append(withReview(),
 					bash("b8", "gh pr ready 7 -R o/r && gh pr view 7 -R o/r --json isDraft"), okResult("b8"))...))
+			},
+		},
+		{
+			// The replacement for the case above: one command rather than two.
+			name: "a run that reached the ccx pr ready gate",
+			in: func(t *testing.T) hooks.Payload {
+				return stopping(transcript(t, append(withReview(),
+					bash("b8", "ccx pr ready 7"), okResult("b8"))...))
 			},
 		},
 		{
