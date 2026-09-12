@@ -476,16 +476,17 @@ as well. Then every target thread is re-read live: one that has been resolved or
 answered since the context was fetched stops the whole run, since the replies
 were written as one judgement of one view.
 
-Each reply that lands is recorded beside the threads file, with what it said, so
-a re-run after a partial failure cannot post the same reply twice — it refuses
-instead. A reply saying something else on the same thread is not a resend and
-passes, which is how a follow-up is written. On a failure part-way through, the
-posted and the unprocessed threads are listed on standard error; write a threads
-file holding only the unprocessed ones and run it again.
+The same live re-read is what a re-run after a partial failure is judged
+against: an entry whose reply would say, again, what our own newest comment on
+that thread already says is refused, and nothing is posted. A reply saying
+something else on the same thread is not a resend and passes, which is how a
+follow-up is written. On a failure part-way through, the posted and the
+unprocessed threads are listed on standard error; write a threads file holding
+only the unprocessed ones and run it again.
 
 --dry-run runs every one of those checks, the live re-read included, sends
-nothing, records nothing, and prints the plan instead. A refusal in a dry run
-is the same refusal with the same exit status.
+nothing, and prints the plan instead. A refusal in a dry run is the same
+refusal with the same exit status.
 
 The output is compact rather than indented, except when there is nothing to do.`,
 		blocks: []block{
