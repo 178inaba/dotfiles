@@ -112,7 +112,7 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 		}
 
 		switch {
-		case strings.Contains(string(body), "viewer"):
+		case strings.Contains(string(body), "headCommit"):
 			fmt.Fprintf(w, `{"data":{"viewer":{"login":"me"},"repository":{
 				"headCommit":{"committedDate":"2026-01-15T00:00:00Z"},
 				"pullRequest":{
@@ -154,7 +154,7 @@ func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Cli
 			t.Errorf("read the request body: %v", err)
 			return
 		}
-		if strings.Contains(string(body), "viewer") {
+		if strings.Contains(string(body), "headCommit") {
 			fmt.Fprint(w, `{"errors":[{"message":"conversation unavailable"}]}`)
 			return
 		}

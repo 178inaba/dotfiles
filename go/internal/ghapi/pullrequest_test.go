@@ -45,9 +45,15 @@ func graphQL(t *testing.T, body string, vars *map[string]any) http.Handler {
 	})
 }
 
+// viewerLogin is who every fixture in this file answers viewer { login } with,
+// which is also node's author — so a case wanting IsOwn false has to say so
+// itself, by naming a different author or leaving the viewer field out.
+const viewerLogin = "178inaba"
+
 // node is one pull request as GraphQL returns it.
 func node(number int, state, headOwner string) string {
 	return fmt.Sprintf(`{
+		"id": "PR_%d",
 		"number": %d,
 		"title": "Port the scripts",
 		"body": "Closes #121",
@@ -60,11 +66,18 @@ func node(number int, state, headOwner string) string {
 		"reviewDecision": "APPROVED",
 		"isDraft": true,
 		"headRepositoryOwner": {"login": %q}
-	}`, number, number, state, headOwner)
+	}`, number, number, number, state, headOwner)
+}
+
+// withViewer puts data.viewer.login beside data.repository, which is where
+// every query in this package asks for it.
+func withViewer(login, body string) string {
+	return `{"data":{"viewer":{"login":` + strconv.Quote(login) + `},"repository":` + body + `}}`
 }
 
 func wantPR(number int, state ghapi.PRState) ghapi.PullRequest {
 	return ghapi.PullRequest{
+		ID:          fmt.Sprintf("PR_%d", number),
 		Number:      number,
 		Title:       "Port the scripts",
 		Body:        "Closes #121",
@@ -78,6 +91,9 @@ func wantPR(number int, state ghapi.PRState) ghapi.PullRequest {
 		// whichever query the caller took, so the fixture carries them on both.
 		ReviewDecision: "APPROVED",
 		IsDraft:        true,
+		// Every fixture's viewer is the author, so an owned pull request is
+		// the default a case has to opt out of rather than into.
+		IsOwn: true,
 	}
 }
 
@@ -85,7 +101,7 @@ func TestPullRequest(t *testing.T) {
 	t.Parallel()
 
 	var vars map[string]any
-	c := ghapitest.New(t, graphQL(t, `{"data":{"repository":{"pullRequest":`+node(128, "OPEN", "178inaba")+`}}}`, &vars))
+	c := ghapitest.New(t, graphQL(t, withViewer(viewerLogin, `{"pullRequest":`+node(128, "OPEN", "178inaba")+`}`), &vars))
 
 	got, err := c.PullRequest(t.Context(), repo, 128)
 	if err != nil {
@@ -103,11 +119,13 @@ func TestPullRequest(t *testing.T) {
 
 // TestPullRequestKeepsAMissingAuthor pins what gh produced for a pull request
 // whose author has deleted their account: a login of empty string rather than a
-// null the output contracts would then have to carry.
+// null the output contracts would then have to carry. It also pins IsOwn
+// against the vacuous pass an empty author and an empty viewer would both
+// answer true to: the viewer here is somebody, so an empty author is not them.
 func TestPullRequestKeepsAMissingAuthor(t *testing.T) {
 	t.Parallel()
 
-	body := `{"data":{"repository":{"pullRequest":{"number":9,"state":"MERGED","author":null}}}}`
+	body := withViewer(viewerLogin, `{"pullRequest":{"number":9,"state":"MERGED","author":null}}`)
 	c := ghapitest.New(t, graphQL(t, body, nil))
 
 	got, err := c.PullRequest(t.Context(), repo, 9)
@@ -116,6 +134,9 @@ func TestPullRequestKeepsAMissingAuthor(t *testing.T) {
 	}
 	if got.Author != "" {
 		t.Errorf("Author = %q, want it empty", got.Author)
+	}
+	if got.IsOwn {
+		t.Error("IsOwn = true, want false: a missing author is not the viewer")
 	}
 	if got.State != ghapi.StateMerged {
 		t.Errorf("State = %q, want %q", got.State, ghapi.StateMerged)
@@ -181,7 +202,7 @@ func TestPullRequestForCurrentBranch(t *testing.T) {
 			t.Parallel()
 
 			var vars map[string]any
-			body := `{"data":{"repository":{"pullRequests":{"nodes":[` + strings.Join(tc.nodes, ",") + `]}}}}`
+			body := withViewer(viewerLogin, `{"pullRequests":{"nodes":[`+strings.Join(tc.nodes, ",")+`]}}`)
 			c := ghapitest.New(t, graphQL(t, body, &vars))
 
 			run := &fakeRunner{out: "feature/121-port-scripts-to-ccx\n"}
@@ -231,7 +252,7 @@ func TestPullRequestForCurrentBranchFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			body := `{"data":{"repository":{"pullRequests":{"nodes":[` + strings.Join(tc.nodes, ",") + `]}}}}`
+			body := withViewer(viewerLogin, `{"pullRequests":{"nodes":[`+strings.Join(tc.nodes, ",")+`]}}`)
 			c := ghapitest.New(t, graphQL(t, body, nil))
 
 			got, err := c.PullRequestForCurrentBranch(t.Context(), &fakeRunner{out: tc.branch, fail: tc.fail}, "/repo", repo)
@@ -345,7 +366,7 @@ func TestPullRequestForBranch(t *testing.T) {
 			t.Parallel()
 
 			var vars map[string]any
-			body := `{"data":{"repository":{"pullRequests":{"nodes":[` + node(130, "OPEN", tc.headOwner) + `]}}}}`
+			body := withViewer(viewerLogin, `{"pullRequests":{"nodes":[`+node(130, "OPEN", tc.headOwner)+`]}}`)
 			c := ghapitest.New(t, graphQL(t, body, &vars))
 
 			got, err := c.PullRequestForBranch(t.Context(), configRunner{settings: tc.settings}, "/repo", repo, branch)
@@ -512,5 +533,30 @@ func TestAppendToPullRequestBodyRefusesASectionAlreadyThere(t *testing.T) {
 	}
 	if sent != (edit{}) {
 		t.Errorf("an edit was sent: %+v", sent)
+	}
+}
+
+func TestMarkPullRequestReadyForReview(t *testing.T) {
+	t.Parallel()
+
+	var sent struct {
+		Variables struct {
+			PullRequestID string `json:"pullRequestId"`
+		} `json:"variables"`
+	}
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode the request body: %v", err)
+			return
+		}
+		fmt.Fprint(w, `{"data":{"markPullRequestReadyForReview":{"pullRequest":{"isDraft":false}}}}`)
+	}))
+
+	if err := c.MarkPullRequestReadyForReview(t.Context(), "PR_kwDO1"); err != nil {
+		t.Fatalf("MarkPullRequestReadyForReview: %v", err)
+	}
+
+	if want := "PR_kwDO1"; sent.Variables.PullRequestID != want {
+		t.Errorf("pullRequestId = %q, want %q", sent.Variables.PullRequestID, want)
 	}
 }

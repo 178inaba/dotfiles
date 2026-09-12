@@ -28,6 +28,9 @@ const (
 // reads: the fields the shell asked `gh pr view --json` for, flattened the way
 // the output contracts print them.
 type PullRequest struct {
+	// ID is the node id a mutation names the pull request by; nothing about
+	// its own fields identifies it the way Number does for REST.
+	ID     string
 	Number int
 	Title  string
 	Body   string
@@ -45,6 +48,8 @@ type PullRequest struct {
 	// unknown value arrives intact rather than as an error, a null as empty.
 	ReviewDecision string
 	IsDraft        bool
+	// IsOwn is whether the viewer who read this is also its author.
+	IsOwn bool
 }
 
 // prFields is the selection both queries make.
@@ -54,6 +59,7 @@ type PullRequest struct {
 // back, and a field present in only one of them would go missing on whichever
 // path the caller happened to take.
 const prFields = `
+      id
       number
       title
       body
@@ -67,8 +73,14 @@ const prFields = `
       isDraft
 `
 
+// viewerField is asked for beside the pull request in both queries, so that
+// IsOwn costs no round trip of its own: whichever query resolved the pull
+// request already carries who is asking.
+const viewerField = `viewer { login }`
+
 const prByNumberQuery = `
 query($owner: String!, $name: String!, $number: Int!) {
+  ` + viewerField + `
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {` + prFields + `    }
   }
@@ -79,6 +91,7 @@ query($owner: String!, $name: String!, $number: Int!) {
 // that a branch's whole history of pull requests is in it.
 const prForBranchQuery = `
 query($owner: String!, $name: String!, $headRefName: String!) {
+  ` + viewerField + `
   repository(owner: $owner, name: $name) {
     pullRequests(headRefName: $headRefName, first: 30, orderBy: {field: CREATED_AT, direction: DESC}) {
       nodes {` + prFields + `      headRepositoryOwner { login }
@@ -91,6 +104,7 @@ query($owner: String!, $name: String!, $headRefName: String!) {
 // that the nesting GitHub returns does not become the shape the rest of the
 // module passes around.
 type prNode struct {
+	ID     string `json:"id"`
 	Number int    `json:"number"`
 	Title  string `json:"title"`
 	Body   string `json:"body"`
@@ -109,8 +123,11 @@ type prNode struct {
 	} `json:"headRepositoryOwner"`
 }
 
-func (n prNode) pullRequest() PullRequest {
+// pullRequest builds PullRequest out of the node, with IsOwn decided against
+// viewer — the login the same response carried in its viewer field.
+func (n prNode) pullRequest(viewer string) PullRequest {
 	return PullRequest{
+		ID:             n.ID,
 		Number:         n.Number,
 		Title:          n.Title,
 		Body:           n.Body,
@@ -122,6 +139,7 @@ func (n prNode) pullRequest() PullRequest {
 		HeadRefOid:     n.HeadRefOid,
 		ReviewDecision: n.ReviewDecision,
 		IsDraft:        n.IsDraft,
+		IsOwn:          n.Author.Login == viewer,
 	}
 }
 
@@ -133,6 +151,9 @@ func (n prNode) pullRequest() PullRequest {
 // values the output contracts already publish.
 func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRequest, error) {
 	var out struct {
+		Viewer struct {
+			Login string `json:"login"`
+		} `json:"viewer"`
 		Repository struct {
 			PullRequest prNode `json:"pullRequest"`
 		} `json:"repository"`
@@ -141,7 +162,7 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 	if err := c.GraphQL(ctx, prByNumberQuery, vars, &out); err != nil {
 		return PullRequest{}, fmt.Errorf("look up %s#%d: %w", repo, number, err)
 	}
-	return out.Repository.PullRequest.pullRequest(), nil
+	return out.Repository.PullRequest.pullRequest(out.Viewer.Login), nil
 }
 
 // AppendToPullRequestBody adds one section to the end of a pull request's
@@ -277,6 +298,9 @@ func head(ctx context.Context, r runner.Runner, dir string, repo Repo, branch st
 // the pull request itself is still one of repo's.
 func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName, headOwner string) (PullRequest, error) {
 	var out struct {
+		Viewer struct {
+			Login string `json:"login"`
+		} `json:"viewer"`
 		Repository struct {
 			PullRequests struct {
 				Nodes []prNode `json:"nodes"`
@@ -294,15 +318,37 @@ func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName,
 	nodes := out.Repository.PullRequests.Nodes
 	for _, n := range nodes {
 		if owned(n) && n.State == string(StateOpen) {
-			return n.pullRequest(), nil
+			return n.pullRequest(out.Viewer.Login), nil
 		}
 	}
 	for _, n := range nodes {
 		if owned(n) {
-			return n.pullRequest(), nil
+			return n.pullRequest(out.Viewer.Login), nil
 		}
 	}
 	return PullRequest{}, fmt.Errorf("no pull request in %s has %s as its head branch", repo, headRefName)
+}
+
+const markReadyMutation = `
+mutation($pullRequestId: ID!) {
+  markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
+    pullRequest { isDraft }
+  }
+}`
+
+// MarkPullRequestReadyForReview takes a pull request out of draft.
+//
+// GraphQL because REST has no way to: the update endpoint
+// PATCH /repos/{owner}/{repo}/pulls/{number} does not accept a draft field.
+func (c *Client) MarkPullRequestReadyForReview(ctx context.Context, id string) error {
+	var out struct {
+		MarkPullRequestReadyForReview struct {
+			PullRequest struct {
+				IsDraft bool `json:"isDraft"`
+			} `json:"pullRequest"`
+		} `json:"markPullRequestReadyForReview"`
+	}
+	return c.GraphQL(ctx, markReadyMutation, map[string]any{"pullRequestId": id}, &out)
 }
 
 // currentBranch returns the branch a pull request is inferred from.
