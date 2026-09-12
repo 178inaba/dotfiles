@@ -17,7 +17,7 @@ const readyRetryWait = 3 * time.Second
 
 // ReadyStatus is what came of the request to mark a pull request ready.
 //
-// Two of the eight write anything: ready calls the mutation, and every other
+// One of the eight writes anything: ready calls the mutation, and every other
 // value — already_ready included — leaves the pull request exactly as it was.
 type ReadyStatus string
 
@@ -78,15 +78,16 @@ type Ready struct {
 // The checkout is never moved: a behind checkout is reported as behind rather
 // than fast-forwarded, which is what sets this apart from CheckFreshness. When
 // the only failing check is the author's own unpushed-looking commits
-// (ahead_own), pr is re-read once after rd.Wait and the comparison runs again
-// before this decides; every other answer is final on the first read.
+// (ahead_own), pr is re-read once after rd.Wait and, if its head moved, the
+// comparison runs again before this decides; every other answer is final on
+// the first read.
 func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, error) {
 	wait := rd.Wait
 	if wait == nil {
 		wait = func() { time.Sleep(readyRetryWait) }
 	}
 
-	report := func(status ReadyStatus, pr ghapi.PullRequest) (ReadyReport, error) {
+	report := func(status ReadyStatus) (ReadyReport, error) {
 		local, err := worktree.Head(ctx, rd.Runner, rd.Dir)
 		if err != nil {
 			return ReadyReport{}, err
@@ -101,7 +102,7 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 		return ReadyReport{}, err
 	}
 	if !clean {
-		return report(ReadyDirty, pr)
+		return report(ReadyDirty)
 	}
 
 	c, err := worktree.Compare(ctx, rd.Runner, rd.Dir, checkout(pr))
@@ -110,11 +111,16 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 	}
 	if c == worktree.ComparisonAheadOwn {
 		wait()
+		lagging := pr.HeadRefOid
 		if pr, err = rd.Client.PullRequest(ctx, rd.Repo, pr.Number); err != nil {
 			return ReadyReport{}, err
 		}
-		if c, err = worktree.Compare(ctx, rd.Runner, rd.Dir, checkout(pr)); err != nil {
-			return ReadyReport{}, err
+		// A head that has not moved gives the same answer against the same
+		// checkout, so only a moved one is worth another fetch.
+		if pr.HeadRefOid != lagging {
+			if c, err = worktree.Compare(ctx, rd.Runner, rd.Dir, checkout(pr)); err != nil {
+				return ReadyReport{}, err
+			}
 		}
 	}
 
@@ -122,26 +128,26 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 	case worktree.ComparisonOK:
 		// Falls through to the draft check below.
 	case worktree.ComparisonAheadOwn:
-		return report(ReadyAheadOwn, pr)
+		return report(ReadyAheadOwn)
 	case worktree.ComparisonBehind:
-		return report(ReadyBehind, pr)
+		return report(ReadyBehind)
 	case worktree.ComparisonDiverged:
-		return report(ReadyDiverged, pr)
+		return report(ReadyDiverged)
 	case worktree.ComparisonBranchMismatch:
-		return report(ReadyBranchMismatch, pr)
+		return report(ReadyBranchMismatch)
 	case worktree.ComparisonFetchFailed:
-		return report(ReadyFetchFailed, pr)
+		return report(ReadyFetchFailed)
 	default:
 		return ReadyReport{}, fmt.Errorf("pullrequest: unhandled comparison %q", c)
 	}
 
 	if !pr.IsDraft {
-		return report(ReadyAlready, pr)
+		return report(ReadyAlready)
 	}
 	if err := rd.Client.MarkPullRequestReadyForReview(ctx, pr.ID); err != nil {
 		return ReadyReport{}, err
 	}
-	return report(ReadyMarked, pr)
+	return report(ReadyMarked)
 }
 
 // checkout is what worktree.Compare needs out of pr, the ghapi.PullRequest

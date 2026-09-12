@@ -54,23 +54,37 @@ func readyCheckout(t *testing.T, bare string) string {
 	return repo
 }
 
+// readyID is the node id of the pull request every case is about.
+const readyID = "PR_kwDO1"
+
 // readyPR is the pull request Run is asked about: number 7, its own author.
-func readyPR(id, headOID string, draft bool) ghapi.PullRequest {
+func readyPR(headOID string, draft bool) ghapi.PullRequest {
 	return ghapi.PullRequest{
-		ID: id, Number: 7, State: ghapi.StateOpen, Author: "178inaba",
+		ID: readyID, Number: 7, State: ghapi.StateOpen, Author: "178inaba",
 		HeadRefName: readyBranch, BaseRefName: "main", HeadRefOid: headOID,
 		IsDraft: draft, IsOwn: true,
 	}
 }
 
+// readyRun is Run pointed at client and the checkout in repo.
+func readyRun(client *ghapi.Client, repo string) pullrequest.Ready {
+	return pullrequest.Ready{Client: client, Runner: runner.Exec{}, Repo: ghapi.Repo{Owner: "178inaba", Name: "dotfiles"}, Dir: repo}
+}
+
+// readyCalls is what readyServer saw: every request it answered, counted by
+// what it was, and the node id the last mutation named.
+type readyCalls struct {
+	counts map[string]int
+	sentID string
+}
+
 // readyServer answers a re-read of pull request 7 with rereadHeadOID as its
-// headRefOid, and the ready mutation with success. calls counts every
-// request the handler answered, by what it was.
-func readyServer(t *testing.T, id, rereadHeadOID string, rereadDraft bool) (client *ghapi.Client, calls map[string]int) {
+// headRefOid, and the ready mutation with success.
+func readyServer(t *testing.T, rereadHeadOID string, rereadDraft bool) (*ghapi.Client, *readyCalls) {
 	t.Helper()
 
-	calls = map[string]int{}
-	client = ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	calls := &readyCalls{counts: map[string]int{}}
+	client := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Errorf("read the request body: %v", err)
@@ -78,14 +92,24 @@ func readyServer(t *testing.T, id, rereadHeadOID string, rereadDraft bool) (clie
 		}
 		switch {
 		case strings.Contains(string(body), "markPullRequestReadyForReview"):
-			calls["mutation"]++
+			calls.counts["mutation"]++
+			var sent struct {
+				Variables struct {
+					PullRequestID string `json:"pullRequestId"`
+				} `json:"variables"`
+			}
+			if err := json.Unmarshal(body, &sent); err != nil {
+				t.Errorf("decode the request body: %v", err)
+				return
+			}
+			calls.sentID = sent.Variables.PullRequestID
 			fmt.Fprint(w, `{"data":{"markPullRequestReadyForReview":{"pullRequest":{"isDraft":false}}}}`)
 		case strings.Contains(string(body), "pullRequest(number:"):
-			calls["reread"]++
+			calls.counts["reread"]++
 			fmt.Fprintf(w, `{"data":{"viewer":{"login":"178inaba"},"repository":{"pullRequest":{
 				"id":%q,"number":7,"state":"OPEN","author":{"login":"178inaba"},
 				"headRefName":%q,"baseRefName":"main","headRefOid":%q,"isDraft":%t
-			}}}}`, id, readyBranch, rereadHeadOID, rereadDraft)
+			}}}}`, readyID, readyBranch, rereadHeadOID, rereadDraft)
 		default:
 			t.Errorf("unexpected GraphQL request: %s", body)
 		}
@@ -163,14 +187,14 @@ func TestRun(t *testing.T) {
 			if headRef == "" {
 				headRef = readyBranch
 			}
-			pr := readyPR("PR_kwDO1", head, tc.draft)
+			pr := readyPR(head, tc.draft)
 			pr.HeadRefName = headRef
 
 			// A mutation is the only call the ready and already_ready cases
 			// make; every other case makes none, and a request the fixture
 			// does not recognise fails the test rather than being ignored.
-			client, calls := readyServer(t, pr.ID, head, false)
-			rd := pullrequest.Ready{Client: client, Runner: runner.Exec{}, Repo: ghapi.Repo{Owner: "178inaba", Name: "dotfiles"}, Dir: repo}
+			client, calls := readyServer(t, head, false)
+			rd := readyRun(client, repo)
 
 			got, err := rd.Run(t.Context(), pr)
 			if err != nil {
@@ -187,11 +211,14 @@ func TestRun(t *testing.T) {
 			if tc.want == pullrequest.ReadyMarked {
 				wantMutations = 1
 			}
-			if calls["mutation"] != wantMutations {
-				t.Errorf("mutation calls = %d, want %d", calls["mutation"], wantMutations)
+			if calls.counts["mutation"] != wantMutations {
+				t.Errorf("mutation calls = %d, want %d", calls.counts["mutation"], wantMutations)
 			}
-			if calls["reread"] != 0 {
-				t.Errorf("reread calls = %d, want 0: only ahead_own retries", calls["reread"])
+			if wantMutations == 1 && calls.sentID != readyID {
+				t.Errorf("pullRequestId = %q, want %q", calls.sentID, readyID)
+			}
+			if calls.counts["reread"] != 0 {
+				t.Errorf("reread calls = %d, want 0: only ahead_own retries", calls.counts["reread"])
 			}
 			if after := gittest.Rev(t, repo, "HEAD"); after != before {
 				t.Errorf("the checkout moved to %s, want it left at %s", after, before)
@@ -210,9 +237,9 @@ func TestRunOnABehindCheckout(t *testing.T) {
 	repo := readyCheckout(t, bare)
 	gittest.Run(t, repo, "reset", "-q", "--hard", previous)
 
-	pr := readyPR("PR_kwDO1", head, true)
-	client, calls := readyServer(t, pr.ID, head, false)
-	rd := pullrequest.Ready{Client: client, Runner: runner.Exec{}, Repo: ghapi.Repo{Owner: "178inaba", Name: "dotfiles"}, Dir: repo}
+	pr := readyPR(head, true)
+	client, calls := readyServer(t, head, false)
+	rd := readyRun(client, repo)
 
 	got, err := rd.Run(t.Context(), pr)
 	if err != nil {
@@ -224,8 +251,8 @@ func TestRunOnABehindCheckout(t *testing.T) {
 	if got.LocalHead != previous {
 		t.Errorf("local_head = %s, want the checkout left at %s", got.LocalHead, previous)
 	}
-	if len(calls) != 0 {
-		t.Errorf("GitHub was called: %+v, want no calls at all", calls)
+	if len(calls.counts) != 0 {
+		t.Errorf("GitHub was called: %+v, want no calls at all", calls.counts)
 	}
 	if after := gittest.Rev(t, repo, "HEAD"); after != previous {
 		t.Errorf("the checkout moved to %s, want it left at %s", after, previous)
@@ -271,14 +298,12 @@ func TestRunRetriesAheadOwnOnce(t *testing.T) {
 			if tc.rereadCaught {
 				reread = local
 			}
-			pr := readyPR("PR_kwDO1", head, true)
-			client, calls := readyServer(t, pr.ID, reread, true)
+			pr := readyPR(head, true)
+			client, calls := readyServer(t, reread, true)
 
 			var waited int
-			rd := pullrequest.Ready{
-				Client: client, Runner: runner.Exec{}, Repo: ghapi.Repo{Owner: "178inaba", Name: "dotfiles"}, Dir: repo,
-				Wait: func() { waited++ },
-			}
+			rd := readyRun(client, repo)
+			rd.Wait = func() { waited++ }
 
 			got, err := rd.Run(t.Context(), pr)
 			if err != nil {
@@ -290,51 +315,15 @@ func TestRunRetriesAheadOwnOnce(t *testing.T) {
 			if waited != 1 {
 				t.Errorf("Wait was called %d times, want exactly 1", waited)
 			}
-			if calls["reread"] != 1 {
-				t.Errorf("reread calls = %d, want exactly 1", calls["reread"])
+			if calls.counts["reread"] != 1 {
+				t.Errorf("reread calls = %d, want exactly 1", calls.counts["reread"])
 			}
-			if calls["mutation"] != tc.wantMutation {
-				t.Errorf("mutation calls = %d, want %d", calls["mutation"], tc.wantMutation)
+			if calls.counts["mutation"] != tc.wantMutation {
+				t.Errorf("mutation calls = %d, want %d", calls.counts["mutation"], tc.wantMutation)
 			}
 			if after := gittest.Rev(t, repo, "HEAD"); after != local {
 				t.Errorf("the checkout moved to %s, want it left at %s", after, local)
 			}
 		})
-	}
-}
-
-// TestRunSendsThePullRequestsNodeID pins what the mutation is sent, which the
-// table test above does not check because it never varies there.
-func TestRunSendsThePullRequestsNodeID(t *testing.T) {
-	t.Parallel()
-
-	bare, head, _ := readyOrigin(t)
-	repo := readyCheckout(t, bare)
-
-	pr := readyPR("PR_kwDO9", head, true)
-	var sent struct {
-		Variables struct {
-			PullRequestID string `json:"pullRequestId"`
-		} `json:"variables"`
-	}
-	client := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("read the request body: %v", err)
-			return
-		}
-		if err := json.Unmarshal(body, &sent); err != nil {
-			t.Errorf("decode the request body: %v", err)
-			return
-		}
-		fmt.Fprint(w, `{"data":{"markPullRequestReadyForReview":{"pullRequest":{"isDraft":false}}}}`)
-	}))
-	rd := pullrequest.Ready{Client: client, Runner: runner.Exec{}, Repo: ghapi.Repo{Owner: "178inaba", Name: "dotfiles"}, Dir: repo}
-
-	if _, err := rd.Run(t.Context(), pr); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if sent.Variables.PullRequestID != "PR_kwDO9" {
-		t.Errorf("pullRequestId = %q, want %q", sent.Variables.PullRequestID, "PR_kwDO9")
 	}
 }
