@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/caffeinate"
 	"github.com/178inaba/dotfiles/go/internal/hooks/issuehandle"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
 	"github.com/178inaba/dotfiles/go/internal/hooks/notify"
@@ -39,9 +38,6 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 func newHookCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
-		leafHookCmd("start-caffeinate", "Hold the machine awake while Claude Code works", deps,
-			func() hook { return caffeinate.NewStart(caffeinate.Default()) }),
-		stopCaffeinateCmd(deps),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", deps,
 			func() hook { return notify.NewIdle(notify.Default()) }),
 		leafHookCmd("issue-handle-guard", "Refuse the end of a turn while issue-handle is unfinished", deps,
@@ -58,28 +54,6 @@ func newHookCmd(deps Deps) *cobra.Command {
 		leafHookCmd("terminal-bell", "Ring the terminal bell", deps,
 			func() hook { return notify.NewBell() }),
 	)
-	return c
-}
-
-// stopCaffeinateCmd is the stop half, registered on four events with two
-// flags between them. Neither flag is the ordinary end of a turn, which is why
-// the mode with no flag is the one that stops the session's own caffeinate.
-func stopCaffeinateCmd(deps Deps) *cobra.Command {
-	var agentDone, force bool
-	c := leafHookCmd("stop-caffeinate", "Let the machine sleep again", deps,
-		func() hook {
-			mode := caffeinate.Session
-			switch {
-			case agentDone:
-				mode = caffeinate.AgentDone
-			case force:
-				mode = caffeinate.Force
-			}
-			return caffeinate.NewStop(caffeinate.Default(), mode)
-		})
-	c.Flags().BoolVar(&agentDone, "agent-done", false, "a subagent has finished")
-	c.Flags().BoolVar(&force, "force", false, "the session has ended")
-	c.MarkFlagsMutuallyExclusive("agent-done", "force")
 	return c
 }
 
