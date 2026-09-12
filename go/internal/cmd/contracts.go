@@ -456,16 +456,18 @@ dry run: nothing is sent until the section is on disk and named.`,
 	},
 
 	"pr reply-threads": {
-		intro: `Reply to and resolve the review threads it is our move on.
+		intro: `Reply to and resolve the review threads we may still speak in.
 
 A thread is named by its path and line rather than by its id, because a path
 and a line are what the writer was reasoning about and an id is what gets
-copied from the wrong thread. The selector is resolved against the threads the
-context file marked ` + "`ball: \"mine\"`" + `; anything ambiguous, unmatched, or naming
-an id that belongs elsewhere stops the run before a single reply is posted,
-naming the threads it could have meant. Resolving a thread the context did not
-mark ` + "`resolvable_by_me`" + ` is refused too: a person's remark is closed by that
-person.
+copied from the wrong thread. The selector is resolved against the unresolved
+threads on our own pull request and the ones we opened — whether it is our move
+or theirs, since a change of design is answered on a thread we have already
+replied in. A thread the context marked ` + "`ball: \"none\"`" + ` is out of reach, and so
+is anything ambiguous, unmatched, or naming an id that belongs elsewhere: the
+run stops before a single reply is posted, naming the threads it could have
+meant. Resolving a thread the context did not mark ` + "`resolvable_by_me`" + ` is
+refused too: a person's remark is closed by that person.
 
 Every reply is judged before the first one is posted, as a review's bodies
 are: one that numbers its items with bare #N refuses the whole run, because
@@ -482,11 +484,12 @@ as well. Then every target thread is re-read live: one that has been resolved or
 answered since the context was fetched stops the whole run, since the replies
 were written as one judgement of one view.
 
-Each reply that lands is recorded beside the threads file, so a re-run after a
-partial failure cannot post the same reply twice — it refuses instead. On a
-failure part-way through, the posted and the unprocessed threads are listed on
-standard error; write a threads file holding only the unprocessed ones and run
-it again.
+Each reply that lands is recorded beside the threads file, with what it said, so
+a re-run after a partial failure cannot post the same reply twice — it refuses
+instead. A reply saying something else on the same thread is not a resend and
+passes, which is how a follow-up is written. On a failure part-way through, the
+posted and the unprocessed threads are listed on standard error; write a threads
+file holding only the unprocessed ones and run it again.
 
 --dry-run runs every one of those checks, the live re-read included, sends
 nothing, records nothing, and prints the plan instead. A refusal in a dry run

@@ -485,7 +485,7 @@ func prReplyThreadsCmd(deps Deps) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "reply-threads <pr-context.json> <threads-file>",
-		Short: "Reply to and resolve the review threads it is our move on",
+		Short: "Reply to and resolve the review threads we may still speak in",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
