@@ -29,9 +29,8 @@ type PendingSet struct {
 	// alone, so it is one of ours and needs no state of its own here.
 	Reviews []PendingReview `json:"reviews" contract:"required"`
 	// The conversation's comments that have arrived or been
-	// rewritten since, our own marked posts aside. A bot's counts, and so does
-	// one of ours that carries no marker: a hand-written follow-up is a remark
-	// like any other.
+	// rewritten since, by whoever is not us. A bot's counts; what excludes one
+	// of ours is the author's login.
 	Comments []PendingComment `json:"comments" contract:"required"`
 }
 
@@ -119,7 +118,7 @@ func Pending(c Context, since *string) PendingSet {
 	}
 
 	for _, comment := range c.Comments {
-		if comment.IsSkillComment || !arrivedSince(comment.CreatedAt, comment.LastEditedAt, mark) {
+		if isLogin(comment.Author, c.CurrentUser) || !arrivedSince(comment.CreatedAt, comment.LastEditedAt, mark) {
 			continue
 		}
 		p.Comments = append(p.Comments, PendingComment{

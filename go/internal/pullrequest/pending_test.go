@@ -13,8 +13,8 @@ import (
 
 // The document the count is taken from. Everything the rules turn on is here
 // once — a body under each state that used to exclude one, two empty bodies,
-// one of ours, a skill comment, a bot's comment, our own comment — so that a
-// case below says only what it is about.
+// one of ours, a bot's comment, our own comment — so that a case below says
+// only what it is about.
 func countable() pullrequest.Context {
 	user, bot := "User", "Bot"
 	return pullrequest.Context{
@@ -42,14 +42,11 @@ func countable() pullrequest.Context {
 		Comments: []pullrequest.Comment{
 			{Author: new("reviewer"), AuthorType: &user, Body: "a remark",
 				CreatedAt: "2026-01-05T00:00:00Z", URL: "https://example.com/c1"},
-			{Author: new("me"), AuthorType: &user, Body: "<!-- review-response -->\ndone",
-				CreatedAt: "2026-01-05T00:00:00Z", URL: "https://example.com/c2", IsSkillComment: true},
+			// Ours: we do not answer our own comments.
+			{Author: new("me"), AuthorType: &user, Body: "done",
+				CreatedAt: "2026-01-05T00:00:00Z", URL: "https://example.com/c2"},
 			{Author: new("ci"), AuthorType: &bot, Body: "the build failed",
 				CreatedAt: "2026-01-05T00:00:00Z", URL: "https://example.com/c3"},
-			// Ours and unmarked: the author's own follow-up is a remark too,
-			// which is why the marker rather than the login is what excludes.
-			{Author: new("me"), AuthorType: &user, Body: "one more thing",
-				CreatedAt: "2026-01-05T00:00:00Z", URL: "https://example.com/c4"},
 		},
 		ReviewThreads: []pullrequest.Thread{
 			{
@@ -100,8 +97,8 @@ func TestPendingCountsWithoutASince(t *testing.T) {
 	if diff := cmp.Diff(wantReviews, urls(got.Reviews, reviewURL)); diff != "" {
 		t.Errorf("reviews (-want +got):\n%s", diff)
 	}
-	// c2 carries the marker; the bot's and our own unmarked one both count.
-	want := []string{"https://example.com/c1", "https://example.com/c3", "https://example.com/c4"}
+	// c2 is ours; the reviewer's and the bot's both count.
+	want := []string{"https://example.com/c1", "https://example.com/c3"}
 	if diff := cmp.Diff(want, urls(got.Comments, commentURL)); diff != "" {
 		t.Errorf("comments (-want +got):\n%s", diff)
 	}
@@ -123,6 +120,10 @@ func TestPendingCountsFromASince(t *testing.T) {
 			CreatedAt: "2026-01-10T00:00:00Z", URL: "https://example.com/c5"},
 		pullrequest.Comment{Author: new("reviewer"), Body: "after",
 			CreatedAt: "2026-01-11T00:00:00Z", URL: "https://example.com/c6"},
+		// Ours, and after the watermark: still absent, since a login match
+		// excludes regardless of when it arrived.
+		pullrequest.Comment{Author: new("me"), Body: "one more thing",
+			CreatedAt: "2026-01-11T00:00:00Z", URL: "https://example.com/c7"},
 	)
 
 	got := pullrequest.Pending(c, new("2026-01-10T00:00:00Z"))
@@ -137,7 +138,8 @@ func TestPendingCountsFromASince(t *testing.T) {
 		t.Errorf("reviews (-want +got):\n%s", diff)
 	}
 	// A timestamp equal to the watermark counts: the same second is read twice
-	// rather than lost.
+	// rather than lost. c7 is absent despite arriving after the watermark: it
+	// is ours.
 	want := []string{"https://example.com/c5", "https://example.com/c6"}
 	if diff := cmp.Diff(want, urls(got.Comments, commentURL)); diff != "" {
 		t.Errorf("comments (-want +got):\n%s", diff)

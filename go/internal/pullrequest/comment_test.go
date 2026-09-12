@@ -15,13 +15,6 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// posted captures what reached the comment endpoint, so that a case can assert
-// the body without a second copy of the marker.
-type posted struct {
-	path string
-	body string
-}
-
 func TestParseCommentBody(t *testing.T) {
 	t.Parallel()
 
@@ -85,7 +78,7 @@ func TestPostComment(t *testing.T) {
 	// fetch.
 	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD~")}
 
-	var seen posted
+	var seenPath, seenBody string
 	c := ghapitest.New(t, withLiveHead(t, head, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Body string `json:"body"`
@@ -93,13 +86,13 @@ func TestPostComment(t *testing.T) {
 		if err := json.UnmarshalRead(r.Body, &req); err != nil {
 			t.Errorf("decode the request body: %v", err)
 		}
-		seen = posted{path: r.URL.Path, body: req.Body}
+		seenPath, seenBody = r.URL.Path, req.Body
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"html_url":"https://github.com/owner/repo/pull/5#issuecomment-1"}`)
 	})))
 
 	got, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
-		target, pullrequest.MarkReviewResponse, "# Done\n\nEverything is answered.\n")
+		target, "# Done\n\nEverything is answered.\n")
 	if err != nil {
 		t.Fatalf("PostComment: %v", err)
 	}
@@ -107,36 +100,12 @@ func TestPostComment(t *testing.T) {
 	if got.URL != "https://github.com/owner/repo/pull/5#issuecomment-1" {
 		t.Errorf("url = %q, want the one GitHub answered with", got.URL)
 	}
-	if want := "/repos/owner/repo/issues/5/comments"; seen.path != want {
-		t.Errorf("posted to %q, want %q", seen.path, want)
+	if want := "/repos/owner/repo/issues/5/comments"; seenPath != want {
+		t.Errorf("posted to %q, want %q", seenPath, want)
 	}
-	// The marker, a blank line, then the file's content — so that what decides
-	// is_skill_comment is the constant that wrote it, and the markdown after it
-	// renders as written.
-	want := pullrequest.SkillMarker + "\n\n# Done\n\nEverything is answered.\n"
-	if seen.body != want {
-		t.Errorf("body = %q, want %q", seen.body, want)
-	}
-}
-
-// A name the command does not own is refused before anything is sent: the
-// marker is what the reading side keys on, and one it does not recognise would
-// leave the comment counting as somebody else's remark for ever.
-func TestPostCommentRefusesAnUnknownMark(t *testing.T) {
-	t.Parallel()
-
-	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
-	c := ghapitest.New(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Error("something was posted despite the unknown mark")
-	}))
-
-	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo, target, "other", "anything")
-	if err == nil {
-		t.Fatal("PostComment with an unknown mark succeeded, want a refusal")
-	}
-	if !strings.Contains(err.Error(), "review-response") {
-		t.Errorf("error = %q, want it to name the mark it does own", err)
+	want := "# Done\n\nEverything is answered.\n"
+	if seenBody != want {
+		t.Errorf("body = %q, want %q", seenBody, want)
 	}
 }
 
@@ -152,7 +121,7 @@ func TestPostCommentRefusesABodyThatNumbersItsItems(t *testing.T) {
 	}))
 
 	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
-		target, pullrequest.MarkReviewResponse, "#1 one\n#2 two\n#3 three\n")
+		target, "#1 one\n#2 two\n#3 three\n")
 	if err == nil {
 		t.Fatal("PostComment with bare #N numbering succeeded, want a refusal")
 	}
@@ -174,7 +143,7 @@ func TestPostCommentRefusesADocumentOffTheBranch(t *testing.T) {
 	})))
 
 	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
-		target, pullrequest.MarkReviewResponse, "anything")
+		target, "anything")
 	if err == nil {
 		t.Fatal("PostComment from a document off the branch succeeded, want a refusal")
 	}

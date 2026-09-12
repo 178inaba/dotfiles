@@ -134,26 +134,6 @@ func noClient(t *testing.T) Deps {
 	}}
 }
 
-// A mark the command does not own is refused on its own terms, before the body
-// is looked for. Resolving the body first reports a missing file for a run
-// whose real fault is the mark, which sends the reader to fix the wrong thing.
-func TestPRCommentRefusesAnUnknownMarkFirst(t *testing.T) {
-	t.Parallel()
-
-	var out, errOut bytes.Buffer
-	code := run(t.Context(), []string{
-		"pr", "comment", contextDocument(t, "2026-01-11T00:00:00Z", true, "abc123"),
-		"--mark", "other", "--body-file", "nowhere.md",
-	}, strings.NewReader(""), &out, &errOut, noClient(t))
-
-	if code == 0 {
-		t.Fatal("`ccx pr comment --mark other` = 0, want a refusal")
-	}
-	if !strings.Contains(errOut.String(), "unknown mark") {
-		t.Errorf("stderr = %q, want it to name the mark as the fault", errOut.String())
-	}
-}
-
 // The two refusals `ccx pr body-append` makes before it could reach GitHub,
 // which is why they can be run without a server: the document says whose pull
 // request it is, and the file name says whether it is in the work dir. Both
@@ -489,8 +469,7 @@ func TestPRCommentChecksTheLiveHead(t *testing.T) {
 
 			code, stderr, posted := f.run(t, tt, func(contextFile, workDir string) []string {
 				gittest.Write(t, filepath.Join(workDir, "body.md"), "The fixes are in.\n")
-				return []string{"pr", "comment", contextFile,
-					"--mark", string(pullrequest.MarkReviewResponse), "--body-file", "body.md"}
+				return []string{"pr", "comment", contextFile, "--body-file", "body.md"}
 			})
 
 			wantPosted := 0
