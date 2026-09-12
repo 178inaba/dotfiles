@@ -225,7 +225,8 @@ func scan(path string) (run, error) {
 
 	// bufio.Reader rather than bufio.Scanner: a single record of more than a
 	// megabyte is ordinary here, and a scan that stopped at a buffer limit
-	// would miss a later gh pr ready and block a run that had finished.
+	// would miss a later gh pr ready or ccx pr ready and block a run that had
+	// finished.
 	lines := bufio.NewReader(f)
 	for {
 		line, err := lines.ReadBytes('\n')
