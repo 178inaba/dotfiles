@@ -267,7 +267,7 @@ const fixtureBody = `{"data":{
         "nodes": [
           {"author": {"login": "reviewer1", "__typename": "User"}, "body": "普通のコメント", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/c1"},
           {"author": {"login": "testuser", "__typename": "User"}, "body": "対応しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/c2"},
-          {"author": {"login": "reviewer1", "__typename": "User"}, "body": "引用返信", "createdAt": "2026-01-03T00:00:00Z", "lastEditedAt": "2026-01-05T00:00:00Z", "url": "https://example.com/c3"},
+          {"author": {"login": "reviewer1", "__typename": "User"}, "body": "書き直した指摘", "createdAt": "2026-01-03T00:00:00Z", "lastEditedAt": "2026-01-05T00:00:00Z", "url": "https://example.com/c3"},
           {"author": null, "body": "CI 通知", "createdAt": "2026-01-04T00:00:00Z", "url": "https://example.com/c4"}
         ]
       },
@@ -370,8 +370,8 @@ func TestFetchCountsFromWhatWasRecorded(t *testing.T) {
 	if got.Pending.Since == nil || *got.Pending.Since != "2026-01-03T00:00:00Z" {
 		t.Fatalf("pending.since = %v, want what was recorded", got.Pending.Since)
 	}
-	// c1 arrived before the mark; c2 is excluded by login regardless of when
-	// it arrived; c3 was edited after the mark and c4 arrived after it.
+	// c1 and c2 arrived before the mark, c2 being ours besides; c3 was edited
+	// after it and c4 arrived after it.
 	want := []string{"https://example.com/c3", "https://example.com/c4"}
 	if diff := cmp.Diff(want, urls(got.Pending.Comments, commentURL)); diff != "" {
 		t.Errorf("pending.comments (-want +got):\n%s", diff)
@@ -459,7 +459,7 @@ func TestFetch(t *testing.T) {
 		want := []pullrequest.Comment{
 			{Author: &reviewer, AuthorType: &user, Body: "普通のコメント", CreatedAt: "2026-01-01T00:00:00Z", URL: "https://example.com/c1"},
 			{Author: new("testuser"), AuthorType: &user, Body: "対応しました", CreatedAt: "2026-01-02T00:00:00Z", URL: "https://example.com/c2"},
-			{Author: &reviewer, AuthorType: &user, Body: "引用返信", CreatedAt: "2026-01-03T00:00:00Z", LastEditedAt: new("2026-01-05T00:00:00Z"), URL: "https://example.com/c3"},
+			{Author: &reviewer, AuthorType: &user, Body: "書き直した指摘", CreatedAt: "2026-01-03T00:00:00Z", LastEditedAt: new("2026-01-05T00:00:00Z"), URL: "https://example.com/c3"},
 			// An account that no longer exists has no login and no type.
 			{Body: "CI 通知", CreatedAt: "2026-01-04T00:00:00Z", URL: "https://example.com/c4"},
 		}
