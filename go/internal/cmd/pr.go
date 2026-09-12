@@ -378,10 +378,10 @@ func prPostReviewCmd(deps Deps) *cobra.Command {
 // file has to sit in the work dir paired with the document, which is what
 // keeps parallel runs on different pull requests out of each other's files.
 func prCommentCmd(deps Deps) *cobra.Command {
-	var mark, bodyFile string
+	var bodyFile string
 	cmd := &cobra.Command{
-		Use:   "comment <pr-context.json> --mark <name> --body-file <name>",
-		Short: "Post a comment on the pull request, marked as ours",
+		Use:   "comment <pr-context.json> --body-file <name>",
+		Short: "Post a comment on the pull request",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
@@ -391,12 +391,6 @@ func prCommentCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 			prContext, err := pullrequest.ParseContext([]byte(content), contextFile)
-			if err != nil {
-				return silent(err)
-			}
-			// Before the body is looked for: a run whose mark is wrong would
-			// otherwise be told about a missing file it does not have.
-			parsedMark, err := pullrequest.ParseMark(mark)
 			if err != nil {
 				return silent(err)
 			}
@@ -410,18 +404,16 @@ func prCommentCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 			posted, err := pullrequest.PostComment(c.Context(), runner.Exec{}, client, deps.Dir,
-				prContext.Target(), parsedMark, body)
+				prContext.Target(), body)
 			if err != nil {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), posted))
 		},
 	}
-	cmd.Flags().StringVar(&mark, "mark", "", "the marker to write at the front of the comment (review-response)")
 	cmd.Flags().StringVar(&bodyFile, "body-file", "", "the name of a markdown file in the work dir holding the body")
 	// Discarded as the other required flags in this package are: the only way
-	// these fail is on a flag this function did not declare.
-	_ = cmd.MarkFlagRequired("mark")
+	// this fails is on a flag this function did not declare.
 	_ = cmd.MarkFlagRequired("body-file")
 	return cmd
 }
@@ -452,9 +444,9 @@ func prBodyAppendCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 			target := prContext.Target()
-			// Before the body is looked for, as the mark is for `ccx pr
-			// comment`: a run on somebody else's pull request would otherwise
-			// be told about a missing file, which is not its fault.
+			// Before the body is looked for: a run on somebody else's pull
+			// request would otherwise be told about a missing file, which is
+			// not its fault.
 			if err := target.RequireOwn(); err != nil {
 				return silent(err)
 			}

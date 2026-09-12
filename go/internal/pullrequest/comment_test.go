@@ -16,7 +16,7 @@ import (
 )
 
 // posted captures what reached the comment endpoint, so that a case can assert
-// the body without a second copy of the marker.
+// it without a second copy of the request handler.
 type posted struct {
 	path string
 	body string
@@ -99,7 +99,7 @@ func TestPostComment(t *testing.T) {
 	})))
 
 	got, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
-		target, pullrequest.MarkReviewResponse, "# Done\n\nEverything is answered.\n")
+		target, "# Done\n\nEverything is answered.\n")
 	if err != nil {
 		t.Fatalf("PostComment: %v", err)
 	}
@@ -110,33 +110,9 @@ func TestPostComment(t *testing.T) {
 	if want := "/repos/owner/repo/issues/5/comments"; seen.path != want {
 		t.Errorf("posted to %q, want %q", seen.path, want)
 	}
-	// The marker, a blank line, then the file's content — so that what decides
-	// is_skill_comment is the constant that wrote it, and the markdown after it
-	// renders as written.
-	want := pullrequest.SkillMarker + "\n\n# Done\n\nEverything is answered.\n"
+	want := "# Done\n\nEverything is answered.\n"
 	if seen.body != want {
 		t.Errorf("body = %q, want %q", seen.body, want)
-	}
-}
-
-// A name the command does not own is refused before anything is sent: the
-// marker is what the reading side keys on, and one it does not recognise would
-// leave the comment counting as somebody else's remark for ever.
-func TestPostCommentRefusesAnUnknownMark(t *testing.T) {
-	t.Parallel()
-
-	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
-	c := ghapitest.New(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Error("something was posted despite the unknown mark")
-	}))
-
-	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo, target, "other", "anything")
-	if err == nil {
-		t.Fatal("PostComment with an unknown mark succeeded, want a refusal")
-	}
-	if !strings.Contains(err.Error(), "review-response") {
-		t.Errorf("error = %q, want it to name the mark it does own", err)
 	}
 }
 
@@ -152,7 +128,7 @@ func TestPostCommentRefusesABodyThatNumbersItsItems(t *testing.T) {
 	}))
 
 	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
-		target, pullrequest.MarkReviewResponse, "#1 one\n#2 two\n#3 three\n")
+		target, "#1 one\n#2 two\n#3 three\n")
 	if err == nil {
 		t.Fatal("PostComment with bare #N numbering succeeded, want a refusal")
 	}
@@ -174,7 +150,7 @@ func TestPostCommentRefusesADocumentOffTheBranch(t *testing.T) {
 	})))
 
 	_, err := pullrequest.PostComment(t.Context(), runner.Exec{}, c, repo,
-		target, pullrequest.MarkReviewResponse, "anything")
+		target, "anything")
 	if err == nil {
 		t.Fatal("PostComment from a document off the branch succeeded, want a refusal")
 	}

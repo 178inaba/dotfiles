@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -268,8 +266,8 @@ const fixtureBody = `{"data":{
         "pageInfo": {"hasNextPage": false, "endCursor": "cur-1"},
         "nodes": [
           {"author": {"login": "reviewer1", "__typename": "User"}, "body": "普通のコメント", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/c1"},
-          {"author": {"login": "testuser", "__typename": "User"}, "body": "<!-- review-response -->\n対応しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/c2"},
-          {"author": {"login": "reviewer1", "__typename": "User"}, "body": "> <!-- review-response -->\n引用返信", "createdAt": "2026-01-03T00:00:00Z", "lastEditedAt": "2026-01-05T00:00:00Z", "url": "https://example.com/c3"},
+          {"author": {"login": "testuser", "__typename": "User"}, "body": "対応しました", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/c2"},
+          {"author": {"login": "reviewer1", "__typename": "User"}, "body": "引用返信", "createdAt": "2026-01-03T00:00:00Z", "lastEditedAt": "2026-01-05T00:00:00Z", "url": "https://example.com/c3"},
           {"author": null, "body": "CI 通知", "createdAt": "2026-01-04T00:00:00Z", "url": "https://example.com/c4"}
         ]
       },
@@ -372,8 +370,8 @@ func TestFetchCountsFromWhatWasRecorded(t *testing.T) {
 	if got.Pending.Since == nil || *got.Pending.Since != "2026-01-03T00:00:00Z" {
 		t.Fatalf("pending.since = %v, want what was recorded", got.Pending.Since)
 	}
-	// c1 and c2 are older than the mark, c2 is ours besides; c3 was edited
-	// after it and c4 arrived after it.
+	// c1 arrived before the mark; c2 is excluded by login regardless of when
+	// it arrived; c3 was edited after the mark and c4 arrived after it.
 	want := []string{"https://example.com/c3", "https://example.com/c4"}
 	if diff := cmp.Diff(want, urls(got.Pending.Comments, commentURL)); diff != "" {
 		t.Errorf("pending.comments (-want +got):\n%s", diff)
@@ -460,11 +458,8 @@ func TestFetch(t *testing.T) {
 		user, reviewer := "User", "reviewer1"
 		want := []pullrequest.Comment{
 			{Author: &reviewer, AuthorType: &user, Body: "普通のコメント", CreatedAt: "2026-01-01T00:00:00Z", URL: "https://example.com/c1"},
-			{Author: new("testuser"), AuthorType: &user, Body: "<!-- review-response -->\n対応しました", CreatedAt: "2026-01-02T00:00:00Z", URL: "https://example.com/c2", IsSkillComment: true},
-			// Quoting one of our own replies copies the marker with the rest of
-			// the markdown, and the "> " in front is what keeps it from
-			// counting as ours.
-			{Author: &reviewer, AuthorType: &user, Body: "> <!-- review-response -->\n引用返信", CreatedAt: "2026-01-03T00:00:00Z", LastEditedAt: new("2026-01-05T00:00:00Z"), URL: "https://example.com/c3"},
+			{Author: new("testuser"), AuthorType: &user, Body: "対応しました", CreatedAt: "2026-01-02T00:00:00Z", URL: "https://example.com/c2"},
+			{Author: &reviewer, AuthorType: &user, Body: "引用返信", CreatedAt: "2026-01-03T00:00:00Z", LastEditedAt: new("2026-01-05T00:00:00Z"), URL: "https://example.com/c3"},
 			// An account that no longer exists has no login and no type.
 			{Body: "CI 通知", CreatedAt: "2026-01-04T00:00:00Z", URL: "https://example.com/c4"},
 		}
@@ -996,24 +991,6 @@ func bodiesOf(comments []pullrequest.IssueComment) []string {
 		out = append(out, c.Body)
 	}
 	return out
-}
-
-// TestSkillMarkerMatchesTheSkill is a contract in two directions: the skill
-// writes this marker and this package recognises it. If one side changes alone,
-// every past reply reads as a fresh remark and gets answered again.
-func TestSkillMarkerMatchesTheSkill(t *testing.T) {
-	t.Parallel()
-
-	// The real skill, not a fixture: a copy would drift with the thing it is
-	// supposed to be pinning.
-	path := filepath.Join("..", "..", "..", "claude", ".claude", "skills", "review-response", "SKILL.md")
-	skill, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%q): %v", path, err)
-	}
-	if !strings.Contains(string(skill), pullrequest.SkillMarker) {
-		t.Errorf("%s does not mention %q, which this package detects its comments by", path, pullrequest.SkillMarker)
-	}
 }
 
 // commentPage renders one page of the conversation.

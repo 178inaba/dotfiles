@@ -20,17 +20,6 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/ghmd"
 )
 
-// SkillMarker is what /review-response puts at the front of every comment it
-// posts.
-//
-// Both ends of that are here now: PostComment writes it and the fetch below
-// recognises it, so the two cannot part. It stays exported, and the test
-// comparing it against the skill stays with it, because the skill's own
-// wording still names the marker — until the skill posts through PostComment
-// alone, a marker changed here and not there would stop this recognising its
-// own past replies and answer them again as though they were new remarks.
-const SkillMarker = "<!-- review-response -->"
-
 // PR is the pull request itself.
 type PR struct {
 	Number  int           `json:"number" contract:"required,positive"`
@@ -121,9 +110,8 @@ type Comment struct {
 	// When the comment was last edited, null for one never edited.
 	// What counts as newly arrived is the later of this and the creation date:
 	// a remark rewritten after a run had already judged it is a remark again.
-	LastEditedAt   *string `json:"last_edited_at"`
-	URL            string  `json:"url"`
-	IsSkillComment bool    `json:"is_skill_comment"`
+	LastEditedAt *string `json:"last_edited_at"`
+	URL          string  `json:"url"`
 }
 
 // Review is one submitted review.
@@ -585,9 +573,6 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 			CreatedAt:    n.CreatedAt,
 			LastEditedAt: n.LastEditedAt,
 			URL:          n.URL,
-			// Prefix rather than contains, so that a reply quoting one of our
-			// comments does not read as one.
-			IsSkillComment: strings.HasPrefix(n.Body, SkillMarker),
 		})
 	}
 	for _, n := range reviews {
