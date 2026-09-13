@@ -11,8 +11,8 @@ import (
 //
 // REST rather than the GraphQL viewer, because the callers that want it are
 // making REST requests anyway and a login is all they need; the pull request
-// context asks GraphQL for the same thing only because it is already asking
-// for the rest of the pull request in the same round trip.
+// reads ask GraphQL for the same thing only because they are already asking
+// for the pull request in the same round trip.
 //
 // An empty login is an error rather than an answer: every caller goes on to
 // compare it against an author or to send it as an assignee, and "" quietly

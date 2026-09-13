@@ -8,11 +8,24 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
-// The two commands that bring a checkout up to a pull request's head share what
-// follows: what counts as dirty, and how far a synchronisation may go on its
-// own. One definition, because a checkout that one command called safe to
+// What counts as uncommitted work, and how far a synchronisation may go on its
+// own, is defined here once. The two commands that bring a checkout up to a
+// pull request's head share it, because a checkout that one called safe to
 // fast-forward and the other called dirty would be a difference nobody could
-// explain.
+// explain; the checks that must not move the checkout read the same status.
+
+// statusLines is what `git status --porcelain` printed, one entry per line.
+func statusLines(ctx context.Context, r runner.Runner, dir string) ([]string, error) {
+	out, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "status", "--porcelain"}})
+	if err != nil {
+		return nil, fmt.Errorf("read the status of %s: %w", dir, err)
+	}
+	trimmed := strings.TrimRight(string(out), "\n")
+	if trimmed == "" {
+		return nil, nil
+	}
+	return strings.Split(trimmed, "\n"), nil
+}
 
 // isDirty reports whether dir has changes that a fast-forward would disturb.
 //
@@ -21,16 +34,32 @@ import (
 // synchronisation. A fast-forward that would overwrite one still fails, which
 // is where that shows up instead.
 func isDirty(ctx context.Context, r runner.Runner, dir string) (bool, error) {
-	out, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "status", "--porcelain"}})
+	lines, err := statusLines(ctx, r, dir)
 	if err != nil {
-		return false, fmt.Errorf("read the status of %s: %w", dir, err)
+		return false, err
 	}
-	for line := range strings.SplitSeq(strings.TrimRight(string(out), "\n"), "\n") {
-		if line != "" && !strings.HasPrefix(line, "??") {
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "??") {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// IsClean reports whether dir has nothing uncommitted at all, untracked files
+// included.
+//
+// Two definitions of dirty on purpose. isDirty leaves untracked files out
+// because they are not git's to move and the scratch files a review leaves
+// behind must not stop a synchronisation. This one counts them, because a file
+// that was never added is exactly a fix that exists only locally, which is
+// what a pull request must not be declared ready over.
+func IsClean(ctx context.Context, r runner.Runner, dir string) (bool, error) {
+	lines, err := statusLines(ctx, r, dir)
+	if err != nil {
+		return false, err
+	}
+	return len(lines) == 0, nil
 }
 
 // fastForwardOrDirty brings dir up to target when it can be done without

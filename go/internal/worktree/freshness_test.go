@@ -178,6 +178,28 @@ func TestCheckFreshness(t *testing.T) {
 	}
 }
 
+// TestCompareLeavesABehindCheckoutWhereItStood is what Compare owes that
+// CheckFreshness does not: unlike the freshness check, it never fast-forwards.
+func TestCompareLeavesABehindCheckoutWhereItStood(t *testing.T) {
+	t.Parallel()
+
+	bare, head, previous := prOrigin(t)
+	repo := checkoutOf(t, bare)
+	gittest.Run(t, repo, "reset", "-q", "--hard", previous)
+	before := gittest.Rev(t, repo, "HEAD")
+
+	got, err := Compare(t.Context(), runner.Exec{}, repo, PullRequest{HeadRef: headRef, HeadOID: head, BaseRef: "main"})
+	if err != nil {
+		t.Fatalf("Compare: %v", err)
+	}
+	if got != ComparisonBehind {
+		t.Errorf("Compare = %q, want %q", got, ComparisonBehind)
+	}
+	if after := gittest.Rev(t, repo, "HEAD"); after != before {
+		t.Errorf("the checkout moved to %s, want it left at %s", after, before)
+	}
+}
+
 // TestCheckFreshnessKeepsDirtyWork is the promise behind the behind_dirty stop:
 // the change that stopped it is still there afterwards.
 func TestCheckFreshnessKeepsDirtyWork(t *testing.T) {

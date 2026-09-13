@@ -43,11 +43,20 @@
 // Every question it cannot answer allows the turn to end: no transcript, an
 // unreadable or malformed one, no launch to judge, plan mode, or background
 // work still in flight. Two known limits fall the same way. A Bash call that
-// merely mentions gh pr ready or gh pr create — a grep, a commit message —
-// advances the stage, since this matches a token rather than parsing a shell.
-// And because the transcript is written asynchronously, a gh pr ready whose
-// result has not been flushed yet costs one extra block, which the next Stop
-// allows through on stop_hook_active.
+// merely mentions gh pr ready, ccx pr ready or gh pr create — a grep, a commit
+// message — advances the stage, since this matches a token rather than
+// parsing a shell. And because the transcript is written asynchronously, a gh
+// pr ready or ccx pr ready whose result has not been flushed yet costs one
+// extra block, which the next Stop allows through on stop_hook_active.
+//
+// The result a ready call reaches is not read either way, only whether the
+// call itself succeeded. For ccx pr ready this means a run of the sync check
+// it failed still advances the stage: it exits 0 and prints a status other
+// than ready or already_ready, and this guard cannot tell that status from
+// one that took the pull request out of draft without parsing the output it
+// otherwise never reads. This is deliberate rather than a gap — the skill
+// reports the failed check and stops on purpose, and there is no later step
+// for this guard to hold the turn open for.
 package issuehandle
 
 import (
@@ -216,7 +225,8 @@ func scan(path string) (run, error) {
 
 	// bufio.Reader rather than bufio.Scanner: a single record of more than a
 	// megabyte is ordinary here, and a scan that stopped at a buffer limit
-	// would miss a later gh pr ready and block a run that had finished.
+	// would miss a later gh pr ready or ccx pr ready and block a run that had
+	// finished.
 	lines := bufio.NewReader(f)
 	for {
 		line, err := lines.ReadBytes('\n')
@@ -288,6 +298,11 @@ func scan(path string) (run, error) {
 					r.reviewed = true
 				case b.Name == "Bash" && strings.Contains(b.Input.Command, "gh pr create"):
 					pending[b.ID] = creating
+				// --help is excluded because the skill sends the run to it for how
+				// to read the output, and reading it is not the call.
+				case b.Name == "Bash" && strings.Contains(b.Input.Command, "ccx pr ready") &&
+					!strings.Contains(b.Input.Command, "--help"):
+					pending[b.ID] = readying
 				case b.Name == "Bash" && strings.Contains(b.Input.Command, "gh pr ready") &&
 					!strings.Contains(b.Input.Command, "--undo"):
 					pending[b.ID] = readying

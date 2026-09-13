@@ -19,8 +19,8 @@ import (
 // newPRCmd builds `ccx pr`, the commands that work from a pull request.
 func newPRCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
-	c.AddCommand(prContextCmd(deps), prPrepareReviewCmd(deps), prFreshnessCmd(deps), prPostReviewCmd(deps),
-		prReplyThreadsCmd(deps), prSeenCmd(deps), prCommentCmd(deps), prBodyAppendCmd(deps))
+	c.AddCommand(prContextCmd(deps), prPrepareReviewCmd(deps), prFreshnessCmd(deps), prReadyCmd(deps),
+		prPostReviewCmd(deps), prReplyThreadsCmd(deps), prSeenCmd(deps), prCommentCmd(deps), prBodyAppendCmd(deps))
 	return c
 }
 
@@ -43,6 +43,47 @@ func prFreshnessCmd(deps Deps) *cobra.Command {
 			}
 
 			report, err := worktree.CheckFreshness(c.Context(), runner.Exec{}, deps.Dir, prContext.Checkout())
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), report))
+		},
+	}
+}
+
+// prReadyCmd builds `ccx pr ready`, the sync gate /issue-handle runs before it
+// declares a pull request done: a fix that exists only locally, or only on a
+// branch the pull request does not follow, must not be marked ready.
+func prReadyCmd(deps Deps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "ready [<pr-number>]",
+		Short: "Mark a pull request ready for review once the checkout here matches it",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, deps.Build)
+			number := 0
+			if len(args) == 1 {
+				var err error
+				if number, err = issueNumber(args[0]); err != nil {
+					return fmt.Errorf("invalid pr number: %s", args[0])
+				}
+			}
+
+			client, err := deps.NewClient()
+			if err != nil {
+				return silent(err)
+			}
+			repo, err := currentRepo(c.Context(), client, deps.Dir)
+			if err != nil {
+				return silent(err)
+			}
+			pr, err := contextPR(c.Context(), client, repo, deps.Dir, number)
+			if err != nil {
+				return silent(err)
+			}
+
+			rd := pullrequest.Ready{Client: client, Runner: runner.Exec{}, Repo: repo, Dir: deps.Dir}
+			report, err := rd.Run(c.Context(), pr)
 			if err != nil {
 				return silent(err)
 			}

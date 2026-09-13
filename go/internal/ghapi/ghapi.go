@@ -154,10 +154,11 @@ func (c *Client) send(ctx context.Context, method, path string, body, out any) e
 //
 // Exported, unlike post and patch, because the reads that need it are many and
 // have nothing to judge. The mutations are the ones to be careful with, and
-// they are all written in this package — see review.go — so that a mutation
-// carrying a body has to go past the Body type rather than round it. A caller
-// writing one out here would be the bypass the type exists to remove, and the
-// compiler cannot say so: this is what review looks for.
+// they are all written in this package, each in the file of the resource it
+// belongs to, so that a mutation carrying a body has to go past the Body type
+// rather than round it. A caller writing one out here would be the bypass the
+// type exists to remove, and the compiler cannot say so: this is what review
+// looks for.
 func (c *Client) GraphQL(ctx context.Context, query string, vars map[string]any, out any) error {
 	return explain(c.gql.DoWithContext(ctx, query, vars, out))
 }
