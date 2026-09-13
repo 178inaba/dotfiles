@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/caffeinate"
 	"github.com/178inaba/dotfiles/go/internal/hooks/issuehandle"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
 	"github.com/178inaba/dotfiles/go/internal/hooks/notify"
@@ -39,9 +38,6 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 func newHookCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
-		leafHookCmd("start-caffeinate", "Hold the machine awake while Claude Code works", deps,
-			func() hook { return caffeinate.NewStart(caffeinate.Default()) }),
-		stopCaffeinateCmd(deps),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", deps,
 			func() hook { return notify.NewIdle(notify.Default()) }),
 		leafHookCmd("issue-handle-guard", "Refuse the end of a turn while issue-handle is unfinished", deps,
@@ -61,34 +57,12 @@ func newHookCmd(deps Deps) *cobra.Command {
 	return c
 }
 
-// stopCaffeinateCmd is the stop half, registered on four events with two
-// flags between them. Neither flag is the ordinary end of a turn, which is why
-// the mode with no flag is the one that stops the session's own caffeinate.
-func stopCaffeinateCmd(deps Deps) *cobra.Command {
-	var agentDone, force bool
-	c := leafHookCmd("stop-caffeinate", "Let the machine sleep again", deps,
-		func() hook {
-			mode := caffeinate.Session
-			switch {
-			case agentDone:
-				mode = caffeinate.AgentDone
-			case force:
-				mode = caffeinate.Force
-			}
-			return caffeinate.NewStop(caffeinate.Default(), mode)
-		})
-	c.Flags().BoolVar(&agentDone, "agent-done", false, "a subagent has finished")
-	c.Flags().BoolVar(&force, "force", false, "the session has ended")
-	c.MarkFlagsMutuallyExclusive("agent-done", "force")
-	return c
-}
-
-// subagentTrackerCmd is the one hook registered on three different events, one
+// subagentTrackerCmd is the one hook registered on four different events, one
 // flag each. cobra rejects a wrong number of them rather than picking one, so
 // an entry in settings.json that asks for two, or for none, is a startup error
 // and not a marker quietly written for the wrong event.
 func subagentTrackerCmd(deps Deps) *cobra.Command {
-	var start, stop, sessionEnd bool
+	var start, stop, sessionEnd, sessionStart bool
 	c := leafHookCmd("subagent-tracker", "Track which subagents are running", deps,
 		func() hook {
 			mode := notify.Start
@@ -97,17 +71,20 @@ func subagentTrackerCmd(deps Deps) *cobra.Command {
 				mode = notify.Stop
 			case sessionEnd:
 				mode = notify.SessionEnd
+			case sessionStart:
+				mode = notify.SessionStart
 			}
 			return notify.NewTracker(notify.Default(), mode)
 		})
 	c.Flags().BoolVar(&start, "start", false, "a subagent has started")
 	c.Flags().BoolVar(&stop, "stop", false, "a subagent has finished")
 	c.Flags().BoolVar(&sessionEnd, "session-end", false, "the session has ended")
-	c.MarkFlagsMutuallyExclusive("start", "stop", "session-end")
+	c.Flags().BoolVar(&sessionStart, "session-start", false, "the session has started")
+	c.MarkFlagsMutuallyExclusive("start", "stop", "session-end", "session-start")
 	// And one is required. A registration that lost its flag would otherwise
 	// track nothing and exit 0, and the only symptom would be idle-notify
 	// falling silent — the failure this pair exists to prevent.
-	c.MarkFlagsOneRequired("start", "stop", "session-end")
+	c.MarkFlagsOneRequired("start", "stop", "session-end", "session-start")
 	return c
 }
 

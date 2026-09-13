@@ -1,10 +1,11 @@
-// Package state holds what the hooks have to remember between invocations: the
-// process id of a running caffeinate, and a marker per live subagent.
+// Package state holds what the hooks have to remember between invocations: a
+// marker per live subagent.
 //
 // This is runtime state and not cached data, which is why it does not join the
-// status line's caches under os.UserCacheDir. Deleting a cache costs the time
-// to rebuild it; deleting a pid file leaks a caffeinate that keeps the machine
-// awake, with nothing left to say which session it belonged to. It goes to
+// status line's caches under os.UserCacheDir. Deleting a cache costs only the
+// time to rebuild it; a marker cannot be rebuilt, because a subagent's start is
+// an event observable only at the moment it happens — losing the marker leaves
+// that session notified while a subagent of it is still running. It goes to
 // /tmp, where macOS's dirhelper sweeps what a session that died without its
 // stop hook left behind.
 package state
@@ -45,25 +46,16 @@ func Open(dir string) (*Store, error) {
 // Close releases the tree.
 func (s *Store) Close() error { return s.root.Close() }
 
-// Read returns a file's contents, and whether there was one to read. A file
-// that cannot be read is a file that is not there: every caller's next step is
-// the same either way.
-func (s *Store) Read(name string) (string, bool) {
-	b, err := s.root.ReadFile(name)
-	if err != nil {
-		return "", false
-	}
-	return string(b), true
-}
-
-// Write stores a value, creating the parent directory.
-func (s *Store) Write(name, value string) error {
+// Create makes an empty marker, creating the parent directory. A marker's
+// existence is everything it has to say, so there is nothing here to read
+// back.
+func (s *Store) Create(name string) error {
 	if dir := path.Dir(name); dir != "." {
 		if err := s.root.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
 	}
-	return s.root.WriteFile(name, []byte(value), 0o600)
+	return s.root.WriteFile(name, nil, 0o600)
 }
 
 // Remove deletes a file, and reports nothing for one that has already gone.
@@ -77,15 +69,13 @@ func (s *Store) Remove(name string) error {
 // RemoveAll deletes a directory and everything under it.
 func (s *Store) RemoveAll(name string) error { return s.root.RemoveAll(name) }
 
-// Rename moves a file within the tree.
-func (s *Store) Rename(from, to string) error { return s.root.Rename(from, to) }
-
 // Names lists the entries of a directory, in no particular order.
 //
 // A directory that is not there has no entries and no error: that is the state
 // every hook starts from. A directory that is there and cannot be listed is a
-// different thing, and what to do about it is the caller's to decide — folding
-// the two together would have a stop hook collect nothing and say nothing.
+// different thing, and what to do about it is the caller's to decide — busy
+// answers a question about notifying, so it discards the error and errs
+// towards one notification too many, which is not a choice to make here.
 func (s *Store) Names(dir string) ([]string, error) {
 	f, err := s.root.Open(dir)
 	if errors.Is(err, fs.ErrNotExist) {

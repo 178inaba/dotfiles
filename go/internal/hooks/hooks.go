@@ -4,22 +4,18 @@
 //
 // The hooks live in packages beneath this one, cut by what they do rather than
 // by where Claude Code calls them from: notify holds those that decide and
-// deliver a notification, caffeinate those that hold the machine awake, and one
-// package each for the guards, which inspect a tool call or the end of a turn
-// and share nothing but that. What every one of them has in common is only this
-// contract; the dispatcher in internal/cmd declares the interface that binds
-// them together, because it is the one that consumes it.
+// deliver a notification, and one package each for the guards, which inspect a
+// tool call or the end of a turn and share nothing but that. What every one of
+// them has in common is only this contract; the dispatcher in internal/cmd
+// declares the interface that binds them together, because it is the one that
+// consumes it.
 package hooks
 
 import (
-	"context"
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-
-	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
 // unknownSession stands in for a payload that names no session, so that a
@@ -58,6 +54,9 @@ type Payload struct {
 	// input gave no answer: the array is absent when Claude Code could not
 	// reach the task registry, which is not the same as nothing running.
 	BackgroundTasks *int
+	// Source is what triggered a SessionStart event: startup, resume, clear,
+	// compact, or fork.
+	Source string
 }
 
 // wire is the input as it arrives. Keeping it separate from Payload is what
@@ -81,6 +80,7 @@ type wire struct {
 	// BackgroundTasks is a pointer so that an absent array stays distinct from
 	// an empty one, and holds no fields because only its length is read.
 	BackgroundTasks *[]struct{} `json:"background_tasks"`
+	Source          string      `json:"source"`
 }
 
 // Parse reads the hook input.
@@ -109,6 +109,7 @@ func Parse(in []byte) Payload {
 		TranscriptPath:   expandHome(w.TranscriptPath),
 		StopHookActive:   w.StopHookActive,
 		PermissionMode:   w.PermissionMode,
+		Source:           w.Source,
 	}
 	if w.BackgroundTasks != nil {
 		n := len(*w.BackgroundTasks)
@@ -211,23 +212,3 @@ type Directive struct {
 
 // IsEmpty reports whether there is nothing here worth writing.
 func (d Directive) IsEmpty() bool { return d == Directive{} }
-
-// IsClaude reports whether a process is Claude Code itself.
-//
-// Two hooks ask: caffeinate, to tie a suppression's lifetime to the session,
-// and notify, to record something a later reader can verify. Both would
-// break in the same way if the answer drifted — Claude Code has already been
-// both names once — so the rule has one owner.
-func IsClaude(ctx context.Context, r runner.Runner, pid int) bool {
-	out, err := r.Run(ctx, runner.Command{
-		Name: "ps", Args: []string{"-o", "comm=", "-p", strconv.Itoa(pid)},
-	})
-	if err != nil {
-		return false
-	}
-	switch strings.TrimSpace(string(out)) {
-	case "claude", "node":
-		return true
-	}
-	return false
-}

@@ -89,14 +89,6 @@
             "command": "~/go/bin/ccx hook worktree-edit-guard"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook start-caffeinate"
-          }
-        ]
       }
     ],
     "PostToolUse": [
@@ -110,12 +102,12 @@
         ]
       }
     ],
-    "UserPromptSubmit": [
+    "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "~/go/bin/ccx hook start-caffeinate"
+            "command": "~/go/bin/ccx hook subagent-tracker --session-start"
           }
         ]
       }
@@ -123,10 +115,6 @@
     "SubagentStart": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook start-caffeinate"
-          },
           {
             "type": "command",
             "command": "~/go/bin/ccx hook subagent-tracker --start"
@@ -137,10 +125,6 @@
     "SubagentStop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook stop-caffeinate --agent-done"
-          },
           {
             "type": "command",
             "command": "~/go/bin/ccx hook subagent-tracker --stop"
@@ -154,10 +138,6 @@
           {
             "type": "command",
             "command": "~/go/bin/ccx hook issue-handle-guard"
-          },
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook stop-caffeinate"
           }
         ]
       }
@@ -165,10 +145,6 @@
     "SessionEnd": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook stop-caffeinate --force"
-          },
           {
             "type": "command",
             "command": "~/go/bin/ccx hook subagent-tracker --session-end"
@@ -191,10 +167,6 @@
           {
             "type": "command",
             "command": "~/go/bin/ccx hook slack-notify"
-          },
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook stop-caffeinate"
           }
         ]
       },
@@ -204,10 +176,6 @@
           {
             "type": "command",
             "command": "~/go/bin/ccx hook idle-notify"
-          },
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook stop-caffeinate"
           }
         ]
       }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"strconv"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 	"github.com/178inaba/dotfiles/go/internal/hooks/state"
@@ -12,10 +11,9 @@ import (
 
 // dir holds one directory per session, holding one marker per subagent.
 //
-// The caffeinate pid files are not reused for this. They belong to sleep
-// suppression, whose lifecycle can be changed for reasons that have nothing to
-// do with notifications, and a leftover pid file would push the notification
-// towards silence — the direction that loses the notification the user needed.
+// A marker is owned by notify alone. A file left behind by something with a
+// lifecycle of its own would push busy towards silence — the direction that
+// loses the notification the user needed.
 const dir = "subagents"
 
 // markerDir names the directory holding one session's markers.
@@ -34,14 +32,19 @@ const (
 	Stop
 	// SessionEnd forgets the whole session.
 	SessionEnd
+	// SessionStart purges the session's markers: below a session that is only
+	// now starting, every marker is the residue of a previous run that ended
+	// without going through SessionEnd.
+	SessionStart
 )
 
 // Tracker keeps one marker per running subagent, which is how Idle tells a
 // session waiting for a human from one waiting for an agent it started.
 //
-// A marker records the pid of Claude Code itself, or nothing when the writer
-// could not identify it. busy is the only reader of that format, so the two
-// halves stay here together.
+// A marker's existence is everything it has to say. What SessionStart purges
+// is exactly the residue a session leaves when it ends without going through
+// SessionEnd, so nothing here has to tell that residue apart from the real
+// thing.
 type Tracker struct {
 	deps Deps
 	mode Mode
@@ -51,10 +54,10 @@ type Tracker struct {
 func NewTracker(d Deps, mode Mode) Tracker { return Tracker{deps: d, mode: mode} }
 
 // Run implements the hook contract.
-func (h Tracker) Run(ctx context.Context, in hooks.Payload) hooks.Result {
+func (h Tracker) Run(_ context.Context, in hooks.Payload) hooks.Result {
 	// Start and Stop are about one agent, and an event that names none is not
 	// about a subagent at all.
-	if h.mode != SessionEnd && in.AgentID == "" {
+	if h.mode != SessionEnd && h.mode != SessionStart && in.AgentID == "" {
 		return hooks.Result{}
 	}
 
@@ -66,29 +69,24 @@ func (h Tracker) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 
 	switch h.mode {
 	case Start:
-		err = s.Write(marker(in.SessionID, in.AgentID), h.watched(ctx))
+		err = s.Create(marker(in.SessionID, in.AgentID))
 	case Stop:
 		err = s.Remove(marker(in.SessionID, in.AgentID))
 	case SessionEnd:
 		err = s.RemoveAll(markerDir(in.SessionID))
+	case SessionStart:
+		// Compaction is excluded by name rather than the rest allowed by name,
+		// because it is the one source that happens mid-session with a
+		// background subagent still running; every other source, known or not,
+		// purges.
+		if in.Source != "compact" {
+			err = s.RemoveAll(markerDir(in.SessionID))
+		}
 	}
 	if err != nil {
 		return failed(err)
 	}
 	return hooks.Result{}
-}
-
-// watched is what a marker records, so that busy can tell a running subagent
-// from the residue of a session that crashed.
-//
-// Empty when the parent is not Claude Code itself, which busy reads as "cannot
-// check" rather than "gone".
-func (h Tracker) watched(ctx context.Context) string {
-	pid := h.deps.Getppid()
-	if !hooks.IsClaude(ctx, h.deps.Runner, pid) {
-		return ""
-	}
-	return strconv.Itoa(pid)
 }
 
 // busy reports whether the session has a subagent still running.
@@ -105,24 +103,7 @@ func busy(d Deps, session string) bool {
 	// Discarded deliberately: busy answers a question about notifying, and
 	// anything it cannot determine already counts as not busy.
 	markers, _ := s.Names(markerDir(session))
-	for _, agent := range markers {
-		watched, ok := s.Read(marker(session, agent))
-		if !ok {
-			continue
-		}
-		// A marker recording no pid is one whose writer could not identify
-		// Claude Code, so there is nothing to check and it counts as running.
-		if watched == "" {
-			return true
-		}
-		pid, err := strconv.Atoi(watched)
-		if err != nil || d.Signaller.Alive(pid) {
-			return true
-		}
-		// A marker whose process has gone is what a session that crashed left
-		// behind, and honouring it would silence this session for good.
-	}
-	return false
+	return len(markers) > 0
 }
 
 func failed(err error) hooks.Result {

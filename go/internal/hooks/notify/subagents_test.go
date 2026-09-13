@@ -1,20 +1,12 @@
 package notify
 
 import (
-	"context"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/state/statetest"
-	"github.com/178inaba/dotfiles/go/internal/runner"
-)
-
-// The pids fakeSignaller reports on.
-const (
-	livePID = "111"
-	deadPID = "222"
+	"github.com/178inaba/dotfiles/go/internal/hooks/state"
 )
 
 func TestTrackerRun(t *testing.T) {
@@ -23,41 +15,15 @@ func TestTrackerRun(t *testing.T) {
 	started := []string{"a1", "a2"}
 
 	tests := []struct {
-		name string
-		mode Mode
-		in   hooks.Payload
-		// parent is what ps says this process's parent is called.
-		parent string
-
+		name        string
+		mode        Mode
+		in          hooks.Payload
 		wantMarkers []string
-		wantWatched string
 	}{
 		{
 			name: "start records the agent",
 			mode: Start, in: hooks.Payload{SessionID: session, AgentID: "a3"},
 			wantMarkers: []string{"a1", "a2", "a3"},
-		},
-		{
-			// The marker records Claude Code's own pid so that idle-notify can
-			// spot the residue of a session that crashed.
-			name: "start records the watched process when the parent is Claude Code",
-			mode: Start, in: hooks.Payload{SessionID: session, AgentID: "a3"},
-			parent:      "claude",
-			wantMarkers: []string{"a1", "a2", "a3"}, wantWatched: "4242",
-		},
-		{
-			name: "start records the watched process when the parent is node",
-			mode: Start, in: hooks.Payload{SessionID: session, AgentID: "a3"},
-			parent:      "node",
-			wantMarkers: []string{"a1", "a2", "a3"}, wantWatched: "4242",
-		},
-		{
-			// Nothing to verify beats a pid that is not Claude Code's: an
-			// unverifiable marker keeps the session quiet.
-			name: "start records nothing when the parent is something else",
-			mode: Start, in: hooks.Payload{SessionID: session, AgentID: "a3"},
-			parent:      "bash",
-			wantMarkers: []string{"a1", "a2", "a3"}, wantWatched: "",
 		},
 		{
 			name: "start without an agent does nothing",
@@ -84,6 +50,32 @@ func TestTrackerRun(t *testing.T) {
 			mode: SessionEnd, in: hooks.Payload{SessionID: session},
 			wantMarkers: nil,
 		},
+		{
+			name: "session start purges whatever a previous run left under the id",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "startup"},
+			wantMarkers: nil,
+		},
+		{
+			name: "session start purges on resume, which reuses the session id",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "resume"},
+			wantMarkers: nil,
+		},
+		{
+			// Compaction happens mid-session, and a background subagent survives
+			// it: purging here would forget one that is still running.
+			name: "session start leaves the markers when the source is a compaction",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "compact"},
+			wantMarkers: started,
+		},
+		{
+			// Only "compact" is excluded, rather than an allowlist of the known
+			// sources: a source Claude Code adds later purges by default instead
+			// of silently stopping, which is the direction that risks one extra
+			// notification rather than a marker that never gets forgotten.
+			name: "session start purges for a source this rule does not recognize",
+			mode: SessionStart, in: hooks.Payload{SessionID: session, Source: "future"},
+			wantMarkers: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -93,26 +85,17 @@ func TestTrackerRun(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "ccx")
 			seed(t, dir, session, started)
 
-			h := NewTracker(Deps{
-				Dir:     dir,
-				Runner:  psRunner{out: tt.parent},
-				Getppid: func() int { return 4242 },
-			}, tt.mode)
+			h := NewTracker(Deps{Dir: dir}, tt.mode)
 
 			if got, want := h.Run(t.Context(), tt.in), (hooks.Result{}); got != want {
 				t.Fatalf("Run() = %+v, want %+v", got, want)
 			}
 
-			s := statetest.OpenStore(t, dir)
-			got := statetest.Names(t, s, markerDir(session))
+			s := openStore(t, dir)
+			got := names(t, s, markerDir(session))
 			slices.Sort(got)
 			if !slices.Equal(got, tt.wantMarkers) {
 				t.Errorf("markers = %v, want %v", got, tt.wantMarkers)
-			}
-			if tt.mode == Start && tt.in.AgentID != "" {
-				if watched, _ := s.Read(marker(session, tt.in.AgentID)); watched != tt.wantWatched {
-					t.Errorf("marker contents = %q, want %q", watched, tt.wantWatched)
-				}
 			}
 		})
 	}
@@ -120,47 +103,24 @@ func TestTrackerRun(t *testing.T) {
 
 func seed(t *testing.T, dir, session string, agents []string) {
 	t.Helper()
-	s := statetest.OpenStore(t, dir)
+	s := openStore(t, dir)
 	for _, a := range agents {
-		if err := s.Write(marker(session, a), ""); err != nil {
-			t.Fatalf("Write(%s): %v", a, err)
+		if err := s.Create(marker(session, a)); err != nil {
+			t.Fatalf("Create(%s): %v", a, err)
 		}
 	}
-}
-
-// psRunner answers ps with one name, or fails when it has none.
-type psRunner struct{ out string }
-
-func (f psRunner) Run(context.Context, runner.Command) ([]byte, error) {
-	if f.out == "" {
-		return nil, &runner.Error{Name: "ps", Err: context.Canceled}
-	}
-	return []byte(f.out + "\n"), nil
 }
 
 func TestBusy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		// markers is agent id to the pid it records.
-		markers map[string]string
-		want    bool
+		name   string
+		agents []string
+		want   bool
 	}{
-		{name: "no markers at all", markers: nil},
-		{name: "a running agent", markers: map[string]string{"a1": livePID}, want: true},
-		{
-			// A marker whose process is gone is what a crash leaves behind.
-			// Honouring it would keep the session quiet for good.
-			name: "the residue of a crashed session", markers: map[string]string{"a1": deadPID},
-		},
-		{
-			name: "a marker recording no pid", markers: map[string]string{"a1": ""}, want: true,
-		},
-		{
-			name:    "one running agent among stale ones",
-			markers: map[string]string{"a1": deadPID, "a2": livePID}, want: true,
-		},
+		{name: "no subagents recorded"},
+		{name: "a subagent recorded", agents: []string{"a1"}, want: true},
 	}
 
 	for _, tt := range tests {
@@ -168,14 +128,14 @@ func TestBusy(t *testing.T) {
 			t.Parallel()
 
 			dir := filepath.Join(t.TempDir(), "ccx")
-			s := statetest.OpenStore(t, dir)
-			for agent, pid := range tt.markers {
-				if err := s.Write(marker(session, agent), pid); err != nil {
-					t.Fatalf("Write(%s): %v", agent, err)
+			s := openStore(t, dir)
+			for _, agent := range tt.agents {
+				if err := s.Create(marker(session, agent)); err != nil {
+					t.Fatalf("Create(%s): %v", agent, err)
 				}
 			}
 
-			d := Deps{Dir: dir, Signaller: fakeSignaller{}}
+			d := Deps{Dir: dir}
 			if got := busy(d, session); got != tt.want {
 				t.Errorf("busy = %t, want %t", got, tt.want)
 			}
@@ -183,8 +143,23 @@ func TestBusy(t *testing.T) {
 	}
 }
 
-// fakeSignaller knows one live process.
-type fakeSignaller struct{}
+// openStore opens a state tree that closes itself when the test ends.
+func openStore(t *testing.T, dir string) *state.Store {
+	t.Helper()
+	s, err := state.Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
 
-func (fakeSignaller) Terminate(int) error { return nil }
-func (fakeSignaller) Alive(pid int) bool  { return pid == 111 }
+// names lists a directory in the store, failing the test if it cannot be read.
+func names(t *testing.T, s *state.Store, dir string) []string {
+	t.Helper()
+	names, err := s.Names(dir)
+	if err != nil {
+		t.Fatalf("Names(%q): %v", dir, err)
+	}
+	return names
+}

@@ -8,9 +8,6 @@ import (
 )
 
 const (
-	pidFile   = "caffeinate/s1.pid"
-	doneFile  = "caffeinate/s1.done"
-	otherFile = "caffeinate/s2.pid"
 	marker    = "subagents/s1/a1"
 	markerDir = "subagents/s1"
 )
@@ -30,80 +27,35 @@ func TestOpenCreatesThePrivateRoot(t *testing.T) {
 		t.Fatalf("Stat: %v", err)
 	}
 	// The tree lives in world-writable /tmp, so nobody else may read a session
-	// id out of it or drop a pid file in.
+	// id out of it or drop a marker in.
 	if got, want := info.Mode().Perm(), os.FileMode(0o700); got != want {
 		t.Errorf("mode = %v, want %v", got, want)
 	}
 }
 
-func TestWriteReadRemove(t *testing.T) {
+func TestCreateRemove(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	if _, ok := s.Read(pidFile); ok {
-		t.Error("Read found a file that was never written")
+	if got := names(t, s, markerDir); len(got) != 0 {
+		t.Fatalf("Names = %v, want none before Create", got)
 	}
-	if err := s.Write(pidFile, "4242"); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := s.Create(marker); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
-	got, ok := s.Read(pidFile)
-	if !ok {
-		t.Fatal("Read did not find the file just written")
-	}
-	if want := "4242"; got != want {
-		t.Errorf("Read = %q, want %q", got, want)
+	if got := names(t, s, markerDir); !slices.Equal(got, []string{"a1"}) {
+		t.Errorf("Names = %v, want [a1]", got)
 	}
 
-	if err := s.Remove(pidFile); err != nil {
+	if err := s.Remove(marker); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if _, ok := s.Read(pidFile); ok {
-		t.Error("Read found the file after it was removed")
+	if got := names(t, s, markerDir); len(got) != 0 {
+		t.Errorf("Names = %v, want none after Remove", got)
 	}
 	// Removing what is not there is how every stop path begins.
-	if err := s.Remove(pidFile); err != nil {
+	if err := s.Remove(marker); err != nil {
 		t.Errorf("Remove of a missing file: %v", err)
-	}
-}
-
-func TestWriteStoresExactlyWhatItWasGiven(t *testing.T) {
-	t.Parallel()
-	root := filepath.Join(t.TempDir(), "ccx")
-	s := openAt(t, root)
-
-	// The value round-trips unchanged: what a hook writes is the format its
-	// own reader defines, and the store adds nothing to it.
-	if err := s.Write(marker, ""); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if got, ok := s.Read(marker); !ok || got != "" {
-		t.Errorf("Read = %q, %t, want %q, true", got, ok, "")
-	}
-
-	raw, err := os.ReadFile(filepath.Join(root, marker))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if len(raw) != 0 {
-		t.Errorf("file contents = %q, want it empty", raw)
-	}
-}
-
-func TestRename(t *testing.T) {
-	t.Parallel()
-	s := open(t)
-
-	if err := s.Write(pidFile, "7"); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if err := s.Rename(pidFile, doneFile); err != nil {
-		t.Fatalf("Rename: %v", err)
-	}
-	if _, ok := s.Read(pidFile); ok {
-		t.Error("the running pid file survived the rename")
-	}
-	if got, ok := s.Read(doneFile); !ok || got != "7" {
-		t.Errorf("Read(done) = %q, %t, want %q, true", got, ok, "7")
 	}
 }
 
@@ -111,15 +63,15 @@ func TestListNames(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	for _, name := range []string{pidFile, doneFile, otherFile} {
-		if err := s.Write(name, "1"); err != nil {
-			t.Fatalf("Write(%s): %v", name, err)
+	for _, name := range []string{marker, markerDir + "/a2", markerDir + "/a3"} {
+		if err := s.Create(name); err != nil {
+			t.Fatalf("Create(%s): %v", name, err)
 		}
 	}
 
-	got := names(t, s, "caffeinate")
+	got := names(t, s, markerDir)
 	slices.Sort(got)
-	want := []string{"s1.done", "s1.pid", "s2.pid"}
+	want := []string{"a1", "a2", "a3"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}
@@ -133,8 +85,8 @@ func TestRemoveAll(t *testing.T) {
 	t.Parallel()
 	s := open(t)
 
-	if err := s.Write(marker, "1"); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := s.Create(marker); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 	if err := s.RemoveAll(markerDir); err != nil {
 		t.Fatalf("RemoveAll: %v", err)
@@ -160,15 +112,15 @@ func TestSymlinkCannotEscape(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 
 	outside := filepath.Join(t.TempDir(), "outside")
-	if err := os.MkdirAll(filepath.Join(dir, "caffeinate"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "subagents", "s1"), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.Symlink(outside, filepath.Join(dir, "caffeinate", "s1.pid")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(dir, "subagents", "s1", "a1")); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
 
-	if err := s.Write(pidFile, "4242"); err == nil {
-		t.Error("Write followed a symlink out of the root")
+	if err := s.Create(marker); err == nil {
+		t.Error("Create followed a symlink out of the root")
 	}
 	if _, err := os.Stat(outside); err == nil {
 		t.Error("the file outside the root was created")
@@ -190,8 +142,7 @@ func openAt(t *testing.T, dir string) *Store {
 	return s
 }
 
-// names lists a directory, failing the test if it cannot be read. This package
-// cannot use statetest, which is built on it.
+// names lists a directory, failing the test if it cannot be read.
 func names(t *testing.T, s *Store, dir string) []string {
 	t.Helper()
 	got, err := s.Names(dir)
