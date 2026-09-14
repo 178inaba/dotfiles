@@ -21,7 +21,7 @@ func TestSplit(t *testing.T) {
 		{
 			name:    "a block with LF",
 			content: "---\nname: a\ndescription: b\n---\n\nbody\n",
-			want:    frontmatter.Block{Lines: []string{"name: a", "description: b"}, Start: 2},
+			want:    frontmatter.Block{Lines: []string{"name: a", "description: b"}, Start: 2, Body: "\nbody\n"},
 			wantOK:  true,
 		},
 		{
@@ -29,7 +29,7 @@ func TestSplit(t *testing.T) {
 			// with CRLF has to read as the same block.
 			name:    "the same block with CRLF",
 			content: "---\r\nname: a\r\ndescription: b\r\n---\r\n\r\nbody\r\n",
-			want:    frontmatter.Block{Lines: []string{"name: a", "description: b"}, Start: 2},
+			want:    frontmatter.Block{Lines: []string{"name: a", "description: b"}, Start: 2, Body: "\nbody\n"},
 			wantOK:  true,
 		},
 		{
@@ -46,6 +46,16 @@ func TestSplit(t *testing.T) {
 			name:    "an empty block",
 			content: "---\n---\n",
 			want:    frontmatter.Block{Start: 2},
+			wantOK:  true,
+		},
+		{
+			// The body a consumer counts characters or lines from has to be
+			// exact at its edges: no leading blank line borrowed from the
+			// closing fence, and no trailing newline invented for a file that
+			// has none.
+			name:    "a body with no trailing newline",
+			content: "---\nname: a\n---\nbody",
+			want:    frontmatter.Block{Lines: []string{"name: a"}, Start: 2, Body: "body"},
 			wantOK:  true,
 		},
 	}

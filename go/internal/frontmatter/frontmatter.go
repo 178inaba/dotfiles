@@ -30,6 +30,11 @@ type Block struct {
 	// line, but returned rather than assumed so that the line numbers a caller
 	// reports come from the reader that found them.
 	Start int
+	// Body is everything after the closing fence's line, with the same \r\n
+	// normalisation as Lines. Computed here rather than by every caller that
+	// wants it, so that a body measured against Lines always agrees with it on
+	// where the block ended.
+	Body string
 }
 
 // Split returns the block at the top of content, and whether there is one.
@@ -50,7 +55,9 @@ func Split(content []byte) (Block, bool) {
 	}
 	for i, line := range lines[1:] {
 		if line == fence {
-			return Block{Lines: lines[1 : i+1], Start: 2}, true
+			// i+1 is the closing fence's own index in lines; the body starts
+			// on the line after it.
+			return Block{Lines: lines[1 : i+1], Start: 2, Body: strings.Join(lines[i+2:], "\n")}, true
 		}
 	}
 	return Block{}, false

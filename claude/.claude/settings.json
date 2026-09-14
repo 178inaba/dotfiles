@@ -15,6 +15,7 @@
       "Bash(ccx review verify:*)",
       "Bash(ccx skill contract:*)",
       "Bash(ccx skill frontmatter:*)",
+      "Bash(ccx skill size:*)",
       "Bash(ccx worktree collect:*)",
       "Bash(ccx worktree detect:*)",
       "Bash(ccx worktree sweep:*)",
