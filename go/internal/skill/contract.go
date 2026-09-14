@@ -3,9 +3,11 @@ package skill
 import (
 	_ "embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -103,12 +105,58 @@ func CheckContract(skillsDir string, published Published) (Contract, error) {
 		if err != nil {
 			continue
 		}
-		violations = append(violations, contractFindings(rel, string(content), published.Commands, names)...)
+		text := string(content)
+		// The gate is the SKILL.md alone: a skill whose own instructions never
+		// run any of these commands is exempt in full, its reference files
+		// included, since neither has anything to do with this contract.
+		if !invokesCommand(text, published.Commands) {
+			continue
+		}
+
+		violations = append(violations, contractFindings(rel, text, names)...)
+		for _, refRel := range referenceFiles(root, filepath.Dir(rel)) {
+			refContent, err := os.ReadFile(filepath.Join(root, refRel))
+			if err != nil {
+				continue
+			}
+			violations = append(violations, contractFindings(refRel, string(refContent), names)...)
+		}
 	}
 	sortFindings(violations, func(f ContractFinding) (string, int, string) {
 		return f.File, f.Line, string(f.Type)
 	})
 	return Contract{SkillsDir: root, Violations: violations, Warnings: []string{}}, nil
+}
+
+// referenceFiles lists the markdown files under <root>/<skillDir>/references/,
+// sorted and relative to root — the same rule a SKILL.md's own path follows.
+//
+// A skill directory with no references/ at all has none: it is an optional
+// directory, not a violation of anything, so its absence is read as an empty
+// listing rather than as a failure.
+func referenceFiles(root, skillDir string) []string {
+	refRoot := filepath.Join(root, skillDir, "references")
+	if info, err := os.Stat(refRoot); err != nil || !info.IsDir() {
+		return nil
+	}
+
+	var out []string
+	_ = filepath.WalkDir(refRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			// An entry this run cannot even stat is skipped rather than
+			// failing the whole scan, the same as an unreadable SKILL.md.
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+		if rel, err := filepath.Rel(root, path); err == nil {
+			out = append(out, rel)
+		}
+		return nil
+	})
+	sort.Strings(out)
+	return out
 }
 
 // contractIdentifier is what a reference looks like in prose. One-word names
@@ -137,8 +185,9 @@ var allowed = sync.OnceValue(func() map[string]bool {
 	return out
 })
 
-// invokesCommand is the gate: a skill that runs none is exempt, its
-// snake_case words being about something else entirely.
+// invokesCommand is the gate: a skill whose SKILL.md runs none of these
+// commands is exempt in full — its reference files included — its snake_case
+// words being about something else entirely.
 func invokesCommand(content string, commands []string) bool {
 	for _, cmd := range commands {
 		if strings.Contains(content, "ccx "+cmd) {
@@ -148,8 +197,11 @@ func invokesCommand(content string, commands []string) bool {
 	return false
 }
 
-func contractFindings(file, content string, commands []string, published map[string]bool) []ContractFinding {
-	if len(published) == 0 || !invokesCommand(content, commands) {
+// contractFindings scans one file already known to be in scope — the gate
+// (whether the skill it belongs to invokes any of these commands at all) is
+// the caller's, since it is decided once per skill rather than once per file.
+func contractFindings(file, content string, published map[string]bool) []ContractFinding {
+	if len(published) == 0 {
 		return nil
 	}
 	known := allowed()

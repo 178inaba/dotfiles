@@ -725,8 +725,9 @@ name behind in a skill: the command answers with the new name, the skill goes
 on instructing the model to read one that is not there, and nothing says so.
 
 Only names inside backticks are read, and only those with an underscore — a
-bare word cannot be told from ordinary prose. A skill that runs none of these
-commands is exempt, its snake_case words being about something else entirely.
+bare word cannot be told from ordinary prose. A skill whose SKILL.md runs none
+of these commands is exempt, reference files included; a skill that runs one
+has its SKILL.md and every markdown file under references/ checked.
 
 <skills-dir> defaults to the skills directory of the checkout this runs in — a
 linked worktree included — or, outside any checkout of this repository, of the

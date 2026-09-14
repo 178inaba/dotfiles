@@ -137,6 +137,97 @@ func TestCheckContract(t *testing.T) {
 	}
 }
 
+// writeRef puts a markdown file at <root>/<skill>/references/<rel>.
+func writeRef(t *testing.T, root, skill, rel, body string) string {
+	t.Helper()
+
+	path := filepath.Join(root, skill, "references", rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}
+
+func TestCheckContractReferences(t *testing.T) {
+	t.Parallel()
+
+	invokes := "---\nname: sample\ndescription: x\n---\n\nRun `ccx worktree collect`.\n"
+	doesNotInvoke := "---\nname: sample\ndescription: x\n---\n\nA history table needs a `valid_from`.\n"
+
+	t.Run("a reference file of a skill that runs a command is checked", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		write(t, root, "sample", invokes)
+		writeRef(t, root, "sample", "detail.md", "Keep `head_sha` when you thin the list.\n")
+
+		got, err := skill.CheckContract(root, published)
+		if err != nil {
+			t.Fatalf("CheckContract: %v", err)
+		}
+		want := []skill.ContractFinding{{
+			Type: skill.UnknownContractField, File: "sample/references/detail.md", Line: 1, Ref: "head_sha",
+		}}
+		if diff := cmp.Diff(want, got.Violations); diff != "" {
+			t.Errorf("violations (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a reference file of a skill that runs no command is exempt", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		write(t, root, "sample", doesNotInvoke)
+		writeRef(t, root, "sample", "detail.md", "Keep `head_sha` when you thin the list.\n")
+
+		got, err := skill.CheckContract(root, published)
+		if err != nil {
+			t.Fatalf("CheckContract: %v", err)
+		}
+		if diff := cmp.Diff([]skill.ContractFinding{}, got.Violations); diff != "" {
+			t.Errorf("violations (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("the gate is the SKILL.md, even when the reference file itself runs a command", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		write(t, root, "sample", doesNotInvoke)
+		writeRef(t, root, "sample", "detail.md", "Run `ccx worktree collect` and keep `head_sha`.\n")
+
+		got, err := skill.CheckContract(root, published)
+		if err != nil {
+			t.Fatalf("CheckContract: %v", err)
+		}
+		if diff := cmp.Diff([]skill.ContractFinding{}, got.Violations); diff != "" {
+			t.Errorf("violations (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a reference file under a subdirectory of references/ is walked", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		write(t, root, "sample", invokes)
+		writeRef(t, root, "sample", filepath.Join("sub", "detail.md"), "Keep `head_sha` when you thin the list.\n")
+
+		got, err := skill.CheckContract(root, published)
+		if err != nil {
+			t.Fatalf("CheckContract: %v", err)
+		}
+		want := []skill.ContractFinding{{
+			Type: skill.UnknownContractField, File: "sample/references/sub/detail.md", Line: 1, Ref: "head_sha",
+		}}
+		if diff := cmp.Diff(want, got.Violations); diff != "" {
+			t.Errorf("violations (-want +got):\n%s", diff)
+		}
+	})
+}
+
 func TestCheckContractFails(t *testing.T) {
 	t.Parallel()
 
