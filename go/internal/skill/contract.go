@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 
@@ -129,7 +128,8 @@ func CheckContract(skillsDir string, published Published) (Contract, error) {
 }
 
 // referenceFiles lists the markdown files under <root>/<skillDir>/references/,
-// sorted and relative to root — the same rule a SKILL.md's own path follows.
+// relative to root — the same rule a SKILL.md's own path follows. WalkDir
+// visits in lexical order, so the result needs no sort of its own.
 //
 // A skill directory with no references/ at all has none: it is an optional
 // directory, not a violation of anything, so its absence is read as an empty
@@ -155,7 +155,6 @@ func referenceFiles(root, skillDir string) []string {
 		}
 		return nil
 	})
-	sort.Strings(out)
 	return out
 }
 

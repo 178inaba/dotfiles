@@ -22,16 +22,17 @@ const (
 
 // Size is the outcome of measuring one or more skills.
 type Size struct {
-	// Target follows the same rule as Frontmatter's: absolute, so that the
-	// output alone says which copy was measured.
+	// Target is absolute, the same rule ccx skill frontmatter's target
+	// follows, so that the output alone says which copy was measured.
 	Target         string        `json:"target"`
 	LineGuide      int           `json:"line_guide"`
 	CharacterGuide int           `json:"character_guide"`
 	Skills         []Measurement `json:"skills"`
-	// Warnings names the directories that hold no SKILL.md, the same as
-	// Frontmatter's, and any SKILL.md with no frontmatter block to measure the
-	// body of — that file is measured whole rather than skipped, and named
-	// here so the measurement is not mistaken for one made of an actual body.
+	// Warnings names the directories that hold no SKILL.md, the same warning
+	// ccx skill frontmatter gives, and any SKILL.md with no frontmatter block
+	// to measure the body of — that file is measured whole rather than
+	// skipped, and named here so the measurement is not mistaken for one made
+	// of an actual body.
 	Warnings []string `json:"warnings"`
 }
 

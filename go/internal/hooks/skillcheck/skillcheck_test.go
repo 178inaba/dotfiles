@@ -190,6 +190,13 @@ func TestRunReportsSize(t *testing.T) {
 			body: strings.Repeat("a\n", skill.LineGuide+1),
 			want: []string{"lines", "ccx skill size"},
 		},
+		{
+			// Both guides over at once, mostly Japanese: the report mentions
+			// both rather than only the first one it finds.
+			name: "over both guides, mostly Japanese",
+			body: strings.Repeat("あ\n", skill.CharacterGuide/2+1),
+			want: []string{"lines", "characters", "ccx skill size"},
+		},
 	}
 
 	for _, tc := range tests {

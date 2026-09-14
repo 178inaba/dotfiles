@@ -39,6 +39,14 @@ func TestMeasureSizeFile(t *testing.T) {
 			want: skill.Measurement{Lines: 4, Characters: 21, MostlyNonASCII: false},
 		},
 		{
+			// A tie is not a majority: mostly_non_ascii requires more than
+			// half, so two ASCII characters against two non-ASCII ones reads
+			// as false, not true.
+			name: "exactly half non-ASCII is not mostly non-ASCII",
+			body: "---\nname: x\ndescription: y\n---\naa\nああ\n",
+			want: skill.Measurement{Lines: 2, Characters: 6, MostlyNonASCII: false},
+		},
+		{
 			// The last line still counts even with nothing to close it.
 			name: "a body with no trailing newline",
 			body: "---\nname: x\ndescription: y\n---\nline one\nline two",
