@@ -10,7 +10,7 @@ import (
 )
 
 // LineGuide and CharacterGuide are the size skill-authoring's design
-// principle 5 measures a SKILL.md body against. A guide rather than a limit:
+// principle サイズ上限の目安 measures a SKILL.md body against. A guide rather than a limit:
 // nothing here fails a body over either one, and MeasureSize reports the
 // measurement for a caller to act on.
 const (
@@ -22,10 +22,15 @@ const (
 type Size struct {
 	// Target is absolute, the same rule ccx skill frontmatter's target
 	// follows, so that the output alone says which copy was measured.
-	Target         string        `json:"target"`
-	LineGuide      int           `json:"line_guide"`
-	CharacterGuide int           `json:"character_guide"`
-	Skills         []Measurement `json:"skills"`
+	Target string `json:"target"`
+	// LineGuide is the most lines a body is meant to run to.
+	LineGuide int `json:"line_guide"`
+	// CharacterGuide is the most characters a body is meant to run to: the
+	// Agent Skills specification's 5,000 tokens times the 1.5 characters per
+	// token measured on this repository's Japanese skills.
+	CharacterGuide int `json:"character_guide"`
+	// Skills holds one measurement per SKILL.md, ordered by file.
+	Skills []Measurement `json:"skills"`
 	// Warnings names the directories that hold no SKILL.md, the same warning
 	// ccx skill frontmatter gives, and any SKILL.md with no frontmatter block
 	// to measure the body of — that file is measured whole rather than

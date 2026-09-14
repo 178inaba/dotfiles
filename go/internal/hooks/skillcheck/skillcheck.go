@@ -31,10 +31,9 @@
 // repository's own Japanese skills — a number with no claim on an English
 // body, however many characters it runs to.
 //
-// The detection is internal/skill's, called directly for both checks. It used
-// to be a shell script this started, which is why the seams for running one
-// are gone: two implementations of one contract drift, and the state where
-// the hook passes and the checker fails is exactly what nobody would notice.
+// The detection is internal/skill's, called directly for both checks: two
+// implementations of one contract drift, and the state where the hook passes
+// and the checker fails is exactly what nobody would notice.
 package skillcheck
 
 import (
@@ -139,7 +138,7 @@ func recheck(subcommand, target string) string {
 
 // sizeGuideline is the design principle a size report points a reader back
 // to, so the report is not the only place the number is explained.
-const sizeGuideline = "The guide is design principle 5 (サイズ上限の目安) of the skill-authoring skill: " +
+const sizeGuideline = "The guide is the design principle サイズ上限の目安 of the skill-authoring skill: " +
 	"a body over it puts the rules every run needs before optional detail; split deterministic " +
 	"plumbing into ccx and conditional detail into references/."
 
