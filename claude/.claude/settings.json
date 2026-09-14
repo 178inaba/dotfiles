@@ -98,7 +98,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/go/bin/ccx hook skill-frontmatter-check"
+            "command": "~/go/bin/ccx hook skill-check"
           }
         ]
       }

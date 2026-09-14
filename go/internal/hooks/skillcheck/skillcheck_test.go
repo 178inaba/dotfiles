@@ -7,22 +7,30 @@ import (
 	"testing"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/skill"
 )
 
-// writeSkill puts a SKILL.md with the given frontmatter under a directory named
-// for the skill, and returns its path.
-func writeSkill(t *testing.T, skill string, lines ...string) string {
+// writeSkillBody puts a SKILL.md with the given frontmatter and body under a
+// directory named for the skill, and returns its path.
+func writeSkillBody(t *testing.T, name, body string, lines ...string) string {
 	t.Helper()
 
-	target := filepath.Join(t.TempDir(), skill, "SKILL.md")
+	target := filepath.Join(t.TempDir(), name, "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	body := "---\n" + strings.Join(lines, "\n") + "\n---\n\n# /" + skill + "\n"
-	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
+	content := "---\n" + strings.Join(lines, "\n") + "\n---\n\n" + body
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	return target
+}
+
+// writeSkill puts a SKILL.md with the given frontmatter and an ordinary small
+// body under a directory named for the skill, and returns its path.
+func writeSkill(t *testing.T, skill string, lines ...string) string {
+	t.Helper()
+	return writeSkillBody(t, skill, "# /"+skill+"\n", lines...)
 }
 
 func TestRunAllows(t *testing.T) {
@@ -54,8 +62,10 @@ func TestRunAllows(t *testing.T) {
 			t.Parallel()
 
 			got := New().Run(t.Context(), tt.in)
-			if got.Decision != hooks.Allow || got.Message != "" {
-				t.Errorf("Result = %+v, want an allow with no message", got)
+			// The clean skill's body is small — well under either guide — so
+			// this also covers the size report saying nothing about it.
+			if got.Decision != hooks.Allow || got.Message != "" || !got.Directive.IsEmpty() {
+				t.Errorf("Result = %+v, want an empty allow", got)
 			}
 		})
 	}
@@ -146,6 +156,87 @@ func TestRunBlocksWhenTheCheckCannotRun(t *testing.T) {
 		if !strings.Contains(got.Message, want) {
 			t.Errorf("message does not contain %q:\n%s", want, got.Message)
 		}
+	}
+}
+
+// TestRunReportsSize is the second check this hook makes once the frontmatter
+// is clean: a body over the guide that applies to it is reported through the
+// directive rather than blocked, since the guide is a target to split
+// against and not a limit.
+func TestRunReportsSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		// want is substrings every one is expected in additionalContext; nil
+		// means the hook says nothing about the body at all.
+		want []string
+	}{
+		{
+			// mostly_non_ascii gates character_guide: derived from Japanese,
+			// it does not hold for an English body, however many characters
+			// it has.
+			name: "over the character guide, ASCII",
+			body: strings.Repeat("a", skill.CharacterGuide+1),
+		},
+		{
+			name: "over the character guide, mostly Japanese",
+			body: strings.Repeat("あ", skill.CharacterGuide+1) + "\n",
+			want: []string{"characters", "ccx skill size"},
+		},
+		{
+			name: "over the line guide, ASCII",
+			body: strings.Repeat("a\n", skill.LineGuide+1),
+			want: []string{"lines", "ccx skill size"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			target := writeSkillBody(t, "sized", tc.body, "name: sized", "description: a skill")
+			got := New().Run(t.Context(), edit(target))
+
+			if got.Decision != hooks.Allow || got.Message != "" {
+				t.Fatalf("Result = %+v, want an allow with no message", got)
+			}
+			if tc.want == nil {
+				if !got.Directive.IsEmpty() {
+					t.Errorf("Directive = %+v, want empty", got.Directive)
+				}
+				return
+			}
+			if got.Directive.HookSpecificOutput.HookEventName != "PostToolUse" {
+				t.Errorf("hookEventName = %q, want PostToolUse", got.Directive.HookSpecificOutput.HookEventName)
+			}
+			ctx := got.Directive.HookSpecificOutput.AdditionalContext
+			for _, want := range append(tc.want, target) {
+				if !strings.Contains(ctx, want) {
+					t.Errorf("additionalContext does not contain %q:\n%s", want, ctx)
+				}
+			}
+		})
+	}
+}
+
+// TestRunReportsOnlyTheFrontmatterViolation is what keeps the two checks from
+// talking over each other: a directive is only read from an exit 0, so a
+// size report beside a block would never reach anyone anyway, but the hook
+// should not build one it cannot use.
+func TestRunReportsOnlyTheFrontmatterViolation(t *testing.T) {
+	t.Parallel()
+
+	target := writeSkillBody(t, "seqhint", strings.Repeat("a\n", skill.LineGuide+1),
+		"name: seqhint", "description: a skill", "argument-hint: [--yes]")
+	got := New().Run(t.Context(), edit(target))
+
+	if got.Decision != hooks.Block {
+		t.Fatalf("Decision = %d, want %d", got.Decision, hooks.Block)
+	}
+	if !got.Directive.IsEmpty() {
+		t.Errorf("Directive = %+v, want empty", got.Directive)
 	}
 }
 

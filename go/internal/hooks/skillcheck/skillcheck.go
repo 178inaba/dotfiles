@@ -1,9 +1,14 @@
 // Package skillcheck inspects a SKILL.md as it is saved.
 //
-// What it prevents: frontmatter that is broken as YAML reaching main unnoticed.
-// Claude Code's own parser is forgiving enough to load the skill anyway, so the
-// only ways anyone found out were noticing it by eye or remembering to run the
-// checker — and a broken argument-hint sat in two files until somebody did.
+// Two checks, in order, and the second runs only once the first finds
+// nothing: frontmatter that is broken as YAML reaching main unnoticed, and a
+// body over the size guide growing there unnoticed too. Claude Code's own
+// frontmatter parser is forgiving enough to load the skill anyway, so the
+// only ways anyone found out were noticing it by eye or remembering to run
+// the checker — and a broken argument-hint sat in two files until somebody
+// did. A Japanese body is the size check's own version of that: it can clear
+// 500 lines' worth of tokens while staying under 500 lines, so line count
+// alone never flags it, and nothing else here would either.
 //
 // PostToolUse rather than PreToolUse because there is no documented way to get
 // the edited content from a PreToolUse payload; reconstructing it from
@@ -11,10 +16,25 @@
 // that the write cannot be undone: exiting 2 does not roll it back, it only
 // puts the problem in front of the model in the same turn.
 //
-// The detection is internal/skill's, called directly. It used to be a shell
-// script this started, which is why the seams for running one are gone: two
-// implementations of one contract drift, and the state where the hook passes
-// and the checker fails is exactly what nobody would notice.
+// The frontmatter violation blocks; the size report does not. A guide is
+// something to split against rather than a hard limit, and refusing the save
+// would stop a body mid-split, so it is reported through the directive's
+// additionalContext on an ordinary exit 0 instead — read by the model in the
+// same turn, same as a block's message, but without undoing anything. Only
+// one report ever goes out: a frontmatter violation is worth blocking on its
+// own, and a size report beside it would never reach anyone, since Claude
+// Code reads a directive only from a hook that exited 0.
+//
+// character_guide is gated on the body being mostly outside ASCII before it
+// is ever reported. This hook is registered globally rather than for this
+// repository alone, and 7,500 characters was derived from measuring this
+// repository's own Japanese skills — a number with no claim on an English
+// body, however many characters it runs to.
+//
+// The detection is internal/skill's, called directly for both checks. It used
+// to be a shell script this started, which is why the seams for running one
+// are gone: two implementations of one contract drift, and the state where
+// the hook passes and the checker fails is exactly what nobody would notice.
 package skillcheck
 
 import (
@@ -64,16 +84,30 @@ func (h Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 	if err != nil {
 		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n%v\n", target, err) + recheck(target))
 	}
-	if len(checked.Violations) == 0 {
-		return hooks.Result{}
+	if len(checked.Violations) != 0 {
+		var b strings.Builder
+		b.WriteString("This SKILL.md has invalid frontmatter:\n\n")
+		for _, v := range checked.Violations {
+			fmt.Fprintf(&b, "  %s: %s\n", target, describe(v))
+		}
+		return blocked(b.String() + recheck(target))
 	}
 
-	var b strings.Builder
-	b.WriteString("This SKILL.md has invalid frontmatter:\n\n")
-	for _, v := range checked.Violations {
-		fmt.Fprintf(&b, "  %s: %s\n", target, describe(v))
+	measured, err := skill.MeasureSize(target)
+	if err != nil {
+		return blocked(fmt.Sprintf("The size of %s was not measured.\n\n%v\n", target, err) + sizeRecheck(target))
 	}
-	return blocked(b.String() + recheck(target))
+	sz := measured.Skills[0]
+	if !sz.OverApplicableGuide() {
+		return hooks.Result{}
+	}
+	return hooks.Result{
+		Decision: hooks.Allow,
+		Directive: hooks.Directive{HookSpecificOutput: hooks.HookSpecificOutput{
+			HookEventName:     "PostToolUse",
+			AdditionalContext: sizeReport(target, sz),
+		}},
+	}
 }
 
 func blocked(message string) hooks.Result {
@@ -101,6 +135,32 @@ func describe(v skill.Violation) string {
 // recheck is the command that runs the same check again.
 func recheck(target string) string {
 	return fmt.Sprintf("\nRe-check with:\n  ccx skill frontmatter %s\n", shellQuote(target))
+}
+
+// sizeGuideline is the design principle a size report points a reader back
+// to, so the report is not the only place the number is explained.
+const sizeGuideline = "The guide is design principle 5 (サイズ上限の目安) of the skill-authoring skill: " +
+	"a body over it puts the rules every run needs before optional detail; split deterministic " +
+	"plumbing into ccx and conditional detail into references/."
+
+// sizeReport is the additionalContext for a body over the guide that applies
+// to it — over_line_guide always applies, and over_character_guide only where
+// the body is mostly outside ASCII.
+func sizeReport(target string, sz skill.Measurement) string {
+	var over []string
+	if sz.OverLineGuide {
+		over = append(over, fmt.Sprintf("%d lines (guide: %d)", sz.Lines, skill.LineGuide))
+	}
+	if sz.MostlyNonASCII && sz.OverCharacterGuide {
+		over = append(over, fmt.Sprintf("%d characters (guide: %d)", sz.Characters, skill.CharacterGuide))
+	}
+	return fmt.Sprintf("%s is over the size guide: %s.\n\n%s\n\nRe-measure with:\n  ccx skill size %s\n",
+		target, strings.Join(over, ", "), sizeGuideline, shellQuote(target))
+}
+
+// sizeRecheck is the command that runs the same measurement again.
+func sizeRecheck(target string) string {
+	return fmt.Sprintf("\nRe-check with:\n  ccx skill size %s\n", shellQuote(target))
 }
 
 // shellQuote makes a path safe to paste back into a shell, and leaves an

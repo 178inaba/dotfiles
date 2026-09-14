@@ -57,6 +57,18 @@ func TestRunHook(t *testing.T) {
 			bareStderr: true,
 		},
 		{
+			// hookSpecificOutput is a nested object, the one field of
+			// Directive that is not a bare string.
+			name: "a hook-specific directive is written nested",
+			hook: stub{result: hooks.Result{
+				Directive: hooks.Directive{HookSpecificOutput: hooks.HookSpecificOutput{
+					HookEventName: "PostToolUse", AdditionalContext: "over",
+				}},
+			}},
+			stdout:     `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"over"}}` + "\n",
+			bareStderr: true,
+		},
+		{
 			name:       "blocking exits 2 with only the hook's own message",
 			hook:       stub{result: hooks.Result{Decision: hooks.Block, Message: "Blocked: no.\n"}},
 			want:       exitCode(hooks.Block),
