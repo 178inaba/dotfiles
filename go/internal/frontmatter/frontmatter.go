@@ -30,6 +30,11 @@ type Block struct {
 	// line, but returned rather than assumed so that the line numbers a caller
 	// reports come from the reader that found them.
 	Start int
+	// Body is everything after the closing fence's line, with the same \r\n
+	// normalisation as Lines. Computed here rather than by every caller that
+	// wants it, so that a body measured against Lines always agrees with it on
+	// where the block ended.
+	Body string
 }
 
 // Split returns the block at the top of content, and whether there is one.
@@ -44,16 +49,28 @@ type Block struct {
 // business of the .editorconfig a checked-out tree may or may not have, and
 // this reader is run on trees that have none.
 func Split(content []byte) (Block, bool) {
-	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	text := Normalize(content)
+	lines := strings.Split(text, "\n")
 	if lines[0] != fence {
 		return Block{}, false
 	}
+	// offset is where the line being looked at starts in text.
+	offset := len(fence) + 1
 	for i, line := range lines[1:] {
+		offset += len(line) + 1
 		if line == fence {
-			return Block{Lines: lines[1 : i+1], Start: 2}, true
+			// offset now points past the closing fence's newline, which a file
+			// ending on that fence does not have.
+			return Block{Lines: lines[1 : i+1], Start: 2, Body: text[min(offset, len(text)):]}, true
 		}
 	}
 	return Block{}, false
+}
+
+// Normalize is the text every reader of a markdown file sees: \r\n line
+// endings become \n, for the reason Split gives.
+func Normalize(content []byte) string {
+	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }
 
 // Fields parses the block into the values it declares.

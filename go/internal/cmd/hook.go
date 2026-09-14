@@ -44,7 +44,7 @@ func newHookCmd(deps Deps) *cobra.Command {
 			func() hook { return issuehandle.New() }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", deps,
 			func() hook { return noopwait.New() }),
-		leafHookCmd("skill-frontmatter-check", "Check a SKILL.md that was just saved", deps,
+		leafHookCmd("skill-check", "Check the frontmatter and size of a SKILL.md that was just saved", deps,
 			func() hook { return skillcheck.New() }),
 		leafHookCmd("slack-notify", "Post the notification to Slack", deps,
 			func() hook { return notify.NewSlack(notify.Default()) }),
@@ -131,9 +131,9 @@ func runHook(ctx context.Context, h hook, build selfbuild.State, stdin io.Reader
 		fmt.Fprint(stderr, result.Message)
 	}
 	if !result.Directive.IsEmpty() {
-		// Every field is a string with omitempty, so there is no value of
-		// Directive that fails to marshal: this is not a third thing that
-		// can go wrong.
+		// Every field is a string or a nested struct holding only strings,
+		// each with omitempty or omitzero, so there is no value of Directive
+		// that fails to marshal: this is not a third thing that can go wrong.
 		b, _ := json.Marshal(result.Directive)
 		fmt.Fprintf(stdout, "%s\n", b)
 	}

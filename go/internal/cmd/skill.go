@@ -17,7 +17,7 @@ import (
 // SKILL.md files themselves.
 func newSkillCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("skill", "Check the SKILL.md files a skill is defined by")
-	c.AddCommand(skillFrontmatterCmd(deps), skillContractCmd(deps))
+	c.AddCommand(skillFrontmatterCmd(deps), skillContractCmd(deps), skillSizeCmd(deps))
 	return c
 }
 
@@ -96,6 +96,28 @@ func skillContractCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), checked))
+		},
+	}
+}
+
+// skillSizeCmd builds `ccx skill size`, whose reason for existing is in the
+// help this renders.
+func skillSizeCmd(deps Deps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "size [<target>]",
+		Short: "Measure a skill directory or one SKILL.md against the size guide",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, deps.Build)
+			target, err := skillTarget(c.Context(), deps.Dir, args)
+			if err != nil {
+				return silent(err)
+			}
+			measured, err := skill.MeasureSize(target)
+			if err != nil {
+				return silent(err)
+			}
+			return silent(renderJSON(c.OutOrStdout(), measured))
 		},
 	}
 }

@@ -725,13 +725,42 @@ name behind in a skill: the command answers with the new name, the skill goes
 on instructing the model to read one that is not there, and nothing says so.
 
 Only names inside backticks are read, and only those with an underscore — a
-bare word cannot be told from ordinary prose. A skill that runs none of these
-commands is exempt, its snake_case words being about something else entirely.
+bare word cannot be told from ordinary prose. A skill whose SKILL.md runs none
+of these commands is exempt, reference files included; a skill that runs one
+has its SKILL.md and every markdown file under references/ checked.
 
 <skills-dir> defaults to the skills directory of the checkout this runs in — a
 linked worktree included — or, outside any checkout of this repository, of the
 repository this configuration is stowed from.`,
 		blocks:   []block{prints(reflect.TypeFor[skill.Contract]())},
+		statuses: with(),
+	},
+
+	"skill size": {
+		intro: `Measure a skill directory or one SKILL.md against the size guide.
+
+The body is everything after the frontmatter's closing --- line, fenced code
+included — the same text ` + "`ccx skill contract`" + ` reads snake_case names out of.
+lines counts its newline-terminated lines and characters its Unicode code
+points rather than bytes, so a body of Japanese text is not inflated by its
+multi-byte encoding. A SKILL.md with no frontmatter block to split off is
+measured whole, body and all, and named in warnings rather than skipped.
+
+500 lines and 7,500 characters are a guide, not a limit: nothing here fails a
+body over either one. Both come from the Agent Skills specification's 5,000
+tokens, the second multiplied by 1.5 characters per token — the ratio this
+repository's Japanese skills measure, since Japanese costs several times the
+tokens per line English does and character_guide is what catches a body
+line_guide misses. mostly_non_ascii marks a body where most non-whitespace
+characters are outside ASCII, and is what a caller reads before acting on
+over_character_guide: the value was derived from Japanese and does not hold
+for an English body.
+
+<target> is a directory or a single SKILL.md; left out, it is the skills
+directory of the checkout this runs in — a linked worktree included — or,
+outside any checkout of this repository, of the repository this
+configuration is stowed from.`,
+		blocks:   []block{prints(reflect.TypeFor[skill.Size]())},
 		statuses: with(),
 	},
 }

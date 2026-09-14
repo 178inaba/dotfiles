@@ -82,49 +82,74 @@ var flowKey = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*:[ \t]*[\[{]`)
 // Both, because a hook checks one file as it is saved while a person checks
 // them all, and one contract with two implementations would drift.
 func CheckFrontmatter(target string) (Frontmatter, error) {
-	info, err := os.Stat(target)
-	if err != nil {
-		return Frontmatter{}, fmt.Errorf("target not found: %s", target)
-	}
-	if !info.IsDir() {
-		dir, err := filepath.Abs(filepath.Dir(target))
-		if err != nil {
-			return Frontmatter{}, err
-		}
-		path := filepath.Join(dir, filepath.Base(target))
-		out := Frontmatter{
-			Target:     path,
-			Violations: checkFile(path, filepath.Join(filepath.Base(dir), filepath.Base(target))),
-			Warnings:   []string{},
-		}
-		sortFindings(out.Violations, func(v Violation) (string, int, string) {
-			return v.File, v.Line, string(v.Type)
-		})
-		return out, nil
-	}
-
-	root, err := filepath.Abs(target)
+	resolved, err := resolveTarget(target)
 	if err != nil {
 		return Frontmatter{}, err
 	}
-	found, missing, err := skillFiles(root)
-	if err != nil {
-		return Frontmatter{}, fmt.Errorf("target not found: %s", target)
-	}
-	if len(found) == 0 {
-		return Frontmatter{}, fmt.Errorf("no */SKILL.md found under %s", root)
-	}
-
-	out := Frontmatter{Target: root, Violations: []Violation{}, Warnings: []string{}}
-	for _, name := range missing {
-		out.Warnings = append(out.Warnings, "no SKILL.md in "+name+"/")
-	}
-	for _, rel := range found {
-		out.Violations = append(out.Violations, checkFile(filepath.Join(root, rel), rel)...)
+	out := Frontmatter{Target: resolved.abs, Violations: []Violation{}, Warnings: resolved.warnings}
+	for _, f := range resolved.files {
+		out.Violations = append(out.Violations, checkFile(f.path, f.rel)...)
 	}
 	sortFindings(out.Violations, func(v Violation) (string, int, string) {
 		return v.File, v.Line, string(v.Type)
 	})
+	return out, nil
+}
+
+// skillFile is one SKILL.md a check reads: where it is, and what a finding
+// names it as.
+type skillFile struct {
+	path, rel string
+}
+
+// target is what a directory of skills or one SKILL.md resolves to.
+type target struct {
+	// abs is the absolute spelling of what was asked for.
+	abs   string
+	files []skillFile
+	// warnings name the directories that hold no SKILL.md.
+	warnings []string
+}
+
+// resolveTarget is the one reading of <target> every check that takes it
+// shares, so that the checks name files, fail and warn alike.
+//
+// A single file is named <skill>/SKILL.md: a bare base name would not say
+// which skill it belongs to.
+func resolveTarget(name string) (target, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return target{}, fmt.Errorf("target not found: %s", name)
+	}
+	if !info.IsDir() {
+		dir, err := filepath.Abs(filepath.Dir(name))
+		if err != nil {
+			return target{}, err
+		}
+		path := filepath.Join(dir, filepath.Base(name))
+		rel := filepath.Join(filepath.Base(dir), filepath.Base(name))
+		return target{abs: path, files: []skillFile{{path, rel}}, warnings: []string{}}, nil
+	}
+
+	root, err := filepath.Abs(name)
+	if err != nil {
+		return target{}, err
+	}
+	found, missing, err := skillFiles(root)
+	if err != nil {
+		return target{}, fmt.Errorf("target not found: %s", name)
+	}
+	if len(found) == 0 {
+		return target{}, fmt.Errorf("no */SKILL.md found under %s", root)
+	}
+
+	out := target{abs: root, warnings: []string{}}
+	for _, dir := range missing {
+		out.warnings = append(out.warnings, "no SKILL.md in "+dir+"/")
+	}
+	for _, rel := range found {
+		out.files = append(out.files, skillFile{filepath.Join(root, rel), rel})
+	}
 	return out, nil
 }
 

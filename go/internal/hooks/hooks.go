@@ -208,6 +208,18 @@ type Directive struct {
 	// Reason tells the model why it has to carry on, and Claude Code requires
 	// it wherever StopDecision is set.
 	Reason string `json:"reason,omitempty"`
+	// HookSpecificOutput carries a message tied to the event that ran the
+	// hook rather than to Claude Code in general — see HookSpecificOutput.
+	HookSpecificOutput HookSpecificOutput `json:"hookSpecificOutput,omitzero"`
+}
+
+// HookSpecificOutput is a message tied to one hook event. PostToolUse is the
+// only event a hook in this module writes one for so far: AdditionalContext
+// goes to the model in the same turn, the same channel the tool call's own
+// result does, without blocking the call the way Result.Decision would.
+type HookSpecificOutput struct {
+	HookEventName     string `json:"hookEventName,omitempty"`
+	AdditionalContext string `json:"additionalContext,omitempty"`
 }
 
 // IsEmpty reports whether there is nothing here worth writing.
