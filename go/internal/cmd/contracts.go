@@ -520,11 +520,29 @@ The output is compact rather than indented, except when there is nothing to do.`
 	},
 
 	"worktree detect": {
-		intro: `Find the worktree an issue is already being worked on in.
+		intro: `Remove an issue's leftover worktree, or say why it is kept.
 
-Two namings match: the current one, <type>/<issue>-<slug>, and the one the
-harness produced before these commands took over creating worktrees, since the
-worktrees it made are still on disk.
+Run before a worktree is created for the issue. Two namings match: the current
+one, <type>/<issue>-<slug>, and the one the harness's own worktree primitive
+produced, whose worktrees are still on disk. Only the first match is looked at,
+and never the main worktree. --base is required: it names the base branch
+the worktree about to be created would start from.
+
+status none is an issue with no worktree. status removed is a leftover: git
+holds no lock on it, no process has it as its working directory, nothing in it
+is uncommitted (untracked files included), its branch has no commit beyond the
+ref a new worktree would start from (origin/<branch> of --base where it exists,
+the local branch otherwise), and origin has no branch of that name. It went with
+git worktree remove, without --force, and then its branch with git branch -D.
+Files git ignores are not looked at and go with it. status kept is a worktree
+that failed one of those checks, named by reason, and nothing was touched;
+whether to throw it away is a question for the person. An origin that could not
+be asked is kept under a reason of its own rather than read as having no branch.
+
+Every check is made before anything is removed. The exit status is 0 whenever
+the run reached an answer. A broken premise fails the command itself: no lsof,
+a status git cannot read, a base branch that names nothing once a worktree was
+found, or a removal git refused.
 
 Runs from anywhere inside the repository and looks at the main worktree's
 linked ones, because the caller may be standing in a worktree already.`,

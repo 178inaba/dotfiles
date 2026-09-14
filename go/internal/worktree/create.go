@@ -5,52 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
 // worktreesUnder is where a repository keeps the worktrees these commands make.
 const worktreesUnder = ".claude/worktrees"
-
-// Detection is whether an issue already has a worktree, which is how a skill
-// tells starting from resuming.
-type Detection struct {
-	Found bool `json:"found"`
-	// worktree_path and branch are null when nothing was found, rather than
-	// empty strings: the caller branches on found and reads these only after.
-	Path   *string `json:"worktree_path"`
-	Branch *string `json:"branch"`
-}
-
-// Detect finds the worktree of an issue among the repository's linked ones.
-//
-// Two namings match. The current one is <type>/<issue>-<slug>; the other is
-// what EnterWorktree(name:) produced before these commands took over creating
-// worktrees, and it stays because the worktrees it made are still on disk and
-// resuming into one is the whole point of asking.
-//
-// The main worktree is never the answer, even when it has the branch checked
-// out: a session resumed into it would be working in the repository itself.
-func Detect(ctx context.Context, r runner.Runner, root string, issue int) (Detection, error) {
-	entries, err := List(ctx, r, root)
-	if err != nil {
-		return Detection{}, err
-	}
-
-	// The number is bounded on both sides so that 42 does not answer for 142.
-	current := regexp.MustCompile(fmt.Sprintf(`^[a-z]+/%d-`, issue))
-	legacy := regexp.MustCompile(fmt.Sprintf(`^worktree-[a-z]+-%d-`, issue))
-	for _, e := range entries {
-		if e.Main || e.Branch == "" {
-			continue
-		}
-		if current.MatchString(e.Branch) || legacy.MatchString(e.Branch) {
-			return Detection{Found: true, Path: &e.Path, Branch: &e.Branch}, nil
-		}
-	}
-	return Detection{}, nil
-}
 
 // CreateStatus is how far Create got.
 type CreateStatus string
