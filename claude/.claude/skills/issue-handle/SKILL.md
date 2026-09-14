@@ -258,7 +258,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
    - サブエージェントへのプロンプトに以下を含める:
      - このセッションが独立レビュー専用であり、親セッションの実装コンテキストを持たない旨
      - Skill ツールで `deep-review` を引数 `<pr-number> --issue <issue-number> --no-autofix` で起動すること
-       - `<pr-number>`: ステップ5で確定した PR 番号（同一セッションでステップ5を経由していない場合は、ステップ5と同じ手順で `<pr-number>` / `<owner/repo>` を確定し、draft 不変条件の確認もレビュー起動前に済ませる）
+       - `<pr-number>`: ステップ5で確定した PR 番号
        - `<issue-number>`: Issue 番号（`--file` 指定時は `--issue <issue-number>` 部分を省略）
        - `--no-autofix`: 自動修正を強制OFF（修正は親セッションで行うため）
        - ベースブランチは deep-review 側で自動判定（PR のベースブランチを採用）
