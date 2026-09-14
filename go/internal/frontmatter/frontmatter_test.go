@@ -58,6 +58,14 @@ func TestSplit(t *testing.T) {
 			want:    frontmatter.Block{Lines: []string{"name: a"}, Start: 2, Body: "body"},
 			wantOK:  true,
 		},
+		{
+			// The closing fence is the last thing in the file, with no newline
+			// after it to step past.
+			name:    "a file that ends on the closing fence",
+			content: "---\nname: a\n---",
+			want:    frontmatter.Block{Lines: []string{"name: a"}, Start: 2},
+			wantOK:  true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

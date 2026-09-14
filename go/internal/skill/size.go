@@ -1,9 +1,7 @@
 package skill
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -66,7 +64,13 @@ type Measurement struct {
 // only where mostly_non_ascii, since character_guide was derived from
 // Japanese and an English body was never measured against it.
 func (s Measurement) OverApplicableGuide() bool {
-	return s.OverLineGuide || (s.MostlyNonASCII && s.OverCharacterGuide)
+	return s.OverLineGuide || s.OverApplicableCharacterGuide()
+}
+
+// OverApplicableCharacterGuide reports whether this file is over
+// character_guide and that guide applies to it.
+func (s Measurement) OverApplicableCharacterGuide() bool {
+	return s.MostlyNonASCII && s.OverCharacterGuide
 }
 
 // MeasureSize measures a directory of skills, or one SKILL.md, against
@@ -75,54 +79,19 @@ func (s Measurement) OverApplicableGuide() bool {
 // Both, for the reason CheckFrontmatter takes both: a hook measures one file
 // as it is saved while a person measures them all, and one contract with two
 // implementations would drift.
-func MeasureSize(target string) (Size, error) {
-	info, err := os.Stat(target)
-	if err != nil {
-		return Size{}, fmt.Errorf("target not found: %s", target)
-	}
-	if !info.IsDir() {
-		dir, err := filepath.Abs(filepath.Dir(target))
-		if err != nil {
-			return Size{}, err
-		}
-		path := filepath.Join(dir, filepath.Base(target))
-		sz, warning, err := measureFile(path, filepath.Join(filepath.Base(dir), filepath.Base(target)))
-		if err != nil {
-			return Size{}, err
-		}
-		out := Size{
-			Target: path, LineGuide: LineGuide, CharacterGuide: CharacterGuide,
-			Skills: []Measurement{sz}, Warnings: []string{},
-		}
-		if warning != "" {
-			out.Warnings = append(out.Warnings, warning)
-		}
-		return out, nil
-	}
-
-	root, err := filepath.Abs(target)
+func MeasureSize(name string) (Size, error) {
+	resolved, err := resolveTarget(name)
 	if err != nil {
 		return Size{}, err
 	}
-	found, missing, err := skillFiles(root)
-	if err != nil {
-		return Size{}, fmt.Errorf("target not found: %s", target)
-	}
-	if len(found) == 0 {
-		return Size{}, fmt.Errorf("no */SKILL.md found under %s", root)
-	}
-
 	out := Size{
-		Target: root, LineGuide: LineGuide, CharacterGuide: CharacterGuide,
-		Skills: []Measurement{}, Warnings: []string{},
+		Target: resolved.abs, LineGuide: LineGuide, CharacterGuide: CharacterGuide,
+		Skills: []Measurement{}, Warnings: resolved.warnings,
 	}
-	for _, name := range missing {
-		out.Warnings = append(out.Warnings, "no SKILL.md in "+name+"/")
-	}
-	// found is already sorted by file: os.ReadDir, which skillFiles reads
-	// from, returns its entries sorted by name.
-	for _, rel := range found {
-		sz, warning, err := measureFile(filepath.Join(root, rel), rel)
+	// The files are already sorted: os.ReadDir, which skillFiles reads from,
+	// returns its entries sorted by name.
+	for _, f := range resolved.files {
+		sz, warning, err := measureFile(f.path, f.rel)
 		if err != nil {
 			return Size{}, err
 		}
@@ -163,7 +132,7 @@ func bodyOf(content []byte, rel string) (body string, warning string) {
 	if block, ok := frontmatter.Split(content); ok {
 		return block.Body, ""
 	}
-	return strings.ReplaceAll(string(content), "\r\n", "\n"),
+	return frontmatter.Normalize(content),
 		"no frontmatter block in " + rel + ", the whole file was measured as the body"
 }
 

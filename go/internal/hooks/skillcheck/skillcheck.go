@@ -82,7 +82,7 @@ func (h Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 
 	checked, err := skill.CheckFrontmatter(target)
 	if err != nil {
-		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n%v\n", target, err) + recheck(target))
+		return blocked(fmt.Sprintf("The frontmatter of %s was not checked.\n\n%v\n", target, err) + recheck("frontmatter", target))
 	}
 	if len(checked.Violations) != 0 {
 		var b strings.Builder
@@ -90,12 +90,12 @@ func (h Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 		for _, v := range checked.Violations {
 			fmt.Fprintf(&b, "  %s: %s\n", target, describe(v))
 		}
-		return blocked(b.String() + recheck(target))
+		return blocked(b.String() + recheck("frontmatter", target))
 	}
 
 	measured, err := skill.MeasureSize(target)
 	if err != nil {
-		return blocked(fmt.Sprintf("The size of %s was not measured.\n\n%v\n", target, err) + sizeRecheck(target))
+		return blocked(fmt.Sprintf("The size of %s was not measured.\n\n%v\n", target, err) + recheck("size", target))
 	}
 	sz := measured.Skills[0]
 	if !sz.OverApplicableGuide() {
@@ -132,9 +132,9 @@ func describe(v skill.Violation) string {
 	}
 }
 
-// recheck is the command that runs the same check again.
-func recheck(target string) string {
-	return fmt.Sprintf("\nRe-check with:\n  ccx skill frontmatter %s\n", shellQuote(target))
+// recheck is the ccx skill subcommand that runs the same check again.
+func recheck(subcommand, target string) string {
+	return fmt.Sprintf("\nRe-check with:\n  ccx skill %s %s\n", subcommand, shellQuote(target))
 }
 
 // sizeGuideline is the design principle a size report points a reader back
@@ -151,16 +151,11 @@ func sizeReport(target string, sz skill.Measurement) string {
 	if sz.OverLineGuide {
 		over = append(over, fmt.Sprintf("%d lines (guide: %d)", sz.Lines, skill.LineGuide))
 	}
-	if sz.MostlyNonASCII && sz.OverCharacterGuide {
+	if sz.OverApplicableCharacterGuide() {
 		over = append(over, fmt.Sprintf("%d characters (guide: %d)", sz.Characters, skill.CharacterGuide))
 	}
-	return fmt.Sprintf("%s is over the size guide: %s.\n\n%s\n\nRe-measure with:\n  ccx skill size %s\n",
-		target, strings.Join(over, ", "), sizeGuideline, shellQuote(target))
-}
-
-// sizeRecheck is the command that runs the same measurement again.
-func sizeRecheck(target string) string {
-	return fmt.Sprintf("\nRe-check with:\n  ccx skill size %s\n", shellQuote(target))
+	return fmt.Sprintf("%s is over the size guide: %s.\n\n%s\n",
+		target, strings.Join(over, ", "), sizeGuideline) + recheck("size", target)
 }
 
 // shellQuote makes a path safe to paste back into a shell, and leaves an

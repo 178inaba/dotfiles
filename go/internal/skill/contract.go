@@ -99,6 +99,9 @@ func CheckContract(skillsDir string, published Published) (Contract, error) {
 
 	names := published.set()
 	violations := []ContractFinding{}
+	if len(names) == 0 {
+		return Contract{SkillsDir: root, Violations: violations, Warnings: []string{}}, nil
+	}
 	for _, rel := range found {
 		content, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
@@ -135,16 +138,12 @@ func CheckContract(skillsDir string, published Published) (Contract, error) {
 // directory, not a violation of anything, so its absence is read as an empty
 // listing rather than as a failure.
 func referenceFiles(root, skillDir string) []string {
-	refRoot := filepath.Join(root, skillDir, "references")
-	if info, err := os.Stat(refRoot); err != nil || !info.IsDir() {
-		return nil
-	}
-
 	var out []string
-	_ = filepath.WalkDir(refRoot, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(filepath.Join(root, skillDir, "references"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// An entry this run cannot even stat is skipped rather than
-			// failing the whole scan, the same as an unreadable SKILL.md.
+			// An entry this run cannot even stat — references/ itself when the
+			// skill has none — is skipped rather than failing the whole scan,
+			// the same as an unreadable SKILL.md.
 			return nil
 		}
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
@@ -200,9 +199,6 @@ func invokesCommand(content string, commands []string) bool {
 // (whether the skill it belongs to invokes any of these commands at all) is
 // the caller's, since it is decided once per skill rather than once per file.
 func contractFindings(file, content string, published map[string]bool) []ContractFinding {
-	if len(published) == 0 {
-		return nil
-	}
 	known := allowed()
 
 	var out []ContractFinding
