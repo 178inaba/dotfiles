@@ -528,16 +528,10 @@ produced, whose worktrees are still on disk. Only the first match is looked at,
 and never the main worktree. --base is required: it names the base branch
 the worktree about to be created would start from.
 
-status none is an issue with no worktree. status removed is a leftover: git
-holds no lock on it, no process has it as its working directory, nothing in it
-is uncommitted (untracked files included), its branch has no commit beyond the
-ref a new worktree would start from (origin/<branch> of --base where it exists,
-the local branch otherwise), and origin has no branch of that name. It went with
-git worktree remove, without --force, and then its branch with git branch -D.
-Files git ignores are not looked at and go with it. status kept is a worktree
-that failed one of those checks, named by reason, and nothing was touched;
-whether to throw it away is a question for the person. An origin that could not
-be asked is kept under a reason of its own rather than read as having no branch.
+status removed is a worktree that passed every check listed under reason, and
+status kept is one that failed the reason named. A removal is git worktree
+remove, without --force, and then git branch -D on its branch; files git
+ignores are not looked at and go with the worktree.
 
 Every check is made before anything is removed. The exit status is 0 whenever
 the run reached an answer. A broken premise fails the command itself: no lsof,

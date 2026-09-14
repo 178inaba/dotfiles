@@ -151,17 +151,11 @@ func leftoverReason(ctx context.Context, r runner.Runner, root string, e Entry, 
 		return LeftoverDirty, nil
 	}
 
-	startRef, _, err := startRefFor(ctx, r, root, base)
+	startRef, err := resolveStartRef(ctx, r, root, base)
 	if err != nil {
 		return "", err
 	}
-	// Both refs spelled out in full: git resolves a tag before a branch of the
-	// same name, and the tag's commit would be compared instead.
-	full := "refs/heads/" + startRef
-	if startRef == "origin/"+base {
-		full = "refs/remotes/" + startRef
-	}
-	if !IsAncestor(ctx, r, root, "refs/heads/"+e.Branch, full) {
+	if !IsAncestor(ctx, r, root, "refs/heads/"+e.Branch, startRef) {
 		return LeftoverBeyondStartRef, nil
 	}
 
