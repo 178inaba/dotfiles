@@ -27,14 +27,14 @@ disable-model-invocation: true
 - `<issue-number>`: 対応するIssue番号（`--file`と排他）
 - `--file FILE_PATH`: 仕様ファイルのパス（`<issue-number>`と排他）
 - `--base BRANCH`: ベースブランチを明示指定。省略時は起動時の現在ブランチ
-- `--worktree`: 実装作業を専用の git worktree で隔離（並列開発時に推奨）。作成は同梱スクリプト、切替は `EnterWorktree(path:)`（詳細は事前準備 Step 3/5/6・注意事項）
-- `--no-plan-review`: 計画フェーズの計画検証（deep-plan-review）をスキップする。ドキュメント・spec の小修正や単一ファイルの軽微な変更など、計画に blocker も decision も出る余地がほぼなく検証コストが見合わない Issue 向け（`deep-plan-review` は両方で収束する）。同スキルが持つ承認後の同期点も無くなり、承認がそのまま実装の開始になる。完了時の独立セッション `/deep-review` は省略されず、安全網として残る
+- `--worktree`: 実装作業を専用の git worktree で隔離（並列開発時に推奨）。手順は [references/worktree.md](references/worktree.md)
+- `--no-plan-review`: 計画フェーズの計画検証（deep-plan-review）をスキップする。ドキュメント・spec の小修正や単一ファイルの軽微な変更向け。同スキルの承認後の同期点も無くなり、承認がそのまま実装の開始になる。完了時の独立セッション `/deep-review` は省略しない
 
 ## 前提条件
 - Gitリポジトリ内で実行すること
 - Issue番号指定時: `gh` CLIがインストール・認証済みであること
 - **ベースブランチ**: `--base BRANCH` で明示指定 or 省略時は起動時の現在ブランチ
-- `--worktree` 指定時: worktree はベースブランチ（`origin/<base>` 優先）から直接作成するため、メインツリーの現在ブランチ・dirty 状態には依存しない
+- `--worktree` 指定時: worktree はベースブランチ（`origin/<base>` 優先）から作成し、メインツリーの現在ブランチ・dirty 状態に依存しない
 
 ## 実行内容
 
@@ -45,42 +45,31 @@ disable-model-invocation: true
 
 ### Issue 階層の扱い（Issue番号指定時）
 
-Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し、その「運用規約」に従う（葉 Issue = 1 PR、親 = リリース単位、親と合わせて読む、`release_manual_steps` 節、PR 本文の規則）。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力の `kind` で分岐する（出力の読み方は `ccx issue tree --help`）。取得できていなければ `ccx issue tree <issue-number>` を実行する。**本節が実行する `ccx issue tree`（この再実行、Sub 一覧の `--with-deps`、親の充足検証の `--with-prs`）はいずれも、非ゼロ exit したら stderr を提示して停止する**（冒頭の起動行は stderr を捨てて後回しにするだけなので、受け皿はここ。以下の分岐は `kind`・`blocked_by`・`prs` に全面的に依存しており、「取得できなかったので飛ばす」は選ばない）。`warnings[]` が空でない場合は判定に使う値が欠けている可能性があるため、内容を報告して以下の自動判定に頼らずユーザー確認へ倒す。
+Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し、その「運用規約」に従う。親本文の節をキーで引く手順は同スキルの「本文の節の読み取り」に従う。起動時に取得した `ccx issue tree` の出力の `kind` で分岐する（出力の読み方は `ccx issue tree --help`）。取得できていなければ `ccx issue tree <issue-number>` を実行する。**本節と [references/parent.md](references/parent.md) が実行する `ccx issue tree` はいずれも、非ゼロ exit したら stderr を提示して停止する**（取得できなかった分岐を飛ばして進めない）。`warnings[]` が空でなければ内容を報告し、以下の自動判定に頼らずユーザー確認へ倒す。
 
 - **`standalone`**: 単独の Issue として進める
 - **`sub`（親あり・Sub なし）**: 実装対象。以下を要件確認に加える
   - **親の継承**: `gh issue view <parent.number> --comments` で親の本文・コメントを取得し、親の横断ルール・確定事項を本 Issue の要件と同格に扱う（運用規約「仕様の配置」）
-  - **親 close 方針の記録**: 親本文の `release_manual_steps` 節（`github-sub-issues` の「本文の節の読み取り」の手順で引く）から `PR で閉じてよい`（「なし」マーカー）/ `PR で閉じない`（作業あり）を決めて計画ファイルに記録する（下記「計画完了」）。節が無い親は、この時点で `all_siblings_closed: true` なら推定 + 推奨を添えて AskUserQuestion で確認し、そうでなければ `未確定` と記録して PR 作成時に持ち越す（最後にならない Sub で毎回聞かない）
-  - **依存の確認**: 判定の根拠は `blocked_by[]`（運用規約「Sub 間の順序」）。open の blocker があれば、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。意図的な先行着手を妨げないため停止はしない
-    - blocker が兄弟 Sub でなくても扱いは同じ（何が blocking かは GitHub の登録が正）。ただし stacked base に使える head branch が無い blocker では選択肢を続行 / 中断のみにする（兄弟でない blocker は PR を持たないことがある）。判定は `same_repo: false` か、`gh issue view <blocker.url> --json closedByPullRequestsReferences` が空か（`ccx issue tree --with-prs` が Sub の PR を引くのと同じ機構）
+  - **親 close 方針の記録**: 親本文の `release_manual_steps` 節（`github-sub-issues` の「本文の節の読み取り」の手順で引く）から `PR で閉じてよい`（「なし」マーカー）/ `PR で閉じない`（作業あり）を決めて計画ファイルに記録する（下記「計画完了」）。節が無い親は、この時点で `all_siblings_closed: true` なら推定 + 推奨を添えて AskUserQuestion で確認し、そうでなければ `未確定` と記録して PR 作成時に持ち越す
+  - **依存の確認**: 判定の根拠は `blocked_by[]`（運用規約「Sub 間の順序」）。open の blocker があれば、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。停止はしない
+    - blocker が兄弟 Sub でなくても扱いは同じ。ただし stacked base に使える head branch が無い blocker では選択肢を続行 / 中断のみにする。判定は `same_repo: false` か、`gh issue view <blocker.url> --json closedByPullRequestsReferences` が空か
     - `blocked_by` が空 = 依存が 1 件も登録されていない → **散文へフォールバック**する（運用規約の例外）。本 Issue の `depends_on` 節（または親の `composition` 節。いずれも同手順で引く）にある先行 Sub が `siblings[]` で open かを見る
-- **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない（Sub が実装単位）
-  - open の Sub が残る（`all_sub_issues_closed: false`）→ **停止**。`ccx issue tree <parent> --with-deps` で各 Sub の blocker を取り、Sub 一覧を番号・タイトル・状態で提示し、「次に着手できる Sub」を示して終了する。自動では着手しない（どの Sub をやるか・`--worktree` を使うかはユーザーの判断）
-    - 対象は **open の Sub のみ**（closed の Sub は blocker がすべて closed でも着手可に含めない）。その上で Sub ごとに判定して 1 つの一覧にまとめる: `blocked_by` が空でない Sub は `blockers_closed: true` なら着手可、`blocked_by` が空の Sub（依存未登録）は親本文の `composition` 節（同手順で引く）の依存順で判定し、節が無い親では順序の制約なしとして着手可に含める。これにより一部の Sub だけリンク済みの親でも一覧が分裂しない
-  - 全 Sub が closed（`all_sub_issues_closed: true`）→ **親の充足検証 → close** を行う（下記）。計画フェーズ・実装フェーズには進まない
-
-**親の充足検証 → close**（全 Sub 完了の親を渡されたとき）:
-1. 事前準備 Step 1〜2 と同じ規則でベースブランチを確定し（`--base` / 現在ブランチ）、`origin/<base>` を fetch する
-2. `ccx issue tree <parent> --with-prs` で各 Sub を閉じた PR の状態を取り（`sub_issues[].prs[]` の `merged` / `base_ref`）、未マージ・`base_ref` がベースブランチと異なる・`prs` が空の Sub があれば警告し、続行するか AskUserQuestion で確認する
-3. 親本文の受け入れ条件・横断ルール（と Sub の受け入れ条件のうち親に集約されているもの）を項目展開し、`origin/<base>` のコードと突き合わせて **充足 / 未実装 / 逸脱** に分類する（deep-review の「Issue 要件の充足状況」と同じ形式。差分ではなくベースブランチの現状を読む）
-4. 未実装・逸脱が 1 つでもあれば close せず、充足表と未充足の内容を報告して終了する（対応は新しい Sub の起票等、ユーザーの判断）
-5. 全充足なら `release_manual_steps` 節を確認する（同手順で引く）。「なし」マーカー（または節が無く手動作業も見当たらない）なら充足表を提示して close の承認を得てから閉じる: 充足表を scratchpad に Write して `gh issue comment <parent> -R <repo> --body-file <path>` で投稿（言語は Issue 本文に合わせる）→ `gh issue close <parent> -R <repo>`。手動作業ありなら、作業の完了をユーザーに確認できた場合のみ同じ手順で close し、未完了なら close せず作業一覧を提示して終了する
+- **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない。[references/parent.md](references/parent.md) に従う（着手可能な Sub の提示、または親の充足検証 → close）
 
 ### 計画フェーズ
 
 #### 事前準備（Planモード移行前、Bashで実行）
 
-Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェルコマンドも自由には走らない（classifier の審査か permission prompt に落ちる）。以下は fetch・worktree 作成といった書き込みを伴う準備なので、**移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
+以下は **Plan モード移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
 
-**流れの要約**（`--worktree`）: 調査 (0) → base 確定・fetch (1-2) → 既存 worktree の残骸判定 (3、残骸なら削除) → 名前確定・worktree 作成・切替 (4-6) → Plan モード (7)。worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れないため、Plan モード中もメインツリーで並列作業可能。
+`--worktree` 指定時は、Step 0 の前に [references/worktree.md](references/worktree.md) を読む（以降のステップの行では読み直さない）。
 
 **Step 0. 要件確認・調査（最小限）**
 - Issue 本文とコメント（`!gh issue view` で取得済み）を読み、続く Step 4 の worktree 名（type + description）判断に必要な範囲で関連コードを Read/Grep
   - コメントは時系列で読み、要件に影響する確定事項（スコープ調整・方針変更・仕様追記）は本文と同格の要件として扱う
   - Bot コメントと minimized なコメント（`isMinimized: true`）は読み飛ばす
-- **深追い禁止**: 実装方針の詳細検討・計画起案は Plan モード内で実施（Plan モード内でも Read/Grep と `ccx plan docs` 等の読み取り専用コマンドは実行できる。塞がれるのはファイル編集）
-- 「### Issue 階層の扱い」の分岐（親なら停止または充足検証、Sub なら親の継承・親 close 方針・依存の確認）は**この Step で済ませる**（親 close 方針は AskUserQuestion を伴いうるため Plan モード前に確定させ、依存の選択は Step 1 のベースブランチに影響する）
-- 参考: 上記「### 要件確認・調査」セクションは Plan モード内での追加調査時にも用いる共通の指針
+- **深追い禁止**: 実装方針の詳細検討・計画起案は Plan モード内で実施
+- 「### Issue 階層の扱い」の分岐は**この Step で済ませる**
 
 **Step 1. ベースブランチの確定**
 - `--base BRANCH` 指定時: その値を使用
@@ -91,14 +80,7 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
 - 失敗時（リモート未設定等）は警告のみで続行
 
 **Step 3. 既存 worktree の残骸判定**（`--worktree` 指定 & Issue番号指定時のみ）
-- Issue 番号に対応する既存 worktree を判定し、残骸なら削除する（判定条件と出力の読み方は `ccx worktree detect --help`）:
-  ```bash
-  ccx worktree detect <issue-number> --base <base-branch>
-  ```
-- `status: none` / `removed` → Step 4 へ進む（`removed` は Plan モード冒頭の報告に併記する）
-- `status: kept` → **停止**し、`worktree_path`・`branch`・`reason` を報告してユーザー判断を仰ぐ
-- 非ゼロ exit → stderr を提示して停止
-- 補足: `--file` 指定時（Issue 番号なし）は worktree 名の予測が安定しないため、本ステップはスキップする。実装フェーズの作業ブランチ確定ステップでの衝突検出フォールバックでカバーする
+- [references/worktree.md](references/worktree.md) の事前準備 Step 3 に従う
 
 **Step 4. worktree 名確定**（`--worktree` 指定時のみ）
 - Step 0 の調査結果と Issue 本文から type + description を判断
@@ -112,46 +94,27 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
   - fix 系は対象を示す名詞句（`null-pointer`, `race-condition` 等）
   - 全体で60文字以内目安
 - 例: `feature/99-add-oauth-login`, `fix/42-null-pointer`, `feature/add-login-validation`（--file 指定時）
-- **worktree 名は branch 名から `/` を `-` に置換した sanitized 形式**（例: `feature/99-add-oauth-login` → `feature-99-add-oauth-login`。スキル間で worktree を相互発見するための共通規約: `worktree-resolution` の「共通規約」）
+- **worktree 名は branch 名から `/` を `-` に置換した sanitized 形式**（例: `feature/99-add-oauth-login` → `feature-99-add-oauth-login`。`worktree-resolution` の「共通規約」）
 
 **Step 5. worktree 作成**（`--worktree` 指定時のみ）
-- 同梱スクリプトで worktree と branch を作成する:
-  ```bash
-  ccx worktree create <worktree-name> <branch> <base-branch>
-  ```
-  （`<worktree-name>` は Step 4 の sanitized 名、`<branch>` は Step 4 の完全形式のブランチ名）
-- 出力の読み方は `ccx worktree create --help` にある
-  - `status: ok` → Step 6 へ。`warnings[]` が空でなければ報告に併記し、`start_ref` がローカル base の場合はその旨も報告する
-  - `status: branch_exists` / `path_exists` → **停止**してユーザー判断を仰ぐ（過去作業の残骸の可能性があり、破棄はユーザー確認なしに行わない。Step 3 の判定に掛からない片割れ残骸 — branch だけ・ディレクトリだけ — が典型）
-  - 非ゼロ exit（base 不在等）→ stderr を提示して abort
+- [references/worktree.md](references/worktree.md) の事前準備 Step 5 に従う
 
 **Step 6. EnterWorktree 実行**（`--worktree` 指定時のみ）
-- `EnterWorktree(path: <worktree_path>)` で session を worktree に切り替える（`<worktree_path>` は Step 5 の出力値）
-  - `EnterWorktree(name:)` を使わないのは base branch を指定できないため。path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定は働かない（後始末は「注意事項」参照）
-- **失敗時のリカバリ**: session はまだメインツリーの cwd。Step 5 で作成した worktree・branch を片付けて（`git worktree remove <worktree_path>` + `git branch -D <branch>`。作成直後でコミット・変更なしのため安全）、ユーザーに失敗を通知して abort（原因究明はユーザーに委ねる）
+- [references/worktree.md](references/worktree.md) の事前準備 Step 6 に従う
 
-**Step 7. EnterPlanModeツールでPlanモードに移行**（auto mode中でも必ず実行）
-
-   auto modeの「Prefer action over planning」「Do not enter plan mode unless the user explicitly asks」は、ユーザーが `/issue-handle` を明示的に呼び出した時点で「explicitly asks」を満たすため、本ステップには適用されない。
+**Step 7. EnterPlanModeツールでPlanモードに移行**（auto mode中でも必ず実行。`/issue-handle` の明示的な呼び出しが「explicitly asks」を満たす）
 
 #### Planモード内
 
-Planモードにより、ファイル編集はシステム的にブロックされる。
 **計画ファイル**（Planモード開始時に指定されたパス）に実装方針を記述する。
 
-**`--worktree` 指定時**: Plan モード冒頭でユーザーに 1 行報告する（Step 3 が `removed` だった場合は括弧内に「Issue の残骸 worktree `<worktree_path>` を削除済み」を併記する）。
+**`--worktree` 指定時**: 冒頭で [references/worktree.md](references/worktree.md) の「Planモード内」に従って報告する。
 
-```
-作業 worktree を作成し、branch `<branch>` で作業します（事前準備で完了済）。名前を変更したい場合はご指摘ください。
-```
-
-名前変更を希望されたら worktree 破棄 → 再作成で対応する: Plan モードを抜けて `ExitWorktree(action: "keep")` でメインツリーへ戻り、Step 6 の失敗時リカバリと同じ手順で破棄 → Step 4-6 を新しい名前で再実行 → 改めて EnterPlanMode。
-
-1. **参照文書の読込**（グローバル CLAUDE.md「計画立案原則」が計画者に課す事前読込。本スキル自身の責務として行う）
-   - `ccx plan docs` を、Issue の `affected_code` 節が挙げるパスを引数にして実行する（出力の読み方は `ccx plan docs --help`）。`affected_code` はパスと説明と Issue 参照が混じる散文なので、渡すのは**バッククォートで囲まれたパスだけ**にする。`--file` 指定時は仕様ファイルが挙げるパスを同じ形で渡す
+1. **参照文書の読込**
+   - `ccx plan docs` を、Issue の `affected_code` 節が挙げるパスを引数にして実行する（出力の読み方は `ccx plan docs --help`）。渡すのは**バッククォートで囲まれたパスだけ**にする。`--file` 指定時は仕様ファイルが挙げるパスを同じ形で渡す
    - `loaded[]` と `documents[]` の両方が空なら、この読込は対象なしとして飛ばす
-   - `documents[]` の各パスを Read で読み、`warnings[]` の各項目を報告して続行する（`loaded[]` は既にコンテキストにあるので読み直さない）
-   - 読み込んだ制約を以降の計画起案の前提として扱う（事後チェックではなく事前読込）
+   - `documents[]` の各パスを Read で読み、`warnings[]` の各項目を報告して続行する（`loaded[]` は読み直さない）
+   - 読み込んだ制約を以降の計画起案の前提として扱う
 
 2. **ユーザーとの対話**
    - 不明点があればAskUserQuestionでユーザーに質問
@@ -164,37 +127,33 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
      - ブランチ名（typeを含む完全な形式）
      - ベースブランチ（取得済みの値）
      - Issue番号（Issue番号指定時）
-     - 親 Issue 番号と親 close 方針（Issue が Sub の場合のみ）: `PR で閉じてよい`（`release_manual_steps` が「なし」マーカー、または節なしでユーザーが可と回答）/ `PR で閉じない`（手動作業あり、またはユーザーが否と回答）/ `未確定`（節なしで他の Sub が open のため未確認）。実装完了処理の PR 本文組み立てで参照する
+     - 親 Issue 番号と親 close 方針（Issue が Sub の場合のみ）: `PR で閉じてよい`（`release_manual_steps` が「なし」マーカー、または節なしでユーザーが可と回答）/ `PR で閉じない`（手動作業あり、またはユーザーが否と回答）/ `未確定`（節なしで他の Sub が open のため未確認）
      - worktree 使用（`--worktree` 指定時 true）
-     - worktree 名（`--worktree` 指定時のみ。ブランチ名から `/` を `-` に置換した sanitized 名、例: `feature-99-add-oauth`）
-       - 注: branch 名はブランチ名（完全形式）をそのまま使う
-     - worktree 作成状態（`--worktree` 指定時のみ）: 事前準備で完了済
+     - worktree 名（`--worktree` 指定時のみ。Step 4 の sanitized 名）
      - 言語方針（事前確認: コミット/PR は `git log` / `gh pr list --limit 5`、コードコメントは既存コードのコメント）:
        - コミット: 日本語 / 英語
        - PR（タイトル・本文）: 日本語 / 英語
        - コードコメント: 日本語 / 英語
        - （慣例が混在する場合のみ）判断根拠を1行で明記
-       - 上記以外の成果物（README 等のドキュメント・コード内文字列等）は個別項目を設けず、書き込み先の既存内容の言語に合わせる（グローバル CLAUDE.md「成果物の言語」の原則）
+       - 上記以外の成果物は個別項目を設けず、書き込み先の既存内容の言語に合わせる
      - 想定コミット計画（複数コミットになる場合のみ記述）:
        - 例:
          - コミット1: <内容>
          - コミット2: <内容>
-       - 同じファイルに無関係な変更が混ざるのを防ぎ、各段階でテストを通せる単位に分ける
-       - 実装中の調整は許容（厳密に固定しない）
+       - 同じファイルに無関係な変更が混ざらず、各段階でテストを通せる単位に分ける
      - 実装手順チェックリスト:
-       - [ ] 作業ブランチ作成（`--worktree` 指定時は**事前準備で完了済のため本項目全体をスキップ**。非 `--worktree` 時のみ実装フェーズで実施）
+       - [ ] 作業ブランチ作成（非 `--worktree` 時のみ）
        - [ ] 実装・テスト（想定コミット計画の単位で都度コミット、必要に応じて調整）
        - [ ] Test, Lint成功確認
        - [ ] `/simplify` で品質チェック・修正
        - [ ] プッシュ・PR作成（draft で作成。Issue番号指定時は `Closes #<issue-number>` を含める。Sub の場合は `Part of #<parent>` と、最後の Sub なら親の `Closes` も — 実装完了処理の規則に従う）
        - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
        - [ ] 同期検証を通過して PR を Ready 化
-   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を、`--no-plan-review` の有無にかかわらず引数 `--no-exit` で起動する（ExitPlanMode を担うのは、`--no-plan-review` 未指定時は後続の計画検証、指定時は本スキル自身。いずれも下の参照・コマンドチェックが clean になってから）
-   - **参照・コマンドチェック**: `ccx plan check <計画ファイルパス>` を実行する。計画準拠チェックの**後**に走らせる（準拠チェックが計画を編集するので、こちらは編集後の版を見る必要がある）
-     - finding は計画の著者が解消する: 参照を直す / 新規に作る成果物なら注記を足す / コマンドを実行して結果を記録する（実行できないなら理由を記録する）。直したら再実行し、**clean になるまで繰り返す**
-     - finding が残る計画で、計画検証（fresh reader）を起動しない・`ExitPlanMode` を呼ばない
-     - このチェックが強制する 2 つの規約を、計画を書く時点で守っておくと再実行が減る: **計画が挙げる検証コマンドには結果を記録する**（形式は `ccx plan check --help`）、**計画がこれから作る成果物は `(new)` または `（新規）` を注記する**（注記の無い新規成果物は「実在しない参照」として報告される）
-   - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。読者の起動と ExitPlanMode まで同スキルが担うため、本スキル側で重複して呼ばない。読者の検証は承認と並行して走り、その結果の反映は同スキルの承認後の同期点で行われる
+   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を、`--no-plan-review` の有無にかかわらず引数 `--no-exit` で起動する
+   - **参照・コマンドチェック**: 計画準拠チェックの**後**に `ccx plan check <計画ファイルパス>` を実行する
+     - finding は計画の著者が解消する: 参照を直す / 新規に作る成果物なら `(new)` または `（新規）` を注記する / コマンドを実行して結果を記録する（実行できないなら理由を記録する。形式は `ccx plan check --help`）。直したら再実行し、**clean になるまで繰り返す**
+     - finding が残る計画で、計画検証を起動しない・`ExitPlanMode` を呼ばない
+   - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。ExitPlanMode は同スキルが呼ぶので、本スキルからは呼ばない
    - **ExitPlanMode**（`--no-plan-review` 指定時のみ）: 参照・コマンドチェックが clean になった時点で本スキルが `ExitPlanMode` を呼ぶ
    - ユーザーの承認を待つ
 
@@ -203,66 +162,56 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 
 ### 実装フェーズ
 
-**開始前の同期点**（`--no-plan-review` 未指定時）: `deep-plan-review` の承認後の同期点が完了して同スキルが返るまで、以下のステップを 1 つも開始しない（`--worktree` 指定時は Step 1 をスキップするので、実装そのものが最初のステップになる）。同期点で「打ち切り」が選ばれた場合は本 run をそこで終える — この時点で作られているもの（worktree・ブランチ・計画ファイル）はそのまま残す。次の run の事前準備 Step 3 がそれを残骸として判定する（計画ファイルは worktree の外に置かれるため tree は clean のまま。誰もその worktree に立っていなければ削除され、この session が立ったままなら `in_use_by_process` で止まる）。
+**開始前の同期点**（`--no-plan-review` 未指定時）: `deep-plan-review` の承認後の同期点が完了して同スキルが返るまで、以下のステップを 1 つも開始しない。同期点で「打ち切り」が選ばれた場合は本 run をそこで終え、この時点で作られているもの（worktree・ブランチ・計画ファイル）はそのまま残す。
 
 1. **作業ブランチ確定**
-   - **`--worktree` 指定時**: 計画フェーズ事前準備で worktree 作成・session 切替は完了済。本ステップ全体をスキップして次のステップ（実装・テスト修正）へ
+   - **`--worktree` 指定時**: 本ステップ全体をスキップして次のステップへ
    - **非 `--worktree` 時のみ以下を実施**:
-     - ブランチ命名は事前準備 Step 4「worktree 名確定」の規約に従う（type enum、description ルール、フォーマット、`--file` 指定時の分岐すべて `--worktree` 有無に関わらず共通）
+     - ブランチ命名は事前準備 Step 4「worktree 名確定」の規約に従う（`--file` 指定時の分岐を含め、すべて `--worktree` 有無に関わらず共通）
      - 分岐元: 計画ファイルに記録したベースブランチを明示する
        - 例: `git switch -c feature/99-xxx origin/<base-branch>`（事前準備の fetch 成功時）
        - 例: `git switch -c feature/99-xxx <base-branch>`（fetch 失敗時のフォールバック）
-     - ベースブランチのリモート最新化は計画フェーズ事前準備（Step 2）で完了済み
 
 2. **実装・テスト修正**
-   - 実装とテストの順序は柔軟に対応
-   - **想定コミット計画の単位で都度コミット**（最後にまとめてではなく）
-     - 計画した単位ごとに、実装 → テスト確認 → コミット のサイクルを回す
-     - 同じファイルに無関係な変更が混ざる前にコミットすることで、後からの hunk 分割を回避
-     - 実装中に計画と現実が乖離した場合は、コミット境界を調整してよい（計画通りの固定にこだわらない）
+   - **想定コミット計画の単位で都度コミット**（実装 → テスト確認 → コミット）。計画と現実が乖離したらコミット境界を調整してよい
    - テストコードの作成・修正では Skill ツールで `test-implementation` を起動し、その3原則に従う
    - コミットは Skill ツールで `git-commit` を起動して行う
    - コミット・PR・コードコメントの言語: 計画で確定した方針に従う（git-commit / git-pr の自動言語判定はスキップ）
 
 3. **Test, Lint成功確認**
    - プロジェクトのテスト・Lintコマンドを実行
-   - 数分以上かかる見込みの場合は `run_in_background: true` で実行（sleep ポーリングを避けキャッシュを節約）
+   - 数分以上かかる見込みの場合は `run_in_background: true` で実行
    - **失敗した場合**: 修正 → コミット → 再テストを繰り返す
    - 例: `make all`, `npm test && npm run lint`, `go test ./... && golangci-lint run`
 
 4. **品質チェック**
    - `/simplify` を実行し、変更コードの再利用性・品質・効率性を確認・修正
-     - レビューエージェントは `model` を指定せず（親継承）、`isolation: "worktree"` で隔離し、4 角度（reuse / simplification / efficiency / altitude）を 4 エージェントのまま起動する（隔離の規約はグローバル CLAUDE.md「サブエージェントの起動規約」。実装フェーズの Step 2〜3 で実装はコミット済み）。diff が小さいことを理由に角度を統合・削減しない（組み込みプロンプトは Claude Code バイナリ内にありリポジトリから監査できないため、期待値をここに列挙している。角度の構成が変わっていたら組み込み側が正で、統合・削減しない点だけが不変）
-     - `/simplify` の要約はサブステップの区切りでありターンの終わりではない。finding の見送り検証と修正のコミットまで済ませたら、ユーザー確認を待たず同一ターンでステップ5（実装完了処理）へ進む（PR を Ready 化する前にターンを終えないことは `ccx hook issue-handle-guard` が機械的に強制する。長時間のテスト等バックグラウンド待ちでターンを終える規定はそのまま適用される）
-   - finding を見送る（skip する）場合、Skill ツールで `finding-triage` を起動し、その規律で検証してから確定する（写像: /simplify の finding = 「対応が期待される指摘」。/simplify 組み込みスキルの skip 基準だけでは印象ベースの見送りを弾けないため）
+     - レビューエージェントは `model` を指定せず（親継承）、`isolation: "worktree"` で隔離し、4 角度（reuse / simplification / efficiency / altitude）を 4 エージェントのまま起動する。diff が小さいことを理由に角度を統合・削減しない（角度の構成が変わっていたら組み込み側が正で、統合・削減しない点だけが不変）
+     - `/simplify` の要約はターンの終わりではない。finding の見送り検証と修正のコミットまで済ませたら、ユーザー確認を待たず同一ターンでステップ5へ進む（`ccx hook issue-handle-guard` が強制する。バックグラウンド待ちでターンを終える規定はそのまま適用される）
+   - finding を見送る（skip する）場合、Skill ツールで `finding-triage` を起動し、その規律で検証してから確定する（写像: /simplify の finding = 「対応が期待される指摘」）
    - 修正があればコミット
 
 5. **実装完了処理**
    - 未コミットの変更があれば Skill ツールで `git-commit` を起動してコミット
-   - Skill ツールで `git-pr` を引数 `--draft --base <base-branch>` で起動し、プッシュ・PR作成を行う（`<base-branch>` は計画ファイルに記録したベースブランチ。レビューループ中は draft という不変条件で、Ready 化は 6-3 のみが行う）
+   - Skill ツールで `git-pr` を引数 `--draft --base <base-branch>` で起動し、プッシュ・PR作成を行う（`<base-branch>` は計画ファイルに記録したベースブランチ。Ready 化は 6-3 のみが行う）
    - PR説明にIssue/仕様の背景・動機を含める（リンクだけでなく「なぜこの変更が必要か」を本文に書く）
    - Issue番号指定時: `Closes #<issue-number>` を含める
-   - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of #<parent>` を書く（`parent.same_repo: false` なら `Part of <parent.repo>#<parent>`。別リポの親は兄弟が取れず `all_siblings_closed` が false のままなので `Closes` は付かない）。**PR 作成直前に `ccx issue tree <issue-number>` を再実行**し、`all_siblings_closed: true` かつ計画の親 close 方針が `PR で閉じてよい` なら `Closes #<parent>` も書く。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
+   - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of` と親の `Closes` を書く。**PR 作成直前に `ccx issue tree <issue-number>` を再実行**し、その値と計画の親 close 方針で判定する。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
    - **draft 不変条件の確認**（PR 作成/更新後に無条件で実行。`gh pr view --json number,isDraft` と `gh repo view --json nameWithOwner -q .nameWithOwner` で `<pr-number>` / `<owner/repo>` を確定し、6-1・6-3 でも取り直さず使い回す）:
-     - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）。`/git-pr` は既存 PR の更新経路で draft 化しないため、手動作成の PR はこの確認が回復を担う
+     - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）
      - undo が失敗した場合は停止せず、レビューループ中も PR が draft でないことを警告として報告に残す
 
 6. **独立セッションでのレビュー → 親での自動修正**
-   - **目的（関心の分離）**:
-     - **レビュー（発見）**: 実装バイアスを排除するため独立セッションで実施
-     - **判断・修正**: 誤指摘・前提誤りを判別するため、実装コンテキストを持つ親セッションで実施
 
    6-1. **サブエージェントでレビュー実行**
-   - Agent ツールで `subagent_type: "independent-reviewer"` のサブエージェントを起動する（呼び出し時に `model` パラメータは指定しない。モデルは `~/.claude/agents/independent-reviewer.md` で固定されている）
-     - `fork` は親コンテキストを継承するため使わない（実装バイアスが残るため目的に反する）
+   - Agent ツールで `subagent_type: "independent-reviewer"` のサブエージェントを起動する（`model` パラメータは指定しない）
+     - `fork` は使わない
    - サブエージェントへのプロンプトに以下を含める:
      - このセッションが独立レビュー専用であり、親セッションの実装コンテキストを持たない旨
      - Skill ツールで `deep-review` を引数 `<pr-number> --issue <issue-number> --no-autofix` で起動すること
        - `<pr-number>`: ステップ5で確定した PR 番号
        - `<issue-number>`: Issue 番号（`--file` 指定時は `--issue <issue-number>` 部分を省略）
-       - `--no-autofix`: 自動修正を強制OFF（修正は親セッションで行うため）
-       - ベースブランチは deep-review 側で自動判定（PR のベースブランチを採用）
-       - 補足: サブエージェントは親と同じ worktree (PR の head branch) で動くため `--worktree` は付けない
+       - `--worktree` は付けない
      - レビュー結果をそのまま返すよう指示（追加の解釈・要約は不要）
      - 補助コンテキスト: 作業ブランチ名、PR URL（既知の場合）
 
@@ -271,16 +220,16 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
    - サブエージェントから返ってきたレビュー結果を親セッションで表示
    - そのレビュー結果を入力として、Skill ツールで `finding-severity` を起動し、その判断基準・対応リストの形式に従って対応要否を判断し、対応リストを出力する
    - 対応リストの確定後:
-     1. **対応すべきものがあれば**: working tree に修正適用 → コミット → テスト・Lint → Skill ツールで `git-pr` を引数 `--base <base-branch>` で起動してプッシュ・PR更新（その「既存PRがある場合（更新判定）」が書き込み直前に説明を取り直す） → 6-3 へ進む
-     2. **対応すべきものがゼロなら**: 修正・コミット・PR 更新は行わず 6-3 へ進む（`finding-severity` は対応リストの出力までを定め、その先の適用・終了は消費者に委ねている）
+     1. **対応すべきものがあれば**: working tree に修正適用 → コミット → テスト・Lint → Skill ツールで `git-pr` を引数 `--base <base-branch>` で起動してプッシュ・PR更新 → 6-3 へ進む
+     2. **対応すべきものがゼロなら**: 修正・コミット・PR 更新は行わず 6-3 へ進む
 
    6-3. **PR を Ready 化**
    - **6-2 の完了後は常に実行する**（指摘を適用・プッシュした場合も、対応すべきものがゼロだった場合も）
-   - `ccx pr ready <pr-number>` を実行する（working tree の汚れ・PR head との同期を検査してから Ready 化する。レビュー修正がローカルにだけ・PR が追わない branch にだけ存在する状態で「Ready」を宣言しないための門）。出力の読み方は `ccx pr ready --help` にある
+   - `ccx pr ready <pr-number>` を実行する（出力の読み方は `ccx pr ready --help`）
      - `status` が `ready` / `already_ready` → PR が Ready である旨を報告する
      - それ以外の `status` → 落ちた検査と、PR が draft のまま残ることを報告して**停止**する
      - 非ゼロ exit → stderr を提示して**停止**する
-   - 検査するのはコミットの同期のみ。テスト・Lint は 6-2 でプッシュ前に実行済みのため再実行しない
+   - テスト・Lint は再実行しない
 
 ## 完了条件
 以下をすべて満たした時点で完了:
@@ -293,14 +242,5 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 - [ ] 同期検証を通過して PR を Ready 化済み
 
 ## 注意事項
-- **PR は draft で作られる**: レビューループ（6-1〜6-2）が終わるまで PR は draft のままで、6-3 の同期検証を通過した時点でのみ Ready 化する。エスカレーション・レビュー失敗・ユーザー中断で途中停止した場合は意図的に draft のまま残る（レビュー由来の修正が入る前にマージされる窓を塞ぐため）
-- **Planモード中**: ファイル編集・ブランチ作成はシステム的にブロックされる
-- **auto mode下での運用**: auto modeであっても計画フェーズ（EnterPlanMode）はスキップしない
-- **テスト失敗時**: 修正 → コミット → 再テストのサイクルを繰り返す
-- **`--worktree` 指定時の前提・挙動**:
-  - 並列で複数 issue を進める場合、issue 1 つにつき 1 つの Claude session（別ターミナル/別 tmux ペイン）が必要
-  - worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れない。Plan モード中もメインツリーで並列の別作業が可能
-  - **branch 名はブランチ名（完全形式、例: `feature/99-add-oauth`）をそのまま使う**。PR の head branch もこの形式
-  - `.env` 等の gitignored ファイルは各プロジェクト個別に `.worktreeinclude` で列挙する（コピーは `ccx worktree create` がネイティブ挙動を再現）
-  - **`WorktreeCreate` hook は発火しない**（`git worktree add` 直接作成のため）。hook で worktree 環境を構築するプロジェクト（非 git VCS、per-worktree の DB 分離等）は本スキルの `--worktree` の対象外で、必要なら hook 相当のセットアップを手動実行する（スキル本体は DB を意識しない）
-  - クリーンアップ: path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定（変更なし→自動削除等）は働かない。マージ後の回収は `/cleanup-merged`、手動で片付ける場合は `git worktree remove <path>` + `git branch -d <branch>`
+- **PR は draft で作られる**: レビューループ（6-1〜6-2）が終わるまで PR は draft のままで、6-3 の同期検証を通過した時点でのみ Ready 化する。エスカレーション・レビュー失敗・ユーザー中断で途中停止した場合は draft のまま残す
+- **`--worktree` 指定時の前提・挙動**: [references/worktree.md](references/worktree.md) の「注意事項」
