@@ -9,7 +9,7 @@ argument-hint: "[<pr-number>] [--dry-run] [--worktree]"
 ## 引数
 - `<pr-number>`: 対象 PR 番号（省略時はカレント branch の PR を `ccx pr context` が推論）
 - `--worktree`: 対象 PR の worktree に切替（既存があれば再利用、無ければ作成）
-- `--dry-run`: 修正案・コメント返信案を報告するだけで、返信・再依頼・決定の書き下ろしは実行しない
+- `--dry-run`: 修正案・コメント返信案を報告する。返信・再依頼・決定の書き下ろしは実行せず、修正はユーザーの承認後に行う
 
 `/loop 10m /review-response` のように `/loop` の下で実行しているときは、最初のステップの前に [references/loop.md](references/loop.md) を読む。
 
