@@ -656,6 +656,32 @@ const truncatedBotBody = `{"data":{
   }
 }}`
 
+// TestFetchUnansweredBotThreadIsNotResolveOnly keeps an unanswered bot remark
+// from being closed with nothing said: it is ours to act on and ours to close,
+// but our answer is not in yet.
+func TestFetchUnansweredBotThreadIsNotResolveOnly(t *testing.T) {
+	t.Parallel()
+
+	body := strings.NewReplacer(
+		`"totalCount": 3, "pageInfo": {"hasNextPage": true, "endCursor": "bc1"}`,
+		`"totalCount": 1, "pageInfo": {"hasNextPage": false, "endCursor": "bc1"}`,
+		`{"author": {"login": "testuser", "__typename": "User"}, "body": "誤検知なのでこのままにします", "createdAt": "2026-01-02T00:00:00Z", "url": "https://example.com/tb3"}`,
+		`{"author": {"login": "copilot-pull-request-reviewer", "__typename": "Bot"}, "body": "誤検知の指摘", "createdAt": "2026-01-01T00:00:00Z", "url": "https://example.com/tb1"}`,
+	).Replace(truncatedBotBody)
+	got := fetch(t, pages{body: body, issues: linkedIssues}, meta, pullrequest.DefaultLimits)
+
+	thread := got.ReviewThreads[0]
+	if thread.CommentsTruncated {
+		t.Fatalf("the fixture's thread is truncated: %+v", thread)
+	}
+	if thread.Ball != pullrequest.BallMine || !thread.ResolvableByMe {
+		t.Errorf("ball = %q resolvable %v, want mine and true", thread.Ball, thread.ResolvableByMe)
+	}
+	if thread.ResolveOnly {
+		t.Error("resolve_only = true on a bot's remark nobody has answered")
+	}
+}
+
 // TestFetchWithoutAHeadDate is the null guard: with no date to compare against,
 // the time clause simply never holds, rather than holding for every thread and
 // producing a second reply to each of them on every run.
