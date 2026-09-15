@@ -1,8 +1,27 @@
-  Whether an issue already has a worktree, which is how a skill tells starting from
-  resuming.
+  The outcome of checking an issue for a worktree it already has.
 
-  found          boolean
-  worktree_path  string (may be null)
-                 worktree_path and branch are null when nothing was found, rather than
-                 empty strings: the caller branches on found and reads these only after.
-  branch         string (may be null)
+  status                string, one of:
+    none                An issue with no worktree of its own.
+    removed             A leftover that held nothing but what the base holds and files
+                        git ignores, and is gone along with its branch.
+    kept                A worktree that failed one of the checks and was left exactly as
+                        it was; whether to throw it away is a question for the person.
+  worktree_path         string (may be null)
+                        worktree_path and branch are null when there was no worktree,
+                        rather than empty strings: the caller branches on status and
+                        reads these only after.
+  branch                string (may be null)
+  reason                string (may be null), one of:
+                        Null unless the worktree was kept.
+    locked              A worktree git holds a lock on, which somebody took on purpose.
+    in_use_by_process   A worktree some process has as its working directory. Removing
+                        it would kill every later command of that process.
+    dirty               A worktree with anything uncommitted, untracked files included.
+                        Files git ignores are not looked at.
+    beyond_start_ref    A branch carrying a commit the ref a new worktree would start
+                        from does not: origin/<base> where it exists, the local base
+                        otherwise.
+    on_origin           A branch of the same name on origin, which is work somebody
+                        pushed.
+    origin_unreachable  An origin that could not be asked — no remote, no network. An
+                        unanswered question is not taken as a no.

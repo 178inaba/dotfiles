@@ -23,9 +23,10 @@ func newWorktreeCmd(deps Deps) *cobra.Command {
 }
 
 func worktreeDetectCmd(deps Deps) *cobra.Command {
-	return &cobra.Command{
-		Use:   "detect <issue-number>",
-		Short: "Find the worktree an issue is already being worked on in",
+	var base string
+	c := &cobra.Command{
+		Use:   "detect <issue-number> --base <branch>",
+		Short: "Remove an issue's leftover worktree, or say why it is kept",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
@@ -37,13 +38,18 @@ func worktreeDetectCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			found, err := worktree.Detect(c.Context(), runner.Exec{}, root, issue)
+			detected, err := worktree.Detect(c.Context(), runner.Exec{}, root, issue, base)
 			if err != nil {
 				return silent(err)
 			}
-			return silent(renderJSON(c.OutOrStdout(), found))
+			return silent(renderJSON(c.OutOrStdout(), detected))
 		},
 	}
+	// Required, because the commit check measures against the ref a new
+	// worktree would start from, and no default names the right base.
+	c.Flags().StringVar(&base, "base", "", "the base branch a new worktree would start from")
+	_ = c.MarkFlagRequired("base")
+	return c
 }
 
 func worktreeCreateCmd(deps Deps) *cobra.Command {

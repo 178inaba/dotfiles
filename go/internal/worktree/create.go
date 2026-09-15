@@ -5,52 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
 // worktreesUnder is where a repository keeps the worktrees these commands make.
 const worktreesUnder = ".claude/worktrees"
-
-// Detection is whether an issue already has a worktree, which is how a skill
-// tells starting from resuming.
-type Detection struct {
-	Found bool `json:"found"`
-	// worktree_path and branch are null when nothing was found, rather than
-	// empty strings: the caller branches on found and reads these only after.
-	Path   *string `json:"worktree_path"`
-	Branch *string `json:"branch"`
-}
-
-// Detect finds the worktree of an issue among the repository's linked ones.
-//
-// Two namings match. The current one is <type>/<issue>-<slug>; the other is
-// what EnterWorktree(name:) produced before these commands took over creating
-// worktrees, and it stays because the worktrees it made are still on disk and
-// resuming into one is the whole point of asking.
-//
-// The main worktree is never the answer, even when it has the branch checked
-// out: a session resumed into it would be working in the repository itself.
-func Detect(ctx context.Context, r runner.Runner, root string, issue int) (Detection, error) {
-	entries, err := List(ctx, r, root)
-	if err != nil {
-		return Detection{}, err
-	}
-
-	// The number is bounded on both sides so that 42 does not answer for 142.
-	current := regexp.MustCompile(fmt.Sprintf(`^[a-z]+/%d-`, issue))
-	legacy := regexp.MustCompile(fmt.Sprintf(`^worktree-[a-z]+-%d-`, issue))
-	for _, e := range entries {
-		if e.Main || e.Branch == "" {
-			continue
-		}
-		if current.MatchString(e.Branch) || legacy.MatchString(e.Branch) {
-			return Detection{Found: true, Path: &e.Path, Branch: &e.Branch}, nil
-		}
-	}
-	return Detection{}, nil
-}
 
 // CreateStatus is how far Create got.
 type CreateStatus string
@@ -134,22 +94,33 @@ func Create(ctx context.Context, r runner.Runner, root, name, branch, base strin
 // a local branch ahead of the remote means commits the author has not pushed
 // will be missing from the worktree.
 func startRefFor(ctx context.Context, r runner.Runner, root, base string) (string, []string, error) {
-	remote := hasRef(ctx, r, root, "refs/remotes/origin/"+base)
-	local := hasRef(ctx, r, root, "refs/heads/"+base)
-
-	switch {
-	case remote:
-		var warnings []string
-		if local && !IsAncestor(ctx, r, root, "refs/heads/"+base, "refs/remotes/origin/"+base) {
-			warnings = append(warnings, fmt.Sprintf(
-				"local branch %s has commits not on origin/%s; worktree starts from origin/%s", base, base, base))
-		}
-		return "origin/" + base, warnings, nil
-	case local:
-		return base, []string{fmt.Sprintf("origin/%s not found; started from local branch %s", base, base)}, nil
-	default:
-		return "", nil, fmt.Errorf("base branch not found: neither origin/%s nor %s exists", base, base)
+	full, err := resolveStartRef(ctx, r, root, base)
+	if err != nil {
+		return "", nil, err
 	}
+	local := "refs/heads/" + base
+	if full == local {
+		return base, []string{fmt.Sprintf("origin/%s not found; started from local branch %s", base, base)}, nil
+	}
+
+	var warnings []string
+	if hasRef(ctx, r, root, local) && !IsAncestor(ctx, r, root, local, full) {
+		warnings = append(warnings, fmt.Sprintf(
+			"local branch %s has commits not on origin/%s; worktree starts from origin/%s", base, base, base))
+	}
+	return "origin/" + base, warnings, nil
+}
+
+// resolveStartRef is the ref a worktree started from base would start from,
+// spelled out in full: git resolves a tag before a branch of the same name, and
+// a comparison against the short name would take the tag's commit instead.
+func resolveStartRef(ctx context.Context, r runner.Runner, root, base string) (string, error) {
+	for _, ref := range []string{"refs/remotes/origin/" + base, "refs/heads/" + base} {
+		if hasRef(ctx, r, root, ref) {
+			return ref, nil
+		}
+	}
+	return "", fmt.Errorf("base branch not found: neither origin/%s nor %s exists", base, base)
 }
 
 // hasRef reports whether a ref exists.

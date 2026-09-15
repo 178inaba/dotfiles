@@ -72,7 +72,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 
 Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェルコマンドも自由には走らない（classifier の審査か permission prompt に落ちる）。以下は fetch・worktree 作成といった書き込みを伴う準備なので、**移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
 
-**流れの要約**（`--worktree` 新規シナリオ）: 調査 (0) → base 確定・fetch (1-2) → 既存 worktree 検出 (3、あれば再開へ) → 名前確定・worktree 作成・切替 (4-6) → Plan モード (7)。worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れないため、Plan モード中もメインツリーで並列作業可能。
+**流れの要約**（`--worktree`）: 調査 (0) → base 確定・fetch (1-2) → 既存 worktree の残骸判定 (3、残骸なら削除) → 名前確定・worktree 作成・切替 (4-6) → Plan モード (7)。worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れないため、Plan モード中もメインツリーで並列作業可能。
 
 **Step 0. 要件確認・調査（最小限）**
 - Issue 本文とコメント（`!gh issue view` で取得済み）を読み、続く Step 4 の worktree 名（type + description）判断に必要な範囲で関連コードを Read/Grep
@@ -90,28 +90,17 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
 **Step 2. リモート最新化**: `git fetch origin <base-branch>` を常に実行
 - 失敗時（リモート未設定等）は警告のみで続行
 
-**Step 3. 既存 worktree 検出と再開判定**（`--worktree` 指定 & Issue番号指定時のみ）
-- Issue 番号に対応する既存 worktree を検索する（現行命名・旧 EnterWorktree(name:) 方式の命名の両方を拾う）:
+**Step 3. 既存 worktree の残骸判定**（`--worktree` 指定 & Issue番号指定時のみ）
+- Issue 番号に対応する既存 worktree を判定し、残骸なら削除する（判定条件と出力の読み方は `ccx worktree detect --help`）:
   ```bash
-  ccx worktree detect <issue-number>
+  ccx worktree detect <issue-number> --base <base-branch>
   ```
-- `found: false` → 新規シナリオ。Step 4 へ進む
-- `found: true` → **再開シナリオ**。以下を実施:
-  - `EnterWorktree(path: <worktree_path>)` で session を切替（`<worktree_path>` / 以降の `<branch>` は detect の出力値）
-  - **origin への同期**: `git fetch origin <branch>` の上で `git merge --ff-only origin/<branch>` を実行する（`<branch>` は検出した worktree の branch。別マシン・GitHub UI での suggestion コミット等による push があると、同期なしでは stale な HEAD 基準で再開計画を組んでしまうため。ahead — 未 push のローカル commit のみ — は no-op 成功する）
-    - fetch が「リモートに branch が存在しない」理由で失敗 → 同期対象なしとして続行し、報告の origin 項目を「リモート branch なし」とする（未 push、またはマージ済みでリモート branch 削除済みのケース）
-    - fetch がその他の理由（ネットワーク・認証等）で失敗 → 警告のみで続行し、報告の origin 項目を「同期未確認」とする（Step 2 の fetch 失敗時と同じ方針）
-    - merge が失敗（diverge・dirty との衝突）→ 警告のみで続行し、報告の origin 項目を「乖離あり」とする（未 push のローカル作業を尊重しつつ、扱いは Plan モードでユーザーが判断できる）
-    - 注: 「共通サブ手順: origin への同期」（worktree-resolution）を使わないのは意図的 — 同手順は ahead を停止条件とするが、再開では未 push のローカル commit が正常状態のため
-  - 切替後、Bashで以下を取得して計画起案の前提に組み込む:
-    - `git log <base-branch>..HEAD --oneline` で既存コミットの進捗
-    - `git status` で未コミット変更
-    - worktree 内の前回計画ファイル（探索場所はプロジェクトの慣習に従う。Plan モードで指定される今回の計画ファイルパスとは別物の可能性があるため、見つかれば Read で読み込んでおく）
-  - 検出結果はユーザーに 1 行で報告: 「既存 worktree を検出しました（path: ..., 既存コミット N 件、未コミット変更: あり/なし、origin: 同期済み/リモート branch なし/乖離あり/同期未確認）。再開計画として進めます」
-  - **Step 4-6 をスキップして Step 7（EnterPlanMode）へ**
-- 補足: `--file` 指定時（Issue 番号なし）は worktree 名の予測が安定しないため、本ステップはスキップする。新規シナリオとして進み、実装フェーズの作業ブランチ確定ステップでの衝突検出フォールバックでカバーする
+- `status: none` / `removed` → Step 4 へ進む（`removed` は Plan モード冒頭の報告に併記する）
+- `status: kept` → **停止**し、`worktree_path`・`branch`・`reason` を報告してユーザー判断を仰ぐ
+- 非ゼロ exit → stderr を提示して停止
+- 補足: `--file` 指定時（Issue 番号なし）は worktree 名の予測が安定しないため、本ステップはスキップする。実装フェーズの作業ブランチ確定ステップでの衝突検出フォールバックでカバーする
 
-**Step 4. worktree 名確定**（`--worktree` 指定 & 新規シナリオのみ）
+**Step 4. worktree 名確定**（`--worktree` 指定時のみ）
 - Step 0 の調査結果と Issue 本文から type + description を判断
 - フォーマット:
   - Issue 番号あり: `<type>/<issue-number>-<description>`
@@ -125,7 +114,7 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
 - 例: `feature/99-add-oauth-login`, `fix/42-null-pointer`, `feature/add-login-validation`（--file 指定時）
 - **worktree 名は branch 名から `/` を `-` に置換した sanitized 形式**（例: `feature/99-add-oauth-login` → `feature-99-add-oauth-login`。スキル間で worktree を相互発見するための共通規約: `worktree-resolution` の「共通規約」）
 
-**Step 5. worktree 作成**（`--worktree` 指定 & 新規シナリオのみ）
+**Step 5. worktree 作成**（`--worktree` 指定時のみ）
 - 同梱スクリプトで worktree と branch を作成する:
   ```bash
   ccx worktree create <worktree-name> <branch> <base-branch>
@@ -133,10 +122,10 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
   （`<worktree-name>` は Step 4 の sanitized 名、`<branch>` は Step 4 の完全形式のブランチ名）
 - 出力の読み方は `ccx worktree create --help` にある
   - `status: ok` → Step 6 へ。`warnings[]` が空でなければ報告に併記し、`start_ref` がローカル base の場合はその旨も報告する
-  - `status: branch_exists` / `path_exists` → **停止**してユーザー判断を仰ぐ（過去作業の残骸の可能性があり、破棄はユーザー確認なしに行わない。Step 3 の再開検出に掛からない片割れ残骸 — branch だけ・ディレクトリだけ — が典型）
+  - `status: branch_exists` / `path_exists` → **停止**してユーザー判断を仰ぐ（過去作業の残骸の可能性があり、破棄はユーザー確認なしに行わない。Step 3 の判定に掛からない片割れ残骸 — branch だけ・ディレクトリだけ — が典型）
   - 非ゼロ exit（base 不在等）→ stderr を提示して abort
 
-**Step 6. EnterWorktree 実行**（`--worktree` 指定 & 新規シナリオのみ）
+**Step 6. EnterWorktree 実行**（`--worktree` 指定時のみ）
 - `EnterWorktree(path: <worktree_path>)` で session を worktree に切り替える（`<worktree_path>` は Step 5 の出力値）
   - `EnterWorktree(name:)` を使わないのは base branch を指定できないため。path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定は働かない（後始末は「注意事項」参照）
 - **失敗時のリカバリ**: session はまだメインツリーの cwd。Step 5 で作成した worktree・branch を片付けて（`git worktree remove <worktree_path>` + `git branch -D <branch>`。作成直後でコミット・変更なしのため安全）、ユーザーに失敗を通知して abort（原因究明はユーザーに委ねる）
@@ -150,7 +139,7 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
 Planモードにより、ファイル編集はシステム的にブロックされる。
 **計画ファイル**（Planモード開始時に指定されたパス）に実装方針を記述する。
 
-**新規シナリオで `--worktree` 指定時**: Plan モード冒頭でユーザーに 1 行報告する。
+**`--worktree` 指定時**: Plan モード冒頭でユーザーに 1 行報告する（Step 3 が `removed` だった場合は括弧内に「Issue の残骸 worktree `<worktree_path>` を削除済み」を併記する）。
 
 ```
 作業 worktree を作成し、branch `<branch>` で作業します（事前準備で完了済）。名前を変更したい場合はご指摘ください。
@@ -163,14 +152,12 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
    - `loaded[]` と `documents[]` の両方が空なら、この読込は対象なしとして飛ばす
    - `documents[]` の各パスを Read で読み、`warnings[]` の各項目を報告して続行する（`loaded[]` は既にコンテキストにあるので読み直さない）
    - 読み込んだ制約を以降の計画起案の前提として扱う（事後チェックではなく事前読込）
-   - **再開シナリオの場合**: 事前準備で取得した前回計画ファイル・既存コミット・未コミット変更を最優先の前提として扱う
 
 2. **ユーザーとの対話**
    - 不明点があればAskUserQuestionでユーザーに質問
    - Issue本文とコメントで要件が矛盾し、スレッド内で結論が確定していない場合はAskUserQuestionで確認する（結論が明確に出ている矛盾は確認不要、コメント側を採用）
    - 実装方針をユーザーに提示
    - フィードバックを受けて方針を調整
-   - **再開シナリオの場合**: 前回計画から完了済み項目を洗い出し、**残タスクのみ**を今回の計画として組み立てる（前回方針を踏襲、必要に応じて再調整）
 
 3. **計画完了**
    - **計画ファイルに以下を含める**:
@@ -180,8 +167,8 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
      - 親 Issue 番号と親 close 方針（Issue が Sub の場合のみ）: `PR で閉じてよい`（`release_manual_steps` が「なし」マーカー、または節なしでユーザーが可と回答）/ `PR で閉じない`（手動作業あり、またはユーザーが否と回答）/ `未確定`（節なしで他の Sub が open のため未確認）。実装完了処理の PR 本文組み立てで参照する
      - worktree 使用（`--worktree` 指定時 true）
      - worktree 名（`--worktree` 指定時のみ。ブランチ名から `/` を `-` に置換した sanitized 名、例: `feature-99-add-oauth`）
-       - 注: branch 名はブランチ名（完全形式）をそのまま使う。再開シナリオでは Step 3 で検出した実 branch 名を正とする（旧命名の worktree もあるため）
-     - worktree 作成状態（`--worktree` 指定時のみ）: 事前準備で完了済（新規シナリオ）／既存 worktree に切替済（再開シナリオ）
+       - 注: branch 名はブランチ名（完全形式）をそのまま使う
+     - worktree 作成状態（`--worktree` 指定時のみ）: 事前準備で完了済
      - 言語方針（事前確認: コミット/PR は `git log` / `gh pr list --limit 5`、コードコメントは既存コードのコメント）:
        - コミット: 日本語 / 英語
        - PR（タイトル・本文）: 日本語 / 英語
@@ -194,7 +181,6 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
          - コミット2: <内容>
        - 同じファイルに無関係な変更が混ざるのを防ぎ、各段階でテストを通せる単位に分ける
        - 実装中の調整は許容（厳密に固定しない）
-     - シナリオ種別（事前準備の検出結果に基づく。`新規` / `再開`）
      - 実装手順チェックリスト:
        - [ ] 作業ブランチ作成（`--worktree` 指定時は**事前準備で完了済のため本項目全体をスキップ**。非 `--worktree` 時のみ実装フェーズで実施）
        - [ ] 実装・テスト（想定コミット計画の単位で都度コミット、必要に応じて調整）
@@ -217,10 +203,10 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 
 ### 実装フェーズ
 
-**開始前の同期点**（`--no-plan-review` 未指定時）: `deep-plan-review` の承認後の同期点が完了して同スキルが返るまで、以下のステップを 1 つも開始しない（`--worktree` 指定時は Step 1 をスキップするので、実装そのものが最初のステップになる）。同期点で「打ち切り」が選ばれた場合は本 run をそこで終える — この時点で作られているもの（worktree・ブランチ・計画ファイル）はそのまま残し、再開シナリオに拾わせる。
+**開始前の同期点**（`--no-plan-review` 未指定時）: `deep-plan-review` の承認後の同期点が完了して同スキルが返るまで、以下のステップを 1 つも開始しない（`--worktree` 指定時は Step 1 をスキップするので、実装そのものが最初のステップになる）。同期点で「打ち切り」が選ばれた場合は本 run をそこで終える — この時点で作られているもの（worktree・ブランチ・計画ファイル）はそのまま残す。次の run の事前準備 Step 3 がそれを残骸として判定する（計画ファイルは worktree の外に置かれるため tree は clean のまま。誰もその worktree に立っていなければ削除され、この session が立ったままなら `in_use_by_process` で止まる）。
 
 1. **作業ブランチ確定**
-   - **`--worktree` 指定時**: 計画フェーズ事前準備で worktree 作成・session 切替は完了済（新規/再開シナリオともに）。本ステップ全体をスキップして次のステップ（実装・テスト修正）へ
+   - **`--worktree` 指定時**: 計画フェーズ事前準備で worktree 作成・session 切替は完了済。本ステップ全体をスキップして次のステップ（実装・テスト修正）へ
    - **非 `--worktree` 時のみ以下を実施**:
      - ブランチ命名は事前準備 Step 4「worktree 名確定」の規約に従う（type enum、description ルール、フォーマット、`--file` 指定時の分岐すべて `--worktree` 有無に関わらず共通）
      - 分岐元: 計画ファイルに記録したベースブランチを明示する
@@ -258,7 +244,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
    - Issue番号指定時: `Closes #<issue-number>` を含める
    - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of #<parent>` を書く（`parent.same_repo: false` なら `Part of <parent.repo>#<parent>`。別リポの親は兄弟が取れず `all_siblings_closed` が false のままなので `Closes` は付かない）。**PR 作成直前に `ccx issue tree <issue-number>` を再実行**し、`all_siblings_closed: true` かつ計画の親 close 方針が `PR で閉じてよい` なら `Closes #<parent>` も書く。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
    - **draft 不変条件の確認**（PR 作成/更新後に無条件で実行。`gh pr view --json number,isDraft` と `gh repo view --json nameWithOwner -q .nameWithOwner` で `<pr-number>` / `<owner/repo>` を確定し、6-1・6-3 でも取り直さず使い回す）:
-     - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）。`/git-pr` は既存 PR の更新経路で draft 化しないため、再開シナリオ・手動作成の PR はこの確認が回復を担う（ステップ5を経由しない再開は 6-1 で同じ確認を行う）
+     - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）。`/git-pr` は既存 PR の更新経路で draft 化しないため、手動作成の PR はこの確認が回復を担う
      - undo が失敗した場合は停止せず、レビューループ中も PR が draft でないことを警告として報告に残す
 
 6. **独立セッションでのレビュー → 親での自動修正**
@@ -272,7 +258,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
    - サブエージェントへのプロンプトに以下を含める:
      - このセッションが独立レビュー専用であり、親セッションの実装コンテキストを持たない旨
      - Skill ツールで `deep-review` を引数 `<pr-number> --issue <issue-number> --no-autofix` で起動すること
-       - `<pr-number>`: ステップ5で確定した PR 番号（PR 作成後に中断した再開セッション等、同一セッションでステップ5を経由していない場合は、ステップ5と同じ手順で `<pr-number>` / `<owner/repo>` を確定し、draft 不変条件の確認もレビュー起動前に済ませる）
+       - `<pr-number>`: ステップ5で確定した PR 番号
        - `<issue-number>`: Issue 番号（`--file` 指定時は `--issue <issue-number>` 部分を省略）
        - `--no-autofix`: 自動修正を強制OFF（修正は親セッションで行うため）
        - ベースブランチは deep-review 側で自動判定（PR のベースブランチを採用）
@@ -314,7 +300,7 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 - **`--worktree` 指定時の前提・挙動**:
   - 並列で複数 issue を進める場合、issue 1 つにつき 1 つの Claude session（別ターミナル/別 tmux ペイン）が必要
   - worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れない。Plan モード中もメインツリーで並列の別作業が可能
-  - **branch 名はブランチ名（完全形式、例: `feature/99-add-oauth`）をそのまま使う**。PR の head branch もこの形式（旧命名 `worktree-<sanitized>` の既存 worktree は Step 3 の再開検出が拾う）
+  - **branch 名はブランチ名（完全形式、例: `feature/99-add-oauth`）をそのまま使う**。PR の head branch もこの形式
   - `.env` 等の gitignored ファイルは各プロジェクト個別に `.worktreeinclude` で列挙する（コピーは `ccx worktree create` がネイティブ挙動を再現）
   - **`WorktreeCreate` hook は発火しない**（`git worktree add` 直接作成のため）。hook で worktree 環境を構築するプロジェクト（非 git VCS、per-worktree の DB 分離等）は本スキルの `--worktree` の対象外で、必要なら hook 相当のセットアップを手動実行する（スキル本体は DB を意識しない）
   - クリーンアップ: path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定（変更なし→自動削除等）は働かない。マージ後の回収は `/cleanup-merged`、手動で片付ける場合は `git worktree remove <path>` + `git branch -d <branch>`
