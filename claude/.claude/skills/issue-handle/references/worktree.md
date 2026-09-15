@@ -1,14 +1,9 @@
 # `--worktree` の差分
 
-引数に `--worktree` がある実行が読む。SKILL.md の各ステップに対する差分をフェーズとステップ番号ごとに持つ。
-
-## 事前準備
-
-**流れの要約**: 調査 (0) → base 確定・fetch (1-2) → 既存 worktree の残骸判定 (3、残骸なら削除) → 名前確定・worktree 作成・切替 (4-6) → Plan モード (7)。
+引数に `--worktree` がある実行が読む。SKILL.md の事前準備・Planモード内・注意事項に対する差分を持つ。
 
 ## 事前準備 Step 3
 
-**既存 worktree の残骸判定**（Issue番号指定時のみ）
 - Issue 番号に対応する既存 worktree を判定し、残骸なら削除する（判定条件と出力の読み方は `ccx worktree detect --help`）:
   ```bash
   ccx worktree detect <issue-number> --base <base-branch>
@@ -16,11 +11,9 @@
 - `status: none` / `removed` → Step 4 へ進む（`removed` は Plan モード冒頭の報告に併記する）
 - `status: kept` → **停止**し、`worktree_path`・`branch`・`reason` を報告してユーザー判断を仰ぐ
 - 非ゼロ exit → stderr を提示して停止
-- `--file` 指定時（Issue 番号なし）は本ステップをスキップする
 
 ## 事前準備 Step 5
 
-**worktree 作成**
 - 同梱スクリプトで worktree と branch を作成する:
   ```bash
   ccx worktree create <worktree-name> <branch> <base-branch>
@@ -33,9 +26,7 @@
 
 ## 事前準備 Step 6
 
-**EnterWorktree 実行**
-- `EnterWorktree(path: <worktree_path>)` で session を worktree に切り替える（`<worktree_path>` は Step 5 の出力値）
-  - `EnterWorktree(name:)` は使わない
+- `EnterWorktree(path: <worktree_path>)` で session を worktree に切り替える（`<worktree_path>` は Step 5 の出力値。`name:` を使わない規約は `worktree-resolution` の「共通規約」）
 - **失敗時のリカバリ**: Step 5 で作成した worktree・branch を片付けて（`git worktree remove <worktree_path>` + `git branch -D <branch>`）、ユーザーに失敗を通知して abort する
 
 ## Planモード内
@@ -51,8 +42,4 @@ Plan モード冒頭でユーザーに 1 行報告する（Step 3 が `removed` 
 ## 注意事項
 
 - 並列で複数 issue を進める場合、issue 1 つにつき 1 つの Claude session が必要
-- worktree はメインツリーの状態（HEAD・working tree）に触れない。Plan モード中もメインツリーで並列の別作業が可能
-- **branch 名はブランチ名（完全形式、例: `feature/99-add-oauth`）をそのまま使う**。PR の head branch もこの形式
-- `.env` 等の gitignored ファイルは各プロジェクト個別に `.worktreeinclude` で列挙する
-- **`WorktreeCreate` hook は発火しない**。hook で worktree 環境を構築するプロジェクト（非 git VCS、per-worktree の DB 分離等）は本スキルの `--worktree` の対象外で、必要なら hook 相当のセットアップを手動実行する
-- クリーンアップ: 終了時の自動クリーンアップ判定は働かない。マージ後の回収は `/cleanup-merged`、手動で片付ける場合は `git worktree remove <path>` + `git branch -d <branch>`
+- スクリプト作成で失われるもの（`WorktreeCreate` hook の発火・終了時の自動クリーンアップ判定）と `.worktreeinclude`・回収（`/cleanup-merged`）は `worktree-resolution` の「共通規約」。hook で worktree 環境を構築するプロジェクト（非 git VCS、per-worktree の DB 分離等）は本スキルの `--worktree` の対象外で、必要なら hook 相当のセットアップを手動実行する

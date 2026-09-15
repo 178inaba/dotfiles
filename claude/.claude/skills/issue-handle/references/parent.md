@@ -6,7 +6,7 @@
 
 `all_sub_issues_closed: false` → **停止**。`ccx issue tree <parent> --with-deps` で各 Sub の blocker を取り、Sub 一覧を番号・タイトル・状態で提示し、「次に着手できる Sub」を示して終了する。自動では着手しない（どの Sub をやるか・`--worktree` を使うかはユーザーの判断）
 
-- 対象は **open の Sub のみ**（closed の Sub は blocker がすべて closed でも着手可に含めない）。その上で Sub ごとに判定して 1 つの一覧にまとめる: `blocked_by` が空でない Sub は `blockers_closed: true` なら着手可、`blocked_by` が空の Sub（依存未登録）は親本文の `composition` 節（`github-sub-issues` の「本文の節の読み取り」の手順で引く）の依存順で判定し、節が無い親では順序の制約なしとして着手可に含める
+- 対象は **open の Sub のみ**（closed の Sub は blocker がすべて closed でも着手可に含めない）。その上で Sub ごとに判定して 1 つの一覧にまとめる: `blocked_by` が空でない Sub は `blockers_closed: true` なら着手可、`blocked_by` が空の Sub は運用規約「Sub 間の順序」の例外（散文へのフォールバック）で判定する
 
 ## 親の充足検証 → close
 

@@ -54,13 +54,13 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
   - **依存の確認**: 判定の根拠は `blocked_by[]`（運用規約「Sub 間の順序」）。open の blocker があれば、その旨と影響（ベースブランチに依存先の PR head を使う stacked 構成になり、依存先マージ後に PR の base を付け替える必要がある）を示し、AskUserQuestion で続行可否とベースブランチの選択を確認する。続行時の選択を Step 1 のベースブランチに反映する。停止はしない
     - blocker が兄弟 Sub でなくても扱いは同じ。ただし stacked base に使える head branch が無い blocker では選択肢を続行 / 中断のみにする。判定は `same_repo: false` か、`gh issue view <blocker.url> --json closedByPullRequestsReferences` が空か
     - `blocked_by` が空 = 依存が 1 件も登録されていない → **散文へフォールバック**する（運用規約の例外）。本 Issue の `depends_on` 節（または親の `composition` 節。いずれも同手順で引く）にある先行 Sub が `siblings[]` で open かを見る
-- **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない。[references/parent.md](references/parent.md) に従い、open の Sub が残れば着手可能な Sub を示して停止、全 Sub が closed なら親の充足検証 → close を行う。計画フェーズ・実装フェーズには進まない
+- **`parent` / `parent_and_sub`（Sub あり）**: 実装対象ではない。[references/parent.md](references/parent.md) に従う（着手可能な Sub の提示、または親の充足検証 → close）
 
 ### 計画フェーズ
 
 #### 事前準備（Planモード移行前、Bashで実行）
 
-以下は書き込みを伴う準備なので、**Plan モード移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
+以下は **Plan モード移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
 
 `--worktree` 指定時は、Step 0 の前に [references/worktree.md](references/worktree.md) を読む（以降のステップの行では読み直さない）。
 
@@ -69,8 +69,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
   - コメントは時系列で読み、要件に影響する確定事項（スコープ調整・方針変更・仕様追記）は本文と同格の要件として扱う
   - Bot コメントと minimized なコメント（`isMinimized: true`）は読み飛ばす
 - **深追い禁止**: 実装方針の詳細検討・計画起案は Plan モード内で実施
-- 「### Issue 階層の扱い」の分岐（親なら停止または充足検証、Sub なら親の継承・親 close 方針・依存の確認）は**この Step で済ませる**
-- 参考: 上記「### 要件確認・調査」セクションは Plan モード内での追加調査時にも用いる共通の指針
+- 「### Issue 階層の扱い」の分岐は**この Step で済ませる**
 
 **Step 1. ベースブランチの確定**
 - `--base BRANCH` 指定時: その値を使用
@@ -114,7 +113,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 1. **参照文書の読込**
    - `ccx plan docs` を、Issue の `affected_code` 節が挙げるパスを引数にして実行する（出力の読み方は `ccx plan docs --help`）。渡すのは**バッククォートで囲まれたパスだけ**にする。`--file` 指定時は仕様ファイルが挙げるパスを同じ形で渡す
    - `loaded[]` と `documents[]` の両方が空なら、この読込は対象なしとして飛ばす
-   - `documents[]` の各パスを Read で読み、`warnings[]` の各項目を報告して続行する（`loaded[]` は既にコンテキストにあるので読み直さない）
+   - `documents[]` の各パスを Read で読み、`warnings[]` の各項目を報告して続行する（`loaded[]` は読み直さない）
    - 読み込んだ制約を以降の計画起案の前提として扱う
 
 2. **ユーザーとの対話**
@@ -130,9 +129,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
      - Issue番号（Issue番号指定時）
      - 親 Issue 番号と親 close 方針（Issue が Sub の場合のみ）: `PR で閉じてよい`（`release_manual_steps` が「なし」マーカー、または節なしでユーザーが可と回答）/ `PR で閉じない`（手動作業あり、またはユーザーが否と回答）/ `未確定`（節なしで他の Sub が open のため未確認）
      - worktree 使用（`--worktree` 指定時 true）
-     - worktree 名（`--worktree` 指定時のみ。ブランチ名から `/` を `-` に置換した sanitized 名、例: `feature-99-add-oauth`）
-       - 注: branch 名はブランチ名（完全形式）をそのまま使う
-     - worktree 作成状態（`--worktree` 指定時のみ）: 事前準備で完了済
+     - worktree 名（`--worktree` 指定時のみ。Step 4 の sanitized 名）
      - 言語方針（事前確認: コミット/PR は `git log` / `gh pr list --limit 5`、コードコメントは既存コードのコメント）:
        - コミット: 日本語 / 英語
        - PR（タイトル・本文）: 日本語 / 英語
@@ -145,7 +142,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
          - コミット2: <内容>
        - 同じファイルに無関係な変更が混ざらず、各段階でテストを通せる単位に分ける
      - 実装手順チェックリスト:
-       - [ ] 作業ブランチ作成（`--worktree` 指定時は**事前準備で完了済のため本項目全体をスキップ**。非 `--worktree` 時のみ実装フェーズで実施）
+       - [ ] 作業ブランチ作成（非 `--worktree` 時のみ）
        - [ ] 実装・テスト（想定コミット計画の単位で都度コミット、必要に応じて調整）
        - [ ] Test, Lint成功確認
        - [ ] `/simplify` で品質チェック・修正
@@ -199,7 +196,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
    - Skill ツールで `git-pr` を引数 `--draft --base <base-branch>` で起動し、プッシュ・PR作成を行う（`<base-branch>` は計画ファイルに記録したベースブランチ。Ready 化は 6-3 のみが行う）
    - PR説明にIssue/仕様の背景・動機を含める（リンクだけでなく「なぜこの変更が必要か」を本文に書く）
    - Issue番号指定時: `Closes #<issue-number>` を含める
-   - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of #<parent>` を書く（`parent.same_repo: false` なら `Part of <parent.repo>#<parent>`）。**PR 作成直前に `ccx issue tree <issue-number>` を再実行**し、`all_siblings_closed: true` かつ計画の親 close 方針が `PR で閉じてよい` なら `Closes #<parent>` も書く。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
+   - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of` と親の `Closes` を書く。**PR 作成直前に `ccx issue tree <issue-number>` を再実行**し、その値と計画の親 close 方針で判定する。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
    - **draft 不変条件の確認**（PR 作成/更新後に無条件で実行。`gh pr view --json number,isDraft` と `gh repo view --json nameWithOwner -q .nameWithOwner` で `<pr-number>` / `<owner/repo>` を確定し、6-1・6-3 でも取り直さず使い回す）:
      - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）
      - undo が失敗した場合は停止せず、レビューループ中も PR が draft でないことを警告として報告に残す
@@ -208,13 +205,13 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 
    6-1. **サブエージェントでレビュー実行**
    - Agent ツールで `subagent_type: "independent-reviewer"` のサブエージェントを起動する（`model` パラメータは指定しない）
-     - `fork` は親コンテキストを継承するため使わない
+     - `fork` は使わない
    - サブエージェントへのプロンプトに以下を含める:
      - このセッションが独立レビュー専用であり、親セッションの実装コンテキストを持たない旨
      - Skill ツールで `deep-review` を引数 `<pr-number> --issue <issue-number> --no-autofix` で起動すること
        - `<pr-number>`: ステップ5で確定した PR 番号
        - `<issue-number>`: Issue 番号（`--file` 指定時は `--issue <issue-number>` 部分を省略）
-       - `--worktree` は付けない（サブエージェントは親と同じ worktree で動く）
+       - `--worktree` は付けない
      - レビュー結果をそのまま返すよう指示（追加の解釈・要約は不要）
      - 補助コンテキスト: 作業ブランチ名、PR URL（既知の場合）
 
