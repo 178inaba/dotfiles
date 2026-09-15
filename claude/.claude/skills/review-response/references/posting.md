@@ -11,7 +11,7 @@ ccx pr reply-threads <ドキュメント> <threads_path>
 書式は `ccx pr reply-threads --help` にある。本スキルが決めるのは中身:
 
 - スレッドは `path` と `line` で指す
-- `resolve` は当該スレッドの `resolvable_by_me` と同値にする。ユーザーの指示で `theirs` のスレッドに再対応するときは、`resolvable_by_me` が偽なら `false`、真でも自分が起こしたスレッドへの追記なら閉じるかを判断する
+- `resolve` は当該スレッドの `resolvable_by_me` と同値にする。ユーザーの指示で `theirs` のスレッドに再対応するときは、`resolvable_by_me` が偽なら `false`、真でも閉じるかは判断する
 - `body` は対象 PR の記述言語で書く。1行を超える返信は素の Markdown を `work_dir` 直下に Write して `body_file` で指す
 - **bot が起こしたスレッドで、既に自分が返信済みのもの**（`resolvable_by_me: true` かつ `opened_by` が `current_user` でなく、`last_comment.author` が `current_user`）は、**body を書かず `resolve: true` だけのエントリにする**。自分が起こしたスレッド（`opened_by` が `current_user`）はこの規則の対象外
 
