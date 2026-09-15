@@ -20,59 +20,75 @@ func TestMeasureSizeFile(t *testing.T) {
 		want skill.Measurement
 	}{
 		{
-			// Non-whitespace characters are all outside ASCII, which is the
-			// case the character guide exists for.
-			name: "a Japanese body",
-			body: "---\nname: x\ndescription: y\n---\nこれはテストです。\n",
-			want: skill.Measurement{Lines: 1, Characters: 10, MostlyNonASCII: true},
+			// One class at a time, a thousand characters of it, so that each
+			// weight shows up in the estimate on its own.
+			name: "non-ASCII characters",
+			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("あ", 1000),
+			want: skill.Measurement{Lines: 1, EstimatedTokens: 957},
 		},
 		{
-			name: "an ASCII body",
-			body: "---\nname: x\ndescription: y\n---\nThis is a test.\n",
-			want: skill.Measurement{Lines: 1, Characters: 16, MostlyNonASCII: false},
+			name: "ASCII letters and digits",
+			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("a1", 500),
+			want: skill.Measurement{Lines: 1, EstimatedTokens: 190},
+		},
+		{
+			name: "other ASCII characters",
+			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("-`", 500),
+			want: skill.Measurement{Lines: 1, EstimatedTokens: 1139},
+		},
+		{
+			name: "ASCII whitespace",
+			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat(" \t", 500),
+			want: skill.Measurement{Lines: 1, EstimatedTokens: 642},
+		},
+		{
+			// Whitespace outside ASCII is a non-ASCII character, not
+			// whitespace: the classes are by code point first.
+			name: "a no-break space counts as non-ASCII",
+			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("\u00a0", 1000),
+			want: skill.Measurement{Lines: 1, EstimatedTokens: 957},
+		},
+		{
+			// 2 non-ASCII, 3 letters and digits, 1 other ASCII and 2 whitespace
+			// come to 4.907, rounded to the nearest integer.
+			name: "a body mixing every class",
+			body: "---\nname: x\ndescription: y\n---\nab1 あ-\u00a0\n",
+			want: skill.Measurement{Lines: 1, EstimatedTokens: 5},
 		},
 		{
 			// A fenced example is not special: it is prose to this check, the
 			// same as ccx skill contract treats it as a reference.
 			name: "fenced content counts like any other line",
 			body: "---\nname: x\ndescription: y\n---\nprose\n```\nfenced\n```\n",
-			want: skill.Measurement{Lines: 4, Characters: 21, MostlyNonASCII: false},
-		},
-		{
-			// A tie is not a majority: mostly_non_ascii requires more than
-			// half, so two ASCII characters against two non-ASCII ones reads
-			// as false, not true.
-			name: "exactly half non-ASCII is not mostly non-ASCII",
-			body: "---\nname: x\ndescription: y\n---\naa\nああ\n",
-			want: skill.Measurement{Lines: 2, Characters: 6, MostlyNonASCII: false},
+			want: skill.Measurement{Lines: 4, EstimatedTokens: 11},
 		},
 		{
 			// The last line still counts even with nothing to close it.
 			name: "a body with no trailing newline",
 			body: "---\nname: x\ndescription: y\n---\nline one\nline two",
-			want: skill.Measurement{Lines: 2, Characters: 17, MostlyNonASCII: false},
+			want: skill.Measurement{Lines: 2, EstimatedTokens: 5},
 		},
 		{
 			name: "exactly the line guide is not over it",
 			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("a\n", skill.LineGuide),
-			want: skill.Measurement{Lines: skill.LineGuide, Characters: skill.LineGuide * 2, OverLineGuide: false},
+			want: skill.Measurement{Lines: skill.LineGuide, EstimatedTokens: 416, OverLineGuide: false},
 		},
 		{
 			name: "one line over the guide is over it",
 			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("a\n", skill.LineGuide+1),
-			want: skill.Measurement{
-				Lines: skill.LineGuide + 1, Characters: (skill.LineGuide + 1) * 2, OverLineGuide: true,
-			},
+			want: skill.Measurement{Lines: skill.LineGuide + 1, EstimatedTokens: 417, OverLineGuide: true},
 		},
 		{
-			name: "exactly the character guide is not over it",
-			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("a", skill.CharacterGuide),
-			want: skill.Measurement{Lines: 1, Characters: skill.CharacterGuide, OverCharacterGuide: false},
+			// 26,318 letters estimate at 5,000.42, which rounds to the guide.
+			name: "an estimate of exactly the token guide is not over it",
+			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("a", 26318),
+			want: skill.Measurement{Lines: 1, EstimatedTokens: skill.TokenGuide, OverTokenGuide: false},
 		},
 		{
-			name: "one character over the guide is over it",
-			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("a", skill.CharacterGuide+1),
-			want: skill.Measurement{Lines: 1, Characters: skill.CharacterGuide + 1, OverCharacterGuide: true},
+			// One letter more is 5,000.61, which rounds past it.
+			name: "an estimate one token over the guide is over it",
+			body: "---\nname: x\ndescription: y\n---\n" + strings.Repeat("a", 26319),
+			want: skill.Measurement{Lines: 1, EstimatedTokens: skill.TokenGuide + 1, OverTokenGuide: true},
 		},
 	}
 
@@ -93,8 +109,8 @@ func TestMeasureSizeFile(t *testing.T) {
 			if got.Target != path {
 				t.Errorf("target = %q, want the absolute path %q", got.Target, path)
 			}
-			if got.LineGuide != skill.LineGuide || got.CharacterGuide != skill.CharacterGuide {
-				t.Errorf("guides = %d/%d, want %d/%d", got.LineGuide, got.CharacterGuide, skill.LineGuide, skill.CharacterGuide)
+			if got.LineGuide != skill.LineGuide || got.TokenGuide != skill.TokenGuide {
+				t.Errorf("guides = %d/%d, want %d/%d", got.LineGuide, got.TokenGuide, skill.LineGuide, skill.TokenGuide)
 			}
 			if len(got.Warnings) != 0 {
 				t.Errorf("warnings = %v, want none", got.Warnings)
@@ -109,9 +125,11 @@ func TestMeasureSizeWithNoFrontmatterBlock(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
+		// tokens is the estimate of the whole file.
+		tokens int
 	}{
-		{name: "no closing fence", body: "---\nname: x\ndescription: y\nno closing fence here\n"},
-		{name: "no opening fence", body: "just prose, no frontmatter at all\n"},
+		{name: "no closing fence", body: "---\nname: x\ndescription: y\nno closing fence here\n", tokens: 18},
+		{name: "no opening fence", body: "just prose, no frontmatter at all\n", tokens: 10},
 	}
 
 	for _, tc := range tests {
@@ -129,7 +147,7 @@ func TestMeasureSizeWithNoFrontmatterBlock(t *testing.T) {
 			// fixtures end in a newline, so their line count is the newline
 			// count with no adjustment for a final line missing one.
 			want := skill.Measurement{
-				File: "x/SKILL.md", Lines: strings.Count(tc.body, "\n"), Characters: len([]rune(tc.body)),
+				File: "x/SKILL.md", Lines: strings.Count(tc.body, "\n"), EstimatedTokens: tc.tokens,
 			}
 			if diff := cmp.Diff([]skill.Measurement{want}, got.Skills); diff != "" {
 				t.Errorf("skills (-want +got):\n%s", diff)
@@ -161,8 +179,8 @@ func TestMeasureSizeDirectory(t *testing.T) {
 
 	// Sorted by file, the same order CheckFrontmatter's findings are in.
 	want := []skill.Measurement{
-		{File: "long/SKILL.md", Lines: skill.LineGuide + 1, Characters: (skill.LineGuide + 1) * 2, OverLineGuide: true},
-		{File: "short/SKILL.md", Lines: 1, Characters: 2},
+		{File: "long/SKILL.md", Lines: skill.LineGuide + 1, EstimatedTokens: 417, OverLineGuide: true},
+		{File: "short/SKILL.md", Lines: 1, EstimatedTokens: 1},
 	}
 	if diff := cmp.Diff(want, got.Skills); diff != "" {
 		t.Errorf("skills (-want +got):\n%s", diff)
@@ -207,7 +225,7 @@ func TestMeasureSizeFails(t *testing.T) {
 	}
 }
 
-func TestOverApplicableGuide(t *testing.T) {
+func TestOverGuide(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -215,36 +233,17 @@ func TestOverApplicableGuide(t *testing.T) {
 		size skill.Measurement
 		want bool
 	}{
-		{
-			name: "over the line guide, ASCII",
-			size: skill.Measurement{OverLineGuide: true, MostlyNonASCII: false, OverCharacterGuide: false},
-			want: true,
-		},
-		{
-			name: "over the character guide, non-ASCII",
-			size: skill.Measurement{OverLineGuide: false, MostlyNonASCII: true, OverCharacterGuide: true},
-			want: true,
-		},
-		{
-			// The character guide was derived from Japanese and does not
-			// apply to an English body, however many characters it has.
-			name: "over the character guide, ASCII",
-			size: skill.Measurement{OverLineGuide: false, MostlyNonASCII: false, OverCharacterGuide: true},
-			want: false,
-		},
-		{
-			name: "over neither guide",
-			size: skill.Measurement{OverLineGuide: false, MostlyNonASCII: true, OverCharacterGuide: false},
-			want: false,
-		},
+		{name: "over the line guide only", size: skill.Measurement{OverLineGuide: true}, want: true},
+		{name: "over the token guide only", size: skill.Measurement{OverTokenGuide: true}, want: true},
+		{name: "over neither guide", size: skill.Measurement{}, want: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := tc.size.OverApplicableGuide(); got != tc.want {
-				t.Errorf("OverApplicableGuide() = %v, want %v", got, tc.want)
+			if got := tc.size.OverGuide(); got != tc.want {
+				t.Errorf("OverGuide() = %v, want %v", got, tc.want)
 			}
 		})
 	}

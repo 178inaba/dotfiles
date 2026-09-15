@@ -160,12 +160,16 @@ func TestRunBlocksWhenTheCheckCannotRun(t *testing.T) {
 }
 
 // TestRunReportsSize is the second check this hook makes once the frontmatter
-// is clean: a body over the guide that applies to it is reported through the
-// directive rather than blocked, since the guide is a target to split
-// against and not a limit.
+// is clean: a body over either guide is reported through the directive rather
+// than blocked, since the guide is a target to split against and not a limit.
 func TestRunReportsSize(t *testing.T) {
 	t.Parallel()
 
+	// Every report carries both measurements and both guides, whichever guide
+	// the body is over, and points back to the design principle.
+	report := []string{
+		"lines (guide: 500)", "estimated tokens (guide: 5000)", "サイズ上限の目安", "ccx skill size",
+	}
 	tests := []struct {
 		name string
 		body string
@@ -173,29 +177,29 @@ func TestRunReportsSize(t *testing.T) {
 		// means the hook says nothing about the body at all.
 		want []string
 	}{
+		// writeSkillBody puts a blank line before each body, which adds a line
+		// and a newline's weight to every figure below.
 		{
-			// mostly_non_ascii gates character_guide: derived from Japanese,
-			// it does not hold for an English body, however many characters
-			// it has.
-			name: "over the character guide, ASCII",
-			body: strings.Repeat("a", skill.CharacterGuide+1),
+			// 26,316 letters: 5,000.68 estimated tokens, rounded to 5,001.
+			name: "over the token guide, ASCII",
+			body: strings.Repeat("a", 26316),
+			want: append([]string{"2 lines", "5001 estimated tokens"}, report...),
 		},
 		{
-			name: "over the character guide, mostly Japanese",
-			body: strings.Repeat("あ", skill.CharacterGuide+1) + "\n",
-			want: []string{"characters", "ccx skill size"},
+			// 5,225 Japanese characters: 5,000.97 estimated tokens.
+			name: "over the token guide, Japanese",
+			body: strings.Repeat("あ", 5225),
+			want: append([]string{"2 lines", "5001 estimated tokens"}, report...),
 		},
 		{
-			name: "over the line guide, ASCII",
-			body: strings.Repeat("a\n", skill.LineGuide+1),
-			want: []string{"lines", "ccx skill size"},
+			name: "over the line guide",
+			body: strings.Repeat("a\n", skill.LineGuide),
+			want: append([]string{"501 lines", "417 estimated tokens"}, report...),
 		},
 		{
-			// Both guides over at once, mostly Japanese: the report mentions
-			// both rather than only the first one it finds.
-			name: "over both guides, mostly Japanese",
-			body: strings.Repeat("あ\n", skill.CharacterGuide/2+1),
-			want: []string{"lines", "characters", "ccx skill size"},
+			// 26,315 letters: 5,000.49 estimated tokens, rounded to the guide.
+			name: "within both guides",
+			body: strings.Repeat("a", 26315),
 		},
 	}
 
