@@ -27,7 +27,7 @@ disable-model-invocation: true
 - `<issue-number>`: 対応するIssue番号（`--file`と排他）
 - `--file FILE_PATH`: 仕様ファイルのパス（`<issue-number>`と排他）
 - `--base BRANCH`: ベースブランチを明示指定。省略時は起動時の現在ブランチ
-- `--worktree`: 実装作業を専用の git worktree で隔離（並列開発時に推奨）。作成は同梱スクリプト、切替は `EnterWorktree(path:)`（詳細は事前準備 Step 3/5/6・注意事項）
+- `--worktree`: 実装作業を専用の git worktree で隔離（並列開発時に推奨）。手順は [references/worktree.md](references/worktree.md)
 - `--no-plan-review`: 計画フェーズの計画検証（deep-plan-review）をスキップする。ドキュメント・spec の小修正や単一ファイルの軽微な変更など、計画に blocker も decision も出る余地がほぼなく検証コストが見合わない Issue 向け（`deep-plan-review` は両方で収束する）。同スキルが持つ承認後の同期点も無くなり、承認がそのまま実装の開始になる。完了時の独立セッション `/deep-review` は省略されず、安全網として残る
 
 ## 前提条件
@@ -72,7 +72,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 
 Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェルコマンドも自由には走らない（classifier の審査か permission prompt に落ちる）。以下は fetch・worktree 作成といった書き込みを伴う準備なので、**移行前に**必ず実行する。`--worktree` 指定時は Step 0-7 すべて、非 `--worktree` 時は Step 0/1/2/7 のみ実行（Step 3-6 はスキップ）。
 
-**流れの要約**（`--worktree`）: 調査 (0) → base 確定・fetch (1-2) → 既存 worktree の残骸判定 (3、残骸なら削除) → 名前確定・worktree 作成・切替 (4-6) → Plan モード (7)。worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れないため、Plan モード中もメインツリーで並列作業可能。
+`--worktree` 指定時は、Step 0 の前に [references/worktree.md](references/worktree.md) を読む（以降のステップの行では読み直さない）。
 
 **Step 0. 要件確認・調査（最小限）**
 - Issue 本文とコメント（`!gh issue view` で取得済み）を読み、続く Step 4 の worktree 名（type + description）判断に必要な範囲で関連コードを Read/Grep
@@ -91,14 +91,7 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
 - 失敗時（リモート未設定等）は警告のみで続行
 
 **Step 3. 既存 worktree の残骸判定**（`--worktree` 指定 & Issue番号指定時のみ）
-- Issue 番号に対応する既存 worktree を判定し、残骸なら削除する（判定条件と出力の読み方は `ccx worktree detect --help`）:
-  ```bash
-  ccx worktree detect <issue-number> --base <base-branch>
-  ```
-- `status: none` / `removed` → Step 4 へ進む（`removed` は Plan モード冒頭の報告に併記する）
-- `status: kept` → **停止**し、`worktree_path`・`branch`・`reason` を報告してユーザー判断を仰ぐ
-- 非ゼロ exit → stderr を提示して停止
-- 補足: `--file` 指定時（Issue 番号なし）は worktree 名の予測が安定しないため、本ステップはスキップする。実装フェーズの作業ブランチ確定ステップでの衝突検出フォールバックでカバーする
+- [references/worktree.md](references/worktree.md) の事前準備 Step 3 に従う
 
 **Step 4. worktree 名確定**（`--worktree` 指定時のみ）
 - Step 0 の調査結果と Issue 本文から type + description を判断
@@ -115,20 +108,10 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
 - **worktree 名は branch 名から `/` を `-` に置換した sanitized 形式**（例: `feature/99-add-oauth-login` → `feature-99-add-oauth-login`。スキル間で worktree を相互発見するための共通規約: `worktree-resolution` の「共通規約」）
 
 **Step 5. worktree 作成**（`--worktree` 指定時のみ）
-- 同梱スクリプトで worktree と branch を作成する:
-  ```bash
-  ccx worktree create <worktree-name> <branch> <base-branch>
-  ```
-  （`<worktree-name>` は Step 4 の sanitized 名、`<branch>` は Step 4 の完全形式のブランチ名）
-- 出力の読み方は `ccx worktree create --help` にある
-  - `status: ok` → Step 6 へ。`warnings[]` が空でなければ報告に併記し、`start_ref` がローカル base の場合はその旨も報告する
-  - `status: branch_exists` / `path_exists` → **停止**してユーザー判断を仰ぐ（過去作業の残骸の可能性があり、破棄はユーザー確認なしに行わない。Step 3 の判定に掛からない片割れ残骸 — branch だけ・ディレクトリだけ — が典型）
-  - 非ゼロ exit（base 不在等）→ stderr を提示して abort
+- [references/worktree.md](references/worktree.md) の事前準備 Step 5 に従う
 
 **Step 6. EnterWorktree 実行**（`--worktree` 指定時のみ）
-- `EnterWorktree(path: <worktree_path>)` で session を worktree に切り替える（`<worktree_path>` は Step 5 の出力値）
-  - `EnterWorktree(name:)` を使わないのは base branch を指定できないため。path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定は働かない（後始末は「注意事項」参照）
-- **失敗時のリカバリ**: session はまだメインツリーの cwd。Step 5 で作成した worktree・branch を片付けて（`git worktree remove <worktree_path>` + `git branch -D <branch>`。作成直後でコミット・変更なしのため安全）、ユーザーに失敗を通知して abort（原因究明はユーザーに委ねる）
+- [references/worktree.md](references/worktree.md) の事前準備 Step 6 に従う
 
 **Step 7. EnterPlanModeツールでPlanモードに移行**（auto mode中でも必ず実行）
 
@@ -139,13 +122,7 @@ Plan モードが塞ぐのはファイル編集で、書き込みを伴うシェ
 Planモードにより、ファイル編集はシステム的にブロックされる。
 **計画ファイル**（Planモード開始時に指定されたパス）に実装方針を記述する。
 
-**`--worktree` 指定時**: Plan モード冒頭でユーザーに 1 行報告する（Step 3 が `removed` だった場合は括弧内に「Issue の残骸 worktree `<worktree_path>` を削除済み」を併記する）。
-
-```
-作業 worktree を作成し、branch `<branch>` で作業します（事前準備で完了済）。名前を変更したい場合はご指摘ください。
-```
-
-名前変更を希望されたら worktree 破棄 → 再作成で対応する: Plan モードを抜けて `ExitWorktree(action: "keep")` でメインツリーへ戻り、Step 6 の失敗時リカバリと同じ手順で破棄 → Step 4-6 を新しい名前で再実行 → 改めて EnterPlanMode。
+**`--worktree` 指定時**: 冒頭で [references/worktree.md](references/worktree.md) の「Planモード内」に従って報告する。
 
 1. **参照文書の読込**（グローバル CLAUDE.md「計画立案原則」が計画者に課す事前読込。本スキル自身の責務として行う）
    - `ccx plan docs` を、Issue の `affected_code` 節が挙げるパスを引数にして実行する（出力の読み方は `ccx plan docs --help`）。`affected_code` はパスと説明と Issue 参照が混じる散文なので、渡すのは**バッククォートで囲まれたパスだけ**にする。`--file` 指定時は仕様ファイルが挙げるパスを同じ形で渡す
@@ -297,10 +274,4 @@ Planモードにより、ファイル編集はシステム的にブロックさ�
 - **Planモード中**: ファイル編集・ブランチ作成はシステム的にブロックされる
 - **auto mode下での運用**: auto modeであっても計画フェーズ（EnterPlanMode）はスキップしない
 - **テスト失敗時**: 修正 → コミット → 再テストのサイクルを繰り返す
-- **`--worktree` 指定時の前提・挙動**:
-  - 並列で複数 issue を進める場合、issue 1 つにつき 1 つの Claude session（別ターミナル/別 tmux ペイン）が必要
-  - worktree はベースブランチから直接作成し、メインツリーの状態（HEAD・working tree）には一切触れない。Plan モード中もメインツリーで並列の別作業が可能
-  - **branch 名はブランチ名（完全形式、例: `feature/99-add-oauth`）をそのまま使う**。PR の head branch もこの形式
-  - `.env` 等の gitignored ファイルは各プロジェクト個別に `.worktreeinclude` で列挙する（コピーは `ccx worktree create` がネイティブ挙動を再現）
-  - **`WorktreeCreate` hook は発火しない**（`git worktree add` 直接作成のため）。hook で worktree 環境を構築するプロジェクト（非 git VCS、per-worktree の DB 分離等）は本スキルの `--worktree` の対象外で、必要なら hook 相当のセットアップを手動実行する（スキル本体は DB を意識しない）
-  - クリーンアップ: path 入場のため session は worktree の owner にならず、終了時の自動クリーンアップ判定（変更なし→自動削除等）は働かない。マージ後の回収は `/cleanup-merged`、手動で片付ける場合は `git worktree remove <path>` + `git branch -d <branch>`
+- **`--worktree` 指定時の前提・挙動**: [references/worktree.md](references/worktree.md) の「注意事項」
