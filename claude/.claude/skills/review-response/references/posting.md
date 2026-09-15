@@ -13,7 +13,7 @@ ccx pr reply-threads <ドキュメント> <threads_path>
 - スレッドは `path` と `line` で指す
 - `resolve` は当該スレッドの `resolvable_by_me` と同値にする。ユーザーの指示で `theirs` のスレッドに再対応するときは、`resolvable_by_me` が偽なら `false`、真でも閉じるかは判断する
 - `body` は対象 PR の記述言語で書く。1行を超える返信は素の Markdown を `work_dir` 直下に Write して `body_file` で指す
-- **bot が起こしたスレッドで、既に自分が返信済みのもの**（`resolvable_by_me: true` かつ `opened_by` が `current_user` でなく、`last_comment.author` が `current_user`）は、**body を書かず `resolve: true` だけのエントリにする**。自分が起こしたスレッド（`opened_by` が `current_user`）はこの規則の対象外
+- `resolve_only: true` のスレッドは、**body を書かず `resolve: true` だけのエントリにする**
 
 実行後:
 
@@ -35,10 +35,17 @@ PR 本体へのコメントとして投稿する場合は、上記の本文を `
 ccx pr comment <ドキュメント> --body-file <work_dir 直下のファイル名>
 ```
 
-## レビューの再依頼（REST）
+## レビュー再依頼
+
+`is_own_pr: true` のときだけ、返信の投稿とスレッドの解決の後・ユーザーへの最終報告の前に行う。今回の実行で次の両方を満たしたレビュアーの login を集める（login はスレッド由来なら `opened_by`、レビュー本文由来なら `reviews[].author`、通常コメント由来なら `comments[].author`）:
+
+1. 指摘の**1件以上**に、(a) 修正コミット + 完了報告、または (b) 修正不要の理由付き返信 のいずれかで応答した
+2. どの指摘にも議論を開く返信（本文の「ユーザーに最終判断を委ねる場合」）をしていない
+
+該当者がいなければ呼び出さず、ユーザーへの最終報告に対象なしと1行書く。いれば全員を1回で渡す:
 
 ```bash
-gh api repos/<owner>/<repo>/pulls/<PR番号>/requested_reviewers \
-  -f 'reviewers[]=LOGIN1' -f 'reviewers[]=LOGIN2'
+ccx pr request-review <ドキュメント> <login>...
 ```
-- `<owner>/<repo>` は `repo`、`<PR番号>` は `pr.number` を使う
+
+`requested` と `skipped`（理由付き）をユーザーへの最終報告に載せる。失敗してもリトライせず、stderr の内容を最終報告に載せて正常終了する。
