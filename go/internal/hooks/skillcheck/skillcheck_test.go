@@ -1,6 +1,7 @@
 package skillcheck
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,42 +166,19 @@ func TestRunBlocksWhenTheCheckCannotRun(t *testing.T) {
 func TestRunReportsSize(t *testing.T) {
 	t.Parallel()
 
-	// Every report carries both measurements and both guides, whichever guide
-	// the body is over, and points back to the design principle.
-	report := []string{
-		"lines (guide: 500)", "estimated tokens (guide: 5000)", "サイズ上限の目安", "ccx skill size",
-	}
+	// The estimate itself and its boundary are internal/skill's to pin; these
+	// bodies sit well clear of both guides, and the report is checked against
+	// what skill.MeasureSize says of the same file.
 	tests := []struct {
 		name string
 		body string
-		// want is substrings every one is expected in additionalContext; nil
-		// means the hook says nothing about the body at all.
-		want []string
+		// over is whether the hook is expected to report the body at all.
+		over bool
 	}{
-		// writeSkillBody puts a blank line before each body, which adds a line
-		// and a newline's weight to every figure below.
-		{
-			// 26,316 letters: 5,000.68 estimated tokens, rounded to 5,001.
-			name: "over the token guide, ASCII",
-			body: strings.Repeat("a", 26316),
-			want: append([]string{"2 lines", "5001 estimated tokens"}, report...),
-		},
-		{
-			// 5,225 Japanese characters: 5,000.97 estimated tokens.
-			name: "over the token guide, Japanese",
-			body: strings.Repeat("あ", 5225),
-			want: append([]string{"2 lines", "5001 estimated tokens"}, report...),
-		},
-		{
-			name: "over the line guide",
-			body: strings.Repeat("a\n", skill.LineGuide),
-			want: append([]string{"501 lines", "417 estimated tokens"}, report...),
-		},
-		{
-			// 26,315 letters: 5,000.49 estimated tokens, rounded to the guide.
-			name: "within both guides",
-			body: strings.Repeat("a", 26315),
-		},
+		{name: "over the token guide, ASCII", body: strings.Repeat("a", 10*skill.TokenGuide), over: true},
+		{name: "over the token guide, Japanese", body: strings.Repeat("あ", 2*skill.TokenGuide), over: true},
+		{name: "over the line guide", body: strings.Repeat("a\n", 2*skill.LineGuide), over: true},
+		{name: "within both guides", body: strings.Repeat("a\n", skill.LineGuide/2)},
 	}
 
 	for _, tc := range tests {
@@ -213,7 +191,7 @@ func TestRunReportsSize(t *testing.T) {
 			if got.Decision != hooks.Allow || got.Message != "" {
 				t.Fatalf("Result = %+v, want an allow with no message", got)
 			}
-			if tc.want == nil {
+			if !tc.over {
 				if !got.Directive.IsEmpty() {
 					t.Errorf("Directive = %+v, want empty", got.Directive)
 				}
@@ -222,8 +200,20 @@ func TestRunReportsSize(t *testing.T) {
 			if got.Directive.HookSpecificOutput.HookEventName != "PostToolUse" {
 				t.Errorf("hookEventName = %q, want PostToolUse", got.Directive.HookSpecificOutput.HookEventName)
 			}
+			measured, err := skill.MeasureSize(target)
+			if err != nil {
+				t.Fatalf("MeasureSize: %v", err)
+			}
+			sz := measured.Skills[0]
+			// Every report carries both measurements and both guides, whichever
+			// guide the body is over, and points back to the design principle.
+			wants := []string{
+				fmt.Sprintf("%d lines (guide: %d)", sz.Lines, skill.LineGuide),
+				fmt.Sprintf("%d estimated tokens (guide: %d)", sz.EstimatedTokens, skill.TokenGuide),
+				"サイズ上限の目安", "ccx skill size", target,
+			}
 			ctx := got.Directive.HookSpecificOutput.AdditionalContext
-			for _, want := range append(tc.want, target) {
+			for _, want := range wants {
 				if !strings.Contains(ctx, want) {
 					t.Errorf("additionalContext does not contain %q:\n%s", want, ctx)
 				}

@@ -57,15 +57,11 @@ type Measurement struct {
 	// Lines counts the body's newline-terminated lines; a final line with no
 	// trailing newline still counts as one.
 	Lines int `json:"lines"`
-	// EstimatedTokens estimates the body's tokens from its characters in four
-	// classes, each with its own weight — characters outside ASCII 0.957,
-	// ASCII letters and digits 0.190, ASCII whitespace 0.642, and every other
-	// ASCII character 1.139 — summed and rounded to the nearest integer. A
-	// character outside ASCII is in the first class even when it is
-	// whitespace. The weights were fitted to the tokenizer of Claude 4.7 and
-	// later models, which produces more tokens for the same text than earlier
-	// ones, so a body within token_guide there is within it on an earlier
-	// model too.
+	// EstimatedTokens is the command's per-class estimate over the body,
+	// rounded to the nearest integer. A character outside ASCII is in that class even
+	// when it is whitespace. The tokenizer the weights were fitted to produces
+	// more tokens for the same text than earlier models' did, so a body within
+	// token_guide there is within it on an earlier model too.
 	EstimatedTokens int `json:"estimated_tokens"`
 	// OverLineGuide is lines > line_guide.
 	OverLineGuide bool `json:"over_line_guide"`
@@ -158,19 +154,18 @@ func lineCount(body string) int {
 // before whitespace, so that whitespace outside ASCII is classed the way the
 // weights were fitted: as a character outside ASCII.
 func estimateTokens(body string) int {
-	var nonASCII, letterDigit, symbol, whitespace int
+	var sum float64
 	for _, r := range body {
 		switch {
 		case r > unicode.MaxASCII:
-			nonASCII++
+			sum += nonASCIIWeight
 		case unicode.IsSpace(r):
-			whitespace++
+			sum += whitespaceWeight
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			letterDigit++
+			sum += letterDigitWeight
 		default:
-			symbol++
+			sum += symbolWeight
 		}
 	}
-	return int(math.Round(float64(nonASCII)*nonASCIIWeight + float64(letterDigit)*letterDigitWeight +
-		float64(symbol)*symbolWeight + float64(whitespace)*whitespaceWeight))
+	return int(math.Round(sum))
 }
