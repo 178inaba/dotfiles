@@ -58,10 +58,10 @@ type Measurement struct {
 	// trailing newline still counts as one.
 	Lines int `json:"lines"`
 	// EstimatedTokens is the command's per-class estimate over the body,
-	// rounded to the nearest integer. A character outside ASCII is in that class even
-	// when it is whitespace. The tokenizer the weights were fitted to produces
-	// more tokens for the same text than earlier models' did, so a body within
-	// token_guide there is within it on an earlier model too.
+	// rounded to the nearest integer. A character outside ASCII is in that
+	// class even when it is whitespace. The tokenizer the weights were fitted
+	// to produces more tokens for the same text than earlier models' did, so a
+	// body within token_guide there is within it on an earlier model too.
 	EstimatedTokens int `json:"estimated_tokens"`
 	// OverLineGuide is lines > line_guide.
 	OverLineGuide bool `json:"over_line_guide"`
