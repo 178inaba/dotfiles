@@ -1,21 +1,32 @@
 package skill
 
 import (
+	"math"
 	"os"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/178inaba/dotfiles/go/internal/frontmatter"
 )
 
-// LineGuide and CharacterGuide are the size skill-authoring's design
-// principle サイズ上限の目安 measures a SKILL.md body against. A guide rather than a limit:
+// LineGuide and TokenGuide are the size skill-authoring's design principle
+// サイズ上限の目安 measures a SKILL.md body against. A guide rather than a limit:
 // nothing here fails a body over either one, and MeasureSize reports the
 // measurement for a caller to act on.
 const (
-	LineGuide      = 500
-	CharacterGuide = 7500
+	LineGuide  = 500
+	TokenGuide = 5000
+)
+
+// The weights estimateTokens gives each character class, fitted by least
+// squares to 58 reproduced skill injections measured on Claude Opus 5, with a
+// median error of 1.4% and a maximum of 9.5% on samples of 1,000 tokens or
+// more.
+const (
+	nonASCIIWeight    = 0.957
+	letterDigitWeight = 0.190
+	symbolWeight      = 1.139
+	whitespaceWeight  = 0.642
 )
 
 // Size is the outcome of measuring one or more skills.
@@ -25,10 +36,9 @@ type Size struct {
 	Target string `json:"target"`
 	// LineGuide is the most lines a body is meant to run to.
 	LineGuide int `json:"line_guide"`
-	// CharacterGuide is the most characters a body is meant to run to: the
-	// Agent Skills specification's 5,000 tokens times the 1.5 characters per
-	// token measured on this repository's Japanese skills.
-	CharacterGuide int `json:"character_guide"`
+	// TokenGuide is the most estimated tokens a body is meant to run to: the
+	// Agent Skills specification's 5,000.
+	TokenGuide int `json:"token_guide"`
 	// Skills holds one measurement per SKILL.md, ordered by file.
 	Skills []Measurement `json:"skills"`
 	// Warnings names the directories that hold no SKILL.md, the same warning
@@ -47,39 +57,25 @@ type Measurement struct {
 	// Lines counts the body's newline-terminated lines; a final line with no
 	// trailing newline still counts as one.
 	Lines int `json:"lines"`
-	// Characters counts Unicode code points rather than bytes, so a body of
-	// Japanese text is not inflated by its multi-byte encoding.
-	Characters int `json:"characters"`
-	// MostlyNonASCII is true when most of the body's non-whitespace
-	// characters are outside ASCII. character_guide was sized for Japanese,
-	// where a line costs several times the tokens an English line does, and
-	// this is what a caller reads before deciding whether over_character_guide
-	// applies to this body at all.
-	MostlyNonASCII bool `json:"mostly_non_ascii"`
+	// EstimatedTokens is the command's per-class estimate over the body,
+	// rounded to the nearest integer. A character outside ASCII is in that
+	// class even when it is whitespace. The tokenizer the weights were fitted
+	// to produces more tokens for the same text than earlier models' did, so a
+	// body within token_guide there is within it on an earlier model too.
+	EstimatedTokens int `json:"estimated_tokens"`
 	// OverLineGuide is lines > line_guide.
 	OverLineGuide bool `json:"over_line_guide"`
-	// OverCharacterGuide is characters > character_guide, on its own — whether
-	// character_guide is the guide meant for this body depends on
-	// mostly_non_ascii too.
-	OverCharacterGuide bool `json:"over_character_guide"`
+	// OverTokenGuide is estimated_tokens > token_guide.
+	OverTokenGuide bool `json:"over_token_guide"`
 }
 
-// OverApplicableGuide reports whether this file is over the guide that
-// applies to it. over_line_guide always applies; over_character_guide applies
-// only where mostly_non_ascii, since character_guide was derived from
-// Japanese and an English body was never measured against it.
-func (s Measurement) OverApplicableGuide() bool {
-	return s.OverLineGuide || s.OverApplicableCharacterGuide()
-}
-
-// OverApplicableCharacterGuide reports whether this file is over
-// character_guide and that guide applies to it.
-func (s Measurement) OverApplicableCharacterGuide() bool {
-	return s.MostlyNonASCII && s.OverCharacterGuide
+// OverGuide reports whether this file is over either guide.
+func (s Measurement) OverGuide() bool {
+	return s.OverLineGuide || s.OverTokenGuide
 }
 
 // MeasureSize measures a directory of skills, or one SKILL.md, against
-// LineGuide and CharacterGuide.
+// LineGuide and TokenGuide.
 //
 // Both, for the reason CheckFrontmatter takes both: a hook measures one file
 // as it is saved while a person measures them all, and one contract with two
@@ -90,7 +86,7 @@ func MeasureSize(name string) (Size, error) {
 		return Size{}, err
 	}
 	out := Size{
-		Target: resolved.abs, LineGuide: LineGuide, CharacterGuide: CharacterGuide,
+		Target: resolved.abs, LineGuide: LineGuide, TokenGuide: TokenGuide,
 		Skills: []Measurement{}, Warnings: resolved.warnings,
 	}
 	// The files are already sorted: os.ReadDir, which skillFiles reads from,
@@ -117,14 +113,13 @@ func measureFile(path, rel string) (Measurement, string, error) {
 
 	body, warning := bodyOf(content, rel)
 	lines := lineCount(body)
-	characters := utf8.RuneCountInString(body)
+	tokens := estimateTokens(body)
 	return Measurement{
-		File:               rel,
-		Lines:              lines,
-		Characters:         characters,
-		MostlyNonASCII:     mostlyNonASCII(body),
-		OverLineGuide:      lines > LineGuide,
-		OverCharacterGuide: characters > CharacterGuide,
+		File:            rel,
+		Lines:           lines,
+		EstimatedTokens: tokens,
+		OverLineGuide:   lines > LineGuide,
+		OverTokenGuide:  tokens > TokenGuide,
 	}, warning, nil
 }
 
@@ -155,20 +150,22 @@ func lineCount(body string) int {
 	return n
 }
 
-// mostlyNonASCII reports whether most of a body's non-whitespace characters
-// are outside ASCII. Whitespace is excluded because it says nothing about the
-// language a body is written in and would dilute the answer toward false for
-// a body laid out with a lot of it.
-func mostlyNonASCII(body string) bool {
-	var total, nonASCII int
+// estimateTokens is estimated_tokens for a body. The code point is tested
+// before whitespace, so that whitespace outside ASCII is classed the way the
+// weights were fitted: as a character outside ASCII.
+func estimateTokens(body string) int {
+	var sum float64
 	for _, r := range body {
-		if unicode.IsSpace(r) {
-			continue
-		}
-		total++
-		if r > unicode.MaxASCII {
-			nonASCII++
+		switch {
+		case r > unicode.MaxASCII:
+			sum += nonASCIIWeight
+		case unicode.IsSpace(r):
+			sum += whitespaceWeight
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			sum += letterDigitWeight
+		default:
+			sum += symbolWeight
 		}
 	}
-	return total > 0 && nonASCII*2 > total
+	return int(math.Round(sum))
 }

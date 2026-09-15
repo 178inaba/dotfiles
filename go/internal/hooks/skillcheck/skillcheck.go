@@ -25,11 +25,8 @@
 // own, and a size report beside it would never reach anyone, since Claude
 // Code reads a directive only from a hook that exited 0.
 //
-// character_guide is gated on the body being mostly outside ASCII before it
-// is ever reported. This hook is registered globally rather than for this
-// repository alone, and 7,500 characters was derived from measuring this
-// repository's own Japanese skills — a number with no claim on an English
-// body, however many characters it runs to.
+// The token estimate has no language gate: its weights are per character
+// class, so one estimate holds for a body in any language.
 //
 // The detection is internal/skill's, called directly for both checks: two
 // implementations of one contract drift, and the state where the hook passes
@@ -97,7 +94,7 @@ func (h Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 		return blocked(fmt.Sprintf("The size of %s was not measured.\n\n%v\n", target, err) + recheck("size", target))
 	}
 	sz := measured.Skills[0]
-	if !sz.OverApplicableGuide() {
+	if !sz.OverGuide() {
 		return hooks.Result{}
 	}
 	return hooks.Result{
@@ -142,19 +139,13 @@ const sizeGuideline = "The guide is the design principle サイズ上限の目�
 	"a body over it puts the rules every run needs before optional detail; split deterministic " +
 	"plumbing into ccx and conditional detail into references/."
 
-// sizeReport is the additionalContext for a body over the guide that applies
-// to it — over_line_guide always applies, and over_character_guide only where
-// the body is mostly outside ASCII.
+// sizeReport is the additionalContext for a body over either guide. Both
+// measurements go out whichever guide is exceeded, so a split aimed at one
+// does not walk into the other unseen.
 func sizeReport(target string, sz skill.Measurement) string {
-	var over []string
-	if sz.OverLineGuide {
-		over = append(over, fmt.Sprintf("%d lines (guide: %d)", sz.Lines, skill.LineGuide))
-	}
-	if sz.OverApplicableCharacterGuide() {
-		over = append(over, fmt.Sprintf("%d characters (guide: %d)", sz.Characters, skill.CharacterGuide))
-	}
-	return fmt.Sprintf("%s is over the size guide: %s.\n\n%s\n",
-		target, strings.Join(over, ", "), sizeGuideline) + recheck("size", target)
+	return fmt.Sprintf("%s is over the size guide: %d lines (guide: %d), %d estimated tokens (guide: %d).\n\n%s\n",
+		target, sz.Lines, skill.LineGuide, sz.EstimatedTokens, skill.TokenGuide, sizeGuideline) +
+		recheck("size", target)
 }
 
 // shellQuote makes a path safe to paste back into a shell, and leaves an
