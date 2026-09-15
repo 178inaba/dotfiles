@@ -35,7 +35,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 - `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は、Skill ツールで `worktree-resolution` を起動し、その「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用する）
 - `pr_exists: false` は縮退なので続行する。PR があるのに取得系が失敗した場合はコマンドが非ゼロ exit で止まるので、stderr を提示して停止する（両者を混同するとモード判定が自動対応ONへ倒れる）
 - `context_path` の読み方は「PR コンテキストの読了」
-- `local_change` は「差分取得と確認」がコンテキスト以外から差分を取る状態でのみ使う。`issues` は「Issue情報取得」で使う
+- `local_change` は「差分取得と確認」、`issues` は「Issue情報取得」で使う
 - `warnings[]` が空でなければユーザーへの報告に併記する（打ち切りが解消しなかった場合は、記載の指示に従い再取得してから「PR コンテキストの読了」へ進む。ただし Issue コメントの打ち切りは「Issue情報取得」の規則に従い再取得しない）
 
 ### 2. PR コンテキストの読了（`context_path`。PR なし縮退（`pr_exists: false`）時はスキップ）
@@ -55,7 +55,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 ### 3. Issue情報取得
 
-Skill ツールで `pr-reading` を起動し、その手順に従って読む。起動時に名指すのは、container が「準備」で得た `issues`（読めなかったものを説明する `warnings[]` も同じ出力のもの）、文書が `context_path`、差分・コミットの取得元が `pr_exists` / `freshness.status` で決まるもの（分岐は「差分取得と確認」）、報告先が「レビュー結果出力」の「確認した内容」。
+Skill ツールで `pr-reading` を起動し、その手順に従って読む。起動時に名指すのは、container が「準備」で得た `issues`（読めなかったものを説明する `warnings[]` も同じ出力のもの）、文書が `context_path`、差分・コミットの取得元が `local_change` の有無で決まるもの（分岐は「差分取得と確認」）、報告先が「レビュー結果出力」の「確認した内容」。
 
 本スキル固有の扱い:
 
@@ -72,10 +72,9 @@ Skill ツールで `pr-reading` を起動し、その手順に従って読む。
 
 「Issue情報取得」で起動した `pr-reading` の「順序」のうち、`pr.body` から差分までをここで実行する。この節が決めるのはその取得元だけ。
 
-取得元は `pr_exists` を先に見て（false なら `freshness` は null）、次に `freshness.status` を見て決める（top-level の `status` では区別しない。語彙は `ccx pr freshness --help`）。`--local-only` はここでの状態ではない:
-
-- `ok` / `synced` → コンテキストから読む。`pr.body`、コミットメッセージは `commits[]`、差分は **`diff.path` が指すファイル**、ファイル一覧は `diff.files[]`
-- `pr_exists: false` と `ahead_own` の 2 状態のみ、`local_change` から読む。コミットメッセージは `local_change.commits[]`、差分は **`local_change.diff.path` が指すファイル**、ファイル一覧は `local_change.diff.files[]`。`pr_exists: false` では `pr.body` は読むものが無い
+- `local_change` が null でない → コミットメッセージは `local_change.commits[]`、差分は **`local_change.diff.path` が指すファイル**、ファイル一覧は `local_change.diff.files[]` から読む
+- `local_change` が null → コミットメッセージは `commits[]`、差分は **`diff.path` が指すファイル**、ファイル一覧は `diff.files[]` から読む
+- `pr.body` は `pr_exists` が true ならコンテキストから読む（false では読むものが無い）
 
 ### 5. レビュー実行
 
