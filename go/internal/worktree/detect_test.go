@@ -33,9 +33,13 @@ func TestDetect(t *testing.T) {
 		wantReason LeftoverReason
 	}{
 		{
+			// With an ignored file in it, as ccx worktree create leaves one
+			// after copying what .worktreeinclude lists: that file is not work,
+			// and a removal without --force must not be refused over it.
 			name: "a leftover in the current naming",
 			setUp: func(t *testing.T, repo string) string {
-				issueWorktree(t, repo, "wt", "feature/42-x")
+				wt := issueWorktree(t, repo, "wt", "feature/42-x")
+				gittest.Write(t, filepath.Join(wt, ".env"), "SECRET=1\n")
 				return "feature/42-x"
 			},
 			issue: 42, wantStatus: DetectRemoved,
