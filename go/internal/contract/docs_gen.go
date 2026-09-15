@@ -126,7 +126,7 @@ var genFields = map[string]string{
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFile.Assessment":          "The verdict, which decides whether the review is posted as an approval, a request for changes or a comment.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFile.Comments":            "The remarks anchored to lines of the diff, empty for a review that is all body.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewFileComment.Line":         "The line number on the new side of the diff.",
-	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewRequested.Requested":      "The logins a review was requested from, in the order they were named. Empty when nobody was eligible, in which case nothing was sent.",
+	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewRequested.Requested":      "The logins a review was requested from, or would be under --dry-run, in the order they were named. Empty when nobody was eligible, in which case nothing was sent.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.ReviewRequested.Skipped":        "The logins that were named and left out, each with the rule that left it out.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Reviewer.Author":                "Null together with author_type, for an account that no longer exists — every such review is the same reviewer here, since nothing tells two of them apart.",
 	"github.com/178inaba/dotfiles/go/internal/pullrequest.Reviewer.AuthorType":            "The GraphQL type of the author, as the reviews carry it: a bot's standing is told from a person's without a list of bot names.",

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -185,6 +186,44 @@ func TestPRRequestReviewRefusesBeforeItReachesGitHub(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "is not ours") {
 		t.Errorf("stderr = %q, want it to say the pull request is not ours", errOut.String())
+	}
+}
+
+// `ccx pr request-review --dry-run` answers what a run would request, down to
+// the skipped logins and their reasons, without reaching GitHub even when a
+// login is eligible.
+func TestPRRequestReviewDryRun(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "pr-context-owner@repo-5.json")
+	doc := `{"fetched_at":"2026-01-11T00:00:00Z",
+		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
+		"repo":"owner/repo","is_own_pr":true,
+		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123"},
+		"reviewers":[
+			{"author":"alice","author_type":"User","state":"CHANGES_REQUESTED","submitted_at":"2026-01-10T00:00:00Z"},
+			{"author":"carol","author_type":"User","state":"APPROVED","submitted_at":"2026-01-10T00:00:00Z"}
+		],"review_threads":[]}`
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var out, errOut bytes.Buffer
+	code := run(t.Context(), []string{"pr", "request-review", "--dry-run", path, "alice", "carol"},
+		strings.NewReader(""), &out, &errOut, noClient(t))
+	if code != 0 {
+		t.Fatalf("`ccx pr request-review --dry-run` = %d, want 0: %s", code, errOut.String())
+	}
+
+	var got pullrequest.ReviewRequested
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode the output %q: %v", out.String(), err)
+	}
+	if want := []string{"alice"}; !slices.Equal(got.Requested, want) {
+		t.Errorf("requested = %v, want %v", got.Requested, want)
+	}
+	if want := []pullrequest.SkippedReviewer{{Login: "carol", Reason: pullrequest.SkipApproved}}; !slices.Equal(got.Skipped, want) {
+		t.Errorf("skipped = %v, want %v", got.Skipped, want)
 	}
 }
 

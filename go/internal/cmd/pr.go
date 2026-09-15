@@ -518,7 +518,8 @@ func prBodyAppendCmd(deps Deps) *cobra.Command {
 // prRequestReviewCmd builds `ccx pr request-review`, which asks the reviewers a
 // run answered to look at the pull request again.
 func prRequestReviewCmd(deps Deps) *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "request-review <pr-context.json> <login>...",
 		Short: "Ask reviewers for another review of our own pull request",
 		Args:  cobra.MinimumNArgs(2),
@@ -537,7 +538,7 @@ func prRequestReviewCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			if len(plan.Requested) > 0 {
+			if !dryRun && len(plan.Requested) > 0 {
 				client, err := deps.NewClient()
 				if err != nil {
 					return silent(err)
@@ -549,6 +550,8 @@ func prRequestReviewCmd(deps Deps) *cobra.Command {
 			return silent(renderJSON(c.OutOrStdout(), plan))
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Settle who would be requested and print it without sending anything")
+	return cmd
 }
 
 func prReplyThreadsCmd(deps Deps) *cobra.Command {

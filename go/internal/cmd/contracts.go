@@ -488,7 +488,10 @@ reviewers without dropping anybody already there. When no login is eligible,
 nothing is sent and that is an ordinary answer. A pull request that is not ours
 is refused from the document, before anything reaches GitHub. When GitHub
 refuses the request, none of the logins was requested and the command fails
-naming them; it is not retried.`,
+naming them; it is not retried.
+
+--dry-run settles the same answer from the document, the refusal of a pull
+request that is not ours included, and sends nothing.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.ReviewRequested]())},
 		statuses: with(),
 	},

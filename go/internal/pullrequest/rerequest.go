@@ -36,8 +36,9 @@ type SkippedReviewer struct {
 
 // ReviewRequested is who was asked for a review and who was not.
 type ReviewRequested struct {
-	// The logins a review was requested from, in the order they were named.
-	// Empty when nobody was eligible, in which case nothing was sent.
+	// The logins a review was requested from, or would be under --dry-run, in
+	// the order they were named. Empty when nobody was eligible, in which case
+	// nothing was sent.
 	Requested []string `json:"requested" contract:"required"`
 	// The logins that were named and left out, each with the rule that left
 	// it out.
