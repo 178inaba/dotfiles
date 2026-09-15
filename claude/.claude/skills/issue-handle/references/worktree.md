@@ -42,4 +42,5 @@ Plan モード冒頭でユーザーに 1 行報告する（Step 3 が `removed` 
 ## 注意事項
 
 - 並列で複数 issue を進める場合、issue 1 つにつき 1 つの Claude session が必要
-- スクリプト作成で失われるもの（`WorktreeCreate` hook の発火・終了時の自動クリーンアップ判定）と `.worktreeinclude`・回収（`/cleanup-merged`）は `worktree-resolution` の「共通規約」。hook で worktree 環境を構築するプロジェクト（非 git VCS、per-worktree の DB 分離等）は本スキルの `--worktree` の対象外で、必要なら hook 相当のセットアップを手動実行する
+- スクリプト作成で失われるもの（`WorktreeCreate` hook の発火・終了時の自動クリーンアップ判定）と `.worktreeinclude` は `worktree-resolution` の「共通規約」。hook で worktree 環境を構築するプロジェクト（非 git VCS、per-worktree の DB 分離等）は本スキルの `--worktree` の対象外で、必要なら hook 相当のセットアップを手動実行する
+- 回収: マージ後は `/cleanup-merged`、手動で片付ける場合は `git worktree remove <path>` + `git branch -d <branch>`
