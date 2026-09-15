@@ -170,6 +170,24 @@ func TestPRBodyAppendRefusesBeforeItReachesGitHub(t *testing.T) {
 	}
 }
 
+// `ccx pr request-review` on somebody else's pull request is settled from the
+// document, before a client is asked for.
+func TestPRRequestReviewRefusesBeforeItReachesGitHub(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	code := run(t.Context(), []string{
+		"pr", "request-review", contextDocument(t, "2026-01-11T00:00:00Z", false, "abc123"), "alice",
+	}, strings.NewReader(""), &out, &errOut, noClient(t))
+
+	if code == 0 {
+		t.Fatalf("`ccx pr request-review` = 0, want a refusal")
+	}
+	if !strings.Contains(errOut.String(), "is not ours") {
+		t.Errorf("stderr = %q, want it to say the pull request is not ours", errOut.String())
+	}
+}
+
 // publishedLimits is what each fetch limit owes a reader: the variable that
 // raises it, the cap it raises, and the flag that reports the cap was reached.
 //

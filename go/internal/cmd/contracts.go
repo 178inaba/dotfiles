@@ -469,6 +469,30 @@ dry run: nothing is sent until the section is on disk and named.`,
 		statuses: with(),
 	},
 
+	"pr request-review": {
+		intro: `Ask reviewers for another review of our own pull request.
+
+For the reviewers a run has answered — with a fix and its report, or with a
+reply saying why nothing changes — and has opened no discussion with. Which
+logins those are is the run's own judgement and is what it names. What the
+document settles is settled here: a login is requested only when it has a
+submitted review, is not a bot, and does not stand at an approval. Every other
+login named is listed with the rule that left it out.
+
+When the document's reviews were cut short, an approval may sit outside the
+window, so nobody is requested and every login is listed as left out for that
+reason. Raise the review limit of ` + "`ccx pr context`" + ` and fetch again.
+
+Every eligible login goes out in one request, which adds them to the requested
+reviewers without dropping anybody already there. When no login is eligible,
+nothing is sent and that is an ordinary answer. A pull request that is not ours
+is refused from the document, before anything reaches GitHub. When GitHub
+refuses the request, none of the logins was requested and the command fails
+naming them; it is not retried.`,
+		blocks:   []block{prints(reflect.TypeFor[pullrequest.ReviewRequested]())},
+		statuses: with(),
+	},
+
 	"pr reply-threads": {
 		intro: `Reply to and resolve the review threads we may still speak in.
 

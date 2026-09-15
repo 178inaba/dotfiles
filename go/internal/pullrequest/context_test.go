@@ -565,10 +565,11 @@ func TestFetch(t *testing.T) {
 
 	t.Run("whose move it is, and who may close it", func(t *testing.T) {
 		tests := []struct {
-			name           string
-			index          int
-			wantBall       pullrequest.Ball
-			wantResolvable bool
+			name            string
+			index           int
+			wantBall        pullrequest.Ball
+			wantResolvable  bool
+			wantResolveOnly bool
 		}{
 			// Somebody else's remark on our own work: ours to answer, theirs
 			// to close.
@@ -584,7 +585,9 @@ func TestFetch(t *testing.T) {
 			// A bot never comes back to confirm, so a thread only it and we are
 			// in stays ours to act on even after our own reply — the state that
 			// left two threads open for a day.
-			{name: "a bot's remark we already answered", index: 8, wantBall: pullrequest.BallMine, wantResolvable: true},
+			// Our answer is already in, so resolving is all that is left: our own
+			// remark we confirmed (index 5) is not one, since it is not a bot's.
+			{name: "a bot's remark we already answered", index: 8, wantBall: pullrequest.BallMine, wantResolvable: true, wantResolveOnly: true},
 			// One person in the thread and it is a person's remark again.
 			{name: "a bot's remark a person joined", index: 9, wantBall: pullrequest.BallMine},
 		}
@@ -597,6 +600,9 @@ func TestFetch(t *testing.T) {
 				}
 				if thread.ResolvableByMe != tc.wantResolvable {
 					t.Errorf("resolvable_by_me = %v, want %v", thread.ResolvableByMe, tc.wantResolvable)
+				}
+				if thread.ResolveOnly != tc.wantResolveOnly {
+					t.Errorf("resolve_only = %v, want %v", thread.ResolveOnly, tc.wantResolveOnly)
 				}
 			})
 		}
@@ -621,6 +627,9 @@ func TestFetchBotThreadWithTruncatedComments(t *testing.T) {
 	}
 	if thread.ResolvableByMe {
 		t.Error("resolvable_by_me = true on a thread whose participants are not all known")
+	}
+	if thread.ResolveOnly {
+		t.Error("resolve_only = true on a thread whose participants are not all known")
 	}
 }
 

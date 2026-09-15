@@ -20,7 +20,8 @@ import (
 func newPRCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("pr", "Read and act on a pull request")
 	c.AddCommand(prContextCmd(deps), prPrepareReviewCmd(deps), prFreshnessCmd(deps), prReadyCmd(deps),
-		prPostReviewCmd(deps), prReplyThreadsCmd(deps), prSeenCmd(deps), prCommentCmd(deps), prBodyAppendCmd(deps))
+		prPostReviewCmd(deps), prReplyThreadsCmd(deps), prSeenCmd(deps), prCommentCmd(deps), prBodyAppendCmd(deps),
+		prRequestReviewCmd(deps))
 	return c
 }
 
@@ -512,6 +513,42 @@ func prBodyAppendCmd(deps Deps) *cobra.Command {
 	// this fails is on a flag this function did not declare.
 	_ = cmd.MarkFlagRequired("body-file")
 	return cmd
+}
+
+// prRequestReviewCmd builds `ccx pr request-review`, which asks the reviewers a
+// run answered to look at the pull request again.
+func prRequestReviewCmd(deps Deps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "request-review <pr-context.json> <login>...",
+		Short: "Ask reviewers for another review of our own pull request",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			reportBuild(c, deps.Build)
+			contextFile := args[0]
+			content, err := readFile(contextFile, "pr context file")
+			if err != nil {
+				return silent(err)
+			}
+			prContext, err := pullrequest.ParseContext([]byte(content), contextFile)
+			if err != nil {
+				return silent(err)
+			}
+			plan, err := pullrequest.PlanReviewRequest(prContext, args[1:])
+			if err != nil {
+				return silent(err)
+			}
+			if len(plan.Requested) > 0 {
+				client, err := deps.NewClient()
+				if err != nil {
+					return silent(err)
+				}
+				if err := pullrequest.RequestReview(c.Context(), client, prContext.Target(), plan); err != nil {
+					return silent(err)
+				}
+			}
+			return silent(renderJSON(c.OutOrStdout(), plan))
+		},
+	}
 }
 
 func prReplyThreadsCmd(deps Deps) *cobra.Command {

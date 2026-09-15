@@ -223,6 +223,15 @@ func (c *Client) AppendToPullRequestBody(ctx context.Context, repo Repo, number 
 	return pr.URL, nil
 }
 
+// RequestReviewers asks each login for a review of a pull request.
+//
+// The endpoint adds to the requested reviewers rather than replacing them, so a
+// login already requested stays requested and nobody else is dropped.
+func (c *Client) RequestReviewers(ctx context.Context, repo Repo, number int, logins []string) error {
+	path := fmt.Sprintf("repos/%s/pulls/%d/requested_reviewers", repo, number)
+	return c.post(ctx, path, map[string]any{"reviewers": logins}, &struct{}{})
+}
+
 // PullRequestForCurrentBranch is `gh pr view` with no argument: the pull
 // request whose head is the branch checked out in dir.
 //

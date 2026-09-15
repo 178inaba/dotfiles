@@ -451,6 +451,33 @@ func appendServer(t *testing.T, live string, sent *edit) http.Handler {
 	})
 }
 
+func TestRequestReviewers(t *testing.T) {
+	t.Parallel()
+
+	var method, path string
+	var sent struct {
+		Reviewers []string `json:"reviewers"`
+	}
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Errorf("decode the request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"html_url":"https://github.com/178inaba/dotfiles/pull/7"}`)
+	}))
+
+	if err := c.RequestReviewers(t.Context(), repo, 7, []string{"alice", "bob"}); err != nil {
+		t.Fatalf("RequestReviewers: %v", err)
+	}
+	if method != http.MethodPost || path != "/repos/178inaba/dotfiles/pulls/7/requested_reviewers" {
+		t.Errorf("sent %s %s, want POST to the pull request's requested reviewers", method, path)
+	}
+	if diff := cmp.Diff([]string{"alice", "bob"}, sent.Reviewers); diff != "" {
+		t.Errorf("reviewers sent (-want +got):\n%s", diff)
+	}
+}
+
 func TestAppendToPullRequestBody(t *testing.T) {
 	t.Parallel()
 

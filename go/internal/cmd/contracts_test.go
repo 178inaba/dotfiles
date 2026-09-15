@@ -106,7 +106,7 @@ func TestEverySkillFacingCommandHasAContract(t *testing.T) {
 		"issue sections schema", "issue sections list", "issue sections check", "issue sections find",
 		"issue publish",
 		"pr context", "pr seen", "pr freshness", "pr ready", "pr prepare-review", "pr post-review", "pr reply-threads",
-		"pr comment", "pr body-append",
+		"pr comment", "pr body-append", "pr request-review",
 		"worktree detect", "worktree create", "worktree resolve", "worktree checkout",
 		"worktree collect", "worktree delete", "worktree sweep",
 		"review pending", "review verify", "review clone",

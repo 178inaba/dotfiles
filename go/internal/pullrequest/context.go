@@ -229,6 +229,11 @@ type Thread struct {
 	// it. A person's remark is closed by that person, which is the other half
 	// of the protocol the reviewing side runs.
 	ResolvableByMe bool `json:"resolvable_by_me"`
+	// Whether resolving is all the thread still wants: a bot's thread on our
+	// own pull request whose last word is ours. A bot does not come back to
+	// confirm, so our answer being in is the end of it, and a reply saying
+	// the same again adds nothing.
+	ResolveOnly bool `json:"resolve_only"`
 }
 
 // Context is everything one review needs, in the order the contract publishes
@@ -704,6 +709,7 @@ func thread(ctx context.Context, c *ghapi.Client, n threadNode, me string, isOwn
 	botAlone := botOnly(comments, t.CommentsTruncated, me)
 	t.Ball = ball(t, isOwnPR, botAlone, me, headCommittedAt)
 	t.ResolvableByMe = !n.IsResolved && (isLogin(t.OpenedBy, me) || (isOwnPR && botAlone))
+	t.ResolveOnly = !n.IsResolved && isOwnPR && botAlone && t.LastComment != nil && isLogin(t.LastComment.Author, me)
 	return t, nil
 }
 
