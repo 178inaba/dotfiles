@@ -118,13 +118,16 @@ func cleanupFixture(t *testing.T) (repo string, prs map[string]string) {
 	// neither list.
 	branchAt("inflight", "c.txt", true)
 
-	// A merged pull request, but with a commit that was never pushed.
+	// Merged into the default branch with no pull request, but with a commit
+	// its own upstream never got. A pull request verdict skips the unpushed
+	// checks, so merged_no_pr is the one that still reaches them.
 	gittest.Run(t, repo, "switch", "-qc", "unpushed-br")
 	commit(repo, "d.txt")
 	gittest.Run(t, repo, "push", "-q", "-u", "origin", "unpushed-br")
 	commit(repo, "d2.txt")
 	gittest.Run(t, repo, "switch", "-q", "main")
-	prs["unpushed-br"] = "[" + pr(124, "MERGED", mergedAt, oid("unpushed-br")) + "]"
+	gittest.Run(t, repo, "merge", "-q", "unpushed-br")
+	gittest.Run(t, repo, "push", "-q", "origin", "main")
 
 	// Merged, and protected all the same.
 	gittest.Run(t, repo, "branch", "-q", "develop", "main")
@@ -192,11 +195,14 @@ func cleanupFixture(t *testing.T) (repo string, prs map[string]string) {
 	gittest.Write(t, filepath.Join(wtDirty, "dirty.txt"), "dirty\n")
 	prs["wt-dirty"] = "[" + pr(125, "MERGED", mergedAt, oid("wt-dirty")) + "]"
 
+	gittest.Run(t, repo, "worktree", "add", "-q", "--detach", filepath.Join(base, "wt-detached"), "main")
+
+	// Merged on the remote's default branch with no pull request, never pushed
+	// under its own name, and not yet pulled into the local main. The local main
+	// is behind origin from here on, so nothing after this pushes it.
 	wtNoUpstream := worktree("wt-noupstream", "wt-noupstream")
 	commit(wtNoUpstream, "h.txt")
-	prs["wt-noupstream"] = "[" + pr(126, "MERGED", mergedAt, oid("wt-noupstream")) + "]"
-
-	gittest.Run(t, repo, "worktree", "add", "-q", "--detach", filepath.Join(base, "wt-detached"), "main")
+	gittest.Run(t, wtNoUpstream, "push", "-q", "origin", "wt-noupstream:main")
 
 	// The dirty check comes before the closed pull request's exemption, and is
 	// the last guard left on the path that deletes with -D.
