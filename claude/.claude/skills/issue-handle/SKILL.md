@@ -1,7 +1,7 @@
 ---
 name: issue-handle
 description: Issueの調査から実装完了までを一貫して対応
-argument-hint: <issue-number | --file FILE_PATH> [--base BRANCH] [--worktree] [--no-plan-review]
+argument-hint: <issue-number | --file FILE_PATH> [--base BRANCH] [--worktree]
 disable-model-invocation: true
 ---
 
@@ -14,7 +14,6 @@ disable-model-invocation: true
 /issue-handle 99 --worktree                   # Issue番号 + worktree で隔離（並列開発時）
 /issue-handle --file spec.md --worktree       # ファイル + worktree
 /issue-handle 99 --base develop --worktree    # ベースブランチを明示指定
-/issue-handle 99 --no-plan-review             # 軽微な Issue 向けに計画検証（deep-plan-review）を省略
 ```
 
 ## Issue情報（自動取得）
@@ -28,7 +27,6 @@ disable-model-invocation: true
 - `--file FILE_PATH`: 仕様ファイルのパス（`<issue-number>`と排他）
 - `--base BRANCH`: ベースブランチを明示指定。省略時は起動時の現在ブランチ
 - `--worktree`: 実装作業を専用の git worktree で隔離（並列開発時に推奨）。手順は [references/worktree.md](references/worktree.md)
-- `--no-plan-review`: 計画フェーズの計画検証（deep-plan-review）をスキップする。ドキュメント・spec の小修正や単一ファイルの軽微な変更向け。同スキルの承認後の同期点も無くなり、承認がそのまま実装の開始になる。完了時の独立セッション `/deep-review` は省略しない
 
 ## 前提条件
 - Gitリポジトリ内で実行すること
@@ -149,12 +147,11 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
        - [ ] プッシュ・PR作成（draft で作成。Issue番号指定時は `Closes #<issue-number>` を含める。Sub の場合は `Part of #<parent>` と、最後の Sub なら親の `Closes` も — 実装完了処理の規則に従う）
        - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
        - [ ] 同期検証を通過して PR を Ready 化
-   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を、`--no-plan-review` の有無にかかわらず引数 `--no-exit` で起動する
+   - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を引数 `--no-exit` で起動する
    - **参照・コマンドチェック**: 計画準拠チェックの**後**に `ccx plan check <計画ファイルパス>` を実行する
      - finding は計画の著者が解消する: 参照を直す / 新規に作る成果物なら `(new)` または `（新規）` を注記する / コマンドを実行して結果を記録する（実行できないなら理由を記録する。形式は `ccx plan check --help`）。直したら再実行し、**clean になるまで繰り返す**
      - finding が残る計画で、計画検証を起動しない・`ExitPlanMode` を呼ばない
-   - **計画検証**（`--no-plan-review` 未指定時のみ）: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。ExitPlanMode は同スキルが呼ぶので、本スキルからは呼ばない
-   - **ExitPlanMode**（`--no-plan-review` 指定時のみ）: 参照・コマンドチェックが clean になった時点で本スキルが `ExitPlanMode` を呼ぶ
+   - **計画検証**: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。ExitPlanMode は同スキルが呼ぶので、本スキルからは呼ばない
    - ユーザーの承認を待つ
 
 4. **実装フェーズへ**（承認後）
@@ -162,7 +159,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 
 ### 実装フェーズ
 
-**開始前の同期点**（`--no-plan-review` 未指定時）: `deep-plan-review` の承認後の同期点が完了して同スキルが返るまで、以下のステップを 1 つも開始しない。同期点で「打ち切り」が選ばれた場合は本 run をそこで終え、この時点で作られているもの（worktree・ブランチ・計画ファイル）はそのまま残す。
+**開始前の同期点**: `deep-plan-review` の承認後の同期点が完了して同スキルが返るまで、以下のステップを 1 つも開始しない。同期点で「打ち切り」が選ばれた場合は本 run をそこで終え、この時点で作られているもの（worktree・ブランチ・計画ファイル）はそのまま残す。
 
 1. **作業ブランチ確定**
    - **`--worktree` 指定時**: 本ステップ全体をスキップして次のステップへ
