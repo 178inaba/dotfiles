@@ -227,5 +227,6 @@
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "advisorModel": "fable",
-  "outputStyle": "Concise"
+  "outputStyle": "Concise",
+  "syncClaudeAiSkills": false
 }
