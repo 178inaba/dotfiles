@@ -150,8 +150,9 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
    - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を引数 `--no-exit` で起動する
    - **参照・コマンドチェック**: 計画準拠チェックの**後**に `ccx plan check <計画ファイルパス>` を実行する
      - finding は計画の著者が解消する: 参照を直す / 新規に作る成果物なら `(new)` または `（新規）` を注記する / コマンドを実行して結果を記録する（実行できないなら理由を記録する。形式は `ccx plan check --help`）。直したら再実行し、**clean になるまで繰り返す**
-     - finding が残る計画で、計画検証を起動しない・`ExitPlanMode` を呼ばない
-   - **計画検証**: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）。ExitPlanMode は同スキルが呼ぶので、本スキルからは呼ばない
+     - finding が残る計画で、計画検証を起動しない
+   - **計画検証**: Skill ツールで `deep-plan-review` を起動する（引数: 計画ファイルパス）
+   - `ExitPlanMode` は `deep-plan-review` だけが呼ぶ。本スキルは finding が残っていても呼ばない
    - ユーザーの承認を待つ
 
 4. **実装フェーズへ**（承認後）
