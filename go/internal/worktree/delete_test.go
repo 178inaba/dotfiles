@@ -51,6 +51,18 @@ func deleteFixture(t *testing.T) string {
 	gittest.Run(t, repo, "merge", "-q", "merged-br")
 	// Its head has moved since the verdict was formed.
 	branch("closed-stale")
+	// Squash-merged pull requests: none is an ancestor of main, so only -D
+	// removes them, and the recorded head decides whether it may.
+	branch("squashed-br")
+	branch("squashed-moved")
+	branch("squashed-unrelated")
+	// Behind the head that merged: the commit the reset throws away stands in
+	// for the pull request's head, reachable afterwards as @{1}.
+	gittest.Run(t, repo, "switch", "-qc", "squashed-behind")
+	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "squashed-behind")
+	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "squashed-behind tip")
+	gittest.Run(t, repo, "reset", "-q", "--hard", "HEAD~1")
+	gittest.Run(t, repo, "switch", "-q", "main")
 	// Clean and merged, but somebody is standing in it.
 	busy := filepath.Join(base, "wt-busy")
 	gittest.Run(t, repo, "worktree", "add", "-q", busy, "-b", "wt-busy", "main")
@@ -80,6 +92,13 @@ func TestDelete(t *testing.T) {
 			{Branch: "closed-stale", Verdict: VerdictPRClosed, HeadOID: gittest.Rev(t, repo, "main")},
 			{Branch: "live-br", Verdict: VerdictMergedNoPR},
 			{Branch: "merged-br", Verdict: VerdictMergedNoPR},
+			{Branch: "squashed-br", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-br")},
+			// An ancestor of the recorded head is enough: equality is the
+			// closed pull request's rule, not the merged one's.
+			{Branch: "squashed-behind", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-behind@{1}")},
+			// The branch has moved past the head that merged.
+			{Branch: "squashed-moved", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-moved~1")},
+			{Branch: "squashed-unrelated", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/closed-br")},
 		},
 	}
 
@@ -91,7 +110,7 @@ func TestDelete(t *testing.T) {
 	// The worktree in use is refused, and everything after it still happens:
 	// the list is a batch somebody approved, and stopping at the first refusal
 	// would leave them working out which half ran.
-	wantRemoved := Removed{Worktrees: []string{del}, Branches: []string{"wt-del", "closed-br", "merged-br"}}
+	wantRemoved := Removed{Worktrees: []string{del}, Branches: []string{"wt-del", "closed-br", "merged-br", "squashed-br", "squashed-behind"}}
 	if diff := cmp.Diff(wantRemoved, got.Removed); diff != "" {
 		t.Errorf("removed (-want +got):\n%s", diff)
 	}
@@ -120,6 +139,14 @@ func TestDelete(t *testing.T) {
 			name: "a head that has moved since the verdict", target: "closed-stale", wantKind: KindBranch,
 			wantContains: "no longer matches",
 		},
+		{
+			name: "a merged branch moved past the head that merged", target: "squashed-moved", wantKind: KindBranch,
+			wantContains: "no longer contained",
+		},
+		{
+			name: "a merged branch recorded against an unrelated head", target: "squashed-unrelated", wantKind: KindBranch,
+			wantContains: "no longer contained",
+		},
 		{name: "an unmerged branch called merged", target: "fake-merged", wantKind: KindBranch},
 		{name: "a branch checked out elsewhere", target: "live-br", wantKind: KindBranch},
 	}
@@ -143,13 +170,13 @@ func TestDelete(t *testing.T) {
 		})
 	}
 
-	for _, branch := range []string{"closed-stale", "fake-merged", "live-br"} {
-		if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+	for _, branch := range []string{"closed-stale", "fake-merged", "live-br", "squashed-moved", "squashed-unrelated"} {
+		if !branchExists(t, repo, branch) {
 			t.Errorf("%s was deleted despite its failure", branch)
 		}
 	}
-	for _, branch := range []string{"wt-del", "closed-br", "merged-br"} {
-		if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+	for _, branch := range wantRemoved.Branches {
+		if branchExists(t, repo, branch) {
 			t.Errorf("%s survived its deletion", branch)
 		}
 	}
@@ -162,14 +189,27 @@ func TestDeleteWithoutAHeadToVerify(t *testing.T) {
 	t.Parallel()
 
 	repo := deleteFixture(t)
-	got, err := Delete(t.Context(), runner.Exec{}, repo, Candidates{
-		Branches: []BranchCandidate{{Branch: "closed-br", Verdict: VerdictPRClosed}},
-	})
-	if err != nil {
-		t.Fatalf("Delete: %v", err)
+	tests := []struct {
+		name      string
+		candidate BranchCandidate
+	}{
+		{name: "a closed pull request", candidate: BranchCandidate{Branch: "closed-br", Verdict: VerdictPRClosed}},
+		{name: "a merged pull request", candidate: BranchCandidate{Branch: "squashed-br", Verdict: VerdictPRMerged}},
 	}
-	if len(got.Failures) != 1 || !strings.Contains(got.Failures[0].Error, "<missing>") {
-		t.Errorf("failures = %+v, want one naming the missing head", got.Failures)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Delete(t.Context(), runner.Exec{}, repo, Candidates{Branches: []BranchCandidate{tc.candidate}})
+			if err != nil {
+				t.Fatalf("Delete: %v", err)
+			}
+			if len(got.Failures) != 1 || !strings.Contains(got.Failures[0].Error, "<missing>") {
+				t.Errorf("failures = %+v, want one naming the missing head", got.Failures)
+			}
+			if !branchExists(t, repo, tc.candidate.Branch) {
+				t.Errorf("%s was deleted despite its failure", tc.candidate.Branch)
+			}
+		})
 	}
 }
 

@@ -649,10 +649,12 @@ The processes holding a worktree as their working directory are checked again
 here, immediately before the removal, so that somebody entering one between
 the approval and the deletion does not lose it.
 
-Deletion is git branch -d, so git's own merged check is a second safety net
-under the judgement that put a branch on the list. Only a branch whose pull
-request closed unmerged is deleted with -D, and only after its head is checked
-against the one recorded at collection time. --force is never used.`,
+Only a merged_no_pr branch is deleted with git branch -d, so git's own merged
+check is a second safety net under the judgement that put it on the list. A
+pr_closed or pr_merged branch is deleted with -D, and only after its head is
+checked again against the pull request head recorded at collection time:
+pr_closed must still equal it, and pr_merged must still be an ancestor of it
+or equal to it. --force is never used.`,
 		blocks: []block{
 			reads("Input (JSON on standard input)", reflect.TypeFor[worktree.DeleteInput]()),
 			prints(reflect.TypeFor[worktree.Deletion]()),

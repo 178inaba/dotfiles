@@ -110,31 +110,37 @@ type deleter struct {
 
 // deleteBranch removes a branch, with the flag its verdict has earned.
 //
-// -d for everything but a closed pull request, so that git's own merge check
-// stays as a second opinion. -D only where the head was matched against the
-// pull request's, and only after matching it again: approval takes time, and a
-// commit made in between would be deleted with nothing to restore it from.
+// -d only for merged_no_pr, where git's own merge check is what the verdict
+// rests on and stays as a second opinion. -D for the pull request verdicts,
+// whose head was checked against the pull request's, and only after checking
+// it again: approval takes time, and a commit made in between would be deleted
+// with nothing to restore it from. A closed pull request needs the exact head;
+// a merged one needs the branch contained in the head that merged, since a
+// squash or rebase merge leaves the branch out of the default branch for good.
 func (d *deleter) deleteBranch(ctx context.Context, branch string, verdict Verdict, headOID string) {
 	flag := "-d"
-	if verdict == VerdictPRClosed {
+	if verdict.verifiedByPRHead() {
 		flag = "-D"
-		current, _ := runner.Git(ctx, d.r, d.dir, "rev-parse", "refs/heads/"+branch)
-		if headOID == "" || current != headOID {
-			d.out.Failures = append(d.out.Failures, Failure{
-				Type: KindBranch, Target: branch, Error: fmt.Sprintf(
-					"refusing -D: branch head no longer matches verified PR head (expected %s, got %s)",
-					or(headOID, "<missing>"), or(current, "<unresolved>")),
-			})
+		if !prHeadHolds(ctx, d.r, d.dir, verdict, branch, headOID) {
+			current, _ := runner.Git(ctx, d.r, d.dir, "rev-parse", "refs/heads/"+branch)
+			rule, want := "no longer matches the verified PR head", or(headOID, "<missing>")
+			if verdict == VerdictPRMerged {
+				rule, want = "is no longer contained in the merged PR head", "an ancestor of "+want
+			}
+			d.refuse(branch, fmt.Sprintf("refusing -D: branch head %s (expected %s, got %s)",
+				rule, want, or(current, "<unresolved>")))
 			return
 		}
 	}
 	if _, err := runner.Git(ctx, d.r, d.dir, "branch", flag, branch); err != nil {
-		d.out.Failures = append(d.out.Failures, Failure{
-			Type: KindBranch, Target: branch, Error: runner.Message(err),
-		})
+		d.refuse(branch, runner.Message(err))
 		return
 	}
 	d.out.Removed.Branches = append(d.out.Removed.Branches, branch)
+}
+
+func (d *deleter) refuse(branch, reason string) {
+	d.out.Failures = append(d.out.Failures, Failure{Type: KindBranch, Target: branch, Error: reason})
 }
 
 func or(value, fallback string) string {
