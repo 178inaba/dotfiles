@@ -16,10 +16,10 @@
                               upstream to compare against.
     commits_beyond_merged_pr  A branch pushed to after its pull request merged, or
                               diverged from it, or whose merged head is not here at all.
-                              Nothing else catches it: the commits are on the remote, so
-                              every unpushed check passes and `git branch -d` agrees to
-                              delete. detail lists the commits beyond the merge, or says
-                              the merged head is missing locally where that is why.
+                              Nothing else catches it: a merged pull request is exempt
+                              from the unpushed checks and deleted with -D. detail lists
+                              the commits beyond the merge, or says the merged head is
+                              missing locally where that is why.
     local_commits_beyond_pr   A branch whose pull request closed unmerged and which
                               carries commits the pull request never had.
     in_use_by_process         A worktree some process is still standing in — another

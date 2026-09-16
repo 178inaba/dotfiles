@@ -16,7 +16,9 @@ type Verdict string
 
 const (
 	// VerdictPRMerged is a pull request that merged, with the local branch at
-	// or behind the head that merged.
+	// or behind the head that merged. That containment, checked again at
+	// deletion, is what the branch is deleted on rather than git's own merged
+	// check, which a squash or rebase merge never satisfies.
 	VerdictPRMerged Verdict = "pr_merged"
 	// VerdictMergedNoPR is a branch git says is merged into the default one,
 	// which is what a branch merged locally or squashed without a pull request
@@ -53,8 +55,8 @@ const (
 	SkipNoUpstreamWithCommits SkipReason = "no_upstream_with_commits"
 	// SkipCommitsBeyondMergedPR is a branch pushed to after its pull request
 	// merged, or diverged from it, or whose merged head is not here at all.
-	// Nothing else catches it: the commits are on the remote, so every
-	// unpushed check passes and `git branch -d` agrees to delete. detail
+	// Nothing else catches it: a merged pull request is exempt from the
+	// unpushed checks and deleted with -D. detail
 	// lists the commits beyond the merge, or says the merged head is missing
 	// locally where that is why.
 	SkipCommitsBeyondMergedPR SkipReason = "commits_beyond_merged_pr"
@@ -80,8 +82,10 @@ type Candidate struct {
 	// Marks the worktree the caller is standing in, which has to be
 	// left before it can be removed.
 	IsCurrent bool `json:"is_current"`
-	// Set only when the verdict is pr_closed, and is the head the deletion
-	// checks again before it uses the flag that skips git's own safety net.
+	// The pull request head the branch was verified against, set when the
+	// verdict is pr_closed or pr_merged. The deletion checks the branch
+	// against it again before it uses the flag that skips git's own safety
+	// net.
 	HeadOID string `json:"head_oid"`
 }
 
@@ -91,7 +95,11 @@ type BranchCandidate struct {
 	Verdict   Verdict `json:"verdict"`
 	Detail    string  `json:"detail"`
 	IsCurrent bool    `json:"is_current"`
-	HeadOID   string  `json:"head_oid"`
+	// The pull request head the branch was verified against, set when the
+	// verdict is pr_closed or pr_merged. The deletion checks the branch
+	// against it again before it uses the flag that skips git's own safety
+	// net.
+	HeadOID string `json:"head_oid"`
 }
 
 // Skipped is something that was judged finished and is being left alone anyway.
@@ -247,8 +255,8 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 		isCurrent := e.Path == currentWorktree
 		// Untracked files count here, as IsClean counts them: this is about to
 		// delete the directory they are in, not fast-forward past them. It is
-		// also the last dirty guard on the path that deletes with -D, so it comes
-		// before the closed pull request's exemption.
+		// also the last dirty guard on the paths that delete with -D, so it comes
+		// before the pull request verdicts' exemption.
 		var reason SkipReason
 		var detail string
 		if clean, err := IsClean(ctx, c.r, e.Path); err == nil && !clean {
@@ -388,15 +396,20 @@ const maxBeyond = 5
 
 // judgeMerged decides about a branch whose pull request merged.
 //
-// The local branch has to be at the merged head or behind it. A commit pushed
-// to the branch after the merge is on the remote, so every unpushed check
-// passes and `git branch -d` agrees — this comparison is the only thing
-// standing between that commit and being the last copy nobody has.
+// The local branch has to be at the merged head or behind it. A merged pull
+// request is exempt from the unpushed checks and deleted with -D, so this
+// comparison is the only thing standing between a commit made after the merge
+// and being the last copy nobody has. GitHub keeps refs/pull/N/head after the
+// head branch is deleted, so everything the comparison admits stays there.
 func (c *collector) judgeMerged(ctx context.Context, branch string, pr branchPR) judgement {
 	// refs/heads/ spelled out: git resolves a tag before a branch of the same
 	// name, and the tag's commit would be compared instead.
 	if pr.HeadRefOID != "" && IsAncestor(ctx, c.r, c.dir, "refs/heads/"+branch, pr.HeadRefOID) {
-		return judgement{verdict: VerdictPRMerged, detail: fmt.Sprintf("PR #%d MERGED", pr.Number)}
+		return judgement{
+			verdict: VerdictPRMerged,
+			detail:  fmt.Sprintf("PR #%d MERGED", pr.Number),
+			headOID: pr.HeadRefOID,
+		}
 	}
 
 	j := judgement{skip: SkipCommitsBeyondMergedPR}
@@ -449,11 +462,11 @@ func (c *collector) judgeClosed(ctx context.Context, branch string, pr branchPR)
 // them one procedure is what stops a fix landing on the branch path and not
 // the worktree path.
 func (c *collector) safety(ctx context.Context, dir, rev string, verdict Verdict) (SkipReason, string) {
-	// A closed pull request has already been checked against its head, which
-	// is the same worry the unpushed checks have — and its remote branch is
-	// usually gone, so no_upstream_with_commits would fire on every one of
-	// them and the case would never be reachable.
-	if verdict == VerdictPRClosed {
+	// A pull request verdict has already been checked against the pull
+	// request's head, which is the same worry the unpushed checks have — and
+	// its remote branch is usually gone, so no_upstream_with_commits would
+	// fire on every squash or rebase merge and on every closed one.
+	if verdict == VerdictPRClosed || verdict == VerdictPRMerged {
 		return "", ""
 	}
 	if log, _ := runner.Git(ctx, c.r, dir, "log", rev+"@{u}.."+rev, "--oneline"); log != "" {

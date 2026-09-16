@@ -180,6 +180,21 @@ func cleanupFixture(t *testing.T) (repo string, prs map[string]string) {
 	branchAt("reopened", "r.txt", true)
 	prs["reopened"] = "[" + pr(30, "OPEN", "", "") + "," + pr(29, "CLOSED", "", "") + "]"
 
+	// squashMerge stands in for GitHub squashing a pull request and deleting
+	// its head branch: main gets a commit of its own, the branch is never its
+	// ancestor, and a pruned remote leaves @{u} with nothing to resolve to.
+	squashMerge := func(dir, branch string) {
+		commit(repo, "squash-"+branch+".txt")
+		gittest.Run(t, repo, "push", "-q", "origin", "main")
+		gittest.Run(t, dir, "push", "-q", "origin", "--delete", branch)
+		gittest.Run(t, repo, "fetch", "-q", "--prune", "origin")
+	}
+
+	// A merged pull request squashed into main, whose remote branch is gone.
+	branchAt("squashed-br", "s.txt", true)
+	prs["squashed-br"] = "[" + pr(130, "MERGED", mergedAt, oid("squashed-br")) + "]"
+	squashMerge(repo, "squashed-br")
+
 	worktree := func(name, branch string) string {
 		path := filepath.Join(base, name)
 		gittest.Run(t, repo, "worktree", "add", "-q", path, "-b", branch, "main")
@@ -194,6 +209,12 @@ func cleanupFixture(t *testing.T) (repo string, prs map[string]string) {
 	wtDirty := worktree("wt-dirty", "wt-dirty")
 	gittest.Write(t, filepath.Join(wtDirty, "dirty.txt"), "dirty\n")
 	prs["wt-dirty"] = "[" + pr(125, "MERGED", mergedAt, oid("wt-dirty")) + "]"
+
+	wtSquashed := worktree("wt-squashed", "wt-squashed")
+	commit(wtSquashed, "q.txt")
+	gittest.Run(t, wtSquashed, "push", "-q", "-u", "origin", "wt-squashed")
+	prs["wt-squashed"] = "[" + pr(131, "MERGED", mergedAt, oid("wt-squashed")) + "]"
+	squashMerge(wtSquashed, "wt-squashed")
 
 	gittest.Run(t, repo, "worktree", "add", "-q", "--detach", filepath.Join(base, "wt-detached"), "main")
 
@@ -299,7 +320,11 @@ func TestCollect(t *testing.T) {
 			// Closed pull requests skip the unpushed checks, or a branch whose
 			// remote is gone would never qualify.
 			{name: "closed without merging and never pushed", branch: "closed-noup", want: VerdictPRClosed, wantDetail: "PR #10 CLOSED（未マージ・PR head 一致）"},
+			// Squashed, so never an ancestor of main, and with its upstream
+			// pruned: the merged pull request's head is what vouches for it.
+			{name: "squash-merged with its remote branch gone", branch: "squashed-br", want: VerdictPRMerged, wantDetail: "PR #130 MERGED"},
 			{name: "a merged worktree", branch: "wt-merged", isWorktree: true, want: VerdictMergedNoPR},
+			{name: "a squash-merged worktree", branch: "wt-squashed", isWorktree: true, want: VerdictPRMerged},
 			{name: "a closed worktree never pushed", branch: "wt-closed-noup", isWorktree: true, want: VerdictPRClosed},
 		}
 
@@ -400,13 +425,42 @@ func TestCollect(t *testing.T) {
 		}
 	})
 
-	t.Run("a closed candidate carries the head it was verified against", func(t *testing.T) {
-		b, ok := branchCandidate(got, "closedpr")
-		if !ok {
-			t.Fatal("closedpr is not a candidate")
+	t.Run("a candidate carries the pull request head it was verified against", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			branch     string
+			isWorktree bool
+			// wantRev names the pull request's head in the fixture.
+			wantRev string
+		}{
+			{name: "closed", branch: "closedpr", wantRev: "refs/heads/closedpr"},
+			{name: "squash-merged", branch: "squashed-br", wantRev: "refs/heads/squashed-br"},
+			{name: "a squash-merged worktree", branch: "wt-squashed", isWorktree: true, wantRev: "refs/heads/wt-squashed"},
+			// The pull request's head rather than the local one: the head that
+			// merged is the commit the reset threw away.
+			{name: "behind the head that merged", branch: "merged-local-behind", wantRev: "refs/heads/merged-local-behind@{1}"},
 		}
-		if want := gittest.Rev(t, repo, "refs/heads/closedpr"); b.HeadOID != want {
-			t.Errorf("head_oid = %q, want %q", b.HeadOID, want)
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				var headOID string
+				if tc.isWorktree {
+					w, ok := worktreeCandidate(got, tc.branch)
+					if !ok {
+						t.Fatalf("%s is not a worktree candidate; they were %v", tc.branch, candidateWorktrees(got))
+					}
+					headOID = w.HeadOID
+				} else {
+					b, ok := branchCandidate(got, tc.branch)
+					if !ok {
+						t.Fatalf("%s is not a branch candidate; they were %v", tc.branch, candidateBranches(got))
+					}
+					headOID = b.HeadOID
+				}
+				if want := gittest.Rev(t, repo, tc.wantRev); headOID != want {
+					t.Errorf("head_oid = %q, want %q", headOID, want)
+				}
+			})
 		}
 	})
 
