@@ -225,8 +225,8 @@ func cleanupFixture(t *testing.T) (repo string, prs map[string]string) {
 	commit(wtNoUpstream, "h.txt")
 	gittest.Run(t, wtNoUpstream, "push", "-q", "origin", "wt-noupstream:main")
 
-	// The dirty check comes before the closed pull request's exemption, and is
-	// the last guard left on the path that deletes with -D.
+	// The dirty check comes before the pull request verdicts' exemption, and is
+	// the last guard left on the paths that delete with -D.
 	wtClosedDirty := worktree("wt-closed-dirty", "wt-closed-dirty")
 	commit(wtClosedDirty, "k.txt")
 	prs["wt-closed-dirty"] = "[" + pr(11, "CLOSED", "", oid("wt-closed-dirty")) + "]"
