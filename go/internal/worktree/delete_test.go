@@ -171,12 +171,12 @@ func TestDelete(t *testing.T) {
 	}
 
 	for _, branch := range []string{"closed-stale", "fake-merged", "live-br", "squashed-moved", "squashed-unrelated"} {
-		if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+		if !branchExists(t, repo, branch) {
 			t.Errorf("%s was deleted despite its failure", branch)
 		}
 	}
 	for _, branch := range wantRemoved.Branches {
-		if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		if branchExists(t, repo, branch) {
 			t.Errorf("%s survived its deletion", branch)
 		}
 	}
@@ -206,7 +206,7 @@ func TestDeleteWithoutAHeadToVerify(t *testing.T) {
 			if len(got.Failures) != 1 || !strings.Contains(got.Failures[0].Error, "<missing>") {
 				t.Errorf("failures = %+v, want one naming the missing head", got.Failures)
 			}
-			if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+tc.candidate.Branch); err != nil {
+			if !branchExists(t, repo, tc.candidate.Branch) {
 				t.Errorf("%s was deleted despite its failure", tc.candidate.Branch)
 			}
 		})

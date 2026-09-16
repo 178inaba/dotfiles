@@ -402,9 +402,7 @@ const maxBeyond = 5
 // and being the last copy nobody has. GitHub keeps refs/pull/N/head after the
 // head branch is deleted, so everything the comparison admits stays there.
 func (c *collector) judgeMerged(ctx context.Context, branch string, pr branchPR) judgement {
-	// refs/heads/ spelled out: git resolves a tag before a branch of the same
-	// name, and the tag's commit would be compared instead.
-	if pr.HeadRefOID != "" && IsAncestor(ctx, c.r, c.dir, "refs/heads/"+branch, pr.HeadRefOID) {
+	if prHeadHolds(ctx, c.r, c.dir, VerdictPRMerged, branch, pr.HeadRefOID) {
 		return judgement{
 			verdict: VerdictPRMerged,
 			detail:  fmt.Sprintf("PR #%d MERGED", pr.Number),
@@ -440,18 +438,41 @@ func (c *collector) judgeMerged(ctx context.Context, branch string, pr branchPR)
 // that point GitHub still holds refs/pull/N/head and nothing is lost. Anything
 // else means there are commits the pull request never saw.
 func (c *collector) judgeClosed(ctx context.Context, branch string, pr branchPR) judgement {
-	local, _ := c.git(ctx, "rev-parse", "refs/heads/"+branch)
-	if pr.HeadRefOID != "" && local == pr.HeadRefOID {
+	if prHeadHolds(ctx, c.r, c.dir, VerdictPRClosed, branch, pr.HeadRefOID) {
 		return judgement{
 			verdict: VerdictPRClosed,
 			detail:  fmt.Sprintf("PR #%d CLOSED（未マージ・PR head 一致）", pr.Number),
-			headOID: local,
+			headOID: pr.HeadRefOID,
 		}
 	}
 	return judgement{
 		skip:   SkipLocalCommitsBeyondPR,
 		detail: fmt.Sprintf("PR #%d CLOSED（未マージ）だが PR head と不一致（ローカル限定 commit あり）", pr.Number),
 	}
+}
+
+// verifiedByPRHead is whether the verdict rests on the branch being checked
+// against its pull request's head, which both the collection and the deletion
+// do instead of the upstream checks and git's merged check.
+func (v Verdict) verifiedByPRHead() bool {
+	return v == VerdictPRClosed || v == VerdictPRMerged
+}
+
+// prHeadHolds is the check a verdict verified by its pull request's head is
+// formed on, and checked on again before the deletion: the branch exactly at
+// headOID for a closed pull request, and at or behind it for a merged one.
+func prHeadHolds(ctx context.Context, r runner.Runner, dir string, verdict Verdict, branch, headOID string) bool {
+	if headOID == "" {
+		return false
+	}
+	// refs/heads/ spelled out: git resolves a tag before a branch of the same
+	// name, and the tag's commit would be compared instead.
+	ref := "refs/heads/" + branch
+	if verdict == VerdictPRMerged {
+		return IsAncestor(ctx, r, dir, ref, headOID)
+	}
+	local, _ := runner.Git(ctx, r, dir, "rev-parse", ref)
+	return local == headOID
 }
 
 // safety is the last look before something becomes a candidate: are there
@@ -466,7 +487,7 @@ func (c *collector) safety(ctx context.Context, dir, rev string, verdict Verdict
 	// request's head, which is the same worry the unpushed checks have — and
 	// its remote branch is usually gone, so no_upstream_with_commits would
 	// fire on every squash or rebase merge and on every closed one.
-	if verdict == VerdictPRClosed || verdict == VerdictPRMerged {
+	if verdict.verifiedByPRHead() {
 		return "", ""
 	}
 	if log, _ := runner.Git(ctx, c.r, dir, "log", rev+"@{u}.."+rev, "--oneline"); log != "" {

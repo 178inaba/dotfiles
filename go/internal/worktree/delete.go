@@ -119,25 +119,16 @@ type deleter struct {
 // squash or rebase merge leaves the branch out of the default branch for good.
 func (d *deleter) deleteBranch(ctx context.Context, branch string, verdict Verdict, headOID string) {
 	flag := "-d"
-	switch verdict {
-	case VerdictPRClosed:
+	if verdict.verifiedByPRHead() {
 		flag = "-D"
-		current, _ := runner.Git(ctx, d.r, d.dir, "rev-parse", "refs/heads/"+branch)
-		if headOID == "" || current != headOID {
-			d.refuse(branch, fmt.Sprintf(
-				"refusing -D: branch head no longer matches verified PR head (expected %s, got %s)",
-				or(headOID, "<missing>"), or(current, "<unresolved>")))
-			return
-		}
-	case VerdictPRMerged:
-		flag = "-D"
-		// The empty check is explicit so the refusal names the missing head;
-		// IsAncestor would refuse it too, but without saying why.
-		if headOID == "" || !IsAncestor(ctx, d.r, d.dir, "refs/heads/"+branch, headOID) {
+		if !prHeadHolds(ctx, d.r, d.dir, verdict, branch, headOID) {
 			current, _ := runner.Git(ctx, d.r, d.dir, "rev-parse", "refs/heads/"+branch)
-			d.refuse(branch, fmt.Sprintf(
-				"refusing -D: branch head is no longer contained in the merged PR head (expected an ancestor of %s, got %s)",
-				or(headOID, "<missing>"), or(current, "<unresolved>")))
+			rule, want := "no longer matches the verified PR head", or(headOID, "<missing>")
+			if verdict == VerdictPRMerged {
+				rule, want = "is no longer contained in the merged PR head", "an ancestor of "+want
+			}
+			d.refuse(branch, fmt.Sprintf("refusing -D: branch head %s (expected %s, got %s)",
+				rule, want, or(current, "<unresolved>")))
 			return
 		}
 	}
