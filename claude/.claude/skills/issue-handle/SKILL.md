@@ -145,7 +145,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
        - [ ] Test, Lint成功確認
        - [ ] `/simplify` で品質チェック・修正
        - [ ] プッシュ・PR作成（draft で作成。Issue番号指定時は `Closes #<issue-number>` を含める。Sub の場合は `Part of #<parent>` と、最後の Sub なら親の `Closes` も — 実装完了処理の規則に従う）
-       - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正
+       - [ ] 独立セッションでの `/deep-review` 実行（`subagent_type: "independent-reviewer"` のサブエージェント経由）→ 親で自動修正 → プッシュがあれば同じレビュアーへ 1 回差し戻して再レビュー・修正
        - [ ] 同期検証を通過して PR を Ready 化
    - **計画準拠チェック**: Skill ツールで `check-plan-compliance` を引数 `--no-exit` で起動する
    - **参照・コマンドチェック**: 計画準拠チェックの**後**に `ccx plan check <計画ファイルパス>` を実行する
@@ -195,11 +195,11 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 
 5. **実装完了処理**
    - 未コミットの変更があれば Skill ツールで `git-commit` を起動してコミット
-   - Skill ツールで `git-pr` を引数 `--draft --base <base-branch>` で起動し、プッシュ・PR作成を行う（`<base-branch>` は計画ファイルに記録したベースブランチ。Ready 化は 6-3 のみが行う）
+   - Skill ツールで `git-pr` を引数 `--draft --base <base-branch>` で起動し、プッシュ・PR作成を行う（`<base-branch>` は計画ファイルに記録したベースブランチ。Ready 化は 6-5 のみが行う）
    - PR説明にIssue/仕様の背景・動機を含める（リンクだけでなく「なぜこの変更が必要か」を本文に書く）
    - Issue番号指定時: `Closes #<issue-number>` を含める
    - **Issue が Sub の場合**（計画ファイルに親 Issue 番号がある）: 運用規約「PR 本文」に従い `Part of` と親の `Closes` を書く。**PR 作成直前に `ccx issue tree <issue-number>` を再実行**し、その値と計画の親 close 方針で判定する。方針が `未確定` なら、ここで親本文からの推定と推奨を添えて AskUserQuestion で確認してから決める。`warnings[]` が空でなければ `Closes #<parent>` は付けず、その旨を報告する
-   - **draft 不変条件の確認**（PR 作成/更新後に無条件で実行。`gh pr view --json number,isDraft` と `gh repo view --json nameWithOwner -q .nameWithOwner` で `<pr-number>` / `<owner/repo>` を確定し、6-1・6-3 でも取り直さず使い回す）:
+   - **draft 不変条件の確認**（PR 作成/更新後に無条件で実行。`gh pr view --json number,isDraft` と `gh repo view --json nameWithOwner -q .nameWithOwner` で `<pr-number>` / `<owner/repo>` を確定し、6-1・6-5 でも取り直さず使い回す）:
      - `isDraft` が `false` なら `gh pr ready --undo <pr-number> -R <owner/repo>` で draft に戻し、戻した旨を1行報告する（ユーザー確認は取らない）
      - undo が失敗した場合は停止せず、レビューループ中も PR が draft でないことを警告として報告に残す
 
@@ -216,18 +216,32 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
        - `--worktree` は付けない
      - レビュー結果をそのまま返すよう指示（追加の解釈・要約は不要）
      - 補助コンテキスト: 作業ブランチ名、PR URL（既知の場合）
+   - 起動結果の agentId を控える
 
    6-2. **親セッションで自動修正**
-   - サブエージェント失敗時（Agent ツールが null/error を返した場合）はエラーを表示してユーザー判断を仰ぐ（自動リトライしない）。6-3 に到達しないため PR は draft のまま残る旨も報告に明記する
-   - サブエージェントから返ってきたレビュー結果を親セッションで表示
+   - サブエージェント失敗時（Agent ツールが null/error を返した場合）はエラーを表示してユーザー判断を仰ぐ（自動リトライしない）。6-5 に到達しないため PR は draft のまま残る旨も報告に明記する
+   - サブエージェントから返ってきたレビュー結果を親セッションで表示し、受け取った時刻と、6-2 の最初のコミットより前の `git rev-parse HEAD` を控える
    - そのレビュー結果を入力として、Skill ツールで `finding-severity` を起動し、その判断基準・対応リストの形式に従って対応要否を判断し、対応リストを出力する
    - 対応リストの確定後:
      - **「Issue 側の修正が要る指摘」が空でなければ**、以下の分岐より前に [references/issue-conflict.md](references/issue-conflict.md) を読んでユーザーに確認し、回答で各指摘を「対応する指摘」か「対応しない指摘」へ移す
-     1. **対応すべきものがあれば**: working tree に修正適用 → コミット → テスト・Lint → Skill ツールで `git-pr` を引数 `--base <base-branch>` で起動してプッシュ・PR更新 → 6-3 へ進む
-     2. **対応すべきものがゼロなら**: 修正・コミット・PR 更新は行わず 6-3 へ進む
+     1. **対応すべきものがあれば**: working tree に修正適用 → コミット → テスト・Lint → Skill ツールで `git-pr` を引数 `--base <base-branch>` で起動してプッシュ・PR更新
+     2. **対応すべきものがゼロなら**: 修正・コミット・PR 更新は行わない
+   - 6-2 の中でユーザーが求めた変更は、分岐 1 と同じ手順（コミット → テスト・Lint → `git-pr`）で反映する
+   - 6-2 でプッシュしていれば 6-3 へ、していなければ 6-5 へ進む
 
-   6-3. **PR を Ready 化**
-   - **6-2 の完了後は常に実行する**（指摘を適用・プッシュした場合も、対応すべきものがゼロだった場合も）
+   6-3. **同じレビュアーへの差し戻し**
+   - 6-1 のレビュアーへ `SendMessage` で次を送る:
+     1. 前回以降の変化: コミット範囲 `<控えた HEAD>..<現在の HEAD>` と、6-2 の対応リスト（対応する / 対応しない とその根拠。質問・確認事項への回答はその行に書き、ユーザー判断待ちのものはその旨を書く）
+     2. Skill ツールで `deep-review` を 6-1 と同じ引数で再度起動すること
+     3. このセッションで <控えた時刻> に返した自分のレビュー結果を、自分の過去レビューとして扱うこと
+   - 送ったら、完了通知が届くまでターンを終える
+   - `SendMessage` がレビュアーに届かない場合は、`independent-reviewer` を 6-1 と同じ指示で新規起動し、プロンプトに前回のレビュー結果・その時刻と上記 1・2 を加え、3 は「プロンプトで渡したレビュー結果を自分の過去レビューとして扱うこと」に読み替える
+
+   6-4. **差し戻しの結果の処理**
+   - 返った結果を、6-2 の手順（失敗時の扱い・表示・`finding-severity`・Issue 側の確認・分岐・ユーザーが求めた変更の反映）で処理する。時刻と HEAD は控え直さず、終えたら 6-5 へ進む
+
+   6-5. **PR を Ready 化**
+   - **6-2（6-3 へ進んだ場合は 6-4）の完了後は常に実行する**（指摘を適用・プッシュした場合も、対応すべきものがゼロだった場合も）
    - `ccx pr ready <pr-number>` を実行する（出力の読み方は `ccx pr ready --help`）
      - `status` が `ready` / `already_ready` → PR が Ready である旨を報告する
      - それ以外の `status` → 落ちた検査と、PR が draft のまま残ることを報告して**停止**する
@@ -242,8 +256,9 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 - [ ] PRが作成されている（または既存PRが更新されている）
 - [ ] 独立セッションでの `/deep-review` を実施し、結果を親セッションで表示済み
 - [ ] レビュー指摘のうち親が「対応する」と判断したものは適用・コミット・プッシュ済み（対応すべきものがゼロなら何もしない）
+- [ ] 6-2 がプッシュした場合、6-1 のレビュアー（届かなければ新規の `independent-reviewer`）の再レビューを 1 回実施し、その結果を 6-4 で処理済み
 - [ ] 同期検証を通過して PR を Ready 化済み
 
 ## 注意事項
-- **PR は draft で作られる**: レビューループ（6-1〜6-2）が終わるまで PR は draft のままで、6-3 の同期検証を通過した時点でのみ Ready 化する。エスカレーション・レビュー失敗・ユーザー中断で途中停止した場合は draft のまま残す
+- **PR は draft で作られる**: レビューループ（6-1〜6-4。同じレビュアーへの差し戻しを含む）が終わるまで PR は draft のままで、6-5 の同期検証を通過した時点でのみ Ready 化する。エスカレーション・レビュー失敗・ユーザー中断で途中停止した場合は draft のまま残す
 - **`--worktree` 指定時の前提・挙動**: [references/worktree.md](references/worktree.md) の「注意事項」
