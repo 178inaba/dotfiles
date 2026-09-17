@@ -186,7 +186,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
    - `/simplify` を実行し、変更コードの再利用性・品質・効率性を確認・修正
      - レビューエージェントは `model` を指定せず（親継承）、`isolation: "worktree"` で隔離し、4 角度（reuse / simplification / efficiency / altitude）を 4 エージェントのまま起動する。diff が小さいことを理由に角度を統合・削減しない（角度の構成が変わっていたら組み込み側が正で、統合・削減しない点だけが不変）
      - 各 finding の扱いを確定する前に、Skill ツールで `finding-triage` を起動し、その規律で検証する（写像: /simplify の finding = 「対応が期待される指摘」）
-     - `/simplify` の要約には、4 角度が返したすべての finding を 1 件 1 行で、次の扱いのいずれか 1 つとともに列挙する（列: finding / 角度 / 扱い / 根拠）。一覧はステップ5の開始前に完成させる
+     - `/simplify` の要約には、各角度が返したすべての finding を 1 件 1 行で、次の扱いのいずれか 1 つとともに列挙する（列: finding / 角度 / 扱い / 根拠）。一覧はステップ5の開始前に完成させる
        - 適用・見送り: `finding-triage` の「検証根拠の記録」が根拠を求める finding にはその根拠を添える
        - 重複: 重複先の finding をその本文で名指す
        - スコープ外: 変更コード上に無い finding
