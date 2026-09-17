@@ -27,7 +27,10 @@ ccx pr reply-threads <ドキュメント> <threads_path>
 ```
 <修正内容>を対応しました。
 https://github.com/<owner>/<repo>/pull/<PR番号>/commits/<コミットハッシュ>
+検証: <ファイル・grep 可能な識別子>
 ```
+
+`検証:` 行は、`finding-triage` の「検証根拠の記録」が根拠を求める修正のときだけ書く。
 
 PR 本体へのコメントとして投稿する場合は、上記の本文を `work_dir` 直下に Write し、push を済ませてから投稿する:
 
