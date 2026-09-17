@@ -186,7 +186,7 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
    - `/simplify` を実行し、変更コードの再利用性・品質・効率性を確認・修正
      - レビューエージェントは `model` を指定せず（親継承）、`isolation: "worktree"` で隔離し、4 角度（reuse / simplification / efficiency / altitude）を 4 エージェントのまま起動する。diff が小さいことを理由に角度を統合・削減しない（角度の構成が変わっていたら組み込み側が正で、統合・削減しない点だけが不変）
      - `/simplify` の要約はターンの終わりではない。finding の見送り検証と修正のコミットまで済ませたら、ユーザー確認を待たず同一ターンでステップ5へ進む（`ccx hook issue-handle-guard` が強制する。バックグラウンド待ちでターンを終える規定はそのまま適用される）
-   - finding を見送る（skip する）場合、Skill ツールで `finding-triage` を起動し、その規律で検証してから確定する（写像: /simplify の finding = 「対応が期待される指摘」）
+   - 各 finding の扱いを確定する前に、Skill ツールで `finding-triage` を起動し、その規律で検証する（写像: /simplify の finding = 「対応が期待される指摘」）
    - 修正があればコミット
 
 5. **実装完了処理**
