@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
-	"github.com/178inaba/dotfiles/go/internal/hooks/issuehandle"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
 	"github.com/178inaba/dotfiles/go/internal/hooks/notify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/skillcheck"
@@ -40,8 +39,6 @@ func newHookCmd(deps Deps) *cobra.Command {
 	c.AddCommand(
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", deps,
 			func() hook { return notify.NewIdle(notify.Default()) }),
-		leafHookCmd("issue-handle-guard", "Refuse the end of a turn while issue-handle is unfinished", deps,
-			func() hook { return issuehandle.New() }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", deps,
 			func() hook { return noopwait.New() }),
 		leafHookCmd("skill-check", "Check the frontmatter and size of a SKILL.md that was just saved", deps,
