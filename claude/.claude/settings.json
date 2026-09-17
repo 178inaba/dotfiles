@@ -133,16 +133,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook issue-handle-guard"
-          }
-        ]
-      }
-    ],
     "SessionEnd": [
       {
         "hooks": [
