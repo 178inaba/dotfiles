@@ -265,21 +265,23 @@ func TestRunOnAFork(t *testing.T) {
 		}
 	})
 
-	// A deleted fork leaves no owner to name the branch after, so there is
-	// no branch the checkout could be expected to be on.
+	// A deleted fork leaves no owner to name the branch after; the pull
+	// request's number stands in.
 	t.Run("deleted", func(t *testing.T) {
 		t.Parallel()
 
 		repo := readyForkCheckout(t, bare)
+		gittest.Run(t, repo, "branch", "-q", "-m", "pr-7/"+readyBranch)
 		pr := readyPR(head, true)
 		pr.IsCrossRepository = true
-		client, calls := readyServer(t, head, false)
+		client, _ := readyServer(t, head, false)
 
-		if got, err := readyRun(client, repo).Run(t.Context(), pr); err == nil || !strings.Contains(err.Error(), "deleted") {
-			t.Errorf("Run = %+v, %v; want an error saying the fork was deleted", got, err)
+		got, err := readyRun(client, repo).Run(t.Context(), pr)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
 		}
-		if calls.counts["mutation"] != 0 {
-			t.Errorf("mutation calls = %d, want none", calls.counts["mutation"])
+		if got.Status != pullrequest.ReadyMarked || got.LocalBranch != "pr-7/"+readyBranch {
+			t.Errorf("report = %+v, want ready on pr-7/%s", got, readyBranch)
 		}
 	})
 }

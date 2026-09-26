@@ -92,10 +92,7 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 		wait = func() { time.Sleep(readyRetryWait) }
 	}
 
-	target, err := checkout(pr)
-	if err != nil {
-		return ReadyReport{}, err
-	}
+	target := checkout(pr)
 	report := func(status ReadyStatus) (ReadyReport, error) {
 		local, err := worktree.Head(ctx, rd.Runner, rd.Dir)
 		if err != nil {
@@ -128,9 +125,7 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 		// A head that has not moved gives the same answer against the same
 		// checkout, so only a moved one is worth another fetch.
 		if pr.HeadRefOid != lagging {
-			if target, err = checkout(pr); err != nil {
-				return ReadyReport{}, err
-			}
+			target = checkout(pr)
 			if c, err = worktree.Compare(ctx, rd.Runner, rd.Dir, target); err != nil {
 				return ReadyReport{}, err
 			}
@@ -165,13 +160,9 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 
 // checkout is what worktree.Compare needs out of pr, the ghapi.PullRequest
 // counterpart of Context.Checkout.
-func checkout(pr ghapi.PullRequest) (worktree.PullRequest, error) {
-	local, err := worktree.LocalBranch(pr)
-	if err != nil {
-		return worktree.PullRequest{}, err
-	}
+func checkout(pr ghapi.PullRequest) worktree.PullRequest {
 	return worktree.PullRequest{
-		Number: pr.Number, HeadRef: pr.HeadRefName, LocalBranch: local, HeadOID: pr.HeadRefOid,
+		Number: pr.Number, HeadRef: pr.HeadRefName, LocalBranch: worktree.LocalBranch(pr), HeadOID: pr.HeadRefOid,
 		BaseRef: pr.BaseRefName, IsOwnPR: pr.IsOwn,
-	}, nil
+	}
 }

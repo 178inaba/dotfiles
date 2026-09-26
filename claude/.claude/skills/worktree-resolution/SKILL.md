@@ -37,7 +37,7 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
    した旨を報告に含める。`warnings[]` があれば報告に含める。
    - `status` が `ok` 以外（`behind_dirty` / `diverged` / `evacuation_dirty`）→ **停止**してユーザー判断を仰ぐ（未コミット変更・ローカル独自 commit を破棄しないため。「共通サブ手順: PR head への同期」の status 解釈を参照）
    - `evacuated: true` → ユーザーに1行通知: 「メインリポジトリを default branch に退避しました（worktree 作成のため）」
-   - PR 番号の解決失敗等は非ゼロ exit + stderr で返る → stderr を提示して停止し、`<pr-number>` の明示指定を促す（fork が削除済みの PR もここで止まる）
+   - PR 番号の解決失敗等は非ゼロ exit + stderr で返る → stderr を提示して停止し、`<pr-number>` の明示指定を促す
 
 2. **`action: "enter_existing"`** → 既存 worktree へ切替のみ:
    - メインセッション: `EnterWorktree(path: <worktree_path>)`

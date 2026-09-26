@@ -66,8 +66,7 @@ func node(number int, state, headOwner string) string {
 		"reviewDecision": "APPROVED",
 		"isDraft": true,
 		"isCrossRepository": false,
-		"headRepository": {"nameWithOwner": "178inaba/dotfiles"},
-		"headRepositoryOwner": {"login": %q}
+		"headRepository": {"nameWithOwner": "%s/dotfiles"}
 	}`, number, number, number, state, headOwner)
 }
 
@@ -250,7 +249,7 @@ func TestPullRequestQueriesSelectTheHead(t *testing.T) {
 		t.Fatalf("got %d queries, want 2", len(queries))
 	}
 	for _, q := range queries {
-		for _, field := range []string{"isCrossRepository", "headRepository { nameWithOwner }", "headRepositoryOwner { login }"} {
+		for _, field := range []string{"isCrossRepository", "headRepository { nameWithOwner }"} {
 			if !strings.Contains(q, field) {
 				t.Errorf("query does not select %s:\n%s", field, q)
 			}
@@ -493,7 +492,9 @@ func TestPullRequestForBranch(t *testing.T) {
 				if err != nil {
 					t.Fatalf("PullRequestForBranch: %v", err)
 				}
-				if diff := cmp.Diff(wantPR(130, ghapi.StateOpen), got); diff != "" {
+				want := wantPR(130, ghapi.StateOpen)
+				want.HeadRepository = &ghapi.Repo{Owner: tc.headOwner, Name: "dotfiles"}
+				if diff := cmp.Diff(want, got); diff != "" {
 					t.Errorf("PullRequestForBranch (-want +got):\n%s", diff)
 				}
 			}

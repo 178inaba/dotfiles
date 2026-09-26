@@ -358,15 +358,15 @@ func TestFetchHeadRepository(t *testing.T) {
 		name       string
 		head       *ghapi.Repo
 		wantHead   *string
-		wantBranch *string
+		wantBranch string
 	}{
 		{
 			name: "fork", head: &ghapi.Repo{Owner: "contributor", Name: "repo-fork"},
-			wantHead: new("contributor/repo-fork"), wantBranch: new("contributor/feature/x"),
+			wantHead: new("contributor/repo-fork"), wantBranch: "contributor/feature/x",
 		},
 		// Still a document: the pull request and refs/pull/<n>/head outlive
-		// the fork, and only the branch to check it out on is gone.
-		{name: "deleted fork"},
+		// the fork, and only the owner to name the branch after is gone.
+		{name: "deleted fork", wantBranch: "pr-5/feature/x"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -430,7 +430,7 @@ func TestFetch(t *testing.T) {
 		want := pullrequest.PR{
 			Number: 5, Title: "Test PR", Body: meta.Body, URL: "https://github.com/owner/repo/pull/5",
 			State: ghapi.StateOpen, Author: "testuser", HeadRef: "feature/x", BaseRef: "main", HeadOID: "abc123",
-			HeadRepository: new("owner/repo"), LocalBranch: new("feature/x"),
+			HeadRepository: new("owner/repo"), LocalBranch: "feature/x",
 		}
 		if diff := cmp.Diff(want, got.PR); diff != "" {
 			t.Errorf("pr (-want +got):\n%s", diff)
@@ -1624,6 +1624,7 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 		{name: "empty pr.head_oid", edit: put("", "pr", "head_oid"), want: "pr sets head_oid to an empty string in ctx.json"},
 
 		{name: "no pr.is_cross_repository", edit: drop("pr", "is_cross_repository"), want: "pr is missing is_cross_repository in ctx.json"},
+		{name: "no pr.local_branch", edit: drop("pr", "local_branch"), want: "pr is missing local_branch in ctx.json"},
 		// A head repository GitHub no longer has is an answer, not a gap.
 		{name: "null pr.head_repository", edit: put(nil, "pr", "head_repository")},
 	} {
@@ -1665,7 +1666,7 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 		Repo: "owner/repo",
 		PR: pullrequest.PR{
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
-			HeadRepository: new("owner/repo"), LocalBranch: new("feature/x"),
+			HeadRepository: new("owner/repo"), LocalBranch: "feature/x",
 		},
 		Reviewers:     []pullrequest.Reviewer{},
 		ReviewThreads: []pullrequest.Thread{},

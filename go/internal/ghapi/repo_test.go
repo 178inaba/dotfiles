@@ -298,7 +298,7 @@ func TestRepoURL(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ghapi.RepoURL(ghConfig(t, tc.protocol), "github.com", ghapi.Repo{Owner: "acme", Name: "foo"})
+			got, err := ghapi.RepoURL(ghapi.RemoteOptions{ConfigDir: ghConfig(t, tc.protocol), Host: "github.com"}, ghapi.Repo{Owner: "acme", Name: "foo"})
 			if err != nil {
 				t.Fatalf("RepoURL: %v", err)
 			}
@@ -319,7 +319,7 @@ func TestRepoURLPrefersTheHost(t *testing.T) {
 		t.Fatalf("write config.yml: %v", err)
 	}
 
-	got, err := ghapi.RepoURL(dir, "github.com", ghapi.Repo{Owner: "acme", Name: "foo"})
+	got, err := ghapi.RepoURL(ghapi.RemoteOptions{ConfigDir: dir, Host: "github.com"}, ghapi.Repo{Owner: "acme", Name: "foo"})
 	if err != nil {
 		t.Fatalf("RepoURL: %v", err)
 	}

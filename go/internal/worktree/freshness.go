@@ -2,7 +2,9 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -107,14 +109,10 @@ type FreshnessReport struct {
 // pull request — a fork's included, whose head branch it does not have — and
 // the comparison is against head_oid rather than anything the fetch updated.
 func Compare(ctx context.Context, r runner.Runner, dir string, pr PullRequest) (Comparison, error) {
-	head := PullRef(pr.Number)
-	if _, err := r.Run(ctx, runner.Command{
-		Name: "git",
-		Args: []string{"-C", dir, "fetch", "-q", "origin", pr.BaseRef, head},
-	}); err != nil {
-		return ComparisonFetchFailed, nil
-	}
-	if err := RequireFetched(ctx, r, dir, pr.HeadOID, head); err != nil {
+	if err := FetchPullHead(ctx, r, dir, pr.Number, pr.HeadOID, pr.BaseRef); err != nil {
+		if _, failed := errors.AsType[*FetchError](err); failed {
+			return ComparisonFetchFailed, nil
+		}
 		return "", err
 	}
 
@@ -146,23 +144,46 @@ func Compare(ctx context.Context, r runner.Runner, dir string, pr PullRequest) (
 	return ComparisonDiverged, nil
 }
 
-// PullRef is where origin keeps the head of pull request number.
-func PullRef(number int) string {
+// pullRef is where origin keeps the head of pull request number.
+func pullRef(number int) string {
 	return fmt.Sprintf("refs/pull/%d/head", number)
 }
 
-// RequireFetched checks that the pull request's head is in dir after ref was
-// fetched.
+// FetchError is a fetch from origin that failed, told apart from the head
+// being missing afterwards because the callers answer the two differently.
+type FetchError struct {
+	Refs []string
+	Dir  string
+	Err  error
+}
+
+func (e *FetchError) Error() string {
+	return fmt.Sprintf("git fetch origin %s failed in %s: %v", strings.Join(e.Refs, " "), e.Dir, e.Err)
+}
+
+func (e *FetchError) Unwrap() error { return e.Err }
+
+// FetchPullHead brings pull request number's head into dir from
+// refs/pull/<n>/head, along with the refs named beside it, and checks that
+// headOID arrived.
 //
-// The API's head_oid and refs/pull/<n>/head are not updated in step, so a pull
-// request that moved between the two being read leaves head_oid missing here.
-// Without this, a missing commit reads as not being an ancestor of anything,
-// and a pull request that merely moved is taken for one that diverged.
-func RequireFetched(ctx context.Context, r runner.Runner, dir, headOID, ref string) error {
+// refs/pull/<n>/head is on origin for every pull request, a fork's included,
+// whose head branch origin does not have. The check is because the API's
+// head_oid and refs/pull/<n>/head are not updated in step: a pull request that
+// moved between the two being read leaves head_oid missing, and a missing
+// commit reads as not being an ancestor of anything — a pull request that
+// merely moved would be taken for one that diverged.
+func FetchPullHead(ctx context.Context, r runner.Runner, dir string, number int, headOID string, alongside ...string) error {
+	head := pullRef(number)
+	refs := append(append([]string{}, alongside...), head)
+	args := append([]string{"-C", dir, "fetch", "-q", "origin"}, refs...)
+	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: args}); err != nil {
+		return &FetchError{Refs: refs, Dir: dir, Err: err}
+	}
 	if _, err := runner.Git(ctx, r, dir, "cat-file", "-e", headOID+"^{commit}"); err != nil {
 		return fmt.Errorf(
 			"the pull request head %s is not in %s after fetching %s; it moved while the pull request was being read — run this again",
-			headOID, dir, ref)
+			headOID, dir, head)
 	}
 	return nil
 }

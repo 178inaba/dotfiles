@@ -26,10 +26,10 @@ const forkURL = "https://github.com/contributor/repo.git"
 
 // remote is a gh configuration that says nothing, which is what an
 // installation that was never configured looks like.
-func remote(t *testing.T) RemoteOptions {
+func remote(t *testing.T) ghapi.RemoteOptions {
 	t.Helper()
 
-	return RemoteOptions{ConfigDir: t.TempDir(), Host: "github.com"}
+	return ghapi.RemoteOptions{ConfigDir: t.TempDir(), Host: "github.com"}
 }
 
 // fakePR is the pull request the fake API answers with. An empty HeadRef makes
@@ -63,8 +63,8 @@ func github(t *testing.T, pr fakePR) *ghapi.Client {
 			headRepository = "null"
 		}
 		node := fmt.Sprintf(`{"number":%d,"state":"OPEN","headRefName":%q,"headRefOid":%q,"baseRefName":"main",
-			"isCrossRepository":%t,"headRepository":%s,"headRepositoryOwner":{"login":%q}}`,
-			prNumber, pr.HeadRef, pr.HeadOID, pr.Fork, headRepository, owner)
+			"isCrossRepository":%t,"headRepository":%s}`,
+			prNumber, pr.HeadRef, pr.HeadOID, pr.Fork, headRepository)
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -160,11 +160,6 @@ func TestResolveWithoutAWorktree(t *testing.T) {
 			}
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("Resolve (-want +got):\n%s", diff)
-			}
-			// The fetch is the point of this branch of the command: Checkout
-			// builds on the head it brings in.
-			if _, err := runner.Git(t.Context(), runner.Exec{}, repo, "cat-file", "-e", o.head+"^{commit}"); err != nil {
-				t.Errorf("the head %s is not in the repository after Resolve: %v", o.head, err)
 			}
 		})
 	}
@@ -358,22 +353,37 @@ func TestResolveWithoutAPullRequest(t *testing.T) {
 	}
 }
 
-// TestResolveAndCheckoutStopOnADeletedFork: a pull request whose fork is gone
-// has no owner to name its local branch after, so neither command makes one up.
-func TestResolveAndCheckoutStopOnADeletedFork(t *testing.T) {
+// TestCheckoutOfADeletedFork is what `gh pr checkout` does with a pull request
+// whose fork is gone: refs/pull/<n>/head outlives the fork, so the pull request
+// is checked out all the same, tracking refs/pull/<n>/head on origin. With no
+// owner to name the branch after, the pull request's number stands in.
+func TestCheckoutOfADeletedFork(t *testing.T) {
 	t.Parallel()
 
 	bare, head, _ := forkOrigin(t)
 	gone := fakePR{HeadRef: headRef, HeadOID: head, Fork: true, Gone: true}
-
+	const branch = "pr-42/" + headRef
 	repo := clone(t, bare)
-	if got, err := Resolve(t.Context(), runner.Exec{}, github(t, gone), prRepo, repo, prNumber, remote(t)); err == nil ||
-		!strings.Contains(err.Error(), "deleted") {
-		t.Errorf("Resolve = %+v, %v; want an error saying the fork was deleted", got, err)
+
+	resolved, err := Resolve(t.Context(), runner.Exec{}, github(t, gone), prRepo, repo, prNumber, remote(t))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
 	}
-	if got, err := Checkout(t.Context(), runner.Exec{}, github(t, gone), prRepo, repo, prNumber, remote(t)); err == nil ||
-		!strings.Contains(err.Error(), "deleted") {
-		t.Errorf("Checkout = %+v, %v; want an error saying the fork was deleted", got, err)
+	if resolved.LocalBranch != branch || resolved.WorktreeName != "pr-42-feature-x" {
+		t.Errorf("Resolve = %+v, want %s in pr-42-feature-x", resolved, branch)
+	}
+
+	got, err := Checkout(t.Context(), runner.Exec{}, github(t, gone), prRepo, repo, prNumber, remote(t))
+	if err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if got.Status != ResolveOK || gittest.Rev(t, got.Path, "HEAD") != head {
+		t.Errorf("Checkout = %+v, want ok at %s", got, head)
+	}
+	for key, want := range map[string]string{"remote": "origin", "pushRemote": "origin", "merge": "refs/pull/42/head"} {
+		if got := config(t, got.Path, "branch."+branch+"."+key); got != want {
+			t.Errorf("branch.%s.%s = %q, want %q", branch, key, got, want)
+		}
 	}
 }
 

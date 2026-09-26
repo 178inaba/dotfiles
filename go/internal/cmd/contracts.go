@@ -359,9 +359,7 @@ failed check, and never moves the checkout; a non-zero exit is only for a
 question it could not answer.
 
 <pr-number> is the pull request, inferred from the branch checked out here
-when omitted — the same inference ` + "`ccx pr context`" + ` makes. A pull request
-whose fork has been deleted stops the command, since there is no branch a
-checkout of it could be on.`,
+when omitted — the same inference ` + "`ccx pr context`" + ` makes.`,
 		blocks:   []block{prints(reflect.TypeFor[pullrequest.ReadyReport]())},
 		statuses: with(),
 	},
@@ -612,10 +610,7 @@ neither an uncommitted change nor a commit that is not pushed is this
 command's to discard. Its branch config is written as ` + "`ccx worktree checkout`" + `
 writes it. If the main worktree is on the pull request's local branch it is
 moved to the default branch first, so that the branch is free to check out
-here.
-
-A pull request whose fork has been deleted stops the command: there is no
-owner left to name its local branch after.`,
+here.`,
 		blocks:   []block{prints(reflect.TypeFor[worktree.Resolution]())},
 		statuses: with(),
 	},
@@ -634,10 +629,10 @@ existing worktree, rather than created again.
 The branch config is the form ` + "`gh pr checkout`" + ` writes. A pull request in
 this repository tracks origin's head branch, or nothing — with a warning — where
 that branch is gone. One from a fork has the fork's url as its remote and push
-remote and the head branch to merge, which git refuses to push to under
-push.default=simple, since the local branch is named differently: a push from
-it cannot create a branch on this repository. A pull request whose fork has
-been deleted stops the command.
+remote and the head branch to merge; one whose fork has been deleted has origin
+and ` + "`refs/pull/<n>/head`" + `. git refuses to push either under
+push.default=simple, since the local branch is named differently from what it
+merges: a push from it cannot create a branch on this repository.
 
 The worktree this makes is not cleaned up when the session ends, because the
 session did not create it — /cleanup-merged is what collects it.`,

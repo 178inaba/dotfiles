@@ -80,7 +80,6 @@ const prFields = `
       isDraft
       isCrossRepository
       headRepository { nameWithOwner }
-      headRepositoryOwner { login }
 `
 
 // viewerField is asked for beside the pull request in both queries, so that
@@ -136,9 +135,6 @@ type prNode struct {
 	HeadRepository    *struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"headRepository"`
-	HeadRepositoryOwner struct {
-		Login string `json:"login"`
-	} `json:"headRepositoryOwner"`
 }
 
 // pullRequest builds PullRequest out of the node, with IsOwn decided against
@@ -345,7 +341,7 @@ func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName,
 	}
 
 	owned := func(n prNode) bool {
-		return headOwner == "" || n.HeadRepositoryOwner.Login == headOwner
+		return headOwner == "" || n.pullRequest("").HeadRepository.owner() == headOwner
 	}
 	nodes := out.Repository.PullRequests.Nodes
 	for _, n := range nodes {
@@ -395,4 +391,13 @@ func currentBranch(ctx context.Context, r runner.Runner, dir string) (string, er
 		return "", errors.New("no branch is checked out, so no pull request can be inferred")
 	}
 	return branch, nil
+}
+
+// owner is the account r belongs to, empty for a repository GitHub no longer
+// has — a deleted fork, which belongs to nobody a head can be narrowed to.
+func (r *Repo) owner() string {
+	if r == nil {
+		return ""
+	}
+	return r.Owner
 }

@@ -1,7 +1,6 @@
 package pullrequest_test
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -184,7 +183,7 @@ func TestContextCheckout(t *testing.T) {
 		{
 			name: "somebody else's pull request",
 			in: pullrequest.Context{
-				PR: pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", LocalBranch: new("feature/x")},
+				PR: pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", LocalBranch: "feature/x"},
 			},
 			want: worktree.PullRequest{Number: 5, HeadRef: "feature/x", LocalBranch: "feature/x", HeadOID: "abc123", BaseRef: "main"},
 		},
@@ -195,7 +194,7 @@ func TestContextCheckout(t *testing.T) {
 			name: "our own pull request",
 			in: pullrequest.Context{
 				IsOwnPR: true,
-				PR:      pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", LocalBranch: new("feature/x")},
+				PR:      pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", LocalBranch: "feature/x"},
 			},
 			want: worktree.PullRequest{Number: 5, HeadRef: "feature/x", LocalBranch: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
 		},
@@ -204,7 +203,7 @@ func TestContextCheckout(t *testing.T) {
 			in: pullrequest.Context{
 				PR: pullrequest.PR{
 					Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main",
-					IsCrossRepository: true, HeadRepository: new("contributor/repo"), LocalBranch: new("contributor/feature/x"),
+					IsCrossRepository: true, HeadRepository: new("contributor/repo"), LocalBranch: "contributor/feature/x",
 				},
 			},
 			want: worktree.PullRequest{Number: 5, HeadRef: "feature/x", LocalBranch: "contributor/feature/x", HeadOID: "abc123", BaseRef: "main"},
@@ -225,13 +224,17 @@ func TestContextCheckout(t *testing.T) {
 }
 
 // TestContextCheckoutOfADeletedFork is the document of a pull request whose
-// fork is gone: there is no branch a checkout of it could be on.
+// fork is gone: the pull request's number stands in for the owner.
 func TestContextCheckoutOfADeletedFork(t *testing.T) {
 	t.Parallel()
 
 	in := pullrequest.Context{PR: pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", IsCrossRepository: true}}
-	if got, err := in.Checkout(); !errors.Is(err, worktree.ErrForkDeleted) {
-		t.Errorf("Checkout = %+v, %v; want ErrForkDeleted", got, err)
+	got, err := in.Checkout()
+	if err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if got.LocalBranch != "pr-5/feature/x" {
+		t.Errorf("LocalBranch = %q, want pr-5/feature/x", got.LocalBranch)
 	}
 }
 

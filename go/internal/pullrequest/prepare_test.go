@@ -144,7 +144,7 @@ func prepareGitHubWith(t *testing.T, node, author, threads string,
 func prNode(author, headOID string) string {
 	return fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
 		"state":"OPEN","author":{"login":%q},"headRefName":"feature/x","baseRefName":"main",
-		"headRefOid":%q,"headRepositoryOwner":{"login":"owner"}}`, author, headOID)
+		"headRefOid":%q,"headRepository":{"nameWithOwner":"owner/repo"}}`, author, headOID)
 }
 
 // prepareGitHubLosingTheConversation answers the probe and then fails the query
@@ -944,7 +944,7 @@ func TestPrepareStopsOnAMismatchedBranch(t *testing.T) {
 func forkNode(headOID, headRepository string) string {
 	return fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
 		"state":"OPEN","author":{"login":"other"},"headRefName":"feature/x","baseRefName":"main",
-		"headRefOid":%q,"isCrossRepository":true,"headRepository":%s,"headRepositoryOwner":{"login":"contributor"}}`,
+		"headRefOid":%q,"isCrossRepository":true,"headRepository":%s}`,
 		headOID, headRepository)
 }
 
@@ -955,19 +955,19 @@ func forkNode(headOID, headRepository string) string {
 func TestPrepareOnAFork(t *testing.T) {
 	t.Parallel()
 
-	fork := func(t *testing.T) (repo, head string) {
+	fork := func(t *testing.T, branch string) (repo, head string) {
 		t.Helper()
 
 		repo, head = prepareRepo(t)
 		gittest.Run(t, filepath.Join(filepath.Dir(repo), "origin.git"), "update-ref", "-d", "refs/heads/feature/x")
-		gittest.Run(t, repo, "switch", "-qc", "contributor/feature/x")
+		gittest.Run(t, repo, "switch", "-qc", branch)
 		return repo, head
 	}
 
 	t.Run("present", func(t *testing.T) {
 		t.Parallel()
 
-		repo, head := fork(t)
+		repo, head := fork(t, "contributor/feature/x")
 		var seen []pullrequest.Context
 		var paths []string
 		got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
@@ -988,15 +988,18 @@ func TestPrepareOnAFork(t *testing.T) {
 	t.Run("deleted", func(t *testing.T) {
 		t.Parallel()
 
-		repo, head := fork(t)
+		repo, head := fork(t, "pr-5/feature/x")
 		var seen []pullrequest.Context
 		var paths []string
 		got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
 			prepareGitHubWith(t, forkNode(head, "null"), "other", noThreads, preparePages, nil),
 			ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 			pullrequest.Options{OutDir: t.TempDir(), Number: 5, LocalOnly: true}, store(&seen, &paths))
-		if err == nil || !strings.Contains(err.Error(), "deleted") {
-			t.Errorf("Prepare = %+v, %v; want an error saying the fork was deleted", got, err)
+		if err != nil {
+			t.Fatalf("Prepare: %v", err)
+		}
+		if got.Status != "ok" || got.LocalBranch == nil || *got.LocalBranch != "pr-5/feature/x" {
+			t.Errorf("prepare = %+v, want ok on pr-5/feature/x", got)
 		}
 	})
 }

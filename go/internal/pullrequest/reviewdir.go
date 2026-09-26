@@ -348,16 +348,22 @@ func localHead(ctx context.Context, r runner.Runner, dir string) (string, error)
 // its absence is not, and what tells the two apart is the declaration, which
 // reads presence from the document rather than from the decoded value.
 //
-// A document without a local branch is a pull request whose fork has been
-// deleted, which no checkout can be on.
+// The local branch is derived from the head fields rather than read from the
+// document's own local_branch, so that the rule lives in worktree.LocalBranch
+// alone.
 func (c Context) Checkout() (worktree.PullRequest, error) {
-	if c.PR.LocalBranch == nil {
-		return worktree.PullRequest{}, fmt.Errorf("pull request #%d: %w", c.PR.Number, worktree.ErrForkDeleted)
+	pr := ghapi.PullRequest{Number: c.PR.Number, HeadRefName: c.PR.HeadRef, IsCrossRepository: c.PR.IsCrossRepository}
+	if c.PR.HeadRepository != nil {
+		head, err := ghapi.ParseRepo(*c.PR.HeadRepository)
+		if err != nil {
+			return worktree.PullRequest{}, fmt.Errorf("the pull request context names %q as its head repository: %v", *c.PR.HeadRepository, err)
+		}
+		pr.HeadRepository = &head
 	}
 	return worktree.PullRequest{
 		Number:      c.PR.Number,
 		HeadRef:     c.PR.HeadRef,
-		LocalBranch: *c.PR.LocalBranch,
+		LocalBranch: worktree.LocalBranch(pr),
 		HeadOID:     c.PR.HeadOID,
 		BaseRef:     c.PR.BaseRef,
 		IsOwnPR:     c.IsOwnPR,

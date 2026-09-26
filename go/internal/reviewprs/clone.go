@@ -56,11 +56,8 @@ func ParseOwnerRepo(s string) (OwnerRepo, error) {
 type CloneOptions struct {
 	// DataHome is XDG_DATA_HOME, or ~/.local/share where that is unset.
 	DataHome string
-	// ConfigDir is gh's configuration directory, which is where the choice
-	// between ssh and https comes from.
-	ConfigDir string
-	// Host is the GitHub host to clone from.
-	Host string
+	// RemoteOptions say where the clone comes from and over which protocol.
+	ghapi.RemoteOptions
 }
 
 // Clone is where a repository has been made available for review.
@@ -104,7 +101,7 @@ func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo Owne
 		}
 	}
 
-	url, err := ghapi.RepoURL(o.ConfigDir, o.Host, ghapi.Repo{Owner: repo.Owner, Name: repo.Name})
+	url, err := ghapi.RepoURL(o.RemoteOptions, ghapi.Repo{Owner: repo.Owner, Name: repo.Name})
 	if err != nil {
 		return Clone{}, err
 	}

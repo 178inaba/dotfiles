@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/reviewprs"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -59,7 +60,7 @@ func options(t *testing.T, protocol string) reviewprs.CloneOptions {
 			t.Fatalf("write hosts.yml: %v", err)
 		}
 	}
-	return reviewprs.CloneOptions{DataHome: t.TempDir(), ConfigDir: config, Host: "github.com"}
+	return reviewprs.CloneOptions{DataHome: t.TempDir(), RemoteOptions: ghapi.RemoteOptions{ConfigDir: config, Host: "github.com"}}
 }
 
 var acmeFoo = reviewprs.OwnerRepo{Owner: "acme", Name: "foo"}

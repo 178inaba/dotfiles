@@ -166,21 +166,32 @@ func (c *Client) DefaultBranch(ctx context.Context, repo Repo) (string, error) {
 	return out.DefaultBranch, nil
 }
 
-// RepoURL is the url git reaches repo at on host, in the protocol gh is
-// configured with for that host — this machine's remotes are ssh, and a clone
-// or a remote over https would be unlike every other one on it. configDir is
-// gh's configuration directory.
+// RemoteOptions are what RepoURL takes from the environment.
+//
+// Parameters rather than reads of os.Getenv, so that the tests of what uses
+// them can run in parallel: t.Setenv changes the whole process and forbids it.
+type RemoteOptions struct {
+	// ConfigDir is gh's configuration directory, which is where the choice
+	// between ssh and https comes from.
+	ConfigDir string
+	// Host is the GitHub host the repository is on.
+	Host string
+}
+
+// RepoURL is the url git reaches repo at, in the protocol gh is configured
+// with for the host — this machine's remotes are ssh, and a clone or a remote
+// over https would be unlike every other one on it.
 //
 // The inverse of ParseRepo, which reads either form back.
-func RepoURL(configDir, host string, repo Repo) (string, error) {
-	protocol, err := gitProtocol(configDir, host)
+func RepoURL(o RemoteOptions, repo Repo) (string, error) {
+	protocol, err := gitProtocol(o.ConfigDir, o.Host)
 	if err != nil {
 		return "", err
 	}
 	if protocol == "ssh" {
-		return fmt.Sprintf("git@%s:%s/%s.git", host, repo.Owner, repo.Name), nil
+		return fmt.Sprintf("git@%s:%s/%s.git", o.Host, repo.Owner, repo.Name), nil
 	}
-	return fmt.Sprintf("https://%s/%s/%s.git", host, repo.Owner, repo.Name), nil
+	return fmt.Sprintf("https://%s/%s/%s.git", o.Host, repo.Owner, repo.Name), nil
 }
 
 // gitProtocol reads gh's git_protocol for host: the per-host setting in

@@ -40,9 +40,9 @@ type PR struct {
 	HeadRepository *string `json:"head_repository"`
 	// The branch a checkout of the pull request is on: head_ref for one
 	// whose head is in this repository, <owner>/<head_ref> for one from a
-	// fork. Null where the fork has been deleted, which leaves no owner to
-	// name it after.
-	LocalBranch *string `json:"local_branch"`
+	// fork, and pr-<number>/<head_ref> for one whose fork has been deleted,
+	// which leaves no owner to name it after.
+	LocalBranch string `json:"local_branch" contract:"required,nonempty"`
 }
 
 // LinkedIssue is an issue the pull request closes.
@@ -563,7 +563,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		PR: PR{
 			Number: pr.Number, Title: pr.Title, Body: pr.Body, URL: pr.URL, State: pr.State,
 			Author: pr.Author, HeadRef: pr.HeadRefName, BaseRef: pr.BaseRefName, HeadOID: pr.HeadRefOid,
-			IsCrossRepository: pr.IsCrossRepository, HeadRepository: headRepository(pr), LocalBranch: localBranch(pr),
+			IsCrossRepository: pr.IsCrossRepository, HeadRepository: headRepository(pr), LocalBranch: worktree.LocalBranch(pr),
 		},
 		LinkedIssues:       issues,
 		HeadCommittedAt:    headCommittedAt,
@@ -1054,15 +1054,4 @@ func headRepository(pr ghapi.PullRequest) *string {
 		return nil
 	}
 	return new(pr.HeadRepository.String())
-}
-
-// localBranch is the branch a checkout of the pull request is on, or nil for a
-// fork that has been deleted: the document is still one, since the pull
-// request and its head outlive the fork.
-func localBranch(pr ghapi.PullRequest) *string {
-	branch, err := worktree.LocalBranch(pr)
-	if err != nil {
-		return nil
-	}
-	return &branch
 }

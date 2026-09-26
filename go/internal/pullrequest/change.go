@@ -116,17 +116,11 @@ type Change struct {
 //
 // git runs against dir, which is the checkout the command was invoked in.
 func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, diffPath string) (Change, error) {
-	head := worktree.PullRef(pr.Number)
-	if _, err := r.Run(ctx, runner.Command{
-		Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", pr.BaseRefName, head},
-	}); err != nil {
-		// Not degraded to what is already local: with a stale origin/<base>
-		// the merge base moves and the diff quietly widens to commits the base
-		// branch already has, which nothing downstream can tell from the real
-		// thing.
-		return Change{}, fmt.Errorf("git fetch origin %s %s failed in %s: %v", pr.BaseRefName, head, dir, err)
-	}
-	if err := worktree.RequireFetched(ctx, r, dir, pr.HeadRefOid, head); err != nil {
+	// A failed fetch is not degraded to what is already local: with a stale
+	// origin/<base> the merge base moves and the diff quietly widens to commits
+	// the base branch already has, which nothing downstream can tell from the
+	// real thing.
+	if err := worktree.FetchPullHead(ctx, r, dir, pr.Number, pr.HeadRefOid, pr.BaseRefName); err != nil {
 		return Change{}, err
 	}
 	base, err := runner.Git(ctx, r, dir, "merge-base", "origin/"+pr.BaseRefName, pr.HeadRefOid)
