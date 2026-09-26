@@ -52,9 +52,10 @@ type Resolution struct {
 	PRNumber int    `json:"pr_number"`
 	HeadRef  string `json:"head_ref"`
 	// The branch the worktree is on: head_ref for a pull request whose
-	// head is in this repository, and <owner>/<head_ref> for one from a
-	// fork, owner being the fork's, so that two forks' branches of the same
-	// name do not share one.
+	// head is in this repository, <owner>/<head_ref> for one from a fork,
+	// owner being the fork's, so that two forks' branches of the same name
+	// do not share one, and pr-<number>/<head_ref> for one whose fork has
+	// been deleted, which leaves no owner to name it after.
 	LocalBranch string `json:"local_branch"`
 	// local_branch with its slashes flattened, since one directory name
 	// has to stand for a branch that may be nested.

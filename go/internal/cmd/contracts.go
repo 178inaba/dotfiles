@@ -333,9 +333,6 @@ compared the same way as any other. A fast-forward that is safe — behind only,
 with nothing uncommitted — is taken, and everything else is reported rather
 than acted on.
 
-A pull request whose fork has been deleted stops the command: there is no
-branch a checkout of it could be on.
-
 Runs against the working directory, so the answer is about the checkout the
 caller is standing in.`,
 		blocks:   []block{prints(reflect.TypeFor[worktree.FreshnessReport]())},

@@ -340,8 +340,11 @@ func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName,
 		return PullRequest{}, fmt.Errorf("look up the pull request for %s: %w", headRefName, err)
 	}
 
+	// A deleted fork has no head repository and belongs to nobody a head
+	// can be narrowed to.
 	owned := func(n prNode) bool {
-		return headOwner == "" || n.pullRequest("").HeadRepository.owner() == headOwner
+		head := n.pullRequest("").HeadRepository
+		return headOwner == "" || (head != nil && head.Owner == headOwner)
 	}
 	nodes := out.Repository.PullRequests.Nodes
 	for _, n := range nodes {
@@ -391,13 +394,4 @@ func currentBranch(ctx context.Context, r runner.Runner, dir string) (string, er
 		return "", errors.New("no branch is checked out, so no pull request can be inferred")
 	}
 	return branch, nil
-}
-
-// owner is the account r belongs to, empty for a repository GitHub no longer
-// has — a deleted fork, which belongs to nobody a head can be narrowed to.
-func (r *Repo) owner() string {
-	if r == nil {
-		return ""
-	}
-	return r.Owner
 }

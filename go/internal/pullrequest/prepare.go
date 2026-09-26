@@ -179,9 +179,10 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	p.WorkDir, p.ReviewPath, p.ThreadsPath = &doc.Work.Dir, &doc.Work.ReviewPath, &doc.Work.ThreadsPath
 
 	// This fetches the base branch and the pull request's head a second time,
-	// since the check fetches for itself and `ccx pr freshness` calls it alone. Left as it is: the two
-	// answer differently to a fetch that fails — reading the change stops the
-	// run, the check reports fetch_failed — and giving the check a way to skip
+	// since the check fetches for itself and `ccx pr freshness` calls it
+	// alone. Left as it is: the two answer differently to a fetch that fails —
+	// reading the change stops the run, the check reports fetch_failed — and
+	// giving the check a way to skip
 	// its own fetch would put that decision in the caller of both.
 	target, err := fetched.Checkout()
 	if err != nil {
