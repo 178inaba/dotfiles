@@ -27,17 +27,17 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 
 ## PR worktree 解決手順
 
-対象 PR の head branch に対応する worktree に session を切り替える手順。
+対象 PR のローカル branch に対応する worktree に session を切り替える手順。fork 由来の PR も同じ手順で扱う。
 
 1. **解決**（対象リポジトリ内で実行。`<pr-number>` 省略時はカレント branch の PR を推論）:
    ```bash
    ccx worktree resolve [<pr-number>]
    ```
-   出力の読み方は `ccx worktree resolve --help` にある。`synced: true` なら origin へ ff 同期
-   した旨を報告に含める。
-   - `status` が `ok` 以外（`behind_dirty` / `diverged` / `evacuation_dirty`）→ **停止**してユーザー判断を仰ぐ（未コミット変更・ローカル独自 commit を破棄しないため。「共通サブ手順: origin への同期」の status 解釈を参照）
+   出力の読み方は `ccx worktree resolve --help` にある。`synced: true` なら PR head へ ff 同期
+   した旨を報告に含める。`warnings[]` があれば報告に含める。
+   - `status` が `ok` 以外（`behind_dirty` / `diverged` / `evacuation_dirty`）→ **停止**してユーザー判断を仰ぐ（未コミット変更・ローカル独自 commit を破棄しないため。「共通サブ手順: PR head への同期」の status 解釈を参照）
    - `evacuated: true` → ユーザーに1行通知: 「メインリポジトリを default branch に退避しました（worktree 作成のため）」
-   - PR 番号の解決失敗等は非ゼロ exit + stderr で返る → stderr を提示して停止し、`<pr-number>` の明示指定を促す
+   - PR 番号の解決失敗等は非ゼロ exit + stderr で返る → stderr を提示して停止し、`<pr-number>` の明示指定を促す（fork が削除済みの PR もここで止まる）
 
 2. **`action: "enter_existing"`** → 既存 worktree へ切替のみ:
    - メインセッション: `EnterWorktree(path: <worktree_path>)`
@@ -45,23 +45,23 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 
 3. **`action: "create"`** → 作成と切替（作成は実行文脈に依らず同じ）:
    ```bash
-   ccx worktree checkout <worktree_name> <head_ref>
+   ccx worktree checkout <pr_number>
    ```
    - 返った `worktree_path` へ切替: 対象リポジトリ内 cwd なら `EnterWorktree(path:)`、対象リポジトリ外 cwd のサブエージェントなら Bash `cd` 代替
-   - `status: diverged`（古い同名ローカル branch に独自 commit が残っている残骸）は停止
-   - 非ゼロ exit（`origin/<head_ref>` 不在・残骸ディレクトリによる `git worktree add` 失敗等）は stderr を提示して停止する
-   - `.worktreeinclude` コピーの結果は `copied_files`（件数）と `warnings[]`（symlink スキップ等）に載る
+   - `status` が `ok` 以外（既存の同名ローカル branch に独自 commit・未コミット変更が残っている残骸）は停止
+   - 非ゼロ exit（PR が読み込み中に動いた・残骸ディレクトリによる `git worktree add` 失敗等）は stderr を提示して停止する
+   - `warnings[]` があれば報告に含める
    - この経路では終了時の自動クリーンアップ判定が働かないため、回収は `/cleanup-merged` に委ねる
 
 4. **作業ディレクトリ確認**: `git rev-parse --show-toplevel` が worktree パスを返すことを確認する（Bash `cd` 代替では `cd <worktree-path> && git rev-parse --show-toplevel` に読み替える）
 
-## 共通サブ手順: origin への同期
+## 共通サブ手順: PR head への同期
 
-ローカル branch を `origin/<branch>` の最新に揃える処理。resolve / create が内部で実行するため単独の呼び出しは不要で、ここでは status の解釈だけを定める:
+ローカル branch を PR の最新 head に揃える処理。resolve / create が内部で実行するため単独の呼び出しは不要で、ここでは status の解釈だけを定める:
 
 - 安全な fast-forward（behind のみ・clean。untracked のみの変更は無視）だけが自動実行され、`synced: true` で返る
 - `behind_dirty`: 未コミット変更あり → 停止し、コミット/stash をユーザーに促す（未コミット変更を破棄しないため）
-- `diverged`: ローカルに origin に無い commit あり → 停止し、rebase・退避等の手動整理をユーザーに促す（未 push の作業を破棄しないため）
+- `diverged`: ローカルに PR head に無い commit あり → 停止し、rebase・退避等の手動整理をユーザーに促す（未 push の作業を破棄しないため）
 
 ## 共通サブ手順: PR head との鮮度確認
 
@@ -71,18 +71,17 @@ worktree を扱う全スキルが従う契約。乖離するとスキル間で w
 ccx pr freshness <pr-context.jsonのパス>
 ```
 
-引数は `ccx pr context` の出力ファイルパス（`pr.head_oid` / `pr.head_ref` / `pr.base_ref` / `is_own_pr` を読む）。base・head branch の fetch も内部で実行するため事前 fetch は不要。status 別の対応:
+引数は `ccx pr context` の出力ファイルパス。fetch は内部で実行するため事前 fetch は不要。status 別の対応:
 
 - `ok` / `synced` / `ahead_own`（自分の PR に未 push のローカル commit があるだけ） → 続行
-- `behind_dirty` / `diverged` → **停止**（「共通サブ手順: origin への同期」と同じ解釈でユーザーに対応を促す）
-- `branch_mismatch`（detached HEAD 含む） → **停止**し、`git switch <head_ref>` または `--worktree` での再実行を提示（PR head branch 以外のカレント branch — main 等 — を誤って同期・レビューしないための前提ガード）
-- `fetch_failed` → fork 由来 PR（head branch が origin に存在しない — 本手順の対象外）の可能性が高い。エラーとして停止しユーザーに知らせる
+- `behind_dirty` / `diverged` → **停止**（「共通サブ手順: PR head への同期」と同じ解釈でユーザーに対応を促す）
+- `branch_mismatch`（detached HEAD 含む） → **停止**し、`git switch <local_branch>` または `--worktree` での再実行を提示（PR のローカル branch 以外のカレント branch — main 等 — を誤って同期・レビューしないための前提ガード）
+- `fetch_failed` → エラーとして停止しユーザーに知らせる
 
 ## 注意事項（PR worktree 解決時の挙動）
 
 - 並列で別の作業中に呼び出すと、session が PR の worktree に切り替わる。元の作業に戻るには別途 `EnterWorktree(path: <元のworktree>)` を呼ぶ
 - 別ターミナル/別 tmux ペインで実行する運用なら、元 session は触らずに済む（並列作業の推奨運用）
-- worktree を新規作成する場合、PR の head branch を fetch して checkout するため、PR ブランチ側に未 push のローカル commit があれば事前に push しておくこと
-- 既存 worktree を再利用する場合も `origin/<pr-branch>` の最新 head に同期される。worktree に未コミット変更や未 push のローカル commit が残っていると停止するため、事前にコミット/push（または破棄）しておくこと
-- **メインリポジトリが PR head branch を checkout 中の場合**: resolve が自動で default branch へ退避する（dirty tree なら `evacuation_dirty` で停止するため、事前にコミット/stash しておくこと）
-- **fork からの PR は対象外**: 本手順は head branch が origin に存在する PR のみを対象とする（`git fetch origin <pr-branch>` や `origin/<pr-branch>` 参照が fork PR では成立しないため）。fork PR で fetch が失敗した場合は手順のバグではなく前提外
+- worktree を新規作成する場合、PR の head を fetch して checkout するため、PR ブランチ側に未 push のローカル commit があれば事前に push しておくこと
+- 既存 worktree を再利用する場合も PR の最新 head に同期される。worktree に未コミット変更や未 push のローカル commit が残っていると停止するため、事前にコミット/push（または破棄）しておくこと
+- **メインリポジトリが PR のローカル branch を checkout 中の場合**: resolve が自動で default branch へ退避する（dirty tree なら `evacuation_dirty` で停止するため、事前にコミット/stash しておくこと）

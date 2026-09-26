@@ -32,7 +32,7 @@ ccx pr prepare-review <scratchpadディレクトリ> [<pr-number>] [--issue N] [
 
 出力の読み方は `ccx pr prepare-review --help` にある。本スキルがそれに対して行うこと:
 
-- `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <head_ref>` してから再実行」を提示する。鮮度確認由来の status は、Skill ツールで `worktree-resolution` を起動し、その「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用する）
+- `status` が `ok` 以外 → **停止**。`branch_mismatch` はユーザーに「`--worktree` を付けて再実行」または「`git switch <local_branch>` してから再実行」を提示する。鮮度確認由来の status は、Skill ツールで `worktree-resolution` を起動し、その「共通サブ手順: PR head との鮮度確認」の status 別対応に従う（`--local-only` でも適用する）
 - `pr_exists: false` は縮退なので続行する。PR があるのに取得系が失敗した場合はコマンドが非ゼロ exit で止まるので、stderr を提示して停止する（両者を混同するとモード判定が自動対応ONへ倒れる）
 - `context_path` の読み方は「PR コンテキストの読了」
 - `local_change` は「差分取得と確認」、`issues` は「Issue情報取得」で使う
