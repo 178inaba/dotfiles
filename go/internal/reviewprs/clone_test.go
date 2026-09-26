@@ -113,56 +113,6 @@ func TestEnsureCloneFresh(t *testing.T) {
 	}
 }
 
-func TestEnsureCloneProtocol(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		protocol string
-		want     string
-	}{
-		{name: "ssh", protocol: "ssh", want: "git@github.com:acme/foo.git"},
-		{name: "https", protocol: "https", want: "https://github.com/acme/foo.git"},
-		// gh's own default, which is what an installation that has never been
-		// configured clones with.
-		{name: "unconfigured", want: "https://github.com/acme/foo.git"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			git := &gitFake{clone: cloned}
-			if _, err := reviewprs.EnsureClone(t.Context(), git, options(t, tc.protocol), acmeFoo); err != nil {
-				t.Fatalf("EnsureClone: %v", err)
-			}
-			if got := git.calls[0][1]; got != tc.want {
-				t.Errorf("cloned from %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestEnsureCloneProtocolPrefersTheHost pins the precedence: gh's per-host
-// setting wins over the global one, which is the shape of this machine's own
-// configuration.
-func TestEnsureCloneProtocolPrefersTheHost(t *testing.T) {
-	t.Parallel()
-
-	o := options(t, "ssh")
-	if err := os.WriteFile(filepath.Join(o.ConfigDir, "config.yml"), []byte("git_protocol: https\n"), 0o644); err != nil {
-		t.Fatalf("write config.yml: %v", err)
-	}
-
-	git := &gitFake{clone: cloned}
-	if _, err := reviewprs.EnsureClone(t.Context(), git, o, acmeFoo); err != nil {
-		t.Fatalf("EnsureClone: %v", err)
-	}
-	if got, want := git.calls[0][1], "git@github.com:acme/foo.git"; got != want {
-		t.Errorf("cloned from %q, want %q", got, want)
-	}
-}
-
 func TestEnsureCloneExisting(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -260,5 +261,69 @@ func TestDefaultBranchFailure(t *testing.T) {
 
 	if got, err := c.DefaultBranch(t.Context(), ghapi.Repo{Owner: "178inaba", Name: "gone"}); err == nil {
 		t.Fatalf("DefaultBranch = %q, want an error", got)
+	}
+}
+
+// ghConfig is a gh configuration directory whose hosts.yml asks for protocol
+// on github.com, or says nothing where protocol is empty.
+func ghConfig(t *testing.T, protocol string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	if protocol != "" {
+		if err := os.WriteFile(filepath.Join(dir, "hosts.yml"),
+			[]byte("github.com:\n    git_protocol: "+protocol+"\n"), 0o644); err != nil {
+			t.Fatalf("write hosts.yml: %v", err)
+		}
+	}
+	return dir
+}
+
+func TestRepoURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		protocol string
+		want     string
+	}{
+		{name: "ssh", protocol: "ssh", want: "git@github.com:acme/foo.git"},
+		{name: "https", protocol: "https", want: "https://github.com/acme/foo.git"},
+		// gh's own default, which is what an installation that has never been
+		// configured uses.
+		{name: "unconfigured", want: "https://github.com/acme/foo.git"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ghapi.RepoURL(ghConfig(t, tc.protocol), "github.com", ghapi.Repo{Owner: "acme", Name: "foo"})
+			if err != nil {
+				t.Fatalf("RepoURL: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("RepoURL = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRepoURLPrefersTheHost pins the precedence: gh's per-host setting wins
+// over the global one, which is the shape of this machine's own configuration.
+func TestRepoURLPrefersTheHost(t *testing.T) {
+	t.Parallel()
+
+	dir := ghConfig(t, "ssh")
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("git_protocol: https\n"), 0o644); err != nil {
+		t.Fatalf("write config.yml: %v", err)
+	}
+
+	got, err := ghapi.RepoURL(dir, "github.com", ghapi.Repo{Owner: "acme", Name: "foo"})
+	if err != nil {
+		t.Fatalf("RepoURL: %v", err)
+	}
+	if want := "git@github.com:acme/foo.git"; got != want {
+		t.Errorf("RepoURL = %q, want %q", got, want)
 	}
 }

@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
+	"github.com/goccy/go-yaml"
 
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -161,4 +164,70 @@ func (c *Client) DefaultBranch(ctx context.Context, repo Repo) (string, error) {
 		return "", fmt.Errorf("look up the default branch of %s: %w", repo, err)
 	}
 	return out.DefaultBranch, nil
+}
+
+// RepoURL is the url git reaches repo at on host, in the protocol gh is
+// configured with for that host — this machine's remotes are ssh, and a clone
+// or a remote over https would be unlike every other one on it. configDir is
+// gh's configuration directory.
+//
+// The inverse of ParseRepo, which reads either form back.
+func RepoURL(configDir, host string, repo Repo) (string, error) {
+	protocol, err := gitProtocol(configDir, host)
+	if err != nil {
+		return "", err
+	}
+	if protocol == "ssh" {
+		return fmt.Sprintf("git@%s:%s/%s.git", host, repo.Owner, repo.Name), nil
+	}
+	return fmt.Sprintf("https://%s/%s/%s.git", host, repo.Owner, repo.Name), nil
+}
+
+// gitProtocol reads gh's git_protocol for host: the per-host setting in
+// hosts.yml, then the global one in config.yml, then gh's own default.
+//
+// Read here rather than through go-gh's config package, which memoises the
+// answer in a package-level variable behind a sync.Once and takes its directory
+// from the process environment. Inside a test binary the first call would win
+// for every later one, and no t.Setenv could correct it.
+func gitProtocol(dir, host string) (string, error) {
+	var hosts map[string]struct {
+		GitProtocol string `yaml:"git_protocol"`
+	}
+	if err := readYAML(filepath.Join(dir, "hosts.yml"), &hosts); err != nil {
+		return "", err
+	}
+	if p := hosts[host].GitProtocol; p != "" {
+		return p, nil
+	}
+
+	var config struct {
+		GitProtocol string `yaml:"git_protocol"`
+	}
+	if err := readYAML(filepath.Join(dir, "config.yml"), &config); err != nil {
+		return "", err
+	}
+	if config.GitProtocol != "" {
+		return config.GitProtocol, nil
+	}
+	return "https", nil
+}
+
+// readYAML decodes a gh configuration file, treating one that is not there as
+// one that says nothing — which is what gh does with a fresh installation.
+//
+// The two files are read separately rather than merged, because go-gh's own
+// merge takes a single file and this needs both.
+func readYAML(path string, out any) error {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	if err := yaml.Unmarshal(b, out); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	return nil
 }
