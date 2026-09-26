@@ -6,6 +6,7 @@ import (
 	"github.com/cli/go-gh/v2/pkg/config"
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/reviewprs"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
@@ -94,12 +95,17 @@ func reviewCloneCmd(deps Deps) *cobra.Command {
 // instead of setting a variable — t.Setenv changes the whole process and cannot
 // be used from a parallel test.
 func cloneOptions() reviewprs.CloneOptions {
-	dataHome := xdgDir("XDG_DATA_HOME", "share")
+	return reviewprs.CloneOptions{DataHome: xdgDir("XDG_DATA_HOME", "share"), RemoteOptions: remoteOptions()}
+}
+
+// remoteOptions reads what building a repository's url takes: gh's
+// configuration directory and the host.
+func remoteOptions() ghapi.RemoteOptions {
 	host := os.Getenv("GH_HOST")
 	if host == "" {
 		host = "github.com"
 	}
 	// go-gh's ConfigDir is a plain read of the environment, unlike its Read,
 	// which memoises the parsed configuration for the life of the process.
-	return reviewprs.CloneOptions{DataHome: dataHome, ConfigDir: config.ConfigDir(), Host: host}
+	return ghapi.RemoteOptions{ConfigDir: config.ConfigDir(), Host: host}
 }

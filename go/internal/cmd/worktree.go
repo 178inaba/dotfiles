@@ -102,7 +102,7 @@ func worktreeResolveCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 
-			resolved, err := worktree.Resolve(c.Context(), runner.Exec{}, client, repo, deps.Dir, number)
+			resolved, err := worktree.Resolve(c.Context(), runner.Exec{}, client, repo, deps.Dir, number, remoteOptions())
 			if err != nil {
 				return silent(err)
 			}
@@ -113,16 +113,28 @@ func worktreeResolveCmd(deps Deps) *cobra.Command {
 
 func worktreeCheckoutCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "checkout <worktree-name> <head-ref>",
-		Short: "Make a worktree at a pull request's head branch",
-		Args:  cobra.ExactArgs(2),
+		Use:   "checkout <pr-number>",
+		Short: "Make a worktree for a pull request, on its local branch at its head",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
+			number, err := issueNumber(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid pr number: %s", args[0])
+			}
 			root, err := worktree.MainRoot(c.Context(), runner.Exec{}, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
-			checked, err := worktree.Checkout(c.Context(), runner.Exec{}, root, args[0], args[1])
+			client, err := deps.NewClient()
+			if err != nil {
+				return silent(err)
+			}
+			repo, err := targetRepo(c.Context(), client, "", root)
+			if err != nil {
+				return silent(err)
+			}
+			checked, err := worktree.Checkout(c.Context(), runner.Exec{}, client, repo, root, number, remoteOptions())
 			if err != nil {
 				return silent(err)
 			}

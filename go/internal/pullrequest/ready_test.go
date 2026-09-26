@@ -39,7 +39,7 @@ func readyOrigin(t *testing.T) (bare, head, previous string) {
 	gittest.Run(t, seed, "commit", "-q", "--allow-empty", "-m", "one")
 	previous = gittest.Rev(t, seed, readyBranch)
 	gittest.Run(t, seed, "commit", "-q", "--allow-empty", "-m", "two")
-	gittest.Run(t, seed, "push", "-q", "origin", readyBranch)
+	gittest.Run(t, seed, "push", "-q", "origin", readyBranch, readyBranch+":refs/pull/7/head")
 
 	return bare, gittest.Rev(t, seed, readyBranch), previous
 }
@@ -51,6 +51,22 @@ func readyCheckout(t *testing.T, bare string) string {
 
 	repo := gittest.Clone(t, bare, filepath.Join(t.TempDir(), "repo"))
 	gittest.Run(t, repo, "switch", "-qc", readyBranch, "origin/"+readyBranch)
+	return repo
+}
+
+// readyForkBranch is the local branch the same pull request is checked out on
+// when its head lives on contributor's fork.
+const readyForkBranch = "contributor/" + readyBranch
+
+// readyForkCheckout is readyCheckout for a pull request from a fork: origin
+// has refs/pull/7/head and not the head branch, and the checkout is on the
+// fork's local branch.
+func readyForkCheckout(t *testing.T, bare string) string {
+	t.Helper()
+
+	repo := gittest.Clone(t, bare, filepath.Join(t.TempDir(), "repo"))
+	gittest.Run(t, repo, "fetch", "-q", "origin", "refs/pull/7/head")
+	gittest.Run(t, repo, "switch", "-qc", readyForkBranch, "FETCH_HEAD")
 	return repo
 }
 
@@ -126,10 +142,10 @@ func TestRun(t *testing.T) {
 		name  string
 		setUp func(t *testing.T, repo string)
 		draft bool
-		// headRef overrides the pull request's HeadRefName, for a head branch
+		// number overrides the pull request's number, for one whose head
 		// this origin never had.
-		headRef string
-		want    pullrequest.ReadyStatus
+		number int
+		want   pullrequest.ReadyStatus
 		// wantStatusLine pins what `git status --porcelain` shows after setUp,
 		// for the two dirty cases whose only difference is that line.
 		wantStatusLine string
@@ -160,11 +176,9 @@ func TestRun(t *testing.T) {
 			want:  pullrequest.ReadyBranchMismatch,
 		},
 		{
-			// What a pull request from a fork looks like from here: its head
-			// branch is not on this origin at all.
-			name:    "the head branch cannot be fetched",
-			headRef: "no-such-branch",
-			want:    pullrequest.ReadyFetchFailed,
+			name:   "the pull request's head cannot be fetched",
+			number: 8,
+			want:   pullrequest.ReadyFetchFailed,
 		},
 	}
 
@@ -183,12 +197,10 @@ func TestRun(t *testing.T) {
 			}
 			before := gittest.Rev(t, repo, "HEAD")
 
-			headRef := tc.headRef
-			if headRef == "" {
-				headRef = readyBranch
-			}
 			pr := readyPR(head, tc.draft)
-			pr.HeadRefName = headRef
+			if tc.number != 0 {
+				pr.Number = tc.number
+			}
 
 			// A mutation is the only call the ready and already_ready cases
 			// make; every other case makes none, and a request the fixture
@@ -203,8 +215,8 @@ func TestRun(t *testing.T) {
 			if got.Status != tc.want {
 				t.Errorf("status = %q, want %q", got.Status, tc.want)
 			}
-			if got.Number != 7 || got.HeadRef != headRef || got.HeadOID != head {
-				t.Errorf("report = %+v, want it to echo #7, %s at %s", got, headRef, head)
+			if got.Number != pr.Number || got.HeadRef != readyBranch || got.LocalBranch != readyBranch || got.HeadOID != head {
+				t.Errorf("report = %+v, want it to echo #%d, %s at %s", got, pr.Number, readyBranch, head)
 			}
 
 			wantMutations := 0
@@ -225,6 +237,53 @@ func TestRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunOnAFork is a pull request whose head branch origin does not have: it
+// is compared through refs/pull/<n>/head, on the fork's local branch.
+func TestRunOnAFork(t *testing.T) {
+	t.Parallel()
+
+	bare, head, _ := readyOrigin(t)
+	gittest.Run(t, bare, "update-ref", "-d", "refs/heads/"+readyBranch)
+	fork := &ghapi.Repo{Owner: "contributor", Name: "dotfiles"}
+
+	t.Run("at the head", func(t *testing.T) {
+		t.Parallel()
+
+		repo := readyForkCheckout(t, bare)
+		pr := readyPR(head, true)
+		pr.IsCrossRepository, pr.HeadRepository = true, fork
+		client, _ := readyServer(t, head, false)
+
+		got, err := readyRun(client, repo).Run(t.Context(), pr)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if got.Status != pullrequest.ReadyMarked || got.LocalBranch != readyForkBranch {
+			t.Errorf("report = %+v, want ready on %s", got, readyForkBranch)
+		}
+	})
+
+	// A deleted fork leaves no owner to name the branch after; the pull
+	// request's number stands in.
+	t.Run("deleted", func(t *testing.T) {
+		t.Parallel()
+
+		repo := readyForkCheckout(t, bare)
+		gittest.Run(t, repo, "branch", "-q", "-m", "pr-7/"+readyBranch)
+		pr := readyPR(head, true)
+		pr.IsCrossRepository = true
+		client, _ := readyServer(t, head, false)
+
+		got, err := readyRun(client, repo).Run(t.Context(), pr)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if got.Status != pullrequest.ReadyMarked || got.LocalBranch != "pr-7/"+readyBranch {
+			t.Errorf("report = %+v, want ready on pr-7/%s", got, readyBranch)
+		}
+	})
 }
 
 // TestRunOnABehindCheckout is apart from the table above because it pins the

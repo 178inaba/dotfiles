@@ -19,6 +19,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/gittest"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 // prepareRepo builds a clone checked out on the pull request's head branch,
@@ -77,6 +78,16 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 ) *ghapi.Client {
 	t.Helper()
 
+	return prepareGitHubWith(t, prNode(author, headOID), author, threads, issues, reviews)
+}
+
+// prepareGitHubWith is prepareGitHubKnowing answering both lookups with node,
+// for a pull request whose head is somewhere other than this repository.
+func prepareGitHubWith(t *testing.T, node, author, threads string,
+	issues pages, reviews reviewsAnswer,
+) *ghapi.Client {
+	t.Helper()
+
 	if reviews == nil {
 		reviews = func(int, string) string { return noReviews }
 	}
@@ -99,7 +110,6 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 			t.Errorf("read the request body: %v", err)
 			return
 		}
-		node := prNode(author, headOID)
 		var req struct {
 			Variables struct {
 				Reviews int    `json:"reviews"`
@@ -134,7 +144,7 @@ func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
 func prNode(author, headOID string) string {
 	return fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
 		"state":"OPEN","author":{"login":%q},"headRefName":"feature/x","baseRefName":"main",
-		"headRefOid":%q,"headRepositoryOwner":{"login":"owner"}}`, author, headOID)
+		"headRefOid":%q,"headRepository":{"nameWithOwner":"owner/repo"}}`, author, headOID)
 }
 
 // prepareGitHubLosingTheConversation answers the probe and then fails the query
@@ -922,8 +932,76 @@ func TestPrepareStopsOnAMismatchedBranch(t *testing.T) {
 		t.Errorf("prepare = %+v, want it stopped before the fetch", got)
 	}
 	if got.HeadRef == nil || *got.HeadRef != "feature/x" {
-		t.Errorf("head_ref = %v, want the branch it should have been on", got.HeadRef)
+		t.Errorf("head_ref = %v, want the pull request's head branch", got.HeadRef)
 	}
+	if got.LocalBranch == nil || *got.LocalBranch != "feature/x" {
+		t.Errorf("local_branch = %v, want the branch it should have been on", got.LocalBranch)
+	}
+}
+
+// forkNode is the fixture pull request with its head on contributor's fork,
+// or on a fork since deleted where headRepository is null.
+func forkNode(headOID, headRepository string) string {
+	return fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
+		"state":"OPEN","author":{"login":"other"},"headRefName":"feature/x","baseRefName":"main",
+		"headRefOid":%q,"isCrossRepository":true,"headRepository":%s}`,
+		headOID, headRepository)
+}
+
+// TestPrepareOnAFork is a review of a pull request whose head branch origin
+// does not have, from a checkout on the fork's local branch — reached with a
+// number and no worktree, so the branch check before the fetch is on the path
+// too.
+func TestPrepareOnAFork(t *testing.T) {
+	t.Parallel()
+
+	fork := func(t *testing.T, branch string) (repo, head string) {
+		t.Helper()
+
+		repo, head = prepareRepo(t)
+		gittest.Run(t, filepath.Join(filepath.Dir(repo), "origin.git"), "update-ref", "-d", "refs/heads/feature/x")
+		gittest.Run(t, repo, "switch", "-qc", branch)
+		return repo, head
+	}
+
+	t.Run("present", func(t *testing.T) {
+		t.Parallel()
+
+		repo, head := fork(t, "contributor/feature/x")
+		var seen []pullrequest.Context
+		var paths []string
+		got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
+			prepareGitHubWith(t, forkNode(head, `{"nameWithOwner":"contributor/repo"}`), "other", noThreads, preparePages, nil),
+			ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+			pullrequest.Options{OutDir: t.TempDir(), Number: 5, LocalOnly: true}, store(&seen, &paths))
+		if err != nil {
+			t.Fatalf("Prepare: %v", err)
+		}
+		if got.Status != "ok" || got.Freshness == nil || got.Freshness.Status != worktree.FreshnessOK {
+			t.Errorf("prepare = %+v, want ok with a fresh checkout", got)
+		}
+		if got.LocalBranch == nil || *got.LocalBranch != "contributor/feature/x" {
+			t.Errorf("local_branch = %v, want contributor/feature/x", got.LocalBranch)
+		}
+	})
+
+	t.Run("deleted", func(t *testing.T) {
+		t.Parallel()
+
+		repo, head := fork(t, "pr-5/feature/x")
+		var seen []pullrequest.Context
+		var paths []string
+		got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
+			prepareGitHubWith(t, forkNode(head, "null"), "other", noThreads, preparePages, nil),
+			ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
+			pullrequest.Options{OutDir: t.TempDir(), Number: 5, LocalOnly: true}, store(&seen, &paths))
+		if err != nil {
+			t.Fatalf("Prepare: %v", err)
+		}
+		if got.Status != "ok" || got.LocalBranch == nil || *got.LocalBranch != "pr-5/feature/x" {
+			t.Errorf("prepare = %+v, want ok on pr-5/feature/x", got)
+		}
+	})
 }
 
 // TestPrepareStopsOnAMissingPullRequest is the distinction the degradation

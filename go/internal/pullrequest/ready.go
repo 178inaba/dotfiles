@@ -43,8 +43,9 @@ const (
 	// ReadyBranchMismatch is a checkout of something else entirely, a
 	// detached head included.
 	ReadyBranchMismatch ReadyStatus = "branch_mismatch"
-	// ReadyFetchFailed most often means the head branch is not on origin at
-	// all, which is what a pull request from a fork looks like from here.
+	// ReadyFetchFailed is a fetch of the pull request's head or of its base
+	// branch from origin that failed, which is to say the network or origin
+	// itself: every pull request's head is on origin, a fork's included.
 	ReadyFetchFailed ReadyStatus = "fetch_failed"
 )
 
@@ -54,7 +55,11 @@ type ReadyReport struct {
 	Status  ReadyStatus `json:"status"`
 	Number  int         `json:"number"`
 	HeadRef string      `json:"head_ref"`
-	HeadOID string      `json:"head_oid"`
+	// The branch the checkout has to be on to count as the pull
+	// request's, which differs from head_ref for a pull request from a
+	// fork. The one to switch to on branch_mismatch.
+	LocalBranch string `json:"local_branch"`
+	HeadOID     string `json:"head_oid"`
 	// The checkout's own head, read after every check. Always where the run
 	// found it, since this command never moves the checkout.
 	LocalHead string `json:"local_head"`
@@ -87,13 +92,15 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 		wait = func() { time.Sleep(readyRetryWait) }
 	}
 
+	target := checkout(pr)
 	report := func(status ReadyStatus) (ReadyReport, error) {
 		local, err := worktree.Head(ctx, rd.Runner, rd.Dir)
 		if err != nil {
 			return ReadyReport{}, err
 		}
 		return ReadyReport{
-			Status: status, Number: pr.Number, HeadRef: pr.HeadRefName, HeadOID: pr.HeadRefOid, LocalHead: local,
+			Status: status, Number: pr.Number, HeadRef: pr.HeadRefName, LocalBranch: target.LocalBranch,
+			HeadOID: pr.HeadRefOid, LocalHead: local,
 		}, nil
 	}
 
@@ -105,7 +112,7 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 		return report(ReadyDirty)
 	}
 
-	c, err := worktree.Compare(ctx, rd.Runner, rd.Dir, checkout(pr))
+	c, err := worktree.Compare(ctx, rd.Runner, rd.Dir, target)
 	if err != nil {
 		return ReadyReport{}, err
 	}
@@ -118,7 +125,8 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 		// A head that has not moved gives the same answer against the same
 		// checkout, so only a moved one is worth another fetch.
 		if pr.HeadRefOid != lagging {
-			if c, err = worktree.Compare(ctx, rd.Runner, rd.Dir, checkout(pr)); err != nil {
+			target = checkout(pr)
+			if c, err = worktree.Compare(ctx, rd.Runner, rd.Dir, target); err != nil {
 				return ReadyReport{}, err
 			}
 		}
@@ -154,6 +162,7 @@ func (rd Ready) Run(ctx context.Context, pr ghapi.PullRequest) (ReadyReport, err
 // counterpart of Context.Checkout.
 func checkout(pr ghapi.PullRequest) worktree.PullRequest {
 	return worktree.PullRequest{
-		HeadRef: pr.HeadRefName, HeadOID: pr.HeadRefOid, BaseRef: pr.BaseRefName, IsOwnPR: pr.IsOwn,
+		Number: pr.Number, HeadRef: pr.HeadRefName, LocalBranch: worktree.LocalBranch(pr), HeadOID: pr.HeadRefOid,
+		BaseRef: pr.BaseRefName, IsOwnPR: pr.IsOwn,
 	}
 }

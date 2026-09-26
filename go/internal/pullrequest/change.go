@@ -10,6 +10,7 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 // Commit is one commit of the range being described.
@@ -115,20 +116,12 @@ type Change struct {
 //
 // git runs against dir, which is the checkout the command was invoked in.
 func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, diffPath string) (Change, error) {
-	head := fmt.Sprintf("refs/pull/%d/head", pr.Number)
-	if _, err := r.Run(ctx, runner.Command{
-		Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", pr.BaseRefName, head},
-	}); err != nil {
-		// Not degraded to what is already local: with a stale origin/<base>
-		// the merge base moves and the diff quietly widens to commits the base
-		// branch already has, which nothing downstream can tell from the real
-		// thing.
-		return Change{}, fmt.Errorf("git fetch origin %s %s failed in %s: %v", pr.BaseRefName, head, dir, err)
-	}
-	if _, err := runner.Git(ctx, r, dir, "cat-file", "-e", pr.HeadRefOid+"^{commit}"); err != nil {
-		return Change{}, fmt.Errorf(
-			"the pull request head %s is not in %s after fetching %s; it moved while the pull request was being read — run this again",
-			pr.HeadRefOid, dir, head)
+	// A failed fetch is not degraded to what is already local: with a stale
+	// origin/<base> the merge base moves and the diff quietly widens to commits
+	// the base branch already has, which nothing downstream can tell from the
+	// real thing.
+	if err := worktree.FetchPullHead(ctx, r, dir, pr.Number, pr.HeadRefOid, pr.BaseRefName); err != nil {
+		return Change{}, err
 	}
 	base, err := runner.Git(ctx, r, dir, "merge-base", "origin/"+pr.BaseRefName, pr.HeadRefOid)
 	if err != nil {

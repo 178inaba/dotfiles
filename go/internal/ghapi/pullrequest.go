@@ -48,6 +48,13 @@ type PullRequest struct {
 	// unknown value arrives intact rather than as an error, a null as empty.
 	ReviewDecision string
 	IsDraft        bool
+	// IsCrossRepository is whether the head lives in a repository other than
+	// the one the pull request is in: a fork, whose head branch the base
+	// repository does not have.
+	IsCrossRepository bool
+	// HeadRepository is the repository the head lives in, nil once a fork has
+	// been deleted — the pull request outlives it.
+	HeadRepository *Repo
 	// IsOwn is whether the viewer who read this is also its author.
 	IsOwn bool
 }
@@ -71,6 +78,8 @@ const prFields = `
       headRefOid
       reviewDecision
       isDraft
+      isCrossRepository
+      headRepository { nameWithOwner }
 `
 
 // viewerField is asked for beside the pull request in both queries, so that
@@ -99,8 +108,7 @@ query($owner: String!, $name: String!, $headRefName: String!) {
   ` + viewerField + `
   repository(owner: $owner, name: $name) {
     pullRequests(headRefName: $headRefName, first: 30, orderBy: {field: CREATED_AT, direction: DESC}) {
-      nodes {` + prFields + `      headRepositoryOwner { login }
-      }
+      nodes {` + prFields + `      }
     }
   }
 }`
@@ -118,14 +126,15 @@ type prNode struct {
 	Author struct {
 		Login string `json:"login"`
 	} `json:"author"`
-	HeadRefName         string `json:"headRefName"`
-	BaseRefName         string `json:"baseRefName"`
-	HeadRefOid          string `json:"headRefOid"`
-	ReviewDecision      string `json:"reviewDecision"`
-	IsDraft             bool   `json:"isDraft"`
-	HeadRepositoryOwner struct {
-		Login string `json:"login"`
-	} `json:"headRepositoryOwner"`
+	HeadRefName       string `json:"headRefName"`
+	BaseRefName       string `json:"baseRefName"`
+	HeadRefOid        string `json:"headRefOid"`
+	ReviewDecision    string `json:"reviewDecision"`
+	IsDraft           bool   `json:"isDraft"`
+	IsCrossRepository bool   `json:"isCrossRepository"`
+	HeadRepository    *struct {
+		NameWithOwner string `json:"nameWithOwner"`
+	} `json:"headRepository"`
 }
 
 // pullRequest builds PullRequest out of the node, with IsOwn decided against
@@ -133,20 +142,27 @@ type prNode struct {
 // login owns nothing: it would otherwise match a pull request whose author
 // GitHub no longer reports.
 func (n prNode) pullRequest(viewer string) PullRequest {
+	var head *Repo
+	if n.HeadRepository != nil {
+		owner, name, _ := strings.Cut(n.HeadRepository.NameWithOwner, "/")
+		head = &Repo{Owner: owner, Name: name}
+	}
 	return PullRequest{
-		ID:             n.ID,
-		Number:         n.Number,
-		Title:          n.Title,
-		Body:           n.Body,
-		URL:            n.URL,
-		State:          PRState(n.State),
-		Author:         n.Author.Login,
-		HeadRefName:    n.HeadRefName,
-		BaseRefName:    n.BaseRefName,
-		HeadRefOid:     n.HeadRefOid,
-		ReviewDecision: n.ReviewDecision,
-		IsDraft:        n.IsDraft,
-		IsOwn:          viewer != "" && n.Author.Login == viewer,
+		ID:                n.ID,
+		Number:            n.Number,
+		Title:             n.Title,
+		Body:              n.Body,
+		URL:               n.URL,
+		State:             PRState(n.State),
+		Author:            n.Author.Login,
+		HeadRefName:       n.HeadRefName,
+		BaseRefName:       n.BaseRefName,
+		HeadRefOid:        n.HeadRefOid,
+		ReviewDecision:    n.ReviewDecision,
+		IsDraft:           n.IsDraft,
+		IsCrossRepository: n.IsCrossRepository,
+		HeadRepository:    head,
+		IsOwn:             viewer != "" && n.Author.Login == viewer,
 	}
 }
 
@@ -324,8 +340,11 @@ func (c *Client) pullRequestForHead(ctx context.Context, repo Repo, headRefName,
 		return PullRequest{}, fmt.Errorf("look up the pull request for %s: %w", headRefName, err)
 	}
 
+	// A deleted fork has no head repository and belongs to nobody a head
+	// can be narrowed to.
 	owned := func(n prNode) bool {
-		return headOwner == "" || n.HeadRepositoryOwner.Login == headOwner
+		head := n.pullRequest("").HeadRepository
+		return headOwner == "" || (head != nil && head.Owner == headOwner)
 	}
 	nodes := out.Repository.PullRequests.Nodes
 	for _, n := range nodes {

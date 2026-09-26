@@ -65,7 +65,8 @@ func node(number int, state, headOwner string) string {
 		"headRefOid": "379223e",
 		"reviewDecision": "APPROVED",
 		"isDraft": true,
-		"headRepositoryOwner": {"login": %q}
+		"isCrossRepository": false,
+		"headRepository": {"nameWithOwner": "%s/dotfiles"}
 	}`, number, number, number, state, headOwner)
 }
 
@@ -91,6 +92,7 @@ func wantPR(number int, state ghapi.PRState) ghapi.PullRequest {
 		// whichever query the caller took, so the fixture carries them on both.
 		ReviewDecision: "APPROVED",
 		IsDraft:        true,
+		HeadRepository: &ghapi.Repo{Owner: "178inaba", Name: "dotfiles"},
 		// Every fixture's viewer is the author, so an owned pull request is
 		// the default a case has to opt out of rather than into.
 		IsOwn: true,
@@ -158,6 +160,100 @@ func TestPullRequestEmptyViewerOwnsNothing(t *testing.T) {
 	}
 	if got.IsOwn {
 		t.Error("IsOwn = true, want false: an empty viewer is nobody")
+	}
+}
+
+func TestPullRequestHeadRepository(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		fields    string
+		wantCross bool
+		wantHead  *ghapi.Repo
+	}{
+		{
+			name:     "same repository",
+			fields:   `"isCrossRepository":false,"headRepository":{"nameWithOwner":"178inaba/dotfiles"}`,
+			wantHead: &ghapi.Repo{Owner: "178inaba", Name: "dotfiles"},
+		},
+		{
+			// Named by the fork's own name, which need not be the base's.
+			name:      "fork",
+			fields:    `"isCrossRepository":true,"headRepository":{"nameWithOwner":"contributor/dotfiles-fork"}`,
+			wantCross: true,
+			wantHead:  &ghapi.Repo{Owner: "contributor", Name: "dotfiles-fork"},
+		},
+		{
+			// GitHub answers null once the fork is deleted, while the pull
+			// request itself stays.
+			name:      "deleted fork",
+			fields:    `"isCrossRepository":true,"headRepository":null`,
+			wantCross: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := withViewer(viewerLogin, `{"pullRequest":{"number":9,"state":"OPEN",`+tc.fields+`}}`)
+			c := ghapitest.New(t, graphQL(t, body, nil))
+
+			got, err := c.PullRequest(t.Context(), repo, 9)
+			if err != nil {
+				t.Fatalf("PullRequest: %v", err)
+			}
+			if got.IsCrossRepository != tc.wantCross {
+				t.Errorf("IsCrossRepository = %v, want %v", got.IsCrossRepository, tc.wantCross)
+			}
+			if diff := cmp.Diff(tc.wantHead, got.HeadRepository); diff != "" {
+				t.Errorf("HeadRepository (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestPullRequestQueriesSelectTheHead pins that both lookups ask for the head
+// repository: a field only one of them selects decodes as its zero value on
+// the other, which reads as a same-repository pull request.
+func TestPullRequestQueriesSelectTheHead(t *testing.T) {
+	t.Parallel()
+
+	var queries []string
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode the request body: %v", err)
+			return
+		}
+		queries = append(queries, req.Query)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(req.Query, "pullRequests(") {
+			fmt.Fprint(w, withViewer(viewerLogin, `{"pullRequests":{"nodes":[`+node(128, "OPEN", "178inaba")+`]}}`))
+			return
+		}
+		fmt.Fprint(w, withViewer(viewerLogin, `{"pullRequest":`+node(128, "OPEN", "178inaba")+`}`))
+	}))
+
+	if _, err := c.PullRequest(t.Context(), repo, 128); err != nil {
+		t.Fatalf("PullRequest: %v", err)
+	}
+	if _, err := c.PullRequestForBranch(t.Context(), runner.Exec{}, t.TempDir(), repo, "feature/121-port-scripts-to-ccx"); err != nil {
+		t.Fatalf("PullRequestForBranch: %v", err)
+	}
+
+	if len(queries) != 2 {
+		t.Fatalf("got %d queries, want 2", len(queries))
+	}
+	for _, q := range queries {
+		for _, field := range []string{"isCrossRepository", "headRepository { nameWithOwner }"} {
+			if !strings.Contains(q, field) {
+				t.Errorf("query does not select %s:\n%s", field, q)
+			}
+		}
 	}
 }
 
@@ -396,7 +492,9 @@ func TestPullRequestForBranch(t *testing.T) {
 				if err != nil {
 					t.Fatalf("PullRequestForBranch: %v", err)
 				}
-				if diff := cmp.Diff(wantPR(130, ghapi.StateOpen), got); diff != "" {
+				want := wantPR(130, ghapi.StateOpen)
+				want.HeadRepository = &ghapi.Repo{Owner: tc.headOwner, Name: "dotfiles"}
+				if diff := cmp.Diff(want, got); diff != "" {
 					t.Errorf("PullRequestForBranch (-want +got):\n%s", diff)
 				}
 			}

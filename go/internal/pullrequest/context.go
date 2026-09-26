@@ -18,6 +18,7 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/contract"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/ghmd"
+	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 // PR is the pull request itself.
@@ -31,6 +32,17 @@ type PR struct {
 	HeadRef string        `json:"head_ref" contract:"required,nonempty"`
 	BaseRef string        `json:"base_ref" contract:"required,nonempty"`
 	HeadOID string        `json:"head_oid" contract:"required,nonempty"`
+	// Whether the head lives in a repository other than this one: a
+	// fork, whose head branch this repository does not have.
+	IsCrossRepository bool `json:"is_cross_repository" contract:"required"`
+	// The repository the head lives in, as owner/name. Null once a
+	// fork has been deleted, which the pull request outlives.
+	HeadRepository *string `json:"head_repository"`
+	// The branch a checkout of the pull request is on: head_ref for one
+	// whose head is in this repository, <owner>/<head_ref> for one from a
+	// fork, and pr-<number>/<head_ref> for one whose fork has been deleted,
+	// which leaves no owner to name it after.
+	LocalBranch string `json:"local_branch" contract:"required,nonempty"`
 }
 
 // LinkedIssue is an issue the pull request closes.
@@ -551,6 +563,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		PR: PR{
 			Number: pr.Number, Title: pr.Title, Body: pr.Body, URL: pr.URL, State: pr.State,
 			Author: pr.Author, HeadRef: pr.HeadRefName, BaseRef: pr.BaseRefName, HeadOID: pr.HeadRefOid,
+			IsCrossRepository: pr.IsCrossRepository, HeadRepository: headRepository(pr), LocalBranch: worktree.LocalBranch(pr),
 		},
 		LinkedIssues:       issues,
 		HeadCommittedAt:    headCommittedAt,
@@ -1032,4 +1045,13 @@ func window(limit, have int) int {
 		return want
 	}
 	return page
+}
+
+// headRepository is where the pull request's head lives, in the owner/name
+// form the document keeps a repository in.
+func headRepository(pr ghapi.PullRequest) *string {
+	if pr.HeadRepository == nil {
+		return nil
+	}
+	return new(pr.HeadRepository.String())
 }

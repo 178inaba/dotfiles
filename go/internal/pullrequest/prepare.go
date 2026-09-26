@@ -48,8 +48,12 @@ type Preparation struct {
 	// a failure. Everything else that goes wrong stops instead: confusing the
 	// two would let a review of somebody else's work run with this
 	// repository's own conventions and automatic fixing switched on.
-	PRExists    bool    `json:"pr_exists"`
-	HeadRef     *string `json:"head_ref"`
+	PRExists bool    `json:"pr_exists"`
+	HeadRef  *string `json:"head_ref"`
+	// The branch the checkout has to be on to count as the pull
+	// request's, which differs from head_ref for a pull request from a
+	// fork. The one to switch to on branch_mismatch.
+	LocalBranch *string `json:"local_branch"`
 	ContextPath *string `json:"context_path"`
 	// work_dir, review_path and threads_path are handed out rather than left
 	// to the caller to name, which is what binds a review's working files to
@@ -140,8 +144,9 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	case err != nil:
 		p.PRExists = false
 	default:
+		local := worktree.LocalBranch(pr)
 		p.Flags.PRNumber = &pr.Number
-		p.HeadRef = &pr.HeadRefName
+		p.HeadRef, p.LocalBranch = &pr.HeadRefName, &local
 	}
 
 	if !p.PRExists {
@@ -155,7 +160,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		if err != nil {
 			return Preparation{}, err
 		}
-		if branch != pr.HeadRefName {
+		if branch != *p.LocalBranch {
 			p.Status = "branch_mismatch"
 			return p, nil
 		}
@@ -173,12 +178,17 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	p.ContextPath = &doc.Path
 	p.WorkDir, p.ReviewPath, p.ThreadsPath = &doc.Work.Dir, &doc.Work.ReviewPath, &doc.Work.ThreadsPath
 
-	// This fetches the base branch a second time, since the check fetches for
-	// itself and `ccx pr freshness` calls it alone. Left as it is: the two
-	// answer differently to a fetch that fails — reading the change stops the
-	// run, the check reports fetch_failed — and giving the check a way to skip
+	// This fetches the base branch and the pull request's head a second time,
+	// since the check fetches for itself and `ccx pr freshness` calls it
+	// alone. Left as it is: the two answer differently to a fetch that fails —
+	// reading the change stops the run, the check reports fetch_failed — and
+	// giving the check a way to skip
 	// its own fetch would put that decision in the caller of both.
-	freshness, err := worktree.CheckFreshness(ctx, r, dir, fetched.Checkout())
+	target, err := fetched.Checkout()
+	if err != nil {
+		return Preparation{}, err
+	}
+	freshness, err := worktree.CheckFreshness(ctx, r, dir, target)
 	if err != nil {
 		return Preparation{}, fmt.Errorf("the freshness check failed: %v", err)
 	}

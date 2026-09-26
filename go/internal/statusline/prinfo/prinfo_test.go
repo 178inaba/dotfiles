@@ -70,7 +70,7 @@ const prNode = `{
 	"url": "https://e/%d",
 	"reviewDecision": %q,
 	"isDraft": %t,
-	"headRepositoryOwner": {"login": %q}
+	"headRepository": {"nameWithOwner": "%s/repo"}
 }`
 
 // github serves the two endpoints the badge can reach and counts them.

@@ -326,10 +326,12 @@ fetched at the same instant is the same run recorded twice and overwrites.`,
 		intro: `Compare the checkout here with the pull request's head.
 
 Takes the path of a file written by ` + "`ccx pr context`" + `, and reads the pull
-request's head, its two branches and whether it is ours out of it. Both
-branches are fetched first, so no fetch is needed beforehand. A fast-forward
-that is safe — behind only, with nothing uncommitted — is taken, and everything
-else is reported rather than acted on.
+request's head, its base branch, the branch a checkout of it is on and whether
+it is ours out of it. The base branch and ` + "`refs/pull/<n>/head`" + ` are fetched
+first, so no fetch is needed beforehand, and a pull request from a fork is
+compared the same way as any other. A fast-forward that is safe — behind only,
+with nothing uncommitted — is taken, and everything else is reported rather
+than acted on.
 
 Runs against the working directory, so the answer is about the checkout the
 caller is standing in.`,
@@ -597,23 +599,38 @@ is the second. Switching the session is the caller's, because no command can
 see the session's state.
 
 <pr-number> may be left out, in which case the pull request is inferred from
-the branch checked out here. An existing worktree is brought up to date with
-origin where that is a safe fast-forward; anything else is reported rather
-than acted on, since neither an uncommitted change nor a commit that is not
-pushed is this command's to discard. If the main worktree is on the pull
-request's branch it is moved to the default branch first, so that the branch
-is free to check out here.`,
+the branch checked out here. The pull request's head is fetched from
+` + "`refs/pull/<n>/head`" + `, which origin has for a pull request from a fork as
+well. An existing worktree is brought up to date with that head where it is a
+safe fast-forward; anything else is reported rather than acted on, since
+neither an uncommitted change nor a commit that is not pushed is this
+command's to discard. Its branch config is written as ` + "`ccx worktree checkout`" + `
+writes it. If the main worktree is on the pull request's local branch it is
+moved to the default branch first, so that the branch is free to check out
+here.`,
 		blocks:   []block{prints(reflect.TypeFor[worktree.Resolution]())},
 		statuses: with(),
 	},
 
 	"worktree checkout": {
-		intro: `Make a worktree at a pull request's head branch.
+		intro: `Make a worktree for a pull request, on its local branch at its head.
 
-The second half of resolving a pull request's worktree, run with the name and
-the head branch that ` + "`ccx worktree resolve`" + ` answered with.
+The second half of resolving a pull request's worktree, run with the pull
+request ` + "`ccx worktree resolve`" + ` answered action create for. The pull request
+is read again, and its head fetched from ` + "`refs/pull/<n>/head`" + `, so the
+worktree is made at the head as it is now; its name and branch are the
+` + "`worktree_name`" + ` and ` + "`local_branch`" + ` resolve reports. A local branch of that
+name that already exists is checked out as it stands and synchronised like an
+existing worktree, rather than created again.
 
-Fork pull requests are out of scope: the head branch has to exist on origin.
+The branch config is the form ` + "`gh pr checkout`" + ` writes. A pull request in
+this repository tracks origin's head branch, or nothing — with a warning — where
+that branch is gone. One from a fork has the fork's url as its remote and push
+remote and the head branch to merge; one whose fork has been deleted has origin
+and ` + "`refs/pull/<n>/head`" + `. git refuses to push either under
+push.default=simple, since the local branch is named differently from what it
+merges: a push from it cannot create a branch on this repository.
+
 The worktree this makes is not cleaned up when the session ends, because the
 session did not create it — /cleanup-merged is what collects it.`,
 		blocks:   []block{prints(reflect.TypeFor[worktree.CheckedOut]())},

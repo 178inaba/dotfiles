@@ -72,7 +72,7 @@ Skill ツールで `pr-reading` を起動し、その手順に従って読む。
 - 未コミット変更: `git status`
 - ローカルと PR head の整合: `git rev-parse HEAD` を `pr.head_oid`（PR コンテキストの取得を終えていればローカルに在る — 同コマンドの契約）と比較し、一致しなければ `git merge-base --is-ancestor` で ahead（未 push commit あり）/ behind（未取得 commit あり）/ diverged を判別する。push・pull どちらが必要かの引き継ぎ情報になる。`--worktree` 指定時は worktree 解決が同期済みのため通常は一致する
 
-**`<pr-number>` のみのモード**では、未コミット変更と整合の 2 項目を「ローカルの状態: checkout を見ていないため未確認」の 1 行に置き換える。その head branch を checkout 中の worktree が `git worktree list --porcelain` に見つかれば、そのパスを 1 行添える（読者の次の一手が通常そこへ行くため）。
+**`<pr-number>` のみのモード**では、未コミット変更と整合の 2 項目を「ローカルの状態: checkout を見ていないため未確認」の 1 行に置き換える。`pr.local_branch` を checkout 中の worktree が `git worktree list --porcelain` に見つかれば、そのパスを 1 行添える（読者の次の一手が通常そこへ行くため）。
 
 ### 残作業・注意点
 
