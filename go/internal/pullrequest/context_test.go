@@ -29,13 +29,14 @@ var meta = ghapi.PullRequest{
 	Title:  "Test PR",
 	Body: "Closes #10\nFIXES: #11\nResolves other/repo#12\nfix #10\nSee #99\n" +
 		"See https://github.com/owner/repo/issues/13\nFixes https://github.com/owner/repo/issues/14",
-	URL:         "https://github.com/owner/repo/pull/5",
-	State:       ghapi.StateOpen,
-	Author:      "testuser",
-	HeadRefName: "feature/x",
-	BaseRefName: "main",
-	HeadRefOid:  "abc123",
-	IsOwn:       true,
+	URL:            "https://github.com/owner/repo/pull/5",
+	State:          ghapi.StateOpen,
+	Author:         "testuser",
+	HeadRefName:    "feature/x",
+	BaseRefName:    "main",
+	HeadRefOid:     "abc123",
+	IsOwn:          true,
+	HeadRepository: &ghapi.Repo{Owner: "owner", Name: "repo"},
 }
 
 // pages is what one fake GitHub answers with: the first response to each query,
@@ -347,6 +348,38 @@ func fetch(t *testing.T, p pages, pr ghapi.PullRequest, limits pullrequest.Limit
 	return got
 }
 
+// TestFetchHeadRepository covers the two fork shapes the document has to
+// carry for a reader to find the pull request's local branch: a fork that is
+// there, and one deleted since, whose pull request GitHub still serves.
+func TestFetchHeadRepository(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		head     *ghapi.Repo
+		wantHead *string
+	}{
+		{name: "fork", head: &ghapi.Repo{Owner: "contributor", Name: "repo-fork"}, wantHead: new("contributor/repo-fork")},
+		{name: "deleted fork"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			pr := meta
+			pr.IsCrossRepository, pr.HeadRepository = true, tc.head
+			got := fetch(t, pages{body: fixtureBody, issues: linkedIssues, issueComments: linkedIssueComments}, pr, pullrequest.DefaultLimits)
+
+			if !got.PR.IsCrossRepository {
+				t.Error("is_cross_repository = false, want true")
+			}
+			if diff := cmp.Diff(tc.wantHead, got.PR.HeadRepository); diff != "" {
+				t.Errorf("head_repository (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestFetchCountsFromWhatWasRecorded is the wiring the count depends on: the
 // document is built and then measured against the state file for this very
 // pull request, so that a second run after `ccx pr seen` starts where the
@@ -388,6 +421,7 @@ func TestFetch(t *testing.T) {
 		want := pullrequest.PR{
 			Number: 5, Title: "Test PR", Body: meta.Body, URL: "https://github.com/owner/repo/pull/5",
 			State: ghapi.StateOpen, Author: "testuser", HeadRef: "feature/x", BaseRef: "main", HeadOID: "abc123",
+			HeadRepository: new("owner/repo"),
 		}
 		if diff := cmp.Diff(want, got.PR); diff != "" {
 			t.Errorf("pr (-want +got):\n%s", diff)
@@ -1469,6 +1503,9 @@ func fullContext() map[string]any {
 			"base_ref": "main",
 			"head_ref": "feature/x",
 			"head_oid": "abc123",
+
+			"is_cross_repository": false,
+			"head_repository":     "owner/repo",
 		},
 		"review_threads": []any{},
 	}
@@ -1575,6 +1612,10 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 		{name: "no pr.head_oid", edit: drop("pr", "head_oid"), want: "pr is missing head_oid in ctx.json"},
 		{name: "null pr.head_oid", edit: put(nil, "pr", "head_oid"), want: "pr is missing head_oid in ctx.json"},
 		{name: "empty pr.head_oid", edit: put("", "pr", "head_oid"), want: "pr sets head_oid to an empty string in ctx.json"},
+
+		{name: "no pr.is_cross_repository", edit: drop("pr", "is_cross_repository"), want: "pr is missing is_cross_repository in ctx.json"},
+		// A head repository GitHub no longer has is an answer, not a gap.
+		{name: "null pr.head_repository", edit: put(nil, "pr", "head_repository")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -1614,6 +1655,7 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 		Repo: "owner/repo",
 		PR: pullrequest.PR{
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
+			HeadRepository: new("owner/repo"),
 		},
 		Reviewers:     []pullrequest.Reviewer{},
 		ReviewThreads: []pullrequest.Thread{},

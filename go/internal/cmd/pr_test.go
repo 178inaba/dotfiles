@@ -65,7 +65,7 @@ func contextDocument(t *testing.T, fetchedAt string, isOwnPR bool, headOID strin
 	doc := fmt.Sprintf(`{"fetched_at":%q,
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
 		"repo":"owner/repo","is_own_pr":%t,
-		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":%q},
+		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":%q,"is_cross_repository":false,"head_repository":"owner/repo"},
 		"reviewers":[],"review_threads":[]}`, fetchedAt, isOwnPR, headOID)
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -199,7 +199,7 @@ func TestPRRequestReviewDryRun(t *testing.T) {
 	doc := `{"fetched_at":"2026-01-11T00:00:00Z",
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
 		"repo":"owner/repo","is_own_pr":true,
-		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123"},
+		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123","is_cross_repository":false,"head_repository":"owner/repo"},
 		"reviewers":[
 			{"author":"alice","author_type":"User","state":"CHANGES_REQUESTED","submitted_at":"2026-01-10T00:00:00Z"},
 			{"author":"carol","author_type":"User","state":"APPROVED","submitted_at":"2026-01-10T00:00:00Z"}
