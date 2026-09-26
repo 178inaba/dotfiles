@@ -347,11 +347,19 @@ func localHead(ctx context.Context, r runner.Runner, dir string) (string, error)
 // is_own_pr is read as the plain bool it is: false is a meaningful answer and
 // its absence is not, and what tells the two apart is the declaration, which
 // reads presence from the document rather than from the decoded value.
-func (c Context) Checkout() worktree.PullRequest {
-	return worktree.PullRequest{
-		HeadRef: c.PR.HeadRef,
-		HeadOID: c.PR.HeadOID,
-		BaseRef: c.PR.BaseRef,
-		IsOwnPR: c.IsOwnPR,
+//
+// A document without a local branch is a pull request whose fork has been
+// deleted, which no checkout can be on.
+func (c Context) Checkout() (worktree.PullRequest, error) {
+	if c.PR.LocalBranch == nil {
+		return worktree.PullRequest{}, fmt.Errorf("pull request #%d: %w", c.PR.Number, worktree.ErrForkDeleted)
 	}
+	return worktree.PullRequest{
+		Number:      c.PR.Number,
+		HeadRef:     c.PR.HeadRef,
+		LocalBranch: *c.PR.LocalBranch,
+		HeadOID:     c.PR.HeadOID,
+		BaseRef:     c.PR.BaseRef,
+		IsOwnPR:     c.IsOwnPR,
+	}, nil
 }

@@ -19,6 +19,10 @@
                             else's work run with this repository's own conventions and
                             automatic fixing switched on.
   head_ref                  string (may be null)
+  local_branch              string (may be null)
+                            The branch the checkout has to be on to count as the pull
+                            request's, which differs from head_ref for a pull request
+                            from a fork. The one to switch to on branch_mismatch.
   context_path              string (may be null)
   work_dir                  string (may be null)
                             work_dir, review_path and threads_path are handed out rather
@@ -122,10 +126,15 @@
       diverged              The same, with commits the remote has never seen.
       branch_mismatch       A checkout of something else entirely, a detached head
                             included.
-      fetch_failed          fetch_failed most often means the head branch is not on
-                            origin at all, which is what a pull request from a fork
-                            looks like from here.
+      fetch_failed          A fetch of the pull request's head or of its base branch
+                            from origin that failed, which is to say the network or
+                            origin itself: every pull request's head is on origin, a
+                            fork's included.
     head_ref                string
+    local_branch            string
+                            The branch the checkout has to be on to count as the pull
+                            request's, which differs from head_ref for a pull request
+                            from a fork. The one to switch to on branch_mismatch.
     head_oid                string
     local_head              string
                             Read after any synchronisation, so it is where the checkout

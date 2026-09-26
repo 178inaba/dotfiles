@@ -355,11 +355,17 @@ func TestFetchHeadRepository(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		head     *ghapi.Repo
-		wantHead *string
+		name       string
+		head       *ghapi.Repo
+		wantHead   *string
+		wantBranch *string
 	}{
-		{name: "fork", head: &ghapi.Repo{Owner: "contributor", Name: "repo-fork"}, wantHead: new("contributor/repo-fork")},
+		{
+			name: "fork", head: &ghapi.Repo{Owner: "contributor", Name: "repo-fork"},
+			wantHead: new("contributor/repo-fork"), wantBranch: new("contributor/feature/x"),
+		},
+		// Still a document: the pull request and refs/pull/<n>/head outlive
+		// the fork, and only the branch to check it out on is gone.
 		{name: "deleted fork"},
 	}
 	for _, tc := range tests {
@@ -375,6 +381,9 @@ func TestFetchHeadRepository(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantHead, got.PR.HeadRepository); diff != "" {
 				t.Errorf("head_repository (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantBranch, got.PR.LocalBranch); diff != "" {
+				t.Errorf("local_branch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -421,7 +430,7 @@ func TestFetch(t *testing.T) {
 		want := pullrequest.PR{
 			Number: 5, Title: "Test PR", Body: meta.Body, URL: "https://github.com/owner/repo/pull/5",
 			State: ghapi.StateOpen, Author: "testuser", HeadRef: "feature/x", BaseRef: "main", HeadOID: "abc123",
-			HeadRepository: new("owner/repo"),
+			HeadRepository: new("owner/repo"), LocalBranch: new("feature/x"),
 		}
 		if diff := cmp.Diff(want, got.PR); diff != "" {
 			t.Errorf("pr (-want +got):\n%s", diff)
@@ -1506,6 +1515,7 @@ func fullContext() map[string]any {
 
 			"is_cross_repository": false,
 			"head_repository":     "owner/repo",
+			"local_branch":        "feature/x",
 		},
 		"review_threads": []any{},
 	}
@@ -1655,7 +1665,7 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 		Repo: "owner/repo",
 		PR: pullrequest.PR{
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
-			HeadRepository: new("owner/repo"),
+			HeadRepository: new("owner/repo"), LocalBranch: new("feature/x"),
 		},
 		Reviewers:     []pullrequest.Reviewer{},
 		ReviewThreads: []pullrequest.Thread{},

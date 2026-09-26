@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -23,8 +24,8 @@ const (
 	// ResolveBehindDirty is a checkout with uncommitted changes in it, which
 	// cannot be moved to the head.
 	ResolveBehindDirty ResolveStatus = "behind_dirty"
-	// ResolveDiverged is a checkout carrying commits the remote has never
-	// seen.
+	// ResolveDiverged is a checkout carrying commits the pull request's head
+	// has never seen.
 	ResolveDiverged ResolveStatus = "diverged"
 	// ResolveEvacuationDirty is the main repository sitting on the pull
 	// request's branch with changes in it, so it cannot be moved off to make
@@ -51,8 +52,13 @@ type Resolution struct {
 	// that left the number out learns which one it got.
 	PRNumber int    `json:"pr_number"`
 	HeadRef  string `json:"head_ref"`
-	// The head branch with its slashes flattened, since one
-	// directory name has to stand for a branch that may be nested.
+	// The branch the worktree is on: head_ref for a pull request whose
+	// head is in this repository, and <owner>/<head_ref> for one from a
+	// fork, owner being the fork's, so that two forks' branches of the same
+	// name do not share one.
+	LocalBranch string `json:"local_branch"`
+	// local_branch with its slashes flattened, since one directory name
+	// has to stand for a branch that may be nested.
 	WorktreeName string `json:"worktree_name"`
 	// Path is null unless an existing worktree was found; there is nowhere to
 	// point at until Checkout has made one.
@@ -60,6 +66,34 @@ type Resolution struct {
 	Evacuated bool     `json:"evacuated"`
 	Synced    bool     `json:"synced"`
 	Warnings  []string `json:"warnings"`
+}
+
+// RemoteOptions are what building a fork's url takes from the environment:
+// gh's configuration directory, which holds the protocol to use, and the host.
+type RemoteOptions struct {
+	ConfigDir string
+	Host      string
+}
+
+// ErrForkDeleted is a pull request whose head lived on a fork that has since
+// been deleted. GitHub still serves the pull request and refs/pull/<n>/head,
+// but there is no owner left to name a local branch after.
+var ErrForkDeleted = errors.New("its head repository, a fork, has been deleted, so it has no branch to check out")
+
+// LocalBranch is the branch a checkout of pr is on.
+//
+// The head branch's own name for a pull request whose head is in this
+// repository, and <owner>/<head_ref> for one from a fork: two forks may both
+// push a patch-1, and the worktree search and the branch check identify a
+// checkout by nothing but its branch name.
+func LocalBranch(pr ghapi.PullRequest) (string, error) {
+	if !pr.IsCrossRepository {
+		return pr.HeadRefName, nil
+	}
+	if pr.HeadRepository == nil {
+		return "", fmt.Errorf("pull request #%d: %w", pr.Number, ErrForkDeleted)
+	}
+	return pr.HeadRepository.Owner + "/" + pr.HeadRefName, nil
 }
 
 // Resolve finds the worktree for a pull request, or prepares for one to be
@@ -73,8 +107,12 @@ type Resolution struct {
 // The main worktree is never the answer even when it has the branch checked
 // out. That case is what evacuation is for: it moves out of the way so the
 // worktree can have the branch instead.
-func Resolve(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, dir string, number int) (Resolution, error) {
+func Resolve(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, dir string, number int, remote RemoteOptions) (Resolution, error) {
 	pr, err := resolvePR(ctx, r, c, repo, dir, number)
+	if err != nil {
+		return Resolution{}, err
+	}
+	local, err := LocalBranch(pr)
 	if err != nil {
 		return Resolution{}, err
 	}
@@ -82,22 +120,29 @@ func Resolve(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	out := Resolution{
 		PRNumber:     pr.Number,
 		HeadRef:      pr.HeadRefName,
-		WorktreeName: strings.ReplaceAll(pr.HeadRefName, "/", "-"),
+		LocalBranch:  local,
+		WorktreeName: strings.ReplaceAll(local, "/", "-"),
 	}
 
 	entries, err := List(ctx, r, dir)
 	if err != nil {
 		return Resolution{}, err
 	}
-	if found := linkedWorktreeOn(entries, pr.HeadRefName); found != "" {
-		if err := fetchHead(ctx, r, dir, pr.HeadRefName); err != nil {
+	if found := linkedWorktreeOn(entries, local); found != "" {
+		upstream, err := fetchHead(ctx, r, dir, pr)
+		if err != nil {
 			return Resolution{}, err
 		}
-		status, synced, err := syncWithOrigin(ctx, r, found, pr.HeadRefName)
+		status, synced, err := syncWithHead(ctx, r, found, local, pr.HeadRefOid)
+		if err != nil {
+			return Resolution{}, err
+		}
+		warnings, err := setTracking(ctx, r, found, local, pr, upstream, remote)
 		if err != nil {
 			return Resolution{}, err
 		}
 		out.Status, out.Action, out.Path, out.Synced = status, ActionEnterExisting, &found, synced
+		out.Warnings = append(out.Warnings, warnings...)
 		return out, nil
 	}
 
@@ -106,7 +151,7 @@ func Resolve(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		return Resolution{}, fmt.Errorf("not inside a git repository")
 	}
 	main := entries[0].Path
-	if entries[0].Branch == pr.HeadRefName {
+	if entries[0].Branch == local {
 		dirty, err := isDirty(ctx, r, main)
 		if err != nil {
 			return Resolution{}, err
@@ -121,7 +166,7 @@ func Resolve(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		out.Evacuated = true
 	}
 
-	if err := fetchHead(ctx, r, dir, pr.HeadRefName); err != nil {
+	if _, err := fetchHead(ctx, r, dir, pr); err != nil {
 		return Resolution{}, err
 	}
 	out.Status = ResolveOK
@@ -186,13 +231,63 @@ func evacuate(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.
 	return nil
 }
 
-// fetchHead updates the remote-tracking ref the worktree will be built on.
-func fetchHead(ctx context.Context, r runner.Runner, dir, headRef string) error {
-	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", headRef}}); err != nil {
-		return fmt.Errorf(
-			"git fetch origin %s failed (network issue, or fork PR whose head branch is not on origin — out of scope)", headRef)
+// fetchHead brings the pull request's head into dir and reports whether its
+// head branch is on origin to be tracked.
+//
+// The head comes from refs/pull/<n>/head, which origin carries for every pull
+// request — a fork's included, whose head branch it does not have — and is
+// checked for by head_oid, which is what everything after this builds on. The
+// head branch is fetched as well for a pull request in this repository, only
+// so that origin/<head_ref> is there to be the branch's upstream; its absence
+// is a warning rather than a failure, since a head branch deleted after its
+// pull request closed takes nothing away from the review.
+func fetchHead(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest) (upstream bool, err error) {
+	head := PullRef(pr.Number)
+	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", head}}); err != nil {
+		return false, fmt.Errorf("git fetch origin %s failed in %s: %v", head, dir, err)
 	}
-	return nil
+	if err := RequireFetched(ctx, r, dir, pr.HeadRefOid, head); err != nil {
+		return false, err
+	}
+	if pr.IsCrossRepository {
+		return false, nil
+	}
+	_, err = r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", pr.HeadRefName}})
+	return err == nil, nil
+}
+
+// setTracking writes the branch config a pull request's local branch gets, in
+// the form `gh pr checkout` writes it.
+//
+// For a head in this repository that is origin/<head_ref> as the upstream,
+// left unset with a warning where the head branch is no longer on origin. For a
+// fork it is the fork's url as both remote and pushRemote, with <head_ref> to
+// merge: a branch named <owner>/<head_ref> tracking <head_ref> is one git
+// refuses to push under push.default=simple, where no upstream at all would let
+// push.autoSetupRemote create <owner>/<head_ref> on the base repository.
+func setTracking(ctx context.Context, r runner.Runner, dir, branch string, pr ghapi.PullRequest, upstream bool, remote RemoteOptions) ([]string, error) {
+	if !pr.IsCrossRepository {
+		if !upstream {
+			return []string{fmt.Sprintf(
+				"%s is not on origin any more, so %s was left without an upstream", pr.HeadRefName, branch)}, nil
+		}
+		if _, err := runner.Git(ctx, r, dir, "branch", "-q", "--set-upstream-to=origin/"+pr.HeadRefName, branch); err != nil {
+			return nil, fmt.Errorf("failed to set the upstream of %s to origin/%s: %v", branch, pr.HeadRefName, err)
+		}
+		return nil, nil
+	}
+
+	url, err := ghapi.RepoURL(remote.ConfigDir, remote.Host, *pr.HeadRepository)
+	if err != nil {
+		return nil, err
+	}
+	for _, kv := range [][2]string{{"remote", url}, {"pushRemote", url}, {"merge", "refs/heads/" + pr.HeadRefName}} {
+		key := "branch." + branch + "." + kv[0]
+		if _, err := runner.Git(ctx, r, dir, "config", key, kv[1]); err != nil {
+			return nil, fmt.Errorf("failed to set %s: %v", key, err)
+		}
+	}
+	return nil, nil
 }
 
 // CheckedOut is a worktree made for a pull request.
@@ -206,59 +301,78 @@ type CheckedOut struct {
 	Warnings    []string `json:"warnings"`
 }
 
-// Checkout makes a worktree at the pull request's head branch.
+// Checkout makes a worktree for a pull request, on its local branch at its
+// head.
 //
-// Detached first and switched afterwards, which looks roundabout and is not:
-// Resolve's fetch creates refs/remotes/origin/<head>, and `git worktree add`
-// does not do the remote-branch guessing `git switch` does — so adding the
-// branch directly fails the first time round.
+// The pull request is read again rather than taken from Resolve, so that the
+// local branch is derived in one place and nothing derived is copied between
+// the two commands. A local branch of that name that already exists — left by
+// the evacuation of the main repository, or by an earlier review — is checked
+// out as it stands and synchronised like an existing worktree: creating it
+// again would fail, and forcing it would discard the author's unpushed commits.
 //
 // A stopping status still leaves the worktree behind. It exists by then, and
 // somebody may well want to work in it as it stands; deciding otherwise would
 // mean deleting a checkout on their behalf.
-func Checkout(ctx context.Context, r runner.Runner, root, name, headRef string) (CheckedOut, error) {
-	if !hasRef(ctx, r, root, "refs/remotes/origin/"+headRef) {
-		return CheckedOut{}, fmt.Errorf(
-			"origin/%s not found locally; run the resolve subcommand first (it fetches the head branch)", headRef)
+func Checkout(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.Repo, root string, number int, remote RemoteOptions) (CheckedOut, error) {
+	pr, err := resolvePR(ctx, r, c, repo, root, number)
+	if err != nil {
+		return CheckedOut{}, err
+	}
+	local, err := LocalBranch(pr)
+	if err != nil {
+		return CheckedOut{}, err
+	}
+	upstream, err := fetchHead(ctx, r, root, pr)
+	if err != nil {
+		return CheckedOut{}, err
 	}
 
-	path := filepath.Join(root, worktreesUnder, name)
+	path := filepath.Join(root, worktreesUnder, strings.ReplaceAll(local, "/", "-"))
 	if _, err := r.Run(ctx, runner.Command{
 		Name: "git", Args: []string{"-C", root, "worktree", "add", "-q", "--detach", path},
 	}); err != nil {
 		return CheckedOut{}, fmt.Errorf("git worktree add failed for %s: %v", path, err)
 	}
-	if _, err := r.Run(ctx, runner.Command{
-		Name: "git", Args: []string{"-C", path, "switch", "-q", headRef},
-	}); err != nil {
-		return CheckedOut{}, fmt.Errorf("git switch %s failed inside %s: %v", headRef, path, err)
+	switchArgs := []string{"-C", path, "switch", "-q", local}
+	if !hasRef(ctx, r, root, "refs/heads/"+local) {
+		switchArgs = []string{"-C", path, "switch", "-q", "-c", local, pr.HeadRefOid}
+	}
+	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: switchArgs}); err != nil {
+		return CheckedOut{}, fmt.Errorf("git switch %s failed inside %s: %v", local, path, err)
 	}
 
-	status, synced, err := syncWithOrigin(ctx, r, path, headRef)
+	status, synced, err := syncWithHead(ctx, r, path, local, pr.HeadRefOid)
 	if err != nil {
 		return CheckedOut{}, err
 	}
-	copied, warnings, err := copyWorktreeInclude(ctx, r, root, path)
+	warnings, err := setTracking(ctx, r, path, local, pr, upstream, remote)
 	if err != nil {
 		return CheckedOut{}, err
 	}
-	return CheckedOut{Status: status, Path: path, Synced: synced, CopiedFiles: copied, Warnings: warnings}, nil
+	copied, copyWarnings, err := copyWorktreeInclude(ctx, r, root, path)
+	if err != nil {
+		return CheckedOut{}, err
+	}
+	return CheckedOut{
+		Status: status, Path: path, Synced: synced, CopiedFiles: copied, Warnings: append(warnings, copyWarnings...),
+	}, nil
 }
 
-// syncWithOrigin classifies how a branch stands against its remote and
-// fast-forwards where that is safe.
+// syncWithHead classifies how a branch stands against the pull request's head
+// and fast-forwards where that is safe.
 //
-// Ahead comes first: a local commit the remote has never seen is the one thing
+// Ahead comes first: a local commit the head has never seen is the one thing
 // here that cannot be reconstructed, so its presence stops everything, even
 // when the branch is behind as well.
-func syncWithOrigin(ctx context.Context, r runner.Runner, dir, branch string) (ResolveStatus, bool, error) {
-	counts, err := runner.Git(ctx, r, dir, "rev-list", "--left-right", "--count", branch+"...origin/"+branch)
+func syncWithHead(ctx context.Context, r runner.Runner, dir, branch, headOID string) (ResolveStatus, bool, error) {
+	counts, err := runner.Git(ctx, r, dir, "rev-list", "--left-right", "--count", branch+"..."+headOID)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to compare %s with origin/%s", branch, branch)
+		return "", false, fmt.Errorf("failed to compare %s with %s", branch, headOID)
 	}
 	ahead, behind, ok := strings.Cut(counts, "\t")
 	if !ok {
-		return "", false, fmt.Errorf("failed to compare %s with origin/%s", branch, branch)
+		return "", false, fmt.Errorf("failed to compare %s with %s", branch, headOID)
 	}
 
 	switch {
@@ -268,7 +382,7 @@ func syncWithOrigin(ctx context.Context, r runner.Runner, dir, branch string) (R
 		return ResolveOK, false, nil
 	}
 
-	freshness, err := fastForwardOrDirty(ctx, r, dir, "origin/"+branch)
+	freshness, err := fastForwardOrDirty(ctx, r, dir, headOID)
 	if err != nil {
 		return "", false, err
 	}

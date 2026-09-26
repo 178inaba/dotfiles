@@ -43,7 +43,11 @@ func prFreshnessCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 
-			report, err := worktree.CheckFreshness(c.Context(), runner.Exec{}, deps.Dir, prContext.Checkout())
+			target, err := prContext.Checkout()
+			if err != nil {
+				return silent(err)
+			}
+			report, err := worktree.CheckFreshness(c.Context(), runner.Exec{}, deps.Dir, target)
 			if err != nil {
 				return silent(err)
 			}

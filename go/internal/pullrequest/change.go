@@ -10,6 +10,7 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 // Commit is one commit of the range being described.
@@ -115,7 +116,7 @@ type Change struct {
 //
 // git runs against dir, which is the checkout the command was invoked in.
 func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, diffPath string) (Change, error) {
-	head := fmt.Sprintf("refs/pull/%d/head", pr.Number)
+	head := worktree.PullRef(pr.Number)
 	if _, err := r.Run(ctx, runner.Command{
 		Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", pr.BaseRefName, head},
 	}); err != nil {
@@ -125,10 +126,8 @@ func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullR
 		// thing.
 		return Change{}, fmt.Errorf("git fetch origin %s %s failed in %s: %v", pr.BaseRefName, head, dir, err)
 	}
-	if _, err := runner.Git(ctx, r, dir, "cat-file", "-e", pr.HeadRefOid+"^{commit}"); err != nil {
-		return Change{}, fmt.Errorf(
-			"the pull request head %s is not in %s after fetching %s; it moved while the pull request was being read — run this again",
-			pr.HeadRefOid, dir, head)
+	if err := worktree.RequireFetched(ctx, r, dir, pr.HeadRefOid, head); err != nil {
+		return Change{}, err
 	}
 	base, err := runner.Git(ctx, r, dir, "merge-base", "origin/"+pr.BaseRefName, pr.HeadRefOid)
 	if err != nil {

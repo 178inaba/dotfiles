@@ -1,6 +1,7 @@
 package pullrequest_test
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -183,9 +184,9 @@ func TestContextCheckout(t *testing.T) {
 		{
 			name: "somebody else's pull request",
 			in: pullrequest.Context{
-				PR: pullrequest.PR{HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main"},
+				PR: pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", LocalBranch: new("feature/x")},
 			},
-			want: worktree.PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main"},
+			want: worktree.PullRequest{Number: 5, HeadRef: "feature/x", LocalBranch: "feature/x", HeadOID: "abc123", BaseRef: "main"},
 		},
 		{
 			// false is an answer, and reading its absence as one would treat a
@@ -194,18 +195,43 @@ func TestContextCheckout(t *testing.T) {
 			name: "our own pull request",
 			in: pullrequest.Context{
 				IsOwnPR: true,
-				PR:      pullrequest.PR{HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main"},
+				PR:      pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", LocalBranch: new("feature/x")},
 			},
-			want: worktree.PullRequest{HeadRef: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
+			want: worktree.PullRequest{Number: 5, HeadRef: "feature/x", LocalBranch: "feature/x", HeadOID: "abc123", BaseRef: "main", IsOwnPR: true},
+		},
+		{
+			name: "a pull request from a fork",
+			in: pullrequest.Context{
+				PR: pullrequest.PR{
+					Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main",
+					IsCrossRepository: true, HeadRepository: new("contributor/repo"), LocalBranch: new("contributor/feature/x"),
+				},
+			},
+			want: worktree.PullRequest{Number: 5, HeadRef: "feature/x", LocalBranch: "contributor/feature/x", HeadOID: "abc123", BaseRef: "main"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			if diff := cmp.Diff(tc.want, tc.in.Checkout()); diff != "" {
+			got, err := tc.in.Checkout()
+			if err != nil {
+				t.Fatalf("Checkout: %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Checkout (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestContextCheckoutOfADeletedFork is the document of a pull request whose
+// fork is gone: there is no branch a checkout of it could be on.
+func TestContextCheckoutOfADeletedFork(t *testing.T) {
+	t.Parallel()
+
+	in := pullrequest.Context{PR: pullrequest.PR{Number: 5, HeadOID: "abc123", HeadRef: "feature/x", BaseRef: "main", IsCrossRepository: true}}
+	if got, err := in.Checkout(); !errors.Is(err, worktree.ErrForkDeleted) {
+		t.Errorf("Checkout = %+v, %v; want ErrForkDeleted", got, err)
 	}
 }
 

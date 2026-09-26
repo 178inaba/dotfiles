@@ -8,6 +8,7 @@ import (
 
 	"github.com/178inaba/dotfiles/go/internal/reviewprs"
 	"github.com/178inaba/dotfiles/go/internal/runner"
+	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
 
 // newReviewCmd builds `ccx review`, the three questions /review-assigned-prs
@@ -94,12 +95,18 @@ func reviewCloneCmd(deps Deps) *cobra.Command {
 // instead of setting a variable — t.Setenv changes the whole process and cannot
 // be used from a parallel test.
 func cloneOptions() reviewprs.CloneOptions {
-	dataHome := xdgDir("XDG_DATA_HOME", "share")
+	remote := remoteOptions()
+	return reviewprs.CloneOptions{DataHome: xdgDir("XDG_DATA_HOME", "share"), ConfigDir: remote.ConfigDir, Host: remote.Host}
+}
+
+// remoteOptions reads what building a repository's url takes: gh's
+// configuration directory and the host.
+func remoteOptions() worktree.RemoteOptions {
 	host := os.Getenv("GH_HOST")
 	if host == "" {
 		host = "github.com"
 	}
 	// go-gh's ConfigDir is a plain read of the environment, unlike its Read,
 	// which memoises the parsed configuration for the life of the process.
-	return reviewprs.CloneOptions{DataHome: dataHome, ConfigDir: config.ConfigDir(), Host: host}
+	return worktree.RemoteOptions{ConfigDir: config.ConfigDir(), Host: host}
 }
