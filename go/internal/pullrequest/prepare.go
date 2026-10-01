@@ -67,10 +67,14 @@ type Preparation struct {
 	ReviewPath  *string `json:"review_path"`
 	ThreadsPath *string `json:"threads_path"`
 	// The change this checkout holds that the document does not
-	// carry: the commits of <base>..HEAD and the diff of <base>...HEAD, in the
-	// document's own shape and with the same generated flag on its files.
-	// <base> is the base branch's remote-tracking ref, or the local branch of
-	// that name where there is no remote-tracking ref — warnings says which.
+	// carry: the commits after a merge base of <base> and HEAD and the diff of
+	// that merge base against HEAD, in the document's own shape and with the
+	// same generated flag on its files. The merge base is
+	// local_change.diff.merge_base_oid; where git finds several, it is the
+	// pull request's own where that is among them, and otherwise the first git
+	// lists — which warnings then names. <base> is the base branch's
+	// remote-tracking ref, or the local branch of that name where there is no
+	// remote-tracking ref — warnings says which.
 	// Present only where there is no pull request and where the checkout is
 	// the author's own with commits not pushed yet (freshness ahead_own); null
 	// otherwise. Not the document's diff, which is taken at pr.head_oid and
@@ -90,8 +94,9 @@ type Preparation struct {
 	// that could not be read, named as owner/repo#N, anything that was still
 	// cut short after the limits were raised, and a base branch the local
 	// change had to be taken against locally because there was no
-	// remote-tracking ref for it. Empty rather than null when there was
-	// nothing to report.
+	// remote-tracking ref for it, and a local change whose merge base had to
+	// be chosen among several with nothing to choose by. Empty rather than
+	// null when there was nothing to report.
 	Warnings []string `json:"warnings"`
 }
 
@@ -200,11 +205,15 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 	// something no reader could detect. No fallback for the base ref here —
 	// reading the change has already fetched it.
 	if freshness.Status == worktree.FreshnessAheadOwn {
-		change, err := ReadLocalChange(ctx, r, dir, "origin/"+fetched.PR.BaseRef, doc.Work.LocalDiffPath)
+		change, warning, err := ReadLocalChange(
+			ctx, r, dir, "origin/"+fetched.PR.BaseRef, doc.Change.Diff.MergeBaseOID, doc.Work.LocalDiffPath)
 		if err != nil {
 			return Preparation{}, err
 		}
 		p.LocalChange = &change
+		if warning != "" {
+			p.Warnings = append(p.Warnings, warning)
+		}
 	} else if err := os.Remove(doc.Work.LocalDiffPath); err != nil && !os.IsNotExist(err) {
 		// An earlier ahead_own run's patch goes, for the reason OpenDocument
 		// removes the previous document: a file in the work dir that nothing
@@ -341,11 +350,14 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, c *ghapi.Cl
 	if warning != "" {
 		p.Warnings = append(p.Warnings, warning)
 	}
-	change, err := ReadLocalChange(ctx, r, dir, ref, work.LocalDiffPath)
+	change, warning, err := ReadLocalChange(ctx, r, dir, ref, "", work.LocalDiffPath)
 	if err != nil {
 		return Preparation{}, err
 	}
 	p.LocalChange = &change
+	if warning != "" {
+		p.Warnings = append(p.Warnings, warning)
+	}
 
 	p.Modes = modesFor(false, false, o)
 	p.Status = "ok"

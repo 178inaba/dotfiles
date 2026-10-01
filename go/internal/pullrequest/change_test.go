@@ -177,11 +177,14 @@ func TestReadChange(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read the patch: %v", err)
 		}
-		if want := gittest.Run(t, r.author, "diff", r.base+"..."+r.head); string(content) != want {
-			t.Errorf("the patch differs from git diff %s...%s:\n%s", r.base, r.head, cmp.Diff(want, string(content)))
+		if want := gittest.Run(t, r.author, "diff", r.base, r.head); string(content) != want {
+			t.Errorf("the patch differs from git diff %s %s:\n%s", r.base, r.head, cmp.Diff(want, string(content)))
 		}
 		if got.Diff.Path != patch {
 			t.Errorf("diff.path = %q, want %q", got.Diff.Path, patch)
+		}
+		if got.Diff.MergeBaseOID != r.base {
+			t.Errorf("diff.merge_base_oid = %q, want %q", got.Diff.MergeBaseOID, r.base)
 		}
 	})
 
@@ -457,14 +460,18 @@ func TestReadLocalChange(t *testing.T) {
 	r := changeFixture(t, history(t))
 	patch := filepath.Join(t.TempDir(), "local.patch")
 
-	got, err := pullrequest.ReadLocalChange(t.Context(), runner.Exec{}, r.author, "origin/main", patch)
+	got, warning, err := pullrequest.ReadLocalChange(t.Context(), runner.Exec{}, r.author, "origin/main", "", patch)
 	if err != nil {
 		t.Fatalf("ReadLocalChange: %v", err)
 	}
+	if warning != "" {
+		t.Errorf("warning = %q, want none for a single merge base", warning)
+	}
+	if got.Diff.MergeBaseOID != r.base {
+		t.Errorf("diff.merge_base_oid = %q, want %q", got.Diff.MergeBaseOID, r.base)
+	}
 
-	// The same range the pull request's own reading covers, taken from the
-	// remote-tracking ref rather than from a merge base found by hand: the
-	// three-dot form is the merge base.
+	// The same range the pull request's own reading covers.
 	want := strings.Fields(gittest.Run(t, r.author, "log", "--format=%H", "origin/main..HEAD"))
 	slices.Reverse(want)
 	oids := make([]string, 0, len(got.Commits))
@@ -479,7 +486,7 @@ func TestReadLocalChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the patch: %v", err)
 	}
-	if wantPatch := gittest.Run(t, r.author, "diff", "origin/main...HEAD"); string(content) != wantPatch {
+	if wantPatch := gittest.Run(t, r.author, "diff", r.base, "HEAD"); string(content) != wantPatch {
 		t.Errorf("the patch differs from the same range read by hand:\n%s", cmp.Diff(wantPatch, string(content)))
 	}
 	if got.Diff.Path != patch {
@@ -503,13 +510,152 @@ func TestReadLocalChangeFlagsGeneratedFiles(t *testing.T) {
 
 	r := changeFixture(t, generatedHistory(t))
 
-	got, err := pullrequest.ReadLocalChange(
-		t.Context(), runner.Exec{}, r.author, "origin/main", filepath.Join(t.TempDir(), "local.patch"))
+	got, _, err := pullrequest.ReadLocalChange(
+		t.Context(), runner.Exec{}, r.author, "origin/main", "", filepath.Join(t.TempDir(), "local.patch"))
 	if err != nil {
 		t.Fatalf("ReadLocalChange: %v", err)
 	}
 	if diff := cmp.Diff(wantGenerated(), got.Diff.Files); diff != "" {
 		t.Errorf("diff.files (-want +got):\n%s", diff)
+	}
+}
+
+// crissCross is a history whose base and head have two merge bases: each side
+// commits once, each merges the other's commit, and both move on. Neither of
+// the two is a better answer than the other, so git picks one without a word.
+//
+// main is pushed as well, so that the reader's fetch of the base brings it.
+func crissCross(t *testing.T) func(string) {
+	t.Helper()
+
+	return func(author string) {
+		commit := func(file, message string) {
+			gittest.Write(t, filepath.Join(author, file), message+"\n")
+			gittest.Run(t, author, "add", ".")
+			gittest.Run(t, author, "commit", "-qm", message)
+		}
+		gittest.Run(t, author, "switch", "-q", "main")
+		commit("main.txt", "On main")
+		onMain := gittest.Rev(t, author, "HEAD")
+		gittest.Run(t, author, "switch", "-q", "feature/x")
+		commit("feature.txt", "On the feature")
+		onFeature := gittest.Rev(t, author, "HEAD")
+
+		gittest.Run(t, author, "switch", "-q", "main")
+		gittest.Run(t, author, "merge", "-q", "--no-ff", "-m", "Merge the feature into main", onFeature)
+		commit("main-later.txt", "Later on main")
+		gittest.Run(t, author, "push", "-q", "origin", "main")
+
+		gittest.Run(t, author, "switch", "-q", "feature/x")
+		gittest.Run(t, author, "merge", "-q", "--no-ff", "-m", "Merge main into the feature", onMain)
+		commit("feature-later.txt", "Later on the feature")
+	}
+}
+
+// mergeBases is every merge base git finds for the two, in git's own order —
+// which git does not document, so a test pins whatever it prints rather than
+// sorting it.
+func mergeBases(t *testing.T, dir, a, b string) []string {
+	t.Helper()
+
+	bases := strings.Fields(gittest.Run(t, dir, "merge-base", "--all", a, b))
+	if len(bases) != 2 {
+		t.Fatalf("the fixture has %d merge bases, want 2: %v", len(bases), bases)
+	}
+	return bases
+}
+
+// TestReadLocalChangeWithSeveralMergeBases is the one place a local change
+// has to choose a merge base of its own, there being no pull request whose
+// range GitHub already defined — or one whose answer is among the candidates,
+// in which case that is the range the document has too.
+func TestReadLocalChangeWithSeveralMergeBases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// pick chooses the pull request's merge base out of git's
+		// candidates, nil for a branch with no pull request.
+		pick        func(bases []string) string
+		want        func(bases []string) string
+		wantWarning bool
+	}{
+		{
+			name:        "no pull request: git's first, said out loud",
+			pick:        func([]string) string { return "" },
+			want:        func(bases []string) string { return bases[0] },
+			wantWarning: true,
+		},
+		{
+			// The second rather than the first, so that a reading which
+			// ignored the pull request's answer would be caught.
+			name: "the pull request's merge base among them",
+			pick: func(bases []string) string { return bases[1] },
+			want: func(bases []string) string { return bases[1] },
+		},
+		{
+			name:        "the pull request's merge base not among them",
+			pick:        func([]string) string { return "0000000000000000000000000000000000000001" },
+			want:        func(bases []string) string { return bases[0] },
+			wantWarning: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := changeFixture(t, crissCross(t))
+			bases := mergeBases(t, r.author, "main", "HEAD")
+			patch := filepath.Join(t.TempDir(), "local.patch")
+
+			got, warning, err := pullrequest.ReadLocalChange(t.Context(), runner.Exec{}, r.author, "main", tc.pick(bases), patch)
+			if err != nil {
+				t.Fatalf("ReadLocalChange: %v", err)
+			}
+
+			want := tc.want(bases)
+			if got.Diff.MergeBaseOID != want {
+				t.Errorf("diff.merge_base_oid = %q, want %q", got.Diff.MergeBaseOID, want)
+			}
+			content, err := os.ReadFile(patch)
+			if err != nil {
+				t.Fatalf("read the patch: %v", err)
+			}
+			if wantPatch := gittest.Run(t, r.author, "diff", want, "HEAD"); string(content) != wantPatch {
+				t.Errorf("the patch differs from git diff %s HEAD:\n%s", want, cmp.Diff(wantPatch, string(content)))
+			}
+
+			if !tc.wantWarning {
+				if warning != "" {
+					t.Errorf("warning = %q, want none", warning)
+				}
+				return
+			}
+			for _, b := range bases {
+				if !strings.Contains(warning, b) {
+					t.Errorf("warning = %q, want it to name the candidate %s", warning, b)
+				}
+			}
+			if !strings.Contains(warning, "taken from "+want) {
+				t.Errorf("warning = %q, want it to name %s as the one used", warning, want)
+			}
+		})
+	}
+}
+
+// TestReadLocalChangeWithoutAMergeBase is a base that shares no history with
+// the checkout, which leaves nothing to take a range from.
+func TestReadLocalChangeWithoutAMergeBase(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, history(t))
+	gittest.Run(t, r.author, "switch", "-q", "--orphan", "unrelated")
+	gittest.Run(t, r.author, "commit", "-q", "--allow-empty", "-m", "unrelated")
+	gittest.Run(t, r.author, "switch", "-q", "feature/x")
+
+	if _, _, err := pullrequest.ReadLocalChange(
+		t.Context(), runner.Exec{}, r.author, "unrelated", "", filepath.Join(t.TempDir(), "local.patch")); err == nil {
+		t.Fatal("ReadLocalChange succeeded, want it to refuse a base with no merge base")
 	}
 }
 

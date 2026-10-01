@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -77,8 +78,16 @@ type Diff struct {
 	// is overwritten on every run — a caller composing the name is how two
 	// runs on two pull requests, or on two branches, come to write over each
 	// other.
-	Path  string     `json:"path"`
-	Files []DiffFile `json:"files"`
+	Path string `json:"path"`
+	// The commit the range starts from: the patch is git diff
+	// <merge_base_oid> <end>, and the commits are the ones after it. For a
+	// pull request it is the merge base GitHub computed for base_oid and
+	// head_oid, which is what the pull request's Files and Commits tabs are
+	// drawn from; for a change read out of a checkout, the merge base git
+	// found for the base and HEAD — and where git found more than one, the one
+	// warnings names as used.
+	MergeBaseOID string     `json:"merge_base_oid" contract:"required,nonempty"`
+	Files        []DiffFile `json:"files"`
 	// additions and deletions are the lines across the text
 	// files. A binary file counts towards neither, which is why they can be
 	// less than the patch appears to hold.
@@ -123,12 +132,12 @@ func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullR
 	if err := worktree.FetchPullHead(ctx, r, dir, pr.Number, pr.HeadRefOid, pr.BaseRefName); err != nil {
 		return Change{}, err
 	}
-	base, err := runner.Git(ctx, r, dir, "merge-base", "origin/"+pr.BaseRefName, pr.HeadRefOid)
+	mergeBase, err := runner.Git(ctx, r, dir, "merge-base", "origin/"+pr.BaseRefName, pr.HeadRefOid)
 	if err != nil {
 		return Change{}, fmt.Errorf("failed to find the merge base of origin/%s and %s: %v", pr.BaseRefName, pr.HeadRefOid, err)
 	}
 
-	return readRange(ctx, r, dir, base, pr.HeadRefOid, diffPath)
+	return readRange(ctx, r, dir, mergeBase, pr.HeadRefOid, diffPath)
 }
 
 // ReadLocalChange reads the change a checkout holds over a base branch.
@@ -146,26 +155,52 @@ func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullR
 // callers have already fetched, and a second one would put the decision about
 // what a failed fetch means in two places.
 //
+// The range starts from a merge base of base and HEAD. Where git finds more
+// than one — a criss-cross history — nothing here can say which is right, so
+// prMergeBase settles it where it can: the merge base GitHub took the pull
+// request's own range from, empty where there is no pull request. Failing
+// that, the first one git lists is used and the warning returned names every
+// candidate and that one, since commits and diff may then carry work the base
+// already has. The warning is empty otherwise.
+//
 // The attribute saying which files are generated is read at HEAD, which is the
 // commit this describes — the same rule the document's reading follows, so
 // that the local diff carries the flag the document's does.
-func ReadLocalChange(ctx context.Context, r runner.Runner, dir, base, diffPath string) (Change, error) {
-	// No merge base found by hand: unlike ReadChange, which has to name an
-	// object git would not find on the other side, both ends here are refs git
-	// resolves itself, and the three dots readRange uses are that merge base.
-	return readRange(ctx, r, dir, base, "HEAD", diffPath)
+func ReadLocalChange(ctx context.Context, r runner.Runner, dir, base, prMergeBase, diffPath string) (Change, string, error) {
+	out, err := runner.Git(ctx, r, dir, "merge-base", "--all", base, "HEAD")
+	if err != nil {
+		return Change{}, "", fmt.Errorf("failed to find a merge base of %s and HEAD: %v", base, err)
+	}
+	candidates := strings.Fields(out)
+	mergeBase, warning := candidates[0], ""
+	if len(candidates) > 1 {
+		if slices.Contains(candidates, prMergeBase) {
+			mergeBase = prMergeBase
+		} else {
+			warning = fmt.Sprintf(
+				"%s and HEAD have %d merge bases (%s); the local change was taken from %s, the first git listed, so commits[] and the diff may include work %s already has",
+				base, len(candidates), strings.Join(candidates, ", "), mergeBase, base)
+		}
+	}
+
+	change, err := readRange(ctx, r, dir, mergeBase, "HEAD", diffPath)
+	if err != nil {
+		return Change{}, "", err
+	}
+	return change, warning, nil
 }
 
 // readRange is what both readings are once the two ends are settled: the
-// commits of base..tip, the diff of base...tip, and the generated attribute as
-// the repository declares it at tip.
+// commits of mergeBase..tip, the diff of mergeBase against tip, and the
+// generated attribute as the repository declares it at tip.
 //
 // One implementation, because the two rules it carries are the same for either
 // end — the attribute is read at the commit the range describes rather than at
-// whatever is checked out, and three dots keep the diff against the merge base
-// rather than against wherever the base branch has since moved to. What differs
-// between the callers is only how they arrive at the two ends.
-func readRange(ctx context.Context, r runner.Runner, dir, base, tip, diffPath string) (Change, error) {
+// whatever is checked out, and the diff is taken from a merge base named
+// outright rather than through three dots, which would let git choose one
+// again where there are several. What differs between the callers is only how
+// they arrive at the two ends.
+func readRange(ctx context.Context, r runner.Runner, dir, mergeBase, tip, diffPath string) (Change, error) {
 	// Absolute before it reaches git: -C moves git's own working directory, so
 	// a relative --output would land under dir rather than beside the
 	// document. It is also what diff.path promises its reader.
@@ -174,14 +209,15 @@ func readRange(ctx context.Context, r runner.Runner, dir, base, tip, diffPath st
 		return Change{}, fmt.Errorf("failed to resolve the diff path %s: %v", diffPath, err)
 	}
 
-	commits, err := readCommits(ctx, r, dir, base+".."+tip)
+	commits, err := readCommits(ctx, r, dir, mergeBase+".."+tip)
 	if err != nil {
 		return Change{}, err
 	}
-	diff, err := readDiff(ctx, r, dir, base+"..."+tip, patch)
+	diff, err := readDiff(ctx, r, dir, mergeBase, tip, patch)
 	if err != nil {
 		return Change{}, err
 	}
+	diff.MergeBaseOID = mergeBase
 	if err := readGenerated(ctx, r, dir, tip, diff.Files); err != nil {
 		return Change{}, err
 	}
@@ -231,11 +267,13 @@ func readCommits(ctx context.Context, r runner.Runner, dir, span string) ([]Comm
 // subdirectory from silently reporting only that subdirectory, and
 // --no-ext-diff --no-color shut out a configured external differ and a colour
 // setting, either of which would corrupt the patch file itself.
-func readDiff(ctx context.Context, r runner.Runner, dir, span, patch string) (Diff, error) {
+func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string) (Diff, error) {
+	span := from + " " + to
 	git := func(args ...string) (string, error) {
 		full := append([]string{
 			"-C", dir, "diff", "-M", "-C", "--no-relative", "--no-ext-diff", "--no-color",
 		}, args...)
+		full = append(full, from, to)
 		out, err := r.Run(ctx, runner.Command{Name: "git", Args: full})
 		if err != nil {
 			return "", fmt.Errorf("git diff %s failed in %s: %v", span, dir, err)
@@ -243,14 +281,14 @@ func readDiff(ctx context.Context, r runner.Runner, dir, span, patch string) (Di
 		return string(out), nil
 	}
 
-	if _, err := git("--output="+patch, span); err != nil {
+	if _, err := git("--output=" + patch); err != nil {
 		return Diff{}, err
 	}
-	numstat, err := git("--numstat", "-z", span)
+	numstat, err := git("--numstat", "-z")
 	if err != nil {
 		return Diff{}, err
 	}
-	nameStatus, err := git("--name-status", "-z", span)
+	nameStatus, err := git("--name-status", "-z")
 	if err != nil {
 		return Diff{}, err
 	}
