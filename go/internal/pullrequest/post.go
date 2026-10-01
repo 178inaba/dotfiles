@@ -177,7 +177,7 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 	if err := RequireHead(ctx, r, dir, target.HeadOID, "posting"); err != nil {
 		return Posted{}, err
 	}
-	if err := checkAnchors(ctx, r, dir, target.MergeBaseOID, sub.Comments); err != nil {
+	if err := checkAnchors(target.DiffPath, target.DiffSHA256, sub.Comments); err != nil {
 		return Posted{}, err
 	}
 
@@ -195,27 +195,23 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 
 // checkAnchors reports the comments that point at lines the diff does not have.
 //
-// The diff is the pull request's own, from the merge base its document names:
-// RequireHead has already held HEAD to head_oid, and a three-dot range would
-// let git pick the merge base again — which, where there are several, can
-// accept a line the pull request's diff does not have.
-func checkAnchors(ctx context.Context, r runner.Runner, dir, mergeBase string, comments []ghapi.ReviewComment) error {
+// The diff is the document's own patch, the one the reviewer read, so a line
+// it offers is one the check accepts. The work dir it sits in is shared by
+// every run on the same pull request, and a patch whose digest is not the
+// document's was written by another run and is refused rather than read.
+func checkAnchors(patch, sum string, comments []ghapi.ReviewComment) error {
 	if len(comments) == 0 {
 		return nil
 	}
-	span := mergeBase + " HEAD"
-	// The colour and external-diff settings are overridden rather than
-	// inherited: whichever a person has configured, this has to read the same
-	// unified diff.
-	out, err := r.Run(ctx, runner.Command{
-		Name: "git",
-		Args: []string{"-C", dir, "-c", "color.diff=false", "diff", "--no-ext-diff", mergeBase, "HEAD"},
-	})
+	content, err := os.ReadFile(patch)
 	if err != nil {
-		return fmt.Errorf("failed to read the diff for %s: %v", span, err)
+		return fmt.Errorf("failed to read the pull request's patch %s: %v\nrerun `ccx pr context` or `ccx pr prepare-review` to write it again", patch, err)
+	}
+	if patchDigest(content) != sum {
+		return fmt.Errorf("the patch %s is not the one the pull request context was written with\nrerun `ccx pr context` or `ccx pr prepare-review` to write both again", patch)
 	}
 
-	lines := diffLines(string(out))
+	lines := diffLines(string(content))
 	var invalid []string
 	for _, c := range comments {
 		if !lines[c.Path][c.Line] {
@@ -227,7 +223,7 @@ func checkAnchors(ctx context.Context, r runner.Runner, dir, mergeBase string, c
 	}
 	return fmt.Errorf(
 		"the following review comments point to lines absent from the pull request's diff (%s); re-anchor them before posting:\n%s",
-		span, strings.Join(invalid, "\n"))
+		patch, strings.Join(invalid, "\n"))
 }
 
 // diffLines reads a unified diff into the lines a comment may be anchored to:

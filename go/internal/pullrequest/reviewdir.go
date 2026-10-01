@@ -212,10 +212,12 @@ func RequireInWorkDir(file, field, contextFile string) error {
 type Target struct {
 	Repo   string
 	Number int
-	// MergeBaseOID is where the pull request's diff starts, which is what a
-	// review comment's line is checked against.
-	MergeBaseOID string
-	HeadOID      string
+	// DiffPath and DiffSHA256 are the document's patch and its digest: the
+	// diff a reviewer read, which is what a review comment's line is checked
+	// against.
+	DiffPath   string
+	DiffSHA256 string
+	HeadOID    string
 	// IsOwnPR is whether the pull request is the current user's, which is what
 	// decides whether its body may be edited at all. A field of the target
 	// rather than an argument beside it, so that a writer added later cannot
@@ -226,7 +228,7 @@ type Target struct {
 // Target is what writing needs out of a pull request context.
 func (c Context) Target() Target {
 	return Target{
-		Repo: c.Repo, Number: c.PR.Number, MergeBaseOID: c.Diff.MergeBaseOID,
+		Repo: c.Repo, Number: c.PR.Number, DiffPath: c.Diff.Path, DiffSHA256: c.Diff.SHA256,
 		HeadOID: c.PR.HeadOID, IsOwnPR: c.IsOwnPR,
 	}
 }
@@ -261,10 +263,10 @@ func (t Target) RequireOwn() error {
 // describes, which is what posting a review is held to.
 //
 // A review is written against one document and is posted on that document's
-// head, and the tie is mechanical: checkAnchors matches every remark against
-// the diff it reads out of this very checkout, so the local tree has to be the
-// state the remarks were written against or the anchoring check is judging the
-// wrong diff. The commands that reply to and comment on a pull request are held
+// head: checkAnchors matches every remark against the document's patch, which
+// is the diff ending at head_oid, and the code a reviewer read around it came
+// out of this checkout, so the local tree has to be that same state or the
+// remarks were written against something the check does not judge. The commands that reply to and comment on a pull request are held
 // to something different, since their run pushes between fetching the document
 // and posting: see RequirePushedHead.
 func RequireHead(ctx context.Context, r runner.Runner, dir, headOID, before string) error {

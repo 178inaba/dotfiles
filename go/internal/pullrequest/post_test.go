@@ -174,6 +174,26 @@ func TestParseSubmissionRefusesABodyThatNumbersItsItems(t *testing.T) {
 	}
 }
 
+// documentTarget writes the patch of HEAD in dir over base the way a document's
+// is written, and names it in a target the way Context.Target does.
+// prMergeBase is the merge base GitHub took the range from, empty where git's
+// one is the only one.
+func documentTarget(t *testing.T, dir, base, prMergeBase string) pullrequest.Target {
+	t.Helper()
+
+	change, warning, err := pullrequest.ReadLocalChange(t.Context(), runner.Exec{}, dir, base, prMergeBase, filepath.Join(t.TempDir(), "diff.patch"))
+	if err != nil {
+		t.Fatalf("ReadLocalChange: %v", err)
+	}
+	if warning != "" {
+		t.Fatalf("ReadLocalChange took the range from a merge base it had to guess: %s", warning)
+	}
+	return pullrequest.Target{
+		Repo: "owner/repo", Number: 5, DiffPath: change.Diff.Path, DiffSHA256: change.Diff.SHA256,
+		HeadOID: gittest.Rev(t, dir, "HEAD"),
+	}
+}
+
 // diffRepo builds a repository with a diff against origin/main: one added line
 // at the end of a file, and one added line whose own text begins with "++".
 func diffRepo(t *testing.T) string {
@@ -207,7 +227,7 @@ func TestPostKeepsTheAPIsRefusal(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := documentTarget(t, repo, "main", "")
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -234,7 +254,7 @@ func TestPost(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := documentTarget(t, repo, "main", "")
 
 	var gotPath, gotBody string
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -307,7 +327,7 @@ func TestPostMapsTheAssessment(t *testing.T) {
 	}
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := documentTarget(t, repo, "main", "")
 	for _, tc := range tests {
 		t.Run(string(tc.assessment), func(t *testing.T) {
 			t.Parallel()
@@ -340,7 +360,17 @@ func TestPostRefuses(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	at := gittest.Rev(t, repo, "HEAD")
+	target := documentTarget(t, repo, "main", "")
+	moved := target
+	moved.HeadOID = "0000000"
+	missing := target
+	missing.DiffPath = filepath.Join(t.TempDir(), "diff.patch")
+	// Another run on the same pull request wrote the patch after this
+	// document was: the file is there, and it is not the one the document
+	// was written with.
+	foreign := target
+	foreign.DiffSHA256 = strings.Repeat("0", 64)
+	anchored := []ghapi.ReviewComment{{Path: "file.txt", Line: 4, Body: ghapitest.Body(t, "y")}}
 
 	tests := []struct {
 		name    string
@@ -350,7 +380,7 @@ func TestPostRefuses(t *testing.T) {
 	}{
 		{
 			name:    "an assessment that is not one of the three",
-			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: at},
+			target:  target,
 			sub:     pullrequest.Submission{Assessment: "なんとなく", Body: ghapitest.Body(t, "x")},
 			wantErr: "invalid assessment",
 		},
@@ -359,13 +389,13 @@ func TestPostRefuses(t *testing.T) {
 			// have shifted, which GitHub rejects with a 422 after the review
 			// is already half made.
 			name:    "a head that has moved",
-			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: "0000000"},
+			target:  moved,
 			sub:     pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x")},
 			wantErr: "rerun the freshness check",
 		},
 		{
 			name:   "a comment on a line the diff does not have",
-			target: pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: at},
+			target: target,
 			sub: pullrequest.Submission{
 				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"),
 				Comments: []ghapi.ReviewComment{{Path: "file.txt", Line: 99, Body: ghapitest.Body(t, "y")}},
@@ -376,12 +406,28 @@ func TestPostRefuses(t *testing.T) {
 			// A removed line has no number on the new side, so it cannot be
 			// commented on however plainly it appears in the diff.
 			name:   "a comment on a file the diff does not have",
-			target: pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: at},
+			target: target,
 			sub: pullrequest.Submission{
 				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"),
 				Comments: []ghapi.ReviewComment{{Path: "other.txt", Line: 1, Body: ghapitest.Body(t, "y")}},
 			},
 			wantErr: "other.txt:1",
+		},
+		{
+			name:   "a patch that is not there",
+			target: missing,
+			sub: pullrequest.Submission{
+				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"), Comments: anchored,
+			},
+			wantErr: "rerun `ccx pr context` or `ccx pr prepare-review`",
+		},
+		{
+			name:   "a patch the document was not written with",
+			target: foreign,
+			sub: pullrequest.Submission{
+				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"), Comments: anchored,
+			},
+			wantErr: "rerun `ccx pr context` or `ccx pr prepare-review`",
 		},
 	}
 
@@ -406,10 +452,9 @@ func TestPostRefuses(t *testing.T) {
 }
 
 // TestPostAnchorsToThePullRequestsRange is a criss-cross history, where the
-// diff a three-dot range would read starts from whichever merge base git
-// picks, and the pull request's own starts from the one GitHub named. Each of
-// the two adds a file the other does not, so a comment on either is accepted
-// by one reading and refused by the other.
+// document's patch starts from the merge base GitHub named and git, asked for
+// one, would pick the other. Each of the two adds a file the other does not,
+// so a comment on either is accepted by one reading and refused by the other.
 func TestPostAnchorsToThePullRequestsRange(t *testing.T) {
 	t.Parallel()
 
@@ -420,7 +465,7 @@ func TestPostAnchorsToThePullRequestsRange(t *testing.T) {
 	if strings.TrimSpace(gittest.Run(t, r.author, "log", "-1", "--format=%s", github)) == "On main" {
 		inRange, outOfRange = outOfRange, inRange
 	}
-	target := pullrequest.Target{Repo: "owner/repo", Number: 7, MergeBaseOID: github, HeadOID: r.head}
+	target := documentTarget(t, r.author, "main", github)
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"html_url":"https://example.com/r"}`)
@@ -442,6 +487,55 @@ func TestPostAnchorsToThePullRequestsRange(t *testing.T) {
 	}
 }
 
+// TestPostAnchorsToTheDocumentsPatch is a file copied from another the same
+// change edits, which the document's patch shows as a copy with one hunk
+// rather than as a new file whose every line was added. A line of the copy
+// that was not changed is not in the patch the reviewer read, so a comment on
+// it is refused, and the changed one is accepted.
+func TestPostAnchorsToTheDocumentsPatch(t *testing.T) {
+	t.Parallel()
+	gittest.SkipWithoutGit(t)
+
+	repo := t.TempDir()
+	gittest.Init(t, repo, "-b", "main")
+	var lines strings.Builder
+	for i := 1; i <= 20; i++ {
+		fmt.Fprintf(&lines, "line %d\n", i)
+	}
+	gittest.Write(t, filepath.Join(repo, "source.txt"), lines.String())
+	gittest.Run(t, repo, "add", "source.txt")
+	gittest.Run(t, repo, "commit", "-qm", "init")
+
+	gittest.Run(t, repo, "switch", "-qc", "feature/x")
+	// The source is edited too: git looks for the origin of a copy only among
+	// the files a change modifies.
+	gittest.Write(t, filepath.Join(repo, "source.txt"), lines.String()+"line 21\n")
+	gittest.Write(t, filepath.Join(repo, "copy.txt"), strings.Replace(lines.String(), "line 20\n", "line twenty\n", 1))
+	gittest.Run(t, repo, "add", "source.txt", "copy.txt")
+	gittest.Run(t, repo, "commit", "-qm", "copy")
+
+	target := documentTarget(t, repo, "main", "")
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"html_url":"https://example.com/r"}`)
+	}))
+	post := func(line int) error {
+		_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target, pullrequest.Submission{
+			Assessment: pullrequest.AssessmentDiscuss, Body: ghapitest.Body(t, "x"),
+			Comments: []ghapi.ReviewComment{{Path: "copy.txt", Line: line, Body: ghapitest.Body(t, "y")}},
+		})
+		return err
+	}
+
+	if err := post(20); err != nil {
+		t.Errorf("a comment on copy.txt:20, which the patch changes, was refused: %v", err)
+	}
+	err := post(1)
+	if err == nil || !strings.Contains(err.Error(), "copy.txt:1") {
+		t.Errorf("Post error = %v, want it to refuse copy.txt:1, which the patch does not show", err)
+	}
+}
+
 func TestPostWithoutAURL(t *testing.T) {
 	t.Parallel()
 
@@ -451,7 +545,7 @@ func TestPostWithoutAURL(t *testing.T) {
 		fmt.Fprint(w, `{}`)
 	}))
 
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := documentTarget(t, repo, "main", "")
 	_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target,
 		pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x")})
 	if err == nil || !strings.Contains(err.Error(), "html_url missing") {
@@ -468,9 +562,9 @@ func TestContextTarget(t *testing.T) {
 		PR: pullrequest.PR{
 			Number: 5, Title: "Test PR", BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc",
 		},
-		Diff: pullrequest.Diff{MergeBaseOID: "def"},
+		Diff: pullrequest.Diff{Path: "/work/diff.patch", MergeBaseOID: "def", SHA256: "0f1e2d"},
 	}
-	want := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: "def", HeadOID: "abc"}
+	want := pullrequest.Target{Repo: "owner/repo", Number: 5, DiffPath: "/work/diff.patch", DiffSHA256: "0f1e2d", HeadOID: "abc"}
 	if got := c.Target(); got != want {
 		t.Errorf("Target = %+v, want %+v", got, want)
 	}
