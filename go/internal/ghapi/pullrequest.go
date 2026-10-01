@@ -206,15 +206,15 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 // The compare endpoint is the one place GitHub publishes the merge base — the
 // GraphQL PullRequest type has no field for it — and merge_base_commit is the
 // only part of the answer read. The rest of it, the commits and the files with
-// their patches, comes along regardless; per_page cuts the commits to one, and
-// the files are not paginated.
+// their patches, is cut down by asking for the second page of one commit: the
+// files come only on the first page, and merge_base_commit on every page.
 func (c *Client) MergeBase(ctx context.Context, repo Repo, baseOID, headOID string) (string, error) {
 	var out struct {
 		MergeBaseCommit struct {
 			SHA string `json:"sha"`
 		} `json:"merge_base_commit"`
 	}
-	path := fmt.Sprintf("repos/%s/compare/%s...%s?per_page=1", repo, baseOID, headOID)
+	path := fmt.Sprintf("repos/%s/compare/%s...%s?per_page=1&page=2", repo, baseOID, headOID)
 	if err := c.Get(ctx, path, &out); err != nil {
 		return "", fmt.Errorf("look up the merge base of %s and %s in %s: %w", baseOID, headOID, repo, err)
 	}

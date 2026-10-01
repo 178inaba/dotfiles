@@ -414,11 +414,7 @@ func TestPostAnchorsToThePullRequestsRange(t *testing.T) {
 	t.Parallel()
 
 	r := changeFixture(t, crissCross(t))
-	gitsPick := strings.TrimSpace(gittest.Run(t, r.author, "merge-base", "main", "HEAD"))
-	github := mergeBases(t, r.author, "main", "HEAD")[0]
-	if github == gitsPick {
-		github = mergeBases(t, r.author, "main", "HEAD")[1]
-	}
+	github := notGitsPick(t, r.author, "main", "HEAD")
 	// The file each merge base has not seen yet is in the diff from it.
 	inRange, outOfRange := "main.txt", "feature.txt"
 	if strings.TrimSpace(gittest.Run(t, r.author, "log", "-1", "--format=%s", github)) == "On main" {

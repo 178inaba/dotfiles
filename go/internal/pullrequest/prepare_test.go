@@ -501,15 +501,14 @@ func TestPrepareWritesTheLocalChangeAheadOfThePullRequest(t *testing.T) {
 
 // crissCrossPullRequest turns prepareRepo's pull request into one whose base
 // and head have two merge bases, pushed as the pull request's head, and
-// returns that head and the two in git's order.
-func crissCrossPullRequest(t *testing.T, repo string) (head string, bases []string) {
+// returns that head.
+func crissCrossPullRequest(t *testing.T, repo string) string {
 	t.Helper()
 
 	crissCross(t)(repo)
 	gittest.Run(t, repo, "push", "-q", "origin", "HEAD:feature/x", "HEAD:refs/pull/5/head")
 	gittest.Run(t, repo, "fetch", "-q", "origin")
-	head = gittest.Rev(t, repo, "HEAD")
-	return head, mergeBases(t, repo, "origin/main", head)
+	return gittest.Rev(t, repo, "HEAD")
 }
 
 // mergeBaseWarnings are the lines that say a local change's merge base was
@@ -531,7 +530,7 @@ func TestPrepareWarnsOfSeveralMergeBasesWithoutAPullRequest(t *testing.T) {
 	t.Parallel()
 
 	repo, _ := prepareRepo(t)
-	_, bases := crissCrossPullRequest(t, repo)
+	bases := mergeBases(t, repo, "origin/main", crissCrossPullRequest(t, repo))
 
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
@@ -561,13 +560,10 @@ func TestPrepareTakesTheLocalChangeFromThePullRequestsMergeBase(t *testing.T) {
 	t.Parallel()
 
 	repo, _ := prepareRepo(t)
-	head, bases := crissCrossPullRequest(t, repo)
-	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "not pushed yet")
+	head := crissCrossPullRequest(t, repo)
 	// The one git would not pick, so that a range git chose would show.
-	github := bases[0]
-	if github == strings.TrimSpace(gittest.Run(t, repo, "merge-base", "origin/main", head)) {
-		github = bases[1]
-	}
+	github := notGitsPick(t, repo, "origin/main", head)
+	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "not pushed yet")
 	gh := prepareGitHubKnowing(t, baseOf(t, repo), head, "me", noThreads,
 		pages{issues: prepareIssues, issueComments: prepareIssueComments, mergeBase: github}, nil)
 	var seen []pullrequest.Context

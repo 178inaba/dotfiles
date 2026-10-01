@@ -305,12 +305,7 @@ func TestReadChangeTakesTheMergeBaseItIsGiven(t *testing.T) {
 	t.Parallel()
 
 	r := changeFixture(t, crissCross(t))
-	gitsPick := strings.TrimSpace(gittest.Run(t, r.author, "merge-base", "main", r.head))
-	bases := mergeBases(t, r.author, "main", r.head)
-	other := bases[0]
-	if other == gitsPick {
-		other = bases[1]
-	}
+	other := notGitsPick(t, r.author, "main", r.head)
 	patch := filepath.Join(t.TempDir(), "diff.patch")
 
 	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), other, patch)
@@ -626,6 +621,18 @@ func mergeBases(t *testing.T, dir, a, b string) []string {
 	return bases
 }
 
+// notGitsPick is the one of the two merge bases git does not settle on by
+// itself, which is what a test has to hand in for a range git chose to show.
+func notGitsPick(t *testing.T, dir, a, b string) string {
+	t.Helper()
+
+	bases := mergeBases(t, dir, a, b)
+	if bases[0] == strings.TrimSpace(gittest.Run(t, dir, "merge-base", a, b)) {
+		return bases[1]
+	}
+	return bases[0]
+}
+
 // TestReadLocalChangeWithSeveralMergeBases is the one place a local change
 // has to choose a merge base of its own, there being no pull request whose
 // range GitHub already defined — or one whose answer is among the candidates,
@@ -636,15 +643,17 @@ func TestReadLocalChangeWithSeveralMergeBases(t *testing.T) {
 	tests := []struct {
 		name string
 		// pick chooses the pull request's merge base out of git's
-		// candidates, nil for a branch with no pull request.
-		pick        func(bases []string) string
-		want        func(bases []string) string
+		// candidates, empty for a branch with no pull request.
+		pick func(bases []string) string
+		// want is the candidate the range is taken from, by its place in
+		// git's list.
+		want        int
 		wantWarning bool
 	}{
 		{
 			name:        "no pull request: git's first, said out loud",
 			pick:        func([]string) string { return "" },
-			want:        func(bases []string) string { return bases[0] },
+			want:        0,
 			wantWarning: true,
 		},
 		{
@@ -652,12 +661,12 @@ func TestReadLocalChangeWithSeveralMergeBases(t *testing.T) {
 			// ignored the pull request's answer would be caught.
 			name: "the pull request's merge base among them",
 			pick: func(bases []string) string { return bases[1] },
-			want: func(bases []string) string { return bases[1] },
+			want: 1,
 		},
 		{
 			name:        "the pull request's merge base not among them",
 			pick:        func([]string) string { return "0000000000000000000000000000000000000001" },
-			want:        func(bases []string) string { return bases[0] },
+			want:        0,
 			wantWarning: true,
 		},
 	}
@@ -674,7 +683,7 @@ func TestReadLocalChangeWithSeveralMergeBases(t *testing.T) {
 				t.Fatalf("ReadLocalChange: %v", err)
 			}
 
-			want := tc.want(bases)
+			want := bases[tc.want]
 			if got.Diff.MergeBaseOID != want {
 				t.Errorf("diff.merge_base_oid = %q, want %q", got.Diff.MergeBaseOID, want)
 			}

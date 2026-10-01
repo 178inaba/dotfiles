@@ -581,9 +581,9 @@ func TestRequestReviewers(t *testing.T) {
 func TestMergeBase(t *testing.T) {
 	t.Parallel()
 
-	var path, perPage string
+	var path, perPage, page string
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path, perPage = r.URL.Path, r.URL.Query().Get("per_page")
+		path, perPage, page = r.URL.Path, r.URL.Query().Get("per_page"), r.URL.Query().Get("page")
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"merge_base_commit":{"sha":"5e6f7a8"},"commits":[],"files":[]}`)
 	}))
@@ -598,10 +598,10 @@ func TestMergeBase(t *testing.T) {
 	if want := "/repos/178inaba/dotfiles/compare/1a2b3c4...379223e"; path != want {
 		t.Errorf("MergeBase asked for %q, want %q", path, want)
 	}
-	// One commit rather than the 250 the endpoint lists by default: none of
-	// them is read.
-	if perPage != "1" {
-		t.Errorf("per_page = %q, want 1", perPage)
+	// Past the first page, which is the only one carrying the files and
+	// their patches, and one commit long: none of either is read.
+	if perPage != "1" || page != "2" {
+		t.Errorf("per_page/page = %q/%q, want 1 and 2", perPage, page)
 	}
 }
 
