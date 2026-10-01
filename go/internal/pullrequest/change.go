@@ -132,8 +132,9 @@ type Change struct {
 //
 // git runs against dir, which is the checkout the command was invoked in.
 func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, mergeBase, diffPath string) (Change, error) {
-	// The base branch is fetched alongside for the reading of a local change
-	// that follows this one, which takes its range against origin/<base>.
+	// The base branch rides along on the same fetch so that origin/<base> is
+	// current for whatever reads it after the document — the local change of
+	// an ahead_own checkout among them, which takes its range against it.
 	if err := worktree.FetchPullHead(ctx, r, dir, pr.Number, pr.HeadRefOid, pr.BaseRefName); err != nil {
 		return Change{}, err
 	}

@@ -339,9 +339,10 @@ type Context struct {
 // reader of one asked.
 //
 // file is what a refusal names, since the path is the caller's. Every refusal
-// ends by saying to fetch the document again: it is a document only
-// `ccx pr context` writes, and one written before a field was declared is the
-// refusal a reader meets most.
+// ends by saying to fetch the document again: the document is only ever
+// written by `ccx pr context` or `ccx pr prepare-review`, either of which
+// writes it afresh at the same path, and one written before a field was
+// declared is the refusal a reader meets most.
 func ParseContext(b []byte, file string) (Context, error) {
 	var c Context
 	if err := contract.Unmarshal(b, &c, file); err != nil {
