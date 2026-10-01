@@ -418,7 +418,7 @@ func TestPostRefuses(t *testing.T) {
 			sub: pullrequest.Submission{
 				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"), Comments: anchored,
 			},
-			wantErr: "rerun `ccx pr context` or `ccx pr prepare-review`",
+			wantErr: "failed to read the pull request's patch",
 		},
 		{
 			name:   "a patch the document was not written with",
@@ -426,7 +426,7 @@ func TestPostRefuses(t *testing.T) {
 			sub: pullrequest.Submission{
 				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"), Comments: anchored,
 			},
-			wantErr: "rerun `ccx pr context` or `ccx pr prepare-review`",
+			wantErr: "is not the one the pull request context was written with\nrerun `ccx pr context` or `ccx pr prepare-review`",
 		},
 	}
 

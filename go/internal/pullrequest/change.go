@@ -345,7 +345,7 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 // same pull request, which shares the work dir, and the document would then
 // vouch for a diff it was not written with.
 func writePatch(path string, write func(tmp string) error) (string, error) {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create a file for the patch beside %s: %v", path, err)
 	}
@@ -358,8 +358,8 @@ func writePatch(path string, write func(tmp string) error) (string, error) {
 	if err := write(name); err != nil {
 		return "", err
 	}
-	// Streamed rather than read whole: the patch is unbounded, which is why
-	// git writes it to a file in the first place.
+	// Streamed rather than read whole: the digest is all that is wanted here,
+	// and the patch is unbounded.
 	f, err := os.Open(name)
 	if err != nil {
 		return "", fmt.Errorf("failed to read the patch back: %v", err)

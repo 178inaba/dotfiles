@@ -164,8 +164,9 @@ func OpenDocument(ctx context.Context, r runner.Runner, c *ghapi.Client, dir, ou
 	}
 	// Whatever an earlier run left goes now, before the patch beside it is
 	// overwritten. A run that stops partway would otherwise leave that run's
-	// patch under the previous run's document, which points at it by path and
-	// says nothing about which head it was taken at.
+	// patch under the previous run's document, which points at it by path: a
+	// reader that does not check diff.sha256 against the patch would take it
+	// for the document's own.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return Document{}, fmt.Errorf("failed to remove the previous context file: %s", path)
 	}
