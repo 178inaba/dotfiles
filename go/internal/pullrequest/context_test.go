@@ -1667,7 +1667,7 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 				t.Fatalf("ParseContext(%s) = %+v, want the error %q", b, got, tc.want)
 			}
 			// Every refusal says what to do about it, which is the same for all
-			// of them: only `ccx pr context` writes the document.
+			// of them: fetching the document again writes it afresh.
 			if want := tc.want + "\nrerun `ccx pr context` to fetch the document again"; err.Error() != want {
 				t.Errorf("ParseContext(%s) = %q, want %q", b, err, want)
 			}
