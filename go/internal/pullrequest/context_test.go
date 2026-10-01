@@ -1533,7 +1533,7 @@ func fullContext() map[string]any {
 			"local_branch":        "feature/x",
 		},
 		"review_threads": []any{},
-		"diff":           map[string]any{"merge_base_oid": "fed987"},
+		"diff":           map[string]any{"merge_base_oid": "fed987", "sha256": "0f1e2d"},
 	}
 }
 
@@ -1649,6 +1649,10 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 		{name: "no diff", edit: drop("diff"), want: "ctx.json is missing diff"},
 		{name: "no diff.merge_base_oid", edit: drop("diff", "merge_base_oid"), want: "diff is missing merge_base_oid in ctx.json"},
 		{name: "empty diff.merge_base_oid", edit: put("", "diff", "merge_base_oid"), want: "diff sets merge_base_oid to an empty string in ctx.json"},
+		// Without it, nothing says the patch beside the document is the one
+		// it was written with.
+		{name: "no diff.sha256", edit: drop("diff", "sha256"), want: "diff is missing sha256 in ctx.json"},
+		{name: "empty diff.sha256", edit: put("", "diff", "sha256"), want: "diff sets sha256 to an empty string in ctx.json"},
 		// A head repository GitHub no longer has is an answer, not a gap.
 		{name: "null pr.head_repository", edit: put(nil, "pr", "head_repository")},
 	} {
@@ -1694,7 +1698,7 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123", BaseOID: "fed987",
 			HeadRepository: new("owner/repo"), LocalBranch: "feature/x",
 		},
-		Diff:          pullrequest.Diff{MergeBaseOID: "fed987"},
+		Diff:          pullrequest.Diff{MergeBaseOID: "fed987", SHA256: "0f1e2d"},
 		Reviewers:     []pullrequest.Reviewer{},
 		ReviewThreads: []pullrequest.Thread{},
 	}

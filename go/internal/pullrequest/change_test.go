@@ -2,6 +2,7 @@ package pullrequest_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -185,6 +186,22 @@ func TestReadChange(t *testing.T) {
 		}
 		if got.Diff.MergeBaseOID != r.base {
 			t.Errorf("diff.merge_base_oid = %q, want %q", got.Diff.MergeBaseOID, r.base)
+		}
+		if want := fmt.Sprintf("%x", sha256.Sum256(content)); got.Diff.SHA256 != want {
+			t.Errorf("diff.sha256 = %q, want %q, the digest of the patch file", got.Diff.SHA256, want)
+		}
+		// The patch is written beside its final name and renamed onto it, and
+		// nothing of that is left behind for a reader of the work dir.
+		entries, err := os.ReadDir(filepath.Dir(patch))
+		if err != nil {
+			t.Fatalf("read the work dir: %v", err)
+		}
+		if len(entries) != 1 || entries[0].Name() != filepath.Base(patch) {
+			names := make([]string, 0, len(entries))
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			t.Errorf("work dir holds %v, want only %s", names, filepath.Base(patch))
 		}
 	})
 

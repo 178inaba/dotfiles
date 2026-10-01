@@ -3,7 +3,10 @@ package pullrequest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -86,8 +89,12 @@ type Diff struct {
 	// drawn from; for a change read out of a checkout, the merge base git
 	// found for the base and HEAD — and where git found more than one, the one
 	// warnings names as used.
-	MergeBaseOID string     `json:"merge_base_oid" contract:"required,nonempty"`
-	Files        []DiffFile `json:"files"`
+	MergeBaseOID string `json:"merge_base_oid" contract:"required,nonempty"`
+	// The hex SHA-256 of the bytes at path. The work dir is shared by every
+	// run on the same pull request, so this is how a reader of the patch
+	// knows it is the one this document was written with.
+	SHA256 string     `json:"sha256" contract:"required,nonempty"`
+	Files  []DiffFile `json:"files"`
 	// additions and deletions are the lines across the text
 	// files. A binary file counts towards neither, which is why they can be
 	// less than the patch appears to hold.
@@ -288,7 +295,11 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 		return string(out), nil
 	}
 
-	if _, err := git("--output=" + patch); err != nil {
+	sum, err := writePatch(patch, func(tmp string) error {
+		_, err := git("--output=" + tmp)
+		return err
+	})
+	if err != nil {
 		return Diff{}, err
 	}
 	numstat, err := git("--numstat", "-z")
@@ -309,7 +320,7 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 		return Diff{}, err
 	}
 
-	diff := Diff{Path: patch}
+	diff := Diff{Path: patch, SHA256: sum}
 	for i := range files {
 		c, ok := counts[files[i].Path]
 		if !ok {
@@ -323,6 +334,43 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 	}
 	diff.Files = files
 	return diff, nil
+}
+
+// writePatch has write put the patch in a temporary file beside path, digests
+// that file and renames it onto path.
+//
+// The digest is taken before the rename, of bytes no other run can reach: a
+// patch written to path itself and read back could be another run's on the
+// same pull request, which shares the work dir, and the document would then
+// vouch for a diff it was not written with.
+func writePatch(path string, write func(tmp string) error) (string, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create a file for the patch beside %s: %v", path, err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("failed to create a file for the patch beside %s: %v", path, err)
+	}
+
+	if err := write(name); err != nil {
+		return "", err
+	}
+	content, err := os.ReadFile(name)
+	if err != nil {
+		return "", fmt.Errorf("failed to read the patch back: %v", err)
+	}
+	if err := os.Rename(name, path); err != nil {
+		return "", fmt.Errorf("failed to move the patch to %s: %v", path, err)
+	}
+	return patchDigest(content), nil
+}
+
+// patchDigest is what diff.sha256 holds for a patch's bytes.
+func patchDigest(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 // generatedAttr is the attribute the exclusion is declared with, and the only

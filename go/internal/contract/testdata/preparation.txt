@@ -76,6 +76,11 @@
                             of a checkout, the merge base git found for the base and
                             HEAD — and where git found more than one, the one warnings
                             names as used.
+      sha256                string (required, not empty)
+                            The hex SHA-256 of the bytes at path. The work dir is shared
+                            by every run on the same pull request, so this is how a
+                            reader of the patch knows it is the one this document was
+                            written with.
       files                 array of object
         path                string
                             The path on the new side; for a deletion, the path that was
