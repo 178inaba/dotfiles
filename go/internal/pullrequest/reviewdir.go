@@ -210,10 +210,12 @@ func RequireInWorkDir(file, field, contextFile string) error {
 
 // Target is the pull request a run is writing to.
 type Target struct {
-	Repo    string
-	Number  int
-	BaseRef string
-	HeadOID string
+	Repo   string
+	Number int
+	// MergeBaseOID is where the pull request's diff starts, which is what a
+	// review comment's line is checked against.
+	MergeBaseOID string
+	HeadOID      string
 	// IsOwnPR is whether the pull request is the current user's, which is what
 	// decides whether its body may be edited at all. A field of the target
 	// rather than an argument beside it, so that a writer added later cannot
@@ -224,7 +226,7 @@ type Target struct {
 // Target is what writing needs out of a pull request context.
 func (c Context) Target() Target {
 	return Target{
-		Repo: c.Repo, Number: c.PR.Number, BaseRef: c.PR.BaseRef,
+		Repo: c.Repo, Number: c.PR.Number, MergeBaseOID: c.Diff.MergeBaseOID,
 		HeadOID: c.PR.HeadOID, IsOwnPR: c.IsOwnPR,
 	}
 }

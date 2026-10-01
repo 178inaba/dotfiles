@@ -302,7 +302,7 @@ func TestRequirePushedHead(t *testing.T) {
 	head := gittest.Rev(t, repo, "HEAD")
 	previous := gittest.Rev(t, repo, "HEAD~")
 	target := func(docHead string) pullrequest.Target {
-		return pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: docHead}
+		return pullrequest.Target{Repo: "owner/repo", Number: 5, HeadOID: docHead}
 	}
 
 	// The pushed-fixes case, and the whole point of the check: the run
