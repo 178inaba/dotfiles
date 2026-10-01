@@ -175,7 +175,7 @@ func TestParseSubmissionRefusesABodyThatNumbersItsItems(t *testing.T) {
 }
 
 // documentTarget writes the patch of HEAD in dir over base the way a document's
-// is written, and names it in a target the way Context.Target does.
+// is written, and takes the target out of a context carrying it.
 // prMergeBase is the merge base GitHub took the range from, empty where git's
 // one is the only one.
 func documentTarget(t *testing.T, dir, base, prMergeBase string) pullrequest.Target {
@@ -188,10 +188,9 @@ func documentTarget(t *testing.T, dir, base, prMergeBase string) pullrequest.Tar
 	if warning != "" {
 		t.Fatalf("ReadLocalChange took the range from a merge base it had to guess: %s", warning)
 	}
-	return pullrequest.Target{
-		Repo: "owner/repo", Number: 5, DiffPath: change.Diff.Path, DiffSHA256: change.Diff.SHA256,
-		HeadOID: gittest.Rev(t, dir, "HEAD"),
-	}
+	return pullrequest.Context{
+		Repo: "owner/repo", PR: pullrequest.PR{Number: 5, HeadOID: gittest.Rev(t, dir, "HEAD")}, Diff: change.Diff,
+	}.Target()
 }
 
 // diffRepo builds a repository with a diff against origin/main: one added line

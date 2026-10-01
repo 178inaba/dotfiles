@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -207,7 +208,8 @@ func checkAnchors(patch, sum string, comments []ghapi.ReviewComment) error {
 	if err != nil {
 		return fmt.Errorf("failed to read the pull request's patch %s: %v\nrerun `ccx pr context` or `ccx pr prepare-review` to write it again", patch, err)
 	}
-	if patchDigest(content) != sum {
+	// Reading from memory cannot fail, so there is no error to see.
+	if got, _ := patchDigest(bytes.NewReader(content)); got != sum {
 		return fmt.Errorf("the patch %s is not the one the pull request context was written with\nrerun `ccx pr context` or `ccx pr prepare-review` to write both again", patch)
 	}
 

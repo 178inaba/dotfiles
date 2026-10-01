@@ -266,9 +266,10 @@ func (t Target) RequireOwn() error {
 // head: checkAnchors matches every remark against the document's patch, which
 // is the diff ending at head_oid, and the code a reviewer read around it came
 // out of this checkout, so the local tree has to be that same state or the
-// remarks were written against something the check does not judge. The commands that reply to and comment on a pull request are held
-// to something different, since their run pushes between fetching the document
-// and posting: see RequirePushedHead.
+// remarks were written against something the check does not judge. The
+// commands that reply to and comment on a pull request are held to something
+// different, since their run pushes between fetching the document and posting:
+// see RequirePushedHead.
 func RequireHead(ctx context.Context, r runner.Runner, dir, headOID, before string) error {
 	local, err := localHead(ctx, r, dir)
 	if err != nil {

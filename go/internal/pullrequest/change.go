@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -357,20 +358,30 @@ func writePatch(path string, write func(tmp string) error) (string, error) {
 	if err := write(name); err != nil {
 		return "", err
 	}
-	content, err := os.ReadFile(name)
+	// Streamed rather than read whole: the patch is unbounded, which is why
+	// git writes it to a file in the first place.
+	f, err := os.Open(name)
+	if err != nil {
+		return "", fmt.Errorf("failed to read the patch back: %v", err)
+	}
+	sum, err := patchDigest(f)
+	f.Close()
 	if err != nil {
 		return "", fmt.Errorf("failed to read the patch back: %v", err)
 	}
 	if err := os.Rename(name, path); err != nil {
 		return "", fmt.Errorf("failed to move the patch to %s: %v", path, err)
 	}
-	return patchDigest(content), nil
+	return sum, nil
 }
 
 // patchDigest is what diff.sha256 holds for a patch's bytes.
-func patchDigest(content []byte) string {
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:])
+func patchDigest(patch io.Reader) (string, error) {
+	h := sha256.New()
+	if _, err := io.Copy(h, patch); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // generatedAttr is the attribute the exclusion is declared with, and the only
