@@ -171,7 +171,7 @@ func Prepare(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.R
 		}
 	}
 
-	doc, err := OpenDocument(ctx, r, dir, o.OutDir, repo, pr)
+	doc, err := OpenDocument(ctx, r, c, dir, o.OutDir, repo, pr)
 	if err != nil {
 		return Preparation{}, err
 	}

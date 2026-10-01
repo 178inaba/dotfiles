@@ -151,7 +151,12 @@ type Document struct {
 // that moved has to stop the run while there is still no document, since one
 // whose head_oid and diff disagree is something no reader could detect. dir is
 // the checkout git runs against; outDir is where the document goes.
-func OpenDocument(ctx context.Context, r runner.Runner, dir, outDir string, repo ghapi.Repo, pr ghapi.PullRequest) (Document, error) {
+//
+// The merge base the range starts from is GitHub's, read here rather than by
+// each writer so that neither can take the range from anywhere else. A failed
+// read stops the run like a failed fetch: nothing falls back to the merge base
+// git would choose.
+func OpenDocument(ctx context.Context, r runner.Runner, c *ghapi.Client, dir, outDir string, repo ghapi.Repo, pr ghapi.PullRequest) (Document, error) {
 	path := ContextPath(outDir, repo, pr.Number)
 	work, err := EnsureWorkFiles(path)
 	if err != nil {
@@ -164,7 +169,11 @@ func OpenDocument(ctx context.Context, r runner.Runner, dir, outDir string, repo
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return Document{}, fmt.Errorf("failed to remove the previous context file: %s", path)
 	}
-	change, err := ReadChange(ctx, r, dir, pr, work.DiffPath)
+	mergeBase, err := c.MergeBase(ctx, repo, pr.BaseRefOid, pr.HeadRefOid)
+	if err != nil {
+		return Document{}, err
+	}
+	change, err := ReadChange(ctx, r, dir, pr, mergeBase, work.DiffPath)
 	if err != nil {
 		return Document{}, err
 	}

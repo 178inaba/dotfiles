@@ -113,7 +113,13 @@ type Change struct {
 	Diff Diff `json:"diff"`
 }
 
-// ReadChange reads a pull request's commits and diff out of git.
+// ReadChange reads a pull request's commits and diff out of git, over the
+// range from mergeBase to head_oid.
+//
+// mergeBase is the one GitHub computed for the pull request, resolved by the
+// caller: git is asked for the content of the range and never for where it
+// starts, since where base and head have several merge bases git would pick
+// one without saying so, and the pull request's own range may be the other.
 //
 // The objects are made present by fetching refs/pull/<n>/head, which the base
 // repository carries for every pull request — including one from a fork, whose
@@ -121,20 +127,20 @@ type Change struct {
 // than from what the fetch brought back, so that a pull request which moved
 // between the metadata being read and the fetch is refused rather than
 // described wrongly: a document whose head_oid and diff disagree is something
-// no reader could detect.
+// no reader could detect. The merge base is an ancestor of the head, so the
+// same fetch brings it; one that is still absent is refused the same way.
 //
 // git runs against dir, which is the checkout the command was invoked in.
-func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, diffPath string) (Change, error) {
-	// A failed fetch is not degraded to what is already local: with a stale
-	// origin/<base> the merge base moves and the diff quietly widens to commits
-	// the base branch already has, which nothing downstream can tell from the
-	// real thing.
+func ReadChange(ctx context.Context, r runner.Runner, dir string, pr ghapi.PullRequest, mergeBase, diffPath string) (Change, error) {
+	// The base branch is fetched alongside for the reading of a local change
+	// that follows this one, which takes its range against origin/<base>.
 	if err := worktree.FetchPullHead(ctx, r, dir, pr.Number, pr.HeadRefOid, pr.BaseRefName); err != nil {
 		return Change{}, err
 	}
-	mergeBase, err := runner.Git(ctx, r, dir, "merge-base", "origin/"+pr.BaseRefName, pr.HeadRefOid)
-	if err != nil {
-		return Change{}, fmt.Errorf("failed to find the merge base of origin/%s and %s: %v", pr.BaseRefName, pr.HeadRefOid, err)
+	if _, err := runner.Git(ctx, r, dir, "cat-file", "-e", mergeBase+"^{commit}"); err != nil {
+		return Change{}, fmt.Errorf(
+			"the merge base %s GitHub reported for the pull request is not in %s after fetching its head; run this again",
+			mergeBase, dir)
 	}
 
 	return readRange(ctx, r, dir, mergeBase, pr.HeadRefOid, diffPath)

@@ -143,7 +143,7 @@ func prContextCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 
-			doc, err := pullrequest.OpenDocument(c.Context(), runner.Exec{}, deps.Dir, outDir, repo, meta)
+			doc, err := pullrequest.OpenDocument(c.Context(), runner.Exec{}, client, deps.Dir, outDir, repo, meta)
 			if err != nil {
 				return silent(err)
 			}

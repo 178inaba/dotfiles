@@ -31,7 +31,11 @@ type PR struct {
 	Author  string        `json:"author"`
 	HeadRef string        `json:"head_ref" contract:"required,nonempty"`
 	BaseRef string        `json:"base_ref" contract:"required,nonempty"`
-	HeadOID string        `json:"head_oid" contract:"required,nonempty"`
+	// The commit base_ref stood on when the pull request was read, read in
+	// the same snapshot as head_oid. It and head_oid are what GitHub was asked
+	// for the merge base that diff.merge_base_oid names.
+	BaseOID string `json:"base_oid" contract:"required,nonempty"`
+	HeadOID string `json:"head_oid" contract:"required,nonempty"`
 	// Whether the head lives in a repository other than this one: a
 	// fork, whose head branch this repository does not have.
 	IsCrossRepository bool `json:"is_cross_repository" contract:"required"`
@@ -277,7 +281,7 @@ type Context struct {
 	Commits []Commit `json:"commits"`
 	// The whole diff at head_oid, as a file and the statistics
 	// over it. No limit is applied to either.
-	Diff               Diff      `json:"diff"`
+	Diff               Diff      `json:"diff" contract:"required"`
 	CommentsTotalCount int       `json:"comments_total_count"`
 	CommentsTruncated  bool      `json:"comments_truncated"`
 	Comments           []Comment `json:"comments"`
@@ -334,11 +338,14 @@ type Context struct {
 // into a --help, where how a validator walks a document answers nothing a
 // reader of one asked.
 //
-// file is what a refusal names, since the path is the caller's.
+// file is what a refusal names, since the path is the caller's. Every refusal
+// ends by saying to fetch the document again: it is a document only
+// `ccx pr context` writes, and one written before a field was declared is the
+// refusal a reader meets most.
 func ParseContext(b []byte, file string) (Context, error) {
 	var c Context
 	if err := contract.Unmarshal(b, &c, file); err != nil {
-		return Context{}, err
+		return Context{}, fmt.Errorf("%v\nrerun `ccx pr context` to fetch the document again", err)
 	}
 	return c, nil
 }
@@ -562,7 +569,7 @@ func Fetch(ctx context.Context, c *ghapi.Client, repo ghapi.Repo, pr ghapi.PullR
 		IsOwnPR:     pr.IsOwn,
 		PR: PR{
 			Number: pr.Number, Title: pr.Title, Body: pr.Body, URL: pr.URL, State: pr.State,
-			Author: pr.Author, HeadRef: pr.HeadRefName, BaseRef: pr.BaseRefName, HeadOID: pr.HeadRefOid,
+			Author: pr.Author, HeadRef: pr.HeadRefName, BaseRef: pr.BaseRefName, BaseOID: pr.BaseRefOid, HeadOID: pr.HeadRefOid,
 			IsCrossRepository: pr.IsCrossRepository, HeadRepository: headRepository(pr), LocalBranch: worktree.LocalBranch(pr),
 		},
 		LinkedIssues:       issues,

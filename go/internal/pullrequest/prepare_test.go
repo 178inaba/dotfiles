@@ -46,22 +46,32 @@ func prepareRepo(t *testing.T) (repo, headOID string) {
 	return repo, gittest.Rev(t, repo, "HEAD")
 }
 
+// baseOf is the base branch's tip as origin holds it, which is what the
+// fixture pull request reports as its base.
+func baseOf(t *testing.T, repo string) string {
+	t.Helper()
+	return gittest.Rev(t, repo, "origin/main")
+}
+
 // prepareGitHub answers the probe and the body query for one pull request.
 // author is who opened it, and an empty one makes every lookup fail — which is
 // what a branch with no pull request looks like.
-func prepareGitHub(t *testing.T, headOID, author string, threads string) *ghapi.Client {
+//
+// baseOID is the base branch's tip as the pull request reports it, which the
+// fake's compare endpoint answers as the merge base unless told otherwise.
+func prepareGitHub(t *testing.T, baseOID, headOID, author string, threads string) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubKnowing(t, headOID, author, threads, preparePages, nil)
+	return prepareGitHubKnowing(t, baseOID, headOID, author, threads, preparePages, nil)
 }
 
 // prepareGitHubReviewing is prepareGitHub with the reviews answered by a
 // function of the window asked for, which is what a rerun with the limit
 // raised has to be shown getting more of.
-func prepareGitHubReviewing(t *testing.T, headOID, author string, reviews reviewsAnswer) *ghapi.Client {
+func prepareGitHubReviewing(t *testing.T, baseOID, headOID, author string, reviews reviewsAnswer) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubKnowing(t, headOID, author, noThreads, preparePages, reviews)
+	return prepareGitHubKnowing(t, baseOID, headOID, author, noThreads, preparePages, reviews)
 }
 
 // reviewsAnswer is one reviews connection, asked for a window of n reviews
@@ -73,12 +83,12 @@ type reviewsAnswer func(n int, before string) string
 // reviews it knows about named, so that a test can leave an issue out, make one
 // longer than a limit, or have GitHub decline one, and see what the run makes
 // of that.
-func prepareGitHubKnowing(t *testing.T, headOID, author, threads string,
+func prepareGitHubKnowing(t *testing.T, baseOID, headOID, author, threads string,
 	issues pages, reviews reviewsAnswer,
 ) *ghapi.Client {
 	t.Helper()
 
-	return prepareGitHubWith(t, prNode(author, headOID), author, threads, issues, reviews)
+	return prepareGitHubWith(t, prNode(author, baseOID, headOID), author, threads, issues, reviews)
 }
 
 // prepareGitHubWith is prepareGitHubKnowing answering both lookups with node,
@@ -141,16 +151,16 @@ func prepareGitHubWith(t *testing.T, node, author, threads string,
 }
 
 // prNode is the fixture pull request as both lookups answer with it.
-func prNode(author, headOID string) string {
+func prNode(author, baseOID, headOID string) string {
 	return fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
-		"state":"OPEN","author":{"login":%q},"headRefName":"feature/x","baseRefName":"main",
-		"headRefOid":%q,"headRepository":{"nameWithOwner":"owner/repo"}}`, author, headOID)
+		"state":"OPEN","author":{"login":%q},"headRefName":"feature/x","baseRefName":"main","baseRefOid":%q,
+		"headRefOid":%q,"headRepository":{"nameWithOwner":"owner/repo"}}`, author, baseOID, headOID)
 }
 
 // prepareGitHubLosingTheConversation answers the probe and then fails the query
 // that fetches the conversation, which is what a run that gets as far as
 // reading the change and no further looks like.
-func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Client {
+func prepareGitHubLosingTheConversation(t *testing.T, baseOID, headOID string) *ghapi.Client {
 	t.Helper()
 
 	return ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +178,7 @@ func prepareGitHubLosingTheConversation(t *testing.T, headOID string) *ghapi.Cli
 			fmt.Fprint(w, `{"errors":[{"message":"conversation unavailable"}]}`)
 			return
 		}
-		fmt.Fprintf(w, `{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":%s}}}`, prNode("me", headOID))
+		fmt.Fprintf(w, `{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":%s}}}`, prNode("me", baseOID, headOID))
 	}))
 }
 
@@ -242,7 +252,7 @@ func TestPrepareWithoutAPullRequest(t *testing.T) {
 			o.OutDir = t.TempDir()
 			var seen []pullrequest.Context
 			var paths []string
-			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
@@ -300,7 +310,7 @@ func TestPrepareWritesTheLocalChangeWithoutAPullRequest(t *testing.T) {
 	wantFiles := localWork(t, repo)
 	scratch := t.TempDir()
 
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: scratch}, store(nil, nil))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -345,7 +355,7 @@ func TestPrepareRefusesADetachedHeadWithoutAPullRequest(t *testing.T) {
 	repo, _ := prepareRepo(t)
 	gittest.Run(t, repo, "switch", "-q", "--detach", "HEAD")
 
-	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
 	if err == nil {
 		t.Fatal("Prepare succeeded on a detached head, want it to refuse")
@@ -386,7 +396,7 @@ func TestPrepareFallsBackToALocalBaseBranch(t *testing.T) {
 	gittest.Run(t, repo, "tag", "main", "HEAD")
 	singleBranch(t, repo)
 
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -414,7 +424,7 @@ func TestPrepareWarnsOnceWhenTheFetchFailed(t *testing.T) {
 	// fetch cannot reach anything, which is what being offline looks like.
 	gittest.Run(t, repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
 
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -437,7 +447,7 @@ func TestPrepareRefusesAMissingBaseBranch(t *testing.T) {
 	singleBranch(t, repo)
 	gittest.Run(t, repo, "branch", "-qD", "main")
 
-	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
 	if err == nil {
 		t.Fatal("Prepare succeeded with no base branch of either kind, want it to refuse")
@@ -458,7 +468,7 @@ func TestPrepareWritesTheLocalChangeAheadOfThePullRequest(t *testing.T) {
 	scratch := t.TempDir()
 	var seen []pullrequest.Context
 
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, baseOf(t, repo), head, "me", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: scratch}, store(&seen, nil))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -489,6 +499,102 @@ func TestPrepareWritesTheLocalChangeAheadOfThePullRequest(t *testing.T) {
 	}
 }
 
+// crissCrossPullRequest turns prepareRepo's pull request into one whose base
+// and head have two merge bases, pushed as the pull request's head, and
+// returns that head and the two in git's order.
+func crissCrossPullRequest(t *testing.T, repo string) (head string, bases []string) {
+	t.Helper()
+
+	crissCross(t)(repo)
+	gittest.Run(t, repo, "push", "-q", "origin", "HEAD:feature/x", "HEAD:refs/pull/5/head")
+	gittest.Run(t, repo, "fetch", "-q", "origin")
+	head = gittest.Rev(t, repo, "HEAD")
+	return head, mergeBases(t, repo, "origin/main", head)
+}
+
+// mergeBaseWarnings are the lines that say a local change's merge base was
+// chosen among several.
+func mergeBaseWarnings(warnings []string) []string {
+	var lines []string
+	for _, w := range warnings {
+		if strings.Contains(w, "merge bases") {
+			lines = append(lines, w)
+		}
+	}
+	return lines
+}
+
+// TestPrepareWarnsOfSeveralMergeBasesWithoutAPullRequest is the one state
+// with no range defined anywhere but here: the local change is taken from
+// git's first candidate, and the reader is told so.
+func TestPrepareWarnsOfSeveralMergeBasesWithoutAPullRequest(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	_, bases := crissCrossPullRequest(t, repo)
+
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(nil, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	if got.LocalChange == nil || got.LocalChange.Diff.MergeBaseOID != bases[0] {
+		t.Fatalf("local_change = %+v, want it taken from %s", got.LocalChange, bases[0])
+	}
+	lines := mergeBaseWarnings(got.Warnings)
+	if len(lines) != 1 {
+		t.Fatalf("warnings = %q, want one line about the merge bases", got.Warnings)
+	}
+	for _, b := range bases {
+		if !strings.Contains(lines[0], b) {
+			t.Errorf("warning = %q, want it to name %s", lines[0], b)
+		}
+	}
+}
+
+// TestPrepareTakesTheLocalChangeFromThePullRequestsMergeBase is the author's
+// checkout ahead of a criss-cross pull request: GitHub's merge base is among
+// git's candidates, so the local change starts where the document does and
+// there is nothing to warn about.
+func TestPrepareTakesTheLocalChangeFromThePullRequestsMergeBase(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := prepareRepo(t)
+	head, bases := crissCrossPullRequest(t, repo)
+	gittest.Run(t, repo, "commit", "-q", "--allow-empty", "-m", "not pushed yet")
+	// The one git would not pick, so that a range git chose would show.
+	github := bases[0]
+	if github == strings.TrimSpace(gittest.Run(t, repo, "merge-base", "origin/main", head)) {
+		github = bases[1]
+	}
+	gh := prepareGitHubKnowing(t, baseOf(t, repo), head, "me", noThreads,
+		pages{issues: prepareIssues, issueComments: prepareIssueComments, mergeBase: github}, nil)
+	var seen []pullrequest.Context
+
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
+		ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: t.TempDir()}, store(&seen, nil))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if got.Freshness == nil || got.Freshness.Status != worktree.FreshnessAheadOwn {
+		t.Fatalf("freshness = %+v, want ahead_own", got.Freshness)
+	}
+
+	if len(seen) != 1 {
+		t.Fatalf("%d contexts were stored, want 1", len(seen))
+	}
+	if seen[0].Diff.MergeBaseOID != github {
+		t.Fatalf("the document's diff.merge_base_oid = %s, want GitHub's %s", seen[0].Diff.MergeBaseOID, github)
+	}
+	if got.LocalChange == nil || got.LocalChange.Diff.MergeBaseOID != seen[0].Diff.MergeBaseOID {
+		t.Errorf("local_change = %+v, want it taken from the document's merge base %s", got.LocalChange, github)
+	}
+	if lines := mergeBaseWarnings(got.Warnings); len(lines) != 0 {
+		t.Errorf("warnings = %q, want none about the merge bases", lines)
+	}
+}
+
 // TestPrepareLeavesTheLocalChangeNullOnASyncedCheckout is the third of the
 // four freshness states that go on. A checkout the freshness check moved onto
 // the pull request's head holds nothing the document does not, so there is no
@@ -502,7 +608,7 @@ func TestPrepareLeavesTheLocalChangeNullOnASyncedCheckout(t *testing.T) {
 	patch := filepath.Join(scratch, "pr-owner@repo-5", "local.patch")
 	prepare := func() pullrequest.Preparation {
 		t.Helper()
-		got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
+		got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, baseOf(t, repo), head, "me", noThreads),
 			ghapi.Repo{Owner: "owner", Name: "repo"}, repo, pullrequest.Options{OutDir: scratch}, store(nil, nil))
 		if err != nil {
 			t.Fatalf("Prepare: %v", err)
@@ -566,7 +672,7 @@ func TestPrepare(t *testing.T) {
 			o.OutDir = scratch
 			var seen []pullrequest.Context
 			var paths []string
-			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, tc.author, noThreads),
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, baseOf(t, repo), head, tc.author, noThreads),
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
 				t.Fatalf("Prepare: %v", err)
@@ -646,7 +752,7 @@ func TestPrepareWithAnIssue(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, baseOf(t, repo), head, "me", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir(), Issue: 42}, store(&seen, &paths))
 	if err != nil {
@@ -692,7 +798,7 @@ func TestPrepareRefusesAMovedHead(t *testing.T) {
 
 	var seen []pullrequest.Context
 	var paths []string
-	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, moved, "me", noThreads),
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, baseOf(t, repo), moved, "me", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err == nil {
@@ -722,7 +828,7 @@ func TestPrepareRemovesTheDocumentItReplaces(t *testing.T) {
 
 	var seen []pullrequest.Context
 	var paths []string
-	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubLosingTheConversation(t, head),
+	_, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubLosingTheConversation(t, baseOf(t, repo), head),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: scratch, Number: 5}, store(&seen, &paths))
 	if err == nil {
@@ -769,7 +875,7 @@ func TestPrepareCarriesTheIssueWarnings(t *testing.T) {
 				known = maps.Clone(prepareIssues)
 				delete(known, issuePath("owner/repo", 10))
 			}
-			gh := prepareGitHubKnowing(t, head, "me", noThreads, pages{issues: known, issueComments: prepareIssueComments}, nil)
+			gh := prepareGitHubKnowing(t, baseOf(t, repo), head, "me", noThreads, pages{issues: known, issueComments: prepareIssueComments}, nil)
 			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, gh,
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo, o, store(&seen, &paths))
 			if err != nil {
@@ -810,7 +916,7 @@ func TestPrepareReadsTheNamedIssueWithoutAPullRequest(t *testing.T) {
 			t.Parallel()
 
 			repo, _ := prepareRepo(t)
-			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 				pullrequest.Options{OutDir: t.TempDir(), Issue: tc.issue}, store(nil, nil))
 			if err != nil {
@@ -840,7 +946,7 @@ func TestPrepareCarriesTheIssueWarningsWithoutAPullRequest(t *testing.T) {
 
 	repo, _ := prepareRepo(t)
 	// #43 is in no fixture, so the endpoint answers 404 for it.
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir(), Issue: 43}, store(nil, nil))
 	if err != nil {
@@ -882,7 +988,7 @@ func TestPrepareStopsOnAnUnreadableIssueWithoutAPullRequest(t *testing.T) {
 			// A server error rather than a 404: the issue may well be there,
 			// and nothing came back to say whether it is. It stands in for
 			// GitHub being unreachable at all, which takes the same branch.
-			gh := prepareGitHubKnowing(t, "", "", noThreads, pages{
+			gh := prepareGitHubKnowing(t, "", "", "", noThreads, pages{
 				issues:        prepareIssues,
 				issueComments: prepareIssueComments,
 				issueStatus:   map[string]int{issuePath("owner/repo", 42): http.StatusInternalServerError},
@@ -916,7 +1022,7 @@ func TestPrepareStopsOnAMismatchedBranch(t *testing.T) {
 
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, baseOf(t, repo), head, "me", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir(), Number: 5}, store(&seen, &paths))
 	if err != nil {
@@ -941,11 +1047,11 @@ func TestPrepareStopsOnAMismatchedBranch(t *testing.T) {
 
 // forkNode is the fixture pull request with its head on contributor's fork,
 // or on a fork since deleted where headRepository is null.
-func forkNode(headOID, headRepository string) string {
+func forkNode(baseOID, headOID, headRepository string) string {
 	return fmt.Sprintf(`{"number":5,"title":"t","body":"Closes #10","url":"https://example.com/pr/5",
-		"state":"OPEN","author":{"login":"other"},"headRefName":"feature/x","baseRefName":"main",
+		"state":"OPEN","author":{"login":"other"},"headRefName":"feature/x","baseRefName":"main","baseRefOid":%q,
 		"headRefOid":%q,"isCrossRepository":true,"headRepository":%s}`,
-		headOID, headRepository)
+		baseOID, headOID, headRepository)
 }
 
 // TestPrepareOnAFork is a review of a pull request whose head branch origin
@@ -971,7 +1077,7 @@ func TestPrepareOnAFork(t *testing.T) {
 		var seen []pullrequest.Context
 		var paths []string
 		got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
-			prepareGitHubWith(t, forkNode(head, `{"nameWithOwner":"contributor/repo"}`), "other", noThreads, preparePages, nil),
+			prepareGitHubWith(t, forkNode(baseOf(t, repo), head, `{"nameWithOwner":"contributor/repo"}`), "other", noThreads, preparePages, nil),
 			ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 			pullrequest.Options{OutDir: t.TempDir(), Number: 5, LocalOnly: true}, store(&seen, &paths))
 		if err != nil {
@@ -992,7 +1098,7 @@ func TestPrepareOnAFork(t *testing.T) {
 		var seen []pullrequest.Context
 		var paths []string
 		got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
-			prepareGitHubWith(t, forkNode(head, "null"), "other", noThreads, preparePages, nil),
+			prepareGitHubWith(t, forkNode(baseOf(t, repo), head, "null"), "other", noThreads, preparePages, nil),
 			ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 			pullrequest.Options{OutDir: t.TempDir(), Number: 5, LocalOnly: true}, store(&seen, &paths))
 		if err != nil {
@@ -1013,7 +1119,7 @@ func TestPrepareStopsOnAMissingPullRequest(t *testing.T) {
 	repo, _ := prepareRepo(t)
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", noThreads),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, "", "", "", noThreads),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir(), Number: 999}, store(&seen, &paths))
 	if err == nil {
@@ -1036,7 +1142,7 @@ func TestPrepareRaisesTheLimits(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, head, "me", truncated),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHub(t, baseOf(t, repo), head, "me", truncated),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err != nil {
@@ -1100,7 +1206,7 @@ func TestPrepareRaisesTheReviewLimit(t *testing.T) {
 	var seen []pullrequest.Context
 	var paths []string
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
-		prepareGitHubReviewing(t, head, "me", func(n int, before string) string {
+		prepareGitHubReviewing(t, baseOf(t, repo), head, "me", func(n int, before string) string {
 			return reviewsConnection(list, n, before)
 		}),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
@@ -1137,7 +1243,7 @@ func TestPrepareReportsReviewsStillTruncated(t *testing.T) {
 	var seen []pullrequest.Context
 	var paths []string
 	got, err := pullrequest.Prepare(t.Context(), runner.Exec{},
-		prepareGitHubReviewing(t, head, "me", func(int, string) string { return truncated }),
+		prepareGitHubReviewing(t, baseOf(t, repo), head, "me", func(int, string) string { return truncated }),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err != nil {
@@ -1181,7 +1287,7 @@ func TestPrepareRaisesTheIssueCommentLimit(t *testing.T) {
 			repo, head := prepareRepo(t)
 			var seen []pullrequest.Context
 			var paths []string
-			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, pages{issues: issues, issueComments: comments}, nil),
+			got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, baseOf(t, repo), head, "me", noThreads, pages{issues: issues, issueComments: comments}, nil),
 				ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 				pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 			if err != nil {
@@ -1219,7 +1325,7 @@ func TestPrepareReportsIssueCommentsStillTruncated(t *testing.T) {
 	repo, head := prepareRepo(t)
 	var seen []pullrequest.Context
 	var paths []string
-	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, head, "me", noThreads, pages{issues: issues, issueComments: prepareIssueComments}, nil),
+	got, err := pullrequest.Prepare(t.Context(), runner.Exec{}, prepareGitHubKnowing(t, baseOf(t, repo), head, "me", noThreads, pages{issues: issues, issueComments: prepareIssueComments}, nil),
 		ghapi.Repo{Owner: "owner", Name: "repo"}, repo,
 		pullrequest.Options{OutDir: t.TempDir()}, store(&seen, &paths))
 	if err != nil {

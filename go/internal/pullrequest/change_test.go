@@ -134,7 +134,7 @@ func TestReadChange(t *testing.T) {
 	r := changeFixture(t, history(t))
 	patch := filepath.Join(t.TempDir(), "diff.patch")
 
-	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), patch)
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), r.base, patch)
 	if err != nil {
 		t.Fatalf("ReadChange: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestReadChangeReportsCopiesAndTypechanges(t *testing.T) {
 		gittest.Run(t, author, "commit", "-qm", "Copy a file and turn another into a link")
 	})
 
-	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), filepath.Join(t.TempDir(), "diff.patch"))
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), r.base, filepath.Join(t.TempDir(), "diff.patch"))
 	if err != nil {
 		t.Fatalf("ReadChange: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestReadChangeWritesALargeDiffWhole(t *testing.T) {
 	})
 	patch := filepath.Join(t.TempDir(), "diff.patch")
 
-	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), patch)
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), r.base, patch)
 	if err != nil {
 		t.Fatalf("ReadChange: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestReadChangeRefusesAMovedHead(t *testing.T) {
 	pr.HeadRefOid = "0000000000000000000000000000000000000001"
 	patch := filepath.Join(t.TempDir(), "diff.patch")
 
-	_, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, pr, patch)
+	_, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, pr, r.base, patch)
 	if err == nil {
 		t.Fatal("ReadChange succeeded, want it to refuse a head that is not there")
 	}
@@ -295,6 +295,67 @@ func TestReadChangeRefusesAMovedHead(t *testing.T) {
 	}
 	if _, err := os.Stat(patch); err == nil {
 		t.Error("a patch file was written for a head that could not be resolved")
+	}
+}
+
+// TestReadChangeTakesTheMergeBaseItIsGiven is the reason the merge base comes
+// from GitHub: under a criss-cross history git has two answers and picks one
+// without a word, and the pull request's own range may be the other.
+func TestReadChangeTakesTheMergeBaseItIsGiven(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, crissCross(t))
+	gitsPick := strings.TrimSpace(gittest.Run(t, r.author, "merge-base", "main", r.head))
+	bases := mergeBases(t, r.author, "main", r.head)
+	other := bases[0]
+	if other == gitsPick {
+		other = bases[1]
+	}
+	patch := filepath.Join(t.TempDir(), "diff.patch")
+
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), other, patch)
+	if err != nil {
+		t.Fatalf("ReadChange: %v", err)
+	}
+
+	if got.Diff.MergeBaseOID != other {
+		t.Errorf("diff.merge_base_oid = %q, want %q", got.Diff.MergeBaseOID, other)
+	}
+	content, err := os.ReadFile(patch)
+	if err != nil {
+		t.Fatalf("read the patch: %v", err)
+	}
+	if want := gittest.Run(t, r.author, "diff", other, r.head); string(content) != want {
+		t.Errorf("the patch differs from git diff %s %s:\n%s", other, r.head, cmp.Diff(want, string(content)))
+	}
+	want := strings.Fields(gittest.Run(t, r.author, "log", "--format=%H", other+".."+r.head))
+	slices.Reverse(want)
+	oids := make([]string, 0, len(got.Commits))
+	for _, c := range got.Commits {
+		oids = append(oids, c.OID)
+	}
+	if diff := cmp.Diff(want, oids); diff != "" {
+		t.Errorf("commits (-want +got):\n%s", diff)
+	}
+}
+
+// TestReadChangeRefusesAnAbsentMergeBase is a merge base GitHub named that the
+// fetch did not bring, which leaves the range unreadable rather than up to git.
+func TestReadChangeRefusesAnAbsentMergeBase(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, history(t))
+	patch := filepath.Join(t.TempDir(), "diff.patch")
+
+	_, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), "0000000000000000000000000000000000000001", patch)
+	if err == nil {
+		t.Fatal("ReadChange succeeded, want it to refuse a merge base that is not there")
+	}
+	if !strings.Contains(err.Error(), "run this again") {
+		t.Errorf("ReadChange error = %v, want it to say to run the command again", err)
+	}
+	if _, err := os.Stat(patch); err == nil {
+		t.Error("a patch file was written for a merge base that could not be resolved")
 	}
 }
 
@@ -362,7 +423,7 @@ func TestReadChangeFlagsGeneratedFilesAtTheHead(t *testing.T) {
 	r := changeFixture(t, generatedHistory(t))
 	patch := filepath.Join(t.TempDir(), "diff.patch")
 
-	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), patch)
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, r.reader, prFor(r), r.base, patch)
 	if err != nil {
 		t.Fatalf("ReadChange: %v", err)
 	}
@@ -401,7 +462,7 @@ func TestReadChangeAsksAboutRepositoryRelativePaths(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, sub, prFor(r), filepath.Join(t.TempDir(), "diff.patch"))
+	got, err := pullrequest.ReadChange(t.Context(), runner.Exec{}, sub, prFor(r), r.base, filepath.Join(t.TempDir(), "diff.patch"))
 	if err != nil {
 		t.Fatalf("ReadChange: %v", err)
 	}
@@ -438,7 +499,7 @@ func TestReadChangeRefusesAGitWithoutCheckAttrSource(t *testing.T) {
 		}
 	})
 
-	_, err := pullrequest.ReadChange(t.Context(), old, r.reader, prFor(r), filepath.Join(t.TempDir(), "diff.patch"))
+	_, err := pullrequest.ReadChange(t.Context(), old, r.reader, prFor(r), r.base, filepath.Join(t.TempDir(), "diff.patch"))
 	if err == nil {
 		t.Fatal("ReadChange succeeded, want it to refuse a git that cannot read the head's attributes")
 	}

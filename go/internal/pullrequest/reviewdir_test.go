@@ -144,6 +144,35 @@ func TestEnsureBranchWorkFiles(t *testing.T) {
 	}
 }
 
+// TestOpenDocumentStopsWithoutAMergeBase is the compare call failing: nothing
+// falls back to a merge base git would choose, and the run stops with no
+// document — the previous one gone too, as a failed fetch leaves it.
+func TestOpenDocumentStopsWithoutAMergeBase(t *testing.T) {
+	t.Parallel()
+
+	repo, head := prepareRepo(t)
+	base := baseOf(t, repo)
+	out := t.TempDir()
+	path := pullrequest.ContextPath(out, ghapi.Repo{Owner: "owner", Name: "repo"}, 5)
+	gittest.Write(t, path, `{"pr":{"head_oid":"older"}}`)
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"message":"unavailable"}`)
+	}))
+	pr := ghapi.PullRequest{Number: 5, BaseRefName: "main", BaseRefOid: base, HeadRefName: "feature/x", HeadRefOid: head}
+
+	if _, err := pullrequest.OpenDocument(t.Context(), runner.Exec{}, c, repo, out, ghapi.Repo{Owner: "owner", Name: "repo"}, pr); err == nil {
+		t.Fatal("OpenDocument succeeded, want it to stop when the merge base cannot be read")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("a document is at %s (%v), want none", path, err)
+	}
+	if _, err := os.Stat(filepath.Join(pullrequest.WorkDir(path), "diff.patch")); !os.IsNotExist(err) {
+		t.Errorf("a patch was written (%v), want none", err)
+	}
+}
+
 func TestRequireInWorkDir(t *testing.T) {
 	t.Parallel()
 
@@ -250,7 +279,7 @@ func prHandler(t *testing.T, liveHead string) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, prNode("owner", liveHead))
+		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, prNode("owner", "", liveHead))
 	})
 }
 
