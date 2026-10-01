@@ -207,7 +207,7 @@ func TestPostKeepsTheAPIsRefusal(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -234,7 +234,7 @@ func TestPost(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
 
 	var gotPath, gotBody string
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -307,7 +307,7 @@ func TestPostMapsTheAssessment(t *testing.T) {
 	}
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
 	for _, tc := range tests {
 		t.Run(string(tc.assessment), func(t *testing.T) {
 			t.Parallel()
@@ -350,7 +350,7 @@ func TestPostRefuses(t *testing.T) {
 	}{
 		{
 			name:    "an assessment that is not one of the three",
-			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: at},
+			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: at},
 			sub:     pullrequest.Submission{Assessment: "なんとなく", Body: ghapitest.Body(t, "x")},
 			wantErr: "invalid assessment",
 		},
@@ -359,13 +359,13 @@ func TestPostRefuses(t *testing.T) {
 			// have shifted, which GitHub rejects with a 422 after the review
 			// is already half made.
 			name:    "a head that has moved",
-			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: "0000000"},
+			target:  pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: "0000000"},
 			sub:     pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x")},
 			wantErr: "rerun the freshness check",
 		},
 		{
 			name:   "a comment on a line the diff does not have",
-			target: pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: at},
+			target: pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: at},
 			sub: pullrequest.Submission{
 				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"),
 				Comments: []ghapi.ReviewComment{{Path: "file.txt", Line: 99, Body: ghapitest.Body(t, "y")}},
@@ -376,7 +376,7 @@ func TestPostRefuses(t *testing.T) {
 			// A removed line has no number on the new side, so it cannot be
 			// commented on however plainly it appears in the diff.
 			name:   "a comment on a file the diff does not have",
-			target: pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: at},
+			target: pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: at},
 			sub: pullrequest.Submission{
 				Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x"),
 				Comments: []ghapi.ReviewComment{{Path: "other.txt", Line: 1, Body: ghapitest.Body(t, "y")}},
@@ -405,6 +405,43 @@ func TestPostRefuses(t *testing.T) {
 	}
 }
 
+// TestPostAnchorsToThePullRequestsRange is a criss-cross history, where the
+// diff a three-dot range would read starts from whichever merge base git
+// picks, and the pull request's own starts from the one GitHub named. Each of
+// the two adds a file the other does not, so a comment on either is accepted
+// by one reading and refused by the other.
+func TestPostAnchorsToThePullRequestsRange(t *testing.T) {
+	t.Parallel()
+
+	r := changeFixture(t, crissCross(t))
+	github := notGitsPick(t, r.author, "main", "HEAD")
+	// The file each merge base has not seen yet is in the diff from it.
+	inRange, outOfRange := "main.txt", "feature.txt"
+	if strings.TrimSpace(gittest.Run(t, r.author, "log", "-1", "--format=%s", github)) == "On main" {
+		inRange, outOfRange = outOfRange, inRange
+	}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 7, MergeBaseOID: github, HeadOID: r.head}
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"html_url":"https://example.com/r"}`)
+	}))
+	post := func(path string) error {
+		_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, r.author, target, pullrequest.Submission{
+			Assessment: pullrequest.AssessmentDiscuss, Body: ghapitest.Body(t, "x"),
+			Comments: []ghapi.ReviewComment{{Path: path, Line: 1, Body: ghapitest.Body(t, "y")}},
+		})
+		return err
+	}
+
+	if err := post(inRange); err != nil {
+		t.Errorf("a comment on %s:1, which the pull request's diff has, was refused: %v", inRange, err)
+	}
+	err := post(outOfRange)
+	if err == nil || !strings.Contains(err.Error(), outOfRange+":1") {
+		t.Errorf("Post error = %v, want it to refuse %s:1, which only git's pick has", err, outOfRange)
+	}
+}
+
 func TestPostWithoutAURL(t *testing.T) {
 	t.Parallel()
 
@@ -414,7 +451,7 @@ func TestPostWithoutAURL(t *testing.T) {
 		fmt.Fprint(w, `{}`)
 	}))
 
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: gittest.Rev(t, repo, "main"), HeadOID: gittest.Rev(t, repo, "HEAD")}
 	_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target,
 		pullrequest.Submission{Assessment: pullrequest.AssessmentApprove, Body: ghapitest.Body(t, "x")})
 	if err == nil || !strings.Contains(err.Error(), "html_url missing") {
@@ -431,8 +468,9 @@ func TestContextTarget(t *testing.T) {
 		PR: pullrequest.PR{
 			Number: 5, Title: "Test PR", BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc",
 		},
+		Diff: pullrequest.Diff{MergeBaseOID: "def"},
 	}
-	want := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: "abc"}
+	want := pullrequest.Target{Repo: "owner/repo", Number: 5, MergeBaseOID: "def", HeadOID: "abc"}
 	if got := c.Target(); got != want {
 		t.Errorf("Target = %+v, want %+v", got, want)
 	}

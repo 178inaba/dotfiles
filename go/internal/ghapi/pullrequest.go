@@ -42,7 +42,11 @@ type PullRequest struct {
 	Author      string
 	HeadRefName string
 	BaseRefName string
-	HeadRefOid  string
+	// BaseRefOid is the commit the base branch stood on when this was read,
+	// which is what pins the pull request's range to the same snapshot
+	// HeadRefOid pins its end to: see MergeBase.
+	BaseRefOid string
+	HeadRefOid string
 	// ReviewDecision is APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty.
 	// A plain string because GraphQL leaves the set open and nullable: an
 	// unknown value arrives intact rather than as an error, a null as empty.
@@ -75,6 +79,7 @@ const prFields = `
       author { login }
       headRefName
       baseRefName
+      baseRefOid
       headRefOid
       reviewDecision
       isDraft
@@ -128,6 +133,7 @@ type prNode struct {
 	} `json:"author"`
 	HeadRefName       string `json:"headRefName"`
 	BaseRefName       string `json:"baseRefName"`
+	BaseRefOid        string `json:"baseRefOid"`
 	HeadRefOid        string `json:"headRefOid"`
 	ReviewDecision    string `json:"reviewDecision"`
 	IsDraft           bool   `json:"isDraft"`
@@ -157,6 +163,7 @@ func (n prNode) pullRequest(viewer string) PullRequest {
 		Author:            n.Author.Login,
 		HeadRefName:       n.HeadRefName,
 		BaseRefName:       n.BaseRefName,
+		BaseRefOid:        n.BaseRefOid,
 		HeadRefOid:        n.HeadRefOid,
 		ReviewDecision:    n.ReviewDecision,
 		IsDraft:           n.IsDraft,
@@ -184,6 +191,37 @@ func (c *Client) PullRequest(ctx context.Context, repo Repo, number int) (PullRe
 		return PullRequest{}, fmt.Errorf("look up %s#%d: %w", repo, number, err)
 	}
 	return out.Repository.PullRequest.pullRequest(out.Viewer.Login), nil
+}
+
+// MergeBase is the commit GitHub takes a pull request's range from: the merge
+// base of baseOID and headOID as the compare endpoint computes it.
+//
+// GitHub's answer rather than git's, because where the two ends have more than
+// one merge base git picks one of them without saying so, and the pull
+// request's Files and Commits tabs are drawn from GitHub's. Both ends are oids
+// rather than ref names so that the answer belongs to the same snapshot the
+// metadata was read at; a head from a fork is accepted as it is, the base
+// repository resolving it through the pull request's own ref.
+//
+// The compare endpoint is the one place GitHub publishes the merge base — the
+// GraphQL PullRequest type has no field for it — and merge_base_commit is the
+// only part of the answer read. The rest of it, the commits and the files with
+// their patches, is cut down by asking for the second page of one commit: the
+// files come only on the first page, and merge_base_commit on every page.
+func (c *Client) MergeBase(ctx context.Context, repo Repo, baseOID, headOID string) (string, error) {
+	var out struct {
+		MergeBaseCommit struct {
+			SHA string `json:"sha"`
+		} `json:"merge_base_commit"`
+	}
+	path := fmt.Sprintf("repos/%s/compare/%s...%s?per_page=1&page=2", repo, baseOID, headOID)
+	if err := c.Get(ctx, path, &out); err != nil {
+		return "", fmt.Errorf("look up the merge base of %s and %s in %s: %w", baseOID, headOID, repo, err)
+	}
+	if out.MergeBaseCommit.SHA == "" {
+		return "", fmt.Errorf("GitHub named no merge base of %s and %s in %s", baseOID, headOID, repo)
+	}
+	return out.MergeBaseCommit.SHA, nil
 }
 
 // AppendToPullRequestBody adds one section to the end of a pull request's

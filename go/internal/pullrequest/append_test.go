@@ -13,7 +13,7 @@ import (
 // ourPR is the target every case here starts from: a pull request of ours, so
 // that what a case changes is the one thing it is about.
 func ourPR() pullrequest.Target {
-	return pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", IsOwnPR: true}
+	return pullrequest.Target{Repo: "owner/repo", Number: 5, IsOwnPR: true}
 }
 
 // appendServer answers the read of the pull request and captures the body sent

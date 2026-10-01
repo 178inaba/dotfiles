@@ -76,7 +76,7 @@ func TestPostComment(t *testing.T) {
 	// The pushed-fixes shape the check is for: the document was fetched at the
 	// previous commit, the run pushed, and the comment goes out with no second
 	// fetch.
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD~")}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, HeadOID: gittest.Rev(t, repo, "HEAD~")}
 
 	var seenPath, seenBody string
 	c := ghapitest.New(t, withLiveHead(t, head, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +115,7 @@ func TestPostCommentRefusesABodyThatNumbersItsItems(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: gittest.Rev(t, repo, "HEAD")}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, HeadOID: gittest.Rev(t, repo, "HEAD")}
 	c := ghapitest.New(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("something was posted despite the bare #N numbering")
 	}))
@@ -137,7 +137,7 @@ func TestPostCommentRefusesADocumentOffTheBranch(t *testing.T) {
 	t.Parallel()
 
 	repo := diffRepo(t)
-	target := pullrequest.Target{Repo: "owner/repo", Number: 5, BaseRef: "main", HeadOID: "0000000000000000000000000000000000000000"}
+	target := pullrequest.Target{Repo: "owner/repo", Number: 5, HeadOID: "0000000000000000000000000000000000000000"}
 	c := ghapitest.New(t, withLiveHead(t, gittest.Rev(t, repo, "HEAD"), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("something was posted despite the document being off the branch")
 	})))

@@ -151,7 +151,12 @@ type Document struct {
 // that moved has to stop the run while there is still no document, since one
 // whose head_oid and diff disagree is something no reader could detect. dir is
 // the checkout git runs against; outDir is where the document goes.
-func OpenDocument(ctx context.Context, r runner.Runner, dir, outDir string, repo ghapi.Repo, pr ghapi.PullRequest) (Document, error) {
+//
+// The merge base the range starts from is GitHub's, read here rather than by
+// each writer so that neither can take the range from anywhere else. A failed
+// read stops the run like a failed fetch: nothing falls back to the merge base
+// git would choose.
+func OpenDocument(ctx context.Context, r runner.Runner, c *ghapi.Client, dir, outDir string, repo ghapi.Repo, pr ghapi.PullRequest) (Document, error) {
 	path := ContextPath(outDir, repo, pr.Number)
 	work, err := EnsureWorkFiles(path)
 	if err != nil {
@@ -164,7 +169,11 @@ func OpenDocument(ctx context.Context, r runner.Runner, dir, outDir string, repo
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return Document{}, fmt.Errorf("failed to remove the previous context file: %s", path)
 	}
-	change, err := ReadChange(ctx, r, dir, pr, work.DiffPath)
+	mergeBase, err := c.MergeBase(ctx, repo, pr.BaseRefOid, pr.HeadRefOid)
+	if err != nil {
+		return Document{}, err
+	}
+	change, err := ReadChange(ctx, r, dir, pr, mergeBase, work.DiffPath)
 	if err != nil {
 		return Document{}, err
 	}
@@ -201,10 +210,12 @@ func RequireInWorkDir(file, field, contextFile string) error {
 
 // Target is the pull request a run is writing to.
 type Target struct {
-	Repo    string
-	Number  int
-	BaseRef string
-	HeadOID string
+	Repo   string
+	Number int
+	// MergeBaseOID is where the pull request's diff starts, which is what a
+	// review comment's line is checked against.
+	MergeBaseOID string
+	HeadOID      string
 	// IsOwnPR is whether the pull request is the current user's, which is what
 	// decides whether its body may be edited at all. A field of the target
 	// rather than an argument beside it, so that a writer added later cannot
@@ -215,7 +226,7 @@ type Target struct {
 // Target is what writing needs out of a pull request context.
 func (c Context) Target() Target {
 	return Target{
-		Repo: c.Repo, Number: c.PR.Number, BaseRef: c.PR.BaseRef,
+		Repo: c.Repo, Number: c.PR.Number, MergeBaseOID: c.Diff.MergeBaseOID,
 		HeadOID: c.PR.HeadOID, IsOwnPR: c.IsOwnPR,
 	}
 }

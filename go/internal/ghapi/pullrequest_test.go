@@ -62,6 +62,7 @@ func node(number int, state, headOwner string) string {
 		"author": {"login": "178inaba"},
 		"headRefName": "feature/121-port-scripts-to-ccx",
 		"baseRefName": "main",
+		"baseRefOid": "1a2b3c4",
 		"headRefOid": "379223e",
 		"reviewDecision": "APPROVED",
 		"isDraft": true,
@@ -87,6 +88,7 @@ func wantPR(number int, state ghapi.PRState) ghapi.PullRequest {
 		Author:      "178inaba",
 		HeadRefName: "feature/121-port-scripts-to-ccx",
 		BaseRefName: "main",
+		BaseRefOid:  "1a2b3c4",
 		HeadRefOid:  "379223e",
 		// The badge is the one reader of these two, and it needs them from
 		// whichever query the caller took, so the fixture carries them on both.
@@ -573,6 +575,61 @@ func TestRequestReviewers(t *testing.T) {
 	}
 	if diff := cmp.Diff([]string{"alice", "bob"}, sent.Reviewers); diff != "" {
 		t.Errorf("reviewers sent (-want +got):\n%s", diff)
+	}
+}
+
+func TestMergeBase(t *testing.T) {
+	t.Parallel()
+
+	var path, perPage, page string
+	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, perPage, page = r.URL.Path, r.URL.Query().Get("per_page"), r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"merge_base_commit":{"sha":"5e6f7a8"},"commits":[],"files":[]}`)
+	}))
+
+	got, err := c.MergeBase(t.Context(), repo, "1a2b3c4", "379223e")
+	if err != nil {
+		t.Fatalf("MergeBase: %v", err)
+	}
+	if got != "5e6f7a8" {
+		t.Errorf("MergeBase = %q, want the merge_base_commit GitHub answered with", got)
+	}
+	if want := "/repos/178inaba/dotfiles/compare/1a2b3c4...379223e"; path != want {
+		t.Errorf("MergeBase asked for %q, want %q", path, want)
+	}
+	// Past the first page, which is the only one carrying the files and
+	// their patches, and one commit long: none of either is read.
+	if perPage != "1" || page != "2" {
+		t.Errorf("per_page/page = %q/%q, want 1 and 2", perPage, page)
+	}
+}
+
+func TestMergeBaseFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "the comparison is refused", status: http.StatusNotFound, body: `{"message":"Not Found"}`},
+		// An answer without the field is not a merge base of the empty string.
+		{name: "no merge base in the answer", status: http.StatusOK, body: `{"commits":[]}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, tc.body)
+			}))
+			if got, err := c.MergeBase(t.Context(), repo, "1a2b3c4", "379223e"); err == nil {
+				t.Fatalf("MergeBase = %q, want an error", got)
+			}
+		})
 	}
 }
 

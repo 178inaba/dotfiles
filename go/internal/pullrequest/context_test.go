@@ -34,6 +34,7 @@ var meta = ghapi.PullRequest{
 	Author:         "testuser",
 	HeadRefName:    "feature/x",
 	BaseRefName:    "main",
+	BaseRefOid:     "fed987",
 	HeadRefOid:     "abc123",
 	IsOwn:          true,
 	HeadRepository: &ghapi.Repo{Owner: "owner", Name: "repo"},
@@ -69,6 +70,11 @@ type pages struct {
 	// comments rather than no endpoint: reading them is not optional, so a
 	// missing fixture would fail every issue in every other test.
 	issueComments map[string][]string
+	// mergeBase is what the compare endpoint names as the merge base. Empty,
+	// it names the base end of the comparison itself, which is the merge base
+	// of a head cut from a base that has not moved since — the shape every
+	// fixture has unless it says otherwise.
+	mergeBase string
 }
 
 func serve(t *testing.T, p pages) *ghapi.Client {
@@ -143,6 +149,14 @@ func serveIssue(w http.ResponseWriter, r *http.Request, p pages) {
 	if s, ok := p.issueStatus[r.URL.Path]; ok {
 		w.WriteHeader(s)
 		fmt.Fprint(w, `{"message":"unavailable"}`)
+		return
+	}
+	if _, ends, ok := strings.Cut(r.URL.Path, "/compare/"); ok {
+		mergeBase, _, _ := strings.Cut(ends, "...")
+		if p.mergeBase != "" {
+			mergeBase = p.mergeBase
+		}
+		fmt.Fprintf(w, `{"merge_base_commit":{"sha":%q}}`, mergeBase)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/comments") {
@@ -429,7 +443,7 @@ func TestFetch(t *testing.T) {
 	t.Run("the pull request and who is reading it", func(t *testing.T) {
 		want := pullrequest.PR{
 			Number: 5, Title: "Test PR", Body: meta.Body, URL: "https://github.com/owner/repo/pull/5",
-			State: ghapi.StateOpen, Author: "testuser", HeadRef: "feature/x", BaseRef: "main", HeadOID: "abc123",
+			State: ghapi.StateOpen, Author: "testuser", HeadRef: "feature/x", BaseRef: "main", BaseOID: "fed987", HeadOID: "abc123",
 			HeadRepository: new("owner/repo"), LocalBranch: "feature/x",
 		}
 		if diff := cmp.Diff(want, got.PR); diff != "" {
@@ -1512,12 +1526,14 @@ func fullContext() map[string]any {
 			"base_ref": "main",
 			"head_ref": "feature/x",
 			"head_oid": "abc123",
+			"base_oid": "fed987",
 
 			"is_cross_repository": false,
 			"head_repository":     "owner/repo",
 			"local_branch":        "feature/x",
 		},
 		"review_threads": []any{},
+		"diff":           map[string]any{"merge_base_oid": "fed987"},
 	}
 }
 
@@ -1625,6 +1641,14 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 
 		{name: "no pr.is_cross_repository", edit: drop("pr", "is_cross_repository"), want: "pr is missing is_cross_repository in ctx.json"},
 		{name: "no pr.local_branch", edit: drop("pr", "local_branch"), want: "pr is missing local_branch in ctx.json"},
+
+		// What a document written before the range was recorded looks like:
+		// without it, the diff a review comment is checked against is unknown.
+		{name: "no pr.base_oid", edit: drop("pr", "base_oid"), want: "pr is missing base_oid in ctx.json"},
+		{name: "empty pr.base_oid", edit: put("", "pr", "base_oid"), want: "pr sets base_oid to an empty string in ctx.json"},
+		{name: "no diff", edit: drop("diff"), want: "ctx.json is missing diff"},
+		{name: "no diff.merge_base_oid", edit: drop("diff", "merge_base_oid"), want: "diff is missing merge_base_oid in ctx.json"},
+		{name: "empty diff.merge_base_oid", edit: put("", "diff", "merge_base_oid"), want: "diff sets merge_base_oid to an empty string in ctx.json"},
 		// A head repository GitHub no longer has is an answer, not a gap.
 		{name: "null pr.head_repository", edit: put(nil, "pr", "head_repository")},
 	} {
@@ -1642,8 +1666,10 @@ func TestParseContextRefusesADocumentAgainstItsDeclaration(t *testing.T) {
 			if err == nil {
 				t.Fatalf("ParseContext(%s) = %+v, want the error %q", b, got, tc.want)
 			}
-			if err.Error() != tc.want {
-				t.Errorf("ParseContext(%s) = %q, want %q", b, err, tc.want)
+			// Every refusal says what to do about it, which is the same for all
+			// of them: fetching the document again writes it afresh.
+			if want := tc.want + "\nrerun `ccx pr context` to fetch the document again"; err.Error() != want {
+				t.Errorf("ParseContext(%s) = %q, want %q", b, err, want)
 			}
 		})
 	}
@@ -1665,9 +1691,10 @@ func TestParseContextKeepsTheUnconstrainedFieldsWhole(t *testing.T) {
 		},
 		Repo: "owner/repo",
 		PR: pullrequest.PR{
-			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123",
+			Number: 5, BaseRef: "main", HeadRef: "feature/x", HeadOID: "abc123", BaseOID: "fed987",
 			HeadRepository: new("owner/repo"), LocalBranch: "feature/x",
 		},
+		Diff:          pullrequest.Diff{MergeBaseOID: "fed987"},
 		Reviewers:     []pullrequest.Reviewer{},
 		ReviewThreads: []pullrequest.Thread{},
 	}

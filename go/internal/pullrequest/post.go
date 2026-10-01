@@ -177,7 +177,7 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 	if err := RequireHead(ctx, r, dir, target.HeadOID, "posting"); err != nil {
 		return Posted{}, err
 	}
-	if err := checkAnchors(ctx, r, dir, target.BaseRef, sub.Comments); err != nil {
+	if err := checkAnchors(ctx, r, dir, target.MergeBaseOID, sub.Comments); err != nil {
 		return Posted{}, err
 	}
 
@@ -194,17 +194,22 @@ func Post(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string, tar
 }
 
 // checkAnchors reports the comments that point at lines the diff does not have.
-func checkAnchors(ctx context.Context, r runner.Runner, dir, baseRef string, comments []ghapi.ReviewComment) error {
+//
+// The diff is the pull request's own, from the merge base its document names:
+// RequireHead has already held HEAD to head_oid, and a three-dot range would
+// let git pick the merge base again — which, where there are several, can
+// accept a line the pull request's diff does not have.
+func checkAnchors(ctx context.Context, r runner.Runner, dir, mergeBase string, comments []ghapi.ReviewComment) error {
 	if len(comments) == 0 {
 		return nil
 	}
-	span := "origin/" + baseRef + "...HEAD"
+	span := mergeBase + " HEAD"
 	// The colour and external-diff settings are overridden rather than
 	// inherited: whichever a person has configured, this has to read the same
 	// unified diff.
 	out, err := r.Run(ctx, runner.Command{
 		Name: "git",
-		Args: []string{"-C", dir, "-c", "color.diff=false", "diff", "--no-ext-diff", span},
+		Args: []string{"-C", dir, "-c", "color.diff=false", "diff", "--no-ext-diff", mergeBase, "HEAD"},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to read the diff for %s: %v", span, err)
@@ -221,8 +226,8 @@ func checkAnchors(ctx context.Context, r runner.Runner, dir, baseRef string, com
 		return nil
 	}
 	return fmt.Errorf(
-		"the following review comments point to lines absent from the current diff (origin/%s...HEAD); re-anchor them before posting:\n%s",
-		baseRef, strings.Join(invalid, "\n"))
+		"the following review comments point to lines absent from the pull request's diff (%s); re-anchor them before posting:\n%s",
+		span, strings.Join(invalid, "\n"))
 }
 
 // diffLines reads a unified diff into the lines a comment may be anchored to:
