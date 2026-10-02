@@ -27,7 +27,7 @@ import (
 
 // claimTTL is how long a claim holds whatever its holder's state: the bound on
 // how long a claim whose holder's pid was reused can park a pull request.
-const claimTTL = 4 * time.Hour
+const claimTTL = time.Hour
 
 // Holder is who takes and releases claims: the Claude Code process and session
 // the command runs under.

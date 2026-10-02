@@ -136,7 +136,7 @@ func TestStaleClaimIsTakenOver(t *testing.T) {
 		next reviewprs.ClaimOptions
 	}{
 		{name: "the holder is gone", next: holder("", 20, "s2", epoch.Add(time.Minute), 10)},
-		{name: "the claim is older than four hours", next: holder("", 20, "s2", epoch.Add(4*time.Hour+time.Second))},
+		{name: "the claim is older than an hour", next: holder("", 20, "s2", epoch.Add(time.Hour+time.Second))},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -296,7 +296,7 @@ func TestRelease(t *testing.T) {
 
 		state, c := t.TempDir(), asking(t)
 		first := take(t, c, holder(state, 10, "s1", epoch))
-		later := epoch.Add(4*time.Hour + time.Minute)
+		later := epoch.Add(time.Hour + time.Minute)
 		take(t, c, holder(state, 10, "s1", later))
 
 		got := reviewprs.Release(holder(state, 10, "s1", later), []reviewprs.Spec{first})

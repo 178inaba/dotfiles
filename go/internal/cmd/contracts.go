@@ -727,7 +727,7 @@ than prs. What says so is a claim, one file per pull request at
 
 with $XDG_STATE_HOME defaulting to ~/.local/state. A claim records the
 CLAUDE_PID and CLAUDE_CODE_SESSION_ID of the session that took it, and is live
-while that process runs and for at most four hours.
+while that process runs and for at most an hour.
 
 With --claim, each pull request with no live claim is claimed for this session
 before it is printed, so prs holds exactly the pull requests this run is to
