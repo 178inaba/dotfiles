@@ -278,10 +278,11 @@ func readCommits(ctx context.Context, r runner.Runner, dir, span string) ([]Comm
 // contract publishes: -M asks for rename detection and for nothing more, which
 // is how GitHub's pull request diff reads a change — a rename keeps its
 // unchanged lines out of the diff, and a copy is a new file whose every line a
-// review comment may anchor to — whatever diff.renames says. --no-relative keeps a run started in a
-// subdirectory from silently reporting only that subdirectory, and
-// --no-ext-diff --no-color shut out a configured external differ and a colour
-// setting, either of which would corrupt the patch file itself.
+// review comment may anchor to — whatever diff.renames says. --no-relative
+// keeps a run started in a subdirectory from silently reporting only that
+// subdirectory, and --no-ext-diff --no-color shut out a configured external
+// differ and a colour setting, either of which would corrupt the patch file
+// itself.
 func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string) (Diff, error) {
 	span := from + " " + to
 	git := func(args ...string) (string, error) {

@@ -486,11 +486,12 @@ func TestPostAnchorsToThePullRequestsRange(t *testing.T) {
 	}
 }
 
-// TestPostAnchorsAsGitHubDoes is a change holding a copy of a file it also
-// edits and a rename with an edit, and each case is the answer GitHub's review
-// endpoint gave on a pull request built the same way: a rename keeps its old
-// lines out of the diff, and a copy, which GitHub does not detect, is a new
-// file whose every line was added.
+// TestPostAnchorsAsGitHubDoes is a change holding copies of a file it also
+// edits and renames on either side of the similarity GitHub calls a rename,
+// and each case is the answer GitHub's review endpoint gave on a pull request
+// built the same way: a rename keeps its old lines out of the diff, and a
+// copy, which GitHub does not detect even byte for byte, is a new file whose
+// every line was added.
 func TestPostAnchorsAsGitHubDoes(t *testing.T) {
 	t.Parallel()
 	gittest.SkipWithoutGit(t)
@@ -502,20 +503,42 @@ func TestPostAnchorsAsGitHubDoes(t *testing.T) {
 		}
 		return b.String()
 	}
+	// rewritten is a file of twenty lines of equal length whose last n are
+	// rewritten: 9 of them leave it 53% like the original, which GitHub still
+	// reads as a rename, and 10 leave it below the line GitHub draws.
+	rewritten := func(n, last int) string {
+		var b strings.Builder
+		for i := 1; i <= 20; i++ {
+			word := "original"
+			if i > 20-last {
+				word = "REWRITTEN"
+			}
+			fmt.Fprintf(&b, "file %d %s line %02d\n", n, word, i)
+		}
+		return b.String()
+	}
 	repo := t.TempDir()
 	gittest.Init(t, repo, "-b", "main")
 	gittest.Write(t, filepath.Join(repo, "source.txt"), lines("source"))
 	gittest.Write(t, filepath.Join(repo, "moved.txt"), lines("moved"))
+	gittest.Write(t, filepath.Join(repo, "sim9.txt"), rewritten(9, 0))
+	gittest.Write(t, filepath.Join(repo, "sim10.txt"), rewritten(10, 0))
 	gittest.Run(t, repo, "add", ".")
 	gittest.Run(t, repo, "commit", "-qm", "init")
 
 	gittest.Run(t, repo, "switch", "-qc", "feature/x")
-	// The source is edited too: that is what makes the copy one git could
+	// The source is edited too: that is what makes the copies ones git could
 	// match against it.
 	gittest.Write(t, filepath.Join(repo, "source.txt"), lines("source")+"source line 21\n")
 	gittest.Write(t, filepath.Join(repo, "copy.txt"), strings.Replace(lines("source"), "source line 20\n", "source line twenty\n", 1))
+	gittest.Write(t, filepath.Join(repo, "exact-copy.txt"), lines("source"))
 	gittest.Run(t, repo, "mv", "moved.txt", "renamed.txt")
 	gittest.Write(t, filepath.Join(repo, "renamed.txt"), strings.Replace(lines("moved"), "moved line 20\n", "moved line twenty\n", 1))
+	for _, n := range []int{9, 10} {
+		from, to := fmt.Sprintf("sim%d.txt", n), fmt.Sprintf("sim%d-renamed.txt", n)
+		gittest.Run(t, repo, "mv", from, to)
+		gittest.Write(t, filepath.Join(repo, to), rewritten(n, n))
+	}
 	gittest.Run(t, repo, "add", ".")
 	gittest.Run(t, repo, "commit", "-qm", "copy and rename")
 
@@ -532,6 +555,9 @@ func TestPostAnchorsAsGitHubDoes(t *testing.T) {
 	}{
 		{path: "copy.txt", line: 1, accepted: true},
 		{path: "copy.txt", line: 20, accepted: true},
+		{path: "exact-copy.txt", line: 1, accepted: true},
+		{path: "sim9-renamed.txt", line: 1, accepted: false},
+		{path: "sim10-renamed.txt", line: 1, accepted: true},
 		{path: "renamed.txt", line: 1, accepted: false},
 		{path: "renamed.txt", line: 20, accepted: true},
 		{path: "source.txt", line: 1, accepted: false},
