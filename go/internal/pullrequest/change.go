@@ -3,7 +3,11 @@ package pullrequest
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -39,8 +43,6 @@ const (
 	// exists: the patch shows the two paths, and a reader matching the file
 	// list against it needs both.
 	StatusRenamed FileStatus = "renamed"
-	// StatusCopied is a file git matched against another one it left in place.
-	StatusCopied FileStatus = "copied"
 )
 
 // DiffFile is one file the range changes.
@@ -48,8 +50,8 @@ type DiffFile struct {
 	// The path on the new side; for a deletion, the path that was
 	// removed.
 	Path string `json:"path"`
-	// Null except for a rename or a copy, where it is the path
-	// the file came from.
+	// Null except for a rename, where it is the path the file
+	// came from.
 	PreviousPath *string    `json:"previous_path"`
 	Status       FileStatus `json:"status"`
 	// additions and deletions are null for a binary file, in
@@ -86,8 +88,12 @@ type Diff struct {
 	// drawn from; for a change read out of a checkout, the merge base git
 	// found for the base and HEAD — and where git found more than one, the one
 	// warnings names as used.
-	MergeBaseOID string     `json:"merge_base_oid" contract:"required,nonempty"`
-	Files        []DiffFile `json:"files"`
+	MergeBaseOID string `json:"merge_base_oid" contract:"required,nonempty"`
+	// The hex SHA-256 of the bytes at path. The work dir is shared by every
+	// run on the same pull request, so this is how a reader of the patch
+	// knows it is the one this document was written with.
+	SHA256 string     `json:"sha256" contract:"required,nonempty"`
+	Files  []DiffFile `json:"files"`
 	// additions and deletions are the lines across the text
 	// files. A binary file counts towards neither, which is why they can be
 	// less than the patch appears to hold.
@@ -269,16 +275,19 @@ func readCommits(ctx context.Context, r runner.Runner, dir, span string) ([]Comm
 //
 // The flags are all pinned rather than left to the configuration, because each
 // of them is something a local setting could otherwise change about what the
-// contract publishes: -M and -C ask for the rename and copy detection the two
-// statuses of that name depend on, --no-relative keeps a run started in a
-// subdirectory from silently reporting only that subdirectory, and
-// --no-ext-diff --no-color shut out a configured external differ and a colour
-// setting, either of which would corrupt the patch file itself.
+// contract publishes: -M asks for rename detection and for nothing more, which
+// is how GitHub's pull request diff reads a change — a rename keeps its
+// unchanged lines out of the diff, and a copy is a new file whose every line a
+// review comment may anchor to — whatever diff.renames says. --no-relative
+// keeps a run started in a subdirectory from silently reporting only that
+// subdirectory, and --no-ext-diff --no-color shut out a configured external
+// differ and a colour setting, either of which would corrupt the patch file
+// itself.
 func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string) (Diff, error) {
 	span := from + " " + to
 	git := func(args ...string) (string, error) {
 		full := append([]string{
-			"-C", dir, "diff", "-M", "-C", "--no-relative", "--no-ext-diff", "--no-color",
+			"-C", dir, "diff", "-M", "--no-relative", "--no-ext-diff", "--no-color",
 		}, args...)
 		full = append(full, from, to)
 		out, err := r.Run(ctx, runner.Command{Name: "git", Args: full})
@@ -288,7 +297,11 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 		return string(out), nil
 	}
 
-	if _, err := git("--output=" + patch); err != nil {
+	sum, err := writePatch(patch, func(tmp string) error {
+		_, err := git("--output=" + tmp)
+		return err
+	})
+	if err != nil {
 		return Diff{}, err
 	}
 	numstat, err := git("--numstat", "-z")
@@ -309,7 +322,7 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 		return Diff{}, err
 	}
 
-	diff := Diff{Path: patch}
+	diff := Diff{Path: patch, SHA256: sum}
 	for i := range files {
 		c, ok := counts[files[i].Path]
 		if !ok {
@@ -323,6 +336,53 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 	}
 	diff.Files = files
 	return diff, nil
+}
+
+// writePatch has write put the patch in a temporary file beside path, digests
+// that file and renames it onto path.
+//
+// The digest is taken before the rename, of bytes no other run can reach: a
+// patch written to path itself and read back could be another run's on the
+// same pull request, which shares the work dir, and the document would then
+// vouch for a diff it was not written with.
+func writePatch(path string, write func(tmp string) error) (string, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create a file for the patch beside %s: %v", path, err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("failed to create a file for the patch beside %s: %v", path, err)
+	}
+
+	if err := write(name); err != nil {
+		return "", err
+	}
+	// Streamed rather than read whole: the digest is all that is wanted here,
+	// and the patch is unbounded.
+	f, err := os.Open(name)
+	if err != nil {
+		return "", fmt.Errorf("failed to read the patch back: %v", err)
+	}
+	sum, err := patchDigest(f)
+	f.Close()
+	if err != nil {
+		return "", fmt.Errorf("failed to read the patch back: %v", err)
+	}
+	if err := os.Rename(name, path); err != nil {
+		return "", fmt.Errorf("failed to move the patch to %s: %v", path, err)
+	}
+	return sum, nil
+}
+
+// patchDigest is what diff.sha256 holds for a patch's bytes.
+func patchDigest(patch io.Reader) (string, error) {
+	h := sha256.New()
+	if _, err := io.Copy(h, patch); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // generatedAttr is the attribute the exclusion is declared with, and the only
@@ -431,8 +491,8 @@ type lineCount struct{ additions, deletions *int }
 
 // parseNumstat reads the counts, by the path on the new side.
 //
-// A record is "<added>\t<deleted>\t<path>", except for a rename or a copy,
-// where the path field is empty and the old and new paths follow as the next
+// A record is "<added>\t<deleted>\t<path>", except for a rename, where the
+// path field is empty and the old and new paths follow as the next
 // two fields.
 func parseNumstat(out string) (map[string]lineCount, error) {
 	counts := make(map[string]lineCount)
@@ -480,8 +540,8 @@ func lineCounts(added, deleted string) (lineCount, error) {
 
 // parseNameStatus reads the files and what became of them, in git's order.
 //
-// Each entry is a status field followed by a path, and a rename or a copy is
-// followed by two: the old path and then the new one.
+// Each entry is a status field followed by a path, and a rename is followed
+// by two: the old path and then the new one.
 func parseNameStatus(out string) ([]DiffFile, error) {
 	files := []DiffFile{}
 	fields := &nulFields{all: split(out)}
@@ -496,7 +556,7 @@ func parseNameStatus(out string) ([]DiffFile, error) {
 			return nil, fmt.Errorf("name-status entry %q names no path", code)
 		}
 		file := DiffFile{Path: path, Status: status}
-		if status == StatusRenamed || status == StatusCopied {
+		if status == StatusRenamed {
 			previous := file.Path
 			if file.Path, ok = fields.take(); !ok {
 				return nil, fmt.Errorf("name-status entry %q names only one path", code)
@@ -508,7 +568,7 @@ func parseNameStatus(out string) ([]DiffFile, error) {
 	return files, nil
 }
 
-// fileStatus reads git's letter. A rename or a copy carries a similarity score
+// fileStatus reads git's letter. A rename carries a similarity score
 // after it, which says how alike the two files are and not what happened.
 func fileStatus(field string) (FileStatus, error) {
 	if field == "" {
@@ -523,8 +583,6 @@ func fileStatus(field string) (FileStatus, error) {
 		return StatusDeleted, nil
 	case 'R':
 		return StatusRenamed, nil
-	case 'C':
-		return StatusCopied, nil
 	}
 	return "", fmt.Errorf("unexpected name-status entry %q", field)
 }

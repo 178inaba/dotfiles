@@ -66,7 +66,7 @@ func contextDocument(t *testing.T, fetchedAt string, isOwnPR bool, headOID strin
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
 		"repo":"owner/repo","is_own_pr":%t,
 		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":%q,"base_oid":"fed987","is_cross_repository":false,"head_repository":"owner/repo","local_branch":"feature/x"},
-		"diff":{"merge_base_oid":"fed987"},
+		"diff":{"merge_base_oid":"fed987","sha256":"0f1e2d"},
 		"reviewers":[],"review_threads":[]}`, fetchedAt, isOwnPR, headOID)
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -201,7 +201,7 @@ func TestPRRequestReviewDryRun(t *testing.T) {
 		"pending":{"since":null,"threads":[],"reviews":[],"comments":[]},
 		"repo":"owner/repo","is_own_pr":true,
 		"pr":{"number":5,"base_ref":"main","head_ref":"feature/x","head_oid":"abc123","base_oid":"fed987","is_cross_repository":false,"head_repository":"owner/repo","local_branch":"feature/x"},
-		"diff":{"merge_base_oid":"fed987"},
+		"diff":{"merge_base_oid":"fed987","sha256":"0f1e2d"},
 		"reviewers":[
 			{"author":"alice","author_type":"User","state":"CHANGES_REQUESTED","submitted_at":"2026-01-10T00:00:00Z"},
 			{"author":"carol","author_type":"User","state":"APPROVED","submitted_at":"2026-01-10T00:00:00Z"}

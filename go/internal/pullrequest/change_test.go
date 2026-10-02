@@ -2,6 +2,7 @@ package pullrequest_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -186,6 +187,22 @@ func TestReadChange(t *testing.T) {
 		if got.Diff.MergeBaseOID != r.base {
 			t.Errorf("diff.merge_base_oid = %q, want %q", got.Diff.MergeBaseOID, r.base)
 		}
+		if want := fmt.Sprintf("%x", sha256.Sum256(content)); got.Diff.SHA256 != want {
+			t.Errorf("diff.sha256 = %q, want %q, the digest of the patch file", got.Diff.SHA256, want)
+		}
+		// The patch is written beside its final name and renamed onto it, and
+		// nothing of that is left behind for a reader of the work dir.
+		entries, err := os.ReadDir(filepath.Dir(patch))
+		if err != nil {
+			t.Fatalf("read the work dir: %v", err)
+		}
+		if len(entries) != 1 || entries[0].Name() != filepath.Base(patch) {
+			names := make([]string, 0, len(entries))
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			t.Errorf("work dir holds %v, want only %s", names, filepath.Base(patch))
+		}
 	})
 
 	t.Run("the files and the totals", func(t *testing.T) {
@@ -198,13 +215,14 @@ func TestReadChange(t *testing.T) {
 	})
 }
 
-// TestReadChangeReportsCopiesAndTypechanges covers the two statuses the main
-// fixture cannot produce.
+// TestReadChangeReportsCopiesAndTypechanges covers what the main fixture
+// cannot produce.
 //
-// A copy is only found where its source was itself touched in the range, and
-// only when copy detection is asked for — which is why the command asks for it
-// rather than leaving the two statuses the contract publishes unreachable. A
-// typechange has no name of its own among the five, and is a modification.
+// A copy of a file the same range modifies is the one git could match against
+// its source, and is reported as an added file all the same: GitHub's pull
+// request diff detects renames and not copies, and a review comment anchors to
+// the lines GitHub shows. A typechange has no name of its own among the
+// statuses, and is a modification.
 func TestReadChangeReportsCopiesAndTypechanges(t *testing.T) {
 	t.Parallel()
 
@@ -230,10 +248,9 @@ func TestReadChangeReportsCopiesAndTypechanges(t *testing.T) {
 		t.Fatalf("ReadChange: %v", err)
 	}
 
-	source := "old.txt"
 	want := []pullrequest.DiffFile{
 		{Path: "base.txt", Status: pullrequest.StatusModified, Additions: new(1), Deletions: new(1)},
-		{Path: "copy.txt", PreviousPath: &source, Status: pullrequest.StatusCopied, Additions: new(0), Deletions: new(0)},
+		{Path: "copy.txt", Status: pullrequest.StatusAdded, Additions: new(3), Deletions: new(0)},
 		{Path: "old.txt", Status: pullrequest.StatusModified, Additions: new(1), Deletions: new(0)},
 	}
 	if diff := cmp.Diff(want, got.Diff.Files); diff != "" {
