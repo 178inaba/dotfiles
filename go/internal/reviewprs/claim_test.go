@@ -52,6 +52,16 @@ func pending(t *testing.T, c *ghapi.Client, o reviewprs.ClaimOptions, take bool)
 	return got
 }
 
+// stripped is prs without the claims a --claim run hands out, which are
+// random, so that a test can compare the rest.
+func stripped(prs []reviewprs.PR) []reviewprs.PR {
+	out := slices.Clone(prs)
+	for i := range out {
+		out[i].Claim = ""
+	}
+	return out
+}
+
 // tree lists every file under dir with its content, so that a test can say
 // nothing was written.
 func tree(t *testing.T, dir string) map[string]string {
@@ -77,6 +87,10 @@ func TestClaimIsTakenOnce(t *testing.T) {
 	state, c := t.TempDir(), asking(t)
 
 	first := pending(t, c, holder(state, 10, "s1", epoch), true)
+	if len(first.PRs) != 1 || first.PRs[0].Claim == "" {
+		t.Fatalf("first run prs = %+v, want one pull request with its claim", first.PRs)
+	}
+	first.PRs = stripped(first.PRs)
 	if diff := cmp.Diff(reviewprs.Pending{PRs: []reviewprs.PR{claimed}, InFlight: []reviewprs.PR{}}, first); diff != "" {
 		t.Errorf("first run (-want +got):\n%s", diff)
 	}
@@ -138,7 +152,7 @@ func TestStaleClaimIsTakenOver(t *testing.T) {
 			}
 
 			got := pending(t, c, tc.next, true)
-			if !slices.Equal(got.PRs, []reviewprs.PR{claimed}) || len(got.InFlight) != 0 {
+			if !slices.Equal(stripped(got.PRs), []reviewprs.PR{claimed}) || len(got.InFlight) != 0 {
 				t.Errorf("ListPending = %+v, want the pull request taken over", got)
 			}
 			if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "acme/foo#100") {
@@ -173,7 +187,7 @@ func TestUnreadableClaimIsTakenOver(t *testing.T) {
 	}
 
 	got := pending(t, c, holder(state, 10, "s1", epoch), true)
-	if !slices.Equal(got.PRs, []reviewprs.PR{claimed}) || len(got.Warnings) != 1 {
+	if !slices.Equal(stripped(got.PRs), []reviewprs.PR{claimed}) || len(got.Warnings) != 1 {
 		t.Errorf("ListPending = %+v, want the pull request taken over with one warning", got)
 	}
 }
@@ -245,46 +259,80 @@ func TestClaimWithoutAStateDirectory(t *testing.T) {
 func TestRelease(t *testing.T) {
 	t.Parallel()
 
-	spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100}
+	// take claims claimed and returns the spec that names the claim it got.
+	take := func(t *testing.T, c *ghapi.Client, o reviewprs.ClaimOptions) reviewprs.Spec {
+		t.Helper()
 
-	t.Run("this session's claim is removed", func(t *testing.T) {
+		got := pending(t, c, o, true)
+		if len(got.PRs) != 1 {
+			t.Fatalf("ListPending = %+v, want the pull request claimed", got)
+		}
+		return reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: got.PRs[0].Claim}
+	}
+	unclaimedNow := func(t *testing.T, c *ghapi.Client, state string, at time.Time) bool {
+		t.Helper()
+		return len(pending(t, c, holder(state, 99, "reader", at), false).PRs) == 1
+	}
+
+	t.Run("the claim named is removed", func(t *testing.T) {
 		t.Parallel()
 
 		state, c := t.TempDir(), asking(t)
-		pending(t, c, holder(state, 10, "s1", epoch), true)
+		spec := take(t, c, holder(state, 10, "s1", epoch))
 
 		if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 0 {
 			t.Errorf("Release warnings = %q, want none", got)
 		}
-		if got := pending(t, c, holder(state, 20, "s2", epoch), false); !slices.Equal(got.PRs, []reviewprs.PR{claimed}) {
-			t.Errorf("after the release = %+v, want the pull request unclaimed", got)
+		if !unclaimedNow(t, c, state, epoch) {
+			t.Error("the pull request is still claimed after the release")
 		}
 	})
 
-	t.Run("another session's claim is kept", func(t *testing.T) {
+	// The same session's first review outlives its claim, a later iteration
+	// takes the pull request over, and then the first review finishes: its
+	// release must not end the second review's claim.
+	t.Run("a claim taken over since is kept", func(t *testing.T) {
 		t.Parallel()
 
 		state, c := t.TempDir(), asking(t)
-		pending(t, c, holder(state, 10, "s1", epoch), true)
+		first := take(t, c, holder(state, 10, "s1", epoch))
+		later := epoch.Add(4*time.Hour + time.Minute)
+		take(t, c, holder(state, 10, "s1", later))
 
-		got := reviewprs.Release(holder(state, 20, "s2", epoch), []reviewprs.Spec{spec})
+		got := reviewprs.Release(holder(state, 10, "s1", later), []reviewprs.Spec{first})
 		if len(got) != 1 || !strings.Contains(got[0], "acme/foo#100") {
 			t.Errorf("Release warnings = %q, want one line naming acme/foo#100", got)
 		}
-		if got := pending(t, c, holder(state, 20, "s2", epoch), false); !slices.Equal(got.InFlight, []reviewprs.PR{claimed}) {
-			t.Errorf("after the release = %+v, want the claim still live", got)
+		if unclaimedNow(t, c, state, later) {
+			t.Error("the release removed the claim taken over since")
+		}
+	})
+
+	t.Run("a spec naming no claim releases nothing", func(t *testing.T) {
+		t.Parallel()
+
+		state, c := t.TempDir(), asking(t)
+		take(t, c, holder(state, 10, "s1", epoch))
+
+		bare := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100}
+		if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{bare}); len(got) != 0 {
+			t.Errorf("Release warnings = %q, want none", got)
+		}
+		if unclaimedNow(t, c, state, epoch) {
+			t.Error("a spec naming no claim released one")
 		}
 	})
 
 	t.Run("no claim is nothing to release", func(t *testing.T) {
 		t.Parallel()
 
+		spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: "x"}
 		if got := reviewprs.Release(holder(t.TempDir(), 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 0 {
 			t.Errorf("Release warnings = %q, want none", got)
 		}
 	})
 
-	t.Run("an unreadable claim is removed", func(t *testing.T) {
+	t.Run("a claim that cannot be read is reported", func(t *testing.T) {
 		t.Parallel()
 
 		state := t.TempDir()
@@ -292,27 +340,45 @@ func TestRelease(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ClaimPath: %v", err)
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		// A directory where the file goes makes the read fail every time.
+		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte("{"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 0 {
-			t.Errorf("Release warnings = %q, want none", got)
-		}
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Errorf("the unreadable claim is still there: %v", err)
+		spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: "x"}
+		if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 1 {
+			t.Errorf("Release warnings = %q, want one line", got)
 		}
 	})
 
 	t.Run("without a state directory", func(t *testing.T) {
 		t.Parallel()
 
+		spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: "x"}
 		if got := reviewprs.Release(holder("", 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 1 {
 			t.Errorf("Release warnings = %q, want one line", got)
 		}
 	})
+}
+
+// TestUnreadableClaimDegrades is a claim the run cannot read at all: the pull
+// request is left out of both lists rather than guessed at.
+func TestUnreadableClaimDegrades(t *testing.T) {
+	t.Parallel()
+
+	state, c := t.TempDir(), asking(t)
+	path, err := reviewprs.ClaimPath(state, "acme", "foo", 100)
+	if err != nil {
+		t.Fatalf("ClaimPath: %v", err)
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, take := range []bool{false, true} {
+		got := pending(t, c, holder(state, 10, "s1", epoch), take)
+		if len(got.PRs) != 0 || len(got.InFlight) != 0 || !got.Degraded || len(got.Warnings) != 1 {
+			t.Errorf("ListPending(take=%v) = %+v, want it left out with one warning", take, got)
+		}
+	}
 }
 
 func TestClaimPathRejectsDotComponents(t *testing.T) {

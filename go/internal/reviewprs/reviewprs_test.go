@@ -389,6 +389,8 @@ func TestParseSpec(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "owner, repo and number", in: "acme/foo#100", want: reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100}},
+		{name: "with the claim to release", in: "acme/foo#100@ABC234", want: reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: "ABC234"}},
+		{name: "an @ with no claim", in: "acme/foo#100@", wantErr: true},
 		{name: "no number", in: "acme/foo", wantErr: true},
 		{name: "no repository", in: "foo#1", wantErr: true},
 		{name: "a number that is not one", in: "acme/foo#x", wantErr: true},

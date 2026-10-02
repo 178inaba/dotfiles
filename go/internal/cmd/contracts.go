@@ -733,10 +733,10 @@ With --claim, each pull request with no live claim is claimed for this session
 before it is printed, so prs holds exactly the pull requests this run is to
 review; of several runs racing for one pull request, one lists it in prs and
 the others in in_flight. A stale claim is taken over, with a warning naming
-the claim it replaced. Every claim taken here is released by
-` + "`ccx review verify`" + `. Without --claim nothing is written: prs holds the pull
-requests with no live claim. --claim fails when there is no state directory to
-keep claims in.`,
+the claim it replaced. Each pull request in prs carries the claim it got,
+which ` + "`ccx review verify`" + ` takes back to release it. Without --claim
+nothing is written: prs holds the pull requests with no live claim. --claim
+fails when there is no state directory to keep claims in.`,
 		blocks:   []block{prints(reflect.TypeFor[reviewprs.Pending]())},
 		statuses: with(),
 	},
@@ -748,11 +748,14 @@ The same judgement ` + "`ccx review pending`" + ` makes, asked from the other en
 subagent that reported posting a review and did not would otherwise leave the
 loop believing the work was done.
 
-Each argument names one pull request as <owner>/<repo>#<number>.
+Each argument names one pull request as <owner>/<repo>#<number>, and may add
+@<claim> — the claim ` + "`ccx review pending --claim`" + ` handed out for it.
 
-Before reading GitHub it releases this session's claim on every pull request
-named, whether its review was posted or not — the claim ` + "`ccx review pending --claim`" + `
-took. A claim another session holds is left in place and reported in warnings.`,
+Before reading GitHub it releases each claim named, whether the review was
+posted or not. A pull request whose claim is no longer the one named — taken
+over since, by another session or by this one after the claim went stale —
+keeps its claim, and the argument is reported in warnings. An argument with no
+@<claim> releases nothing.`,
 		blocks:   []block{prints(reflect.TypeFor[reviewprs.Verification]())},
 		statuses: with(),
 	},

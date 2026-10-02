@@ -49,7 +49,8 @@ func TestCloneOptionsDataHome(t *testing.T) {
 // TestClaimOptions pins where the holder of a claim comes from. Not parallel,
 // for the reason TestCloneOptionsDataHome is not.
 func TestClaimOptions(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 
 	t.Run("inside Claude Code", func(t *testing.T) {
 		t.Setenv("CLAUDE_PID", "4242")
@@ -58,8 +59,8 @@ func TestClaimOptions(t *testing.T) {
 		if want := (reviewprs.Holder{PID: 4242, SessionID: "session-1"}); got.Holder != want {
 			t.Errorf("Holder = %+v, want %+v", got.Holder, want)
 		}
-		if got.StateHome != stateHome() {
-			t.Errorf("StateHome = %q, want %q", got.StateHome, stateHome())
+		if got.StateHome != state {
+			t.Errorf("StateHome = %q, want %q", got.StateHome, state)
 		}
 	})
 

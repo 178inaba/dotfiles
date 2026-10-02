@@ -1,12 +1,14 @@
 package reviewprs
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -34,8 +36,7 @@ type Holder struct {
 	// PID is the Claude Code process, zero outside Claude Code. A claim with
 	// no pid is judged by its age alone.
 	PID int `json:"pid"`
-	// SessionID is the Claude Code session. Only the session that took a claim
-	// releases it.
+	// SessionID is the Claude Code session, for a person reading the claim.
 	SessionID string `json:"session_id"`
 }
 
@@ -61,10 +62,13 @@ type claim struct {
 	Number  int       `json:"number"`
 	Holder            // the pid and the session id
 	TakenAt time.Time `json:"taken_at"`
+	// Token tells this claim from any later one on the same pull request. A
+	// session id cannot: the same session takes a pull request over again
+	// when its own first review outlives the claim.
+	Token string `json:"token"`
 
 	// unreadable is a file that is there but does not parse. Its zero TakenAt
-	// is what makes it stale; the flag is for saying so, and for releasing it
-	// without a session to compare.
+	// is what makes it stale; the flag is for saying so.
 	unreadable bool
 }
 
@@ -187,11 +191,15 @@ func (o ClaimOptions) sortClaims(found []PR, take bool, out *Pending) error {
 			continue
 		}
 		if take {
-			mine := claim{Owner: pr.Owner, Repo: pr.Repo, Number: pr.Number, Holder: o.Holder, TakenAt: o.Now().UTC()}
+			mine := claim{
+				Owner: pr.Owner, Repo: pr.Repo, Number: pr.Number,
+				Holder: o.Holder, TakenAt: o.Now().UTC(), Token: rand.Text(),
+			}
 			if err := writeClaim(path, mine); err != nil {
 				out.degrade(fmt.Sprintf("failed to claim %s: %v", pr, err))
 				continue
 			}
+			pr.Claim = mine.Token
 			if old != nil {
 				out.Warnings = append(out.Warnings, fmt.Sprintf("took over %s from %s", pr, old))
 			}
@@ -212,14 +220,18 @@ func writeClaim(path string, c claim) error {
 	})
 }
 
-// Release removes this session's claim on each pull request and returns a
-// warning for each one it could not or would not remove.
+// Release removes the claim each spec names and returns a warning for each one
+// it could not or would not remove.
 //
-// A claim another session holds is left in place: it is one that was taken
-// over after this session's went stale, and removing it would let a third
-// session review the pull request beside the second. An unreadable claim
-// has no session to compare and is removed, as taking would replace it.
+// A claim is removed only while it is still the one named. A pull request taken
+// over since — by another session, or by this one after its own claim went
+// stale — carries a different claim, which is left in place. A spec that names
+// no claim releases nothing.
 func Release(o ClaimOptions, specs []Spec) []string {
+	named := slices.DeleteFunc(slices.Clone(specs), func(s Spec) bool { return s.Claim == "" })
+	if len(named) == 0 {
+		return nil
+	}
 	release, err := lockClaims(o.StateHome)
 	if err != nil {
 		return []string{fmt.Sprintf("no claim was released: %v", err)}
@@ -227,7 +239,7 @@ func Release(o ClaimOptions, specs []Spec) []string {
 	defer release()
 
 	var warnings []string
-	for _, s := range specs {
+	for _, s := range named {
 		path, c, err := o.lookup(s.Owner, s.Repo, s.Number)
 		if err != nil {
 			warnings = append(warnings, err.Error())
@@ -236,8 +248,8 @@ func Release(o ClaimOptions, specs []Spec) []string {
 		if c == nil {
 			continue
 		}
-		if !c.unreadable && c.SessionID != o.Holder.SessionID {
-			warnings = append(warnings, fmt.Sprintf("left %s on %s in place: another session holds it", c, s))
+		if c.Token != s.Claim {
+			warnings = append(warnings, fmt.Sprintf("left %s on %s in place: it is not the claim named", c, s))
 			continue
 		}
 		if err := os.Remove(path); err != nil {

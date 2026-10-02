@@ -47,7 +47,7 @@ func reviewPendingCmd(deps Deps) *cobra.Command {
 
 func reviewVerifyCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "verify <owner>/<repo>#<number>...",
+		Use:   "verify <owner>/<repo>#<number>[@<claim>]...",
 		Short: "Check that this user's review reached each pull request",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {

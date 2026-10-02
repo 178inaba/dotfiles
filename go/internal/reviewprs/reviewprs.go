@@ -24,6 +24,11 @@ type PR struct {
 	Repo   string `json:"repo"`
 	Number int    `json:"number"`
 	URL    string `json:"url"`
+	// The claim this run took on the pull request, present only in prs of
+	// --claim. Hand it back as <owner>/<repo>#<number>@<claim> to
+	// ccx review verify, which releases the claim only when it is still this
+	// one.
+	Claim string `json:"claim,omitzero"`
 }
 
 func (p PR) String() string { return Spec{Owner: p.Owner, Repo: p.Repo, Number: p.Number}.String() }
@@ -168,9 +173,9 @@ type Verification struct {
 	// At least one pull request could not be checked, and it is absent from
 	// results rather than reported as unposted — not knowing is a third answer.
 	Degraded bool `json:"degraded"`
-	// What could not be checked, and each claim that was not released: one
-	// another session holds is left in place. A claim left behind does not
-	// make the run degraded.
+	// What could not be checked, and each claim that was not released: a claim
+	// other than the one named — taken over since — is left in place. A claim
+	// left behind does not make the run degraded.
 	Warnings []string `json:"warnings"`
 }
 
@@ -179,6 +184,8 @@ type Spec struct {
 	Owner  string
 	Repo   string
 	Number int
+	// Claim is the claim to release, empty where the caller names none.
+	Claim string
 }
 
 func (s Spec) String() string { return fmt.Sprintf("%s/%s#%d", s.Owner, s.Repo, s.Number) }
@@ -266,20 +273,20 @@ func reviewsOf(ctx context.Context, c *ghapi.Client, owner, repo string, number 
 	return ghapi.GetAll[review](ctx, c, fmt.Sprintf("repos/%s/%s/pulls/%d/reviews", owner, repo, number))
 }
 
-// specPattern is the <owner>/<repo>#<number> the caller names a pull request
-// with. Neither a slash nor a hash nor whitespace may appear inside a name, so
-// the three separators stay unambiguous.
-var specPattern = regexp.MustCompile(`^([^/#\s]+)/([^/#\s]+)#([0-9]+)$`)
+// specPattern is the <owner>/<repo>#<number>[@<claim>] the caller names a pull
+// request with. Neither a slash nor a hash nor whitespace may appear inside a
+// name, and a number holds no @, so the separators stay unambiguous.
+var specPattern = regexp.MustCompile(`^([^/#\s]+)/([^/#\s]+)#([0-9]+)(?:@(\S+))?$`)
 
-// ParseSpec reads one <owner>/<repo>#<number>.
+// ParseSpec reads one <owner>/<repo>#<number>[@<claim>].
 func ParseSpec(s string) (Spec, error) {
 	m := specPattern.FindStringSubmatch(s)
 	if m == nil {
-		return Spec{}, fmt.Errorf("invalid PR spec: %s (expected <owner>/<repo>#<number>)", s)
+		return Spec{}, fmt.Errorf("invalid PR spec: %s (expected <owner>/<repo>#<number>[@<claim>])", s)
 	}
 	n, err := strconv.Atoi(m[3])
 	if err != nil {
-		return Spec{}, fmt.Errorf("invalid PR spec: %s (expected <owner>/<repo>#<number>)", s)
+		return Spec{}, fmt.Errorf("invalid PR spec: %s (expected <owner>/<repo>#<number>[@<claim>])", s)
 	}
-	return Spec{Owner: m[1], Repo: m[2], Number: n}, nil
+	return Spec{Owner: m[1], Repo: m[2], Number: n, Claim: m[4]}, nil
 }
