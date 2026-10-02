@@ -241,7 +241,11 @@ func Release(o ClaimOptions, specs []Spec) []string {
 		if o.StateHome == "" {
 			continue
 		}
-		if _, c, err := o.lookup(s.Owner, s.Repo, s.Number); err == nil && o.live(c) {
+		_, c, err := o.lookup(s.Owner, s.Repo, s.Number)
+		switch {
+		case err != nil:
+			warnings = append(warnings, err.Error())
+		case o.live(c):
 			warnings = append(warnings, fmt.Sprintf("%s has a live claim, but no claim was named to release", s))
 		}
 	}

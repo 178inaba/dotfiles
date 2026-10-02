@@ -352,9 +352,11 @@ func TestRelease(t *testing.T) {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: "x"}
-		if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 1 {
-			t.Errorf("Release warnings = %q, want one line", got)
+		for _, claim := range []string{"x", ""} {
+			spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: claim}
+			if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 1 {
+				t.Errorf("Release(%v) warnings = %q, want one line", spec, got)
+			}
 		}
 	})
 

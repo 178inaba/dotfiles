@@ -174,8 +174,9 @@ type Verification struct {
 	// results rather than reported as unposted — not knowing is a third answer.
 	Degraded bool `json:"degraded"`
 	// What could not be checked, and each claim that was not released: a claim
-	// other than the one named — taken over since — is left in place. A claim
-	// left behind does not make the run degraded.
+	// other than the one named — taken over since — is left in place, and a pull
+	// request named without a claim that still has a live one is reported. A
+	// claim left behind does not make the run degraded.
 	Warnings []string `json:"warnings"`
 }
 
