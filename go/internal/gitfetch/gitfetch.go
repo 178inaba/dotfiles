@@ -28,15 +28,16 @@ const lockName = "ccx-fetch.lock"
 // with its main worktree, so fetches from any worktree of one repository
 // exclude each other. The error from the fetch itself is returned as it came,
 // so a caller can still read what git said.
-func Fetch(ctx context.Context, r runner.Runner, dir string, args ...string) ([]byte, error) {
-	common, err := runner.Git(ctx, r, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+func Fetch(ctx context.Context, r runner.Runner, dir string, args ...string) error {
+	common, err := runner.GitCommonDir(ctx, r, dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find the git directory of %s: %w", dir, err)
+		return fmt.Errorf("failed to find the git directory of %s: %w", dir, err)
 	}
 	release, err := filelock.Lock(filepath.Join(common, lockName))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer release()
-	return r.Run(ctx, runner.Command{Name: "git", Args: append([]string{"-C", dir, "fetch"}, args...)})
+	_, err = r.Run(ctx, runner.Command{Name: "git", Args: append([]string{"-C", dir, "fetch"}, args...)})
+	return err
 }

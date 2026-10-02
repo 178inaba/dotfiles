@@ -42,12 +42,21 @@ func ParseOwnerRepo(s string) (OwnerRepo, error) {
 	if m == nil {
 		return OwnerRepo{}, fmt.Errorf("invalid repo reference (expected <owner>/<repo>): %s", s)
 	}
-	for _, part := range m[1:] {
-		if part == "." || part == ".." {
-			return OwnerRepo{}, fmt.Errorf("invalid repo reference (dot components not allowed): %s", s)
-		}
+	if dotComponent(m[1], m[2]) {
+		return OwnerRepo{}, fmt.Errorf("invalid repo reference (dot components not allowed): %s", s)
 	}
 	return OwnerRepo{Owner: m[1], Name: m[2]}, nil
+}
+
+// dotComponent reports whether any of parts is . or .., which as a path
+// component under the workspace or the claim store would point outside it.
+func dotComponent(parts ...string) bool {
+	for _, part := range parts {
+		if part == "." || part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // CloneOptions are what the environment tells EnsureClone.
@@ -83,7 +92,7 @@ func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo Owne
 	path := filepath.Join(parent, repo.Name)
 
 	if isRepo(path) {
-		if _, err := gitfetch.Fetch(ctx, r, path, "--prune"); err != nil {
+		if err := gitfetch.Fetch(ctx, r, path, "--prune"); err != nil {
 			return Clone{}, fmt.Errorf("failed to fetch %s", repo)
 		}
 		return Clone{Path: path}, nil

@@ -177,7 +177,7 @@ func (e *FetchError) Unwrap() error { return e.Err }
 func FetchPullHead(ctx context.Context, r runner.Runner, dir string, number int, headOID string, alongside ...string) error {
 	head := pullRef(number)
 	refs := append(append([]string{}, alongside...), head)
-	if _, err := gitfetch.Fetch(ctx, r, dir, append([]string{"-q", "origin"}, refs...)...); err != nil {
+	if err := gitfetch.Fetch(ctx, r, dir, append([]string{"-q", "origin"}, refs...)...); err != nil {
 		return &FetchError{Refs: refs, Dir: dir, Err: err}
 	}
 	if _, err := runner.Git(ctx, r, dir, "cat-file", "-e", headOID+"^{commit}"); err != nil {

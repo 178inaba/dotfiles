@@ -26,7 +26,7 @@ type PR struct {
 	URL    string `json:"url"`
 }
 
-func (p PR) String() string { return fmt.Sprintf("%s/%s#%d", p.Owner, p.Repo, p.Number) }
+func (p PR) String() string { return Spec{Owner: p.Owner, Repo: p.Repo, Number: p.Number}.String() }
 
 // Pending is the answer to "what should I review next".
 type Pending struct {

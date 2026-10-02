@@ -10,18 +10,27 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Lock waits until it holds an exclusive flock on path, creating the file
-// where it is missing, and returns the function that releases it.
+// open opens the lock file, creating it where it is missing.
 //
 // The file is never removed. Deleting a lock file while somebody waits on it
 // would let the next caller create and lock a fresh inode beside the one still
 // held, and the two would no longer exclude each other. A process that dies
 // releases the lock with its descriptors, so nothing is left held by a caller
 // that is gone.
-func Lock(path string) (func(), error) {
+func open(path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the lock file %s: %w", path, err)
+	}
+	return f, nil
+}
+
+// Lock waits until it holds an exclusive flock on path, creating the file
+// where it is missing, and returns the function that releases it.
+func Lock(path string) (func(), error) {
+	f, err := open(path)
+	if err != nil {
+		return nil, err
 	}
 	for {
 		err = unix.Flock(int(f.Fd()), unix.LOCK_EX)
@@ -35,4 +44,18 @@ func Lock(path string) (func(), error) {
 		return nil, fmt.Errorf("failed to lock %s: %w", path, err)
 	}
 	return func() { f.Close() }, nil
+}
+
+// TryLock takes the exclusive flock on path only if nobody holds it, and
+// reports whether it did.
+func TryLock(path string) (func(), bool) {
+	f, err := open(path)
+	if err != nil {
+		return nil, false
+	}
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		f.Close()
+		return nil, false
+	}
+	return func() { f.Close() }, true
 }

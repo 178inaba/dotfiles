@@ -63,7 +63,8 @@ type claim struct {
 	TakenAt time.Time `json:"taken_at"`
 
 	// unreadable is a file that is there but does not parse. Its zero TakenAt
-	// already makes it stale; the flag is for saying so.
+	// is what makes it stale; the flag is for saying so, and for releasing it
+	// without a session to compare.
 	unreadable bool
 }
 
@@ -80,13 +81,11 @@ func claimsDir(stateHome string) string {
 
 // ClaimPath is one pull request's claim file under stateHome.
 //
-// A component that is . or .. is refused: the path is removed on release, and
-// either would put it outside the store.
+// A component that is empty, . or .. is refused: the path is removed on
+// release, and any of them would put it outside the store.
 func ClaimPath(stateHome, owner, repo string, number int) (string, error) {
-	for _, part := range []string{owner, repo} {
-		if part == "" || part == "." || part == ".." {
-			return "", fmt.Errorf("invalid repository %s/%s for a claim", owner, repo)
-		}
+	if owner == "" || repo == "" || dotComponent(owner, repo) {
+		return "", fmt.Errorf("invalid repository %s/%s for a claim", owner, repo)
 	}
 	return filepath.Join(claimsDir(stateHome), owner, repo, strconv.Itoa(number)+".json"), nil
 }
@@ -103,7 +102,7 @@ func ProcessAlive(pid int) bool {
 
 // live reports whether c still keeps its pull request from being reviewed.
 func (o ClaimOptions) live(c *claim) bool {
-	if c == nil || c.unreadable {
+	if c == nil {
 		return false
 	}
 	if c.PID != 0 && !o.Alive(c.PID) {
@@ -144,6 +143,20 @@ func lockClaims(stateHome string) (func(), error) {
 	return filelock.Lock(filepath.Join(dir, ".lock"))
 }
 
+// lookup reads the claim on one pull request, nil where there is none. The
+// error is ready to report as it is.
+func (o ClaimOptions) lookup(owner, repo string, number int) (string, *claim, error) {
+	path, err := ClaimPath(o.StateHome, owner, repo, number)
+	if err != nil {
+		return "", nil, err
+	}
+	c, err := readClaim(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read the claim on %s/%s#%d: %w", owner, repo, number, err)
+	}
+	return path, c, nil
+}
+
 // sortClaims splits the pull requests found waiting into out.PRs and
 // out.InFlight by their claims, taking a claim on each one that has no live
 // claim when take is set.
@@ -152,60 +165,38 @@ func lockClaims(stateHome string) (func(), error) {
 // claims are only read, and the rename that publishes each one means a read
 // never sees a torn file.
 func (o ClaimOptions) sortClaims(found []PR, take bool, out *Pending) error {
-	if !take {
-		for _, pr := range found {
-			if o.StateHome == "" {
-				out.PRs = append(out.PRs, pr)
-				continue
-			}
-			path, err := ClaimPath(o.StateHome, pr.Owner, pr.Repo, pr.Number)
-			if err != nil {
-				out.degrade(err.Error())
-				continue
-			}
-			c, err := readClaim(path)
-			if err != nil {
-				out.degrade(fmt.Sprintf("failed to read the claim on %s: %v", pr, err))
-				continue
-			}
-			if o.live(c) {
-				out.InFlight = append(out.InFlight, pr)
-			} else {
-				out.PRs = append(out.PRs, pr)
-			}
+	if take {
+		release, err := lockClaims(o.StateHome)
+		if err != nil {
+			return err
 		}
+		defer release()
+	} else if o.StateHome == "" {
+		out.PRs = append(out.PRs, found...)
 		return nil
 	}
 
-	release, err := lockClaims(o.StateHome)
-	if err != nil {
-		return err
-	}
-	defer release()
 	for _, pr := range found {
-		path, err := ClaimPath(o.StateHome, pr.Owner, pr.Repo, pr.Number)
+		path, old, err := o.lookup(pr.Owner, pr.Repo, pr.Number)
 		if err != nil {
 			out.degrade(err.Error())
-			continue
-		}
-		old, err := readClaim(path)
-		if err != nil {
-			out.degrade(fmt.Sprintf("failed to read the claim on %s: %v", pr, err))
 			continue
 		}
 		if o.live(old) {
 			out.InFlight = append(out.InFlight, pr)
 			continue
 		}
-		mine := claim{Owner: pr.Owner, Repo: pr.Repo, Number: pr.Number, Holder: o.Holder, TakenAt: o.Now().UTC()}
-		if err := writeClaim(path, mine); err != nil {
-			out.degrade(fmt.Sprintf("failed to claim %s: %v", pr, err))
-			continue
+		if take {
+			mine := claim{Owner: pr.Owner, Repo: pr.Repo, Number: pr.Number, Holder: o.Holder, TakenAt: o.Now().UTC()}
+			if err := writeClaim(path, mine); err != nil {
+				out.degrade(fmt.Sprintf("failed to claim %s: %v", pr, err))
+				continue
+			}
+			if old != nil {
+				out.Warnings = append(out.Warnings, fmt.Sprintf("took over %s from %s", pr, old))
+			}
 		}
 		out.PRs = append(out.PRs, pr)
-		if old != nil {
-			out.Warnings = append(out.Warnings, fmt.Sprintf("took over %s from %s", pr, old))
-		}
 	}
 	return nil
 }
@@ -214,7 +205,9 @@ func writeClaim(path string, c claim) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return atomicfile.Write(path, 0o644, func(f *os.File) error {
+	// Unsynced: a claim a crash empties reads as unreadable, and so stale,
+	// which costs one review taken again after the crash killed the first.
+	return atomicfile.WriteNoSync(path, 0o644, func(f *os.File) error {
 		return json.NewEncoder(f).Encode(c)
 	})
 }
@@ -235,14 +228,9 @@ func Release(o ClaimOptions, specs []Spec) []string {
 
 	var warnings []string
 	for _, s := range specs {
-		path, err := ClaimPath(o.StateHome, s.Owner, s.Repo, s.Number)
+		path, c, err := o.lookup(s.Owner, s.Repo, s.Number)
 		if err != nil {
 			warnings = append(warnings, err.Error())
-			continue
-		}
-		c, err := readClaim(path)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("failed to read the claim on %s: %v", s, err))
 			continue
 		}
 		if c == nil {

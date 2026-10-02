@@ -340,7 +340,7 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, c *ghapi.Cl
 		branch = "main"
 	}
 	fetched := true
-	if _, err := gitfetch.Fetch(ctx, r, dir, "-q", "origin", branch); err != nil {
+	if err := gitfetch.Fetch(ctx, r, dir, "-q", "origin", branch); err != nil {
 		fetched = false
 	}
 

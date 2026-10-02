@@ -58,3 +58,22 @@ func TestLockFailsWithoutItsDirectory(t *testing.T) {
 		t.Error("Lock succeeded in a directory that does not exist")
 	}
 }
+
+func TestTryLockDoesNotWait(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "x.lock")
+	release, ok := filelock.TryLock(path)
+	if !ok {
+		t.Fatal("TryLock failed on a free lock")
+	}
+	if _, ok := filelock.TryLock(path); ok {
+		t.Error("TryLock took a lock somebody holds")
+	}
+	release()
+	again, ok := filelock.TryLock(path)
+	if !ok {
+		t.Fatal("TryLock failed after the holder released")
+	}
+	again()
+}

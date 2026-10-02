@@ -65,7 +65,7 @@ func TestFetchSerialisesAcrossWorktrees(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, dir := range dirs {
 		wg.Go(func() {
-			if _, err := gitfetch.Fetch(t.Context(), r, dir, "origin", "main"); err != nil {
+			if err := gitfetch.Fetch(t.Context(), r, dir, "origin", "main"); err != nil {
 				t.Errorf("Fetch in %s: %v", dir, err)
 			}
 		})
@@ -90,7 +90,7 @@ func TestFetchSerialisesAcrossWorktrees(t *testing.T) {
 	}
 
 	// A later fetch locks the same file rather than a new one.
-	if _, err := gitfetch.Fetch(t.Context(), r, dirs[1]); err != nil {
+	if err := gitfetch.Fetch(t.Context(), r, dirs[1]); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	again, err := os.Stat(lockFile)
@@ -104,7 +104,7 @@ func TestFetchReturnsTheFetchError(t *testing.T) {
 
 	repo := gittest.InitWithCommit(t, filepath.Join(t.TempDir(), "repo"))
 	offline := errors.New("offline")
-	if _, err := gitfetch.Fetch(t.Context(), &overlapRunner{err: offline}, repo); !errors.Is(err, offline) {
+	if err := gitfetch.Fetch(t.Context(), &overlapRunner{err: offline}, repo); !errors.Is(err, offline) {
 		t.Errorf("Fetch = %v, want %v", err, offline)
 	}
 }
@@ -113,7 +113,7 @@ func TestFetchOutsideARepository(t *testing.T) {
 	t.Parallel()
 
 	r := &overlapRunner{}
-	if _, err := gitfetch.Fetch(t.Context(), r, t.TempDir()); err == nil {
+	if err := gitfetch.Fetch(t.Context(), r, t.TempDir()); err == nil {
 		t.Error("Fetch succeeded outside a repository")
 	}
 	if len(r.fetches) != 0 {
