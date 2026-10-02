@@ -15,8 +15,10 @@ import (
 // beside it that is renamed onto path once fill has returned.
 //
 // fill gets the temporary file open for reading and writing; a caller whose
-// content comes from another process can hand it f.Name(). When fill fails,
-// path is left as it was and the temporary file is removed.
+// content comes from another process can hand it f.Name(), and that process
+// has to write into the file rather than replace it, since f is what is synced
+// and what fill can read back. When fill fails, path is left as it was and the
+// temporary file is removed.
 //
 // The file is created with perm masked by the umask, as os.WriteFile does.
 // It is synced before the rename: without that, a crash after the rename can
@@ -28,15 +30,14 @@ func Write(path string, perm os.FileMode, fill func(f *os.File) error) error {
 	}
 	defer os.Remove(f.Name())
 
-	if err := fill(f); err != nil {
-		f.Close()
-		return err
+	err = fill(f)
+	if err == nil {
+		err = f.Sync()
 	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-	if err := f.Close(); err != nil {
+	if err != nil {
 		return err
 	}
 	return os.Rename(f.Name(), path)

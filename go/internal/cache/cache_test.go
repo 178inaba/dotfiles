@@ -160,8 +160,8 @@ func TestWriteLeavesNoTemporary(t *testing.T) {
 	}
 }
 
-// TestWriteMode pins the umask, so that the records are checked to be
-// readable by others exactly as os.WriteFile left them.
+// TestWriteMode pins the umask, so that the records are checked to be exactly
+// 0644: readable by others, writable by the owner alone.
 //
 // Not parallel, because the umask belongs to the process: parallel tests are
 // held until the sequential ones are done.
