@@ -13,6 +13,7 @@ ccx pr post-review <context_path> <review_path>
 書式は `ccx pr post-review --help` にある。本スキルが決めるのは中身:
 
 - `assessment` には「レビュー結果出力」の総合評価をそのまま書く
+- **本文の総合評価は判定ではなく実行する行為として書く**（`assessment` とは別。読者は badge 付きの投稿を見る）: `Approve可能` は `Approve`、`修正が必要` は `Request Changes`（対象 PR の言語の相当表現でも可）。`要議論` は「要議論」と、Approve でも Request Changes でもない理由を書く
 - **本文は原則 `body_file` で渡す**（JSON 文字列に手でエスケープしない）。インラインの `body` は短い一段落までに限る
 - 本文の内容（`body_file` の参照先・インラインとも）: 「レビューコメントの原則と口調」の原則・口調・言語（対象 PR の言語）で書く
 - `comments[]` に入れるのは行に紐づく指摘のみ。無ければ空配列で body だけのレビューになる
