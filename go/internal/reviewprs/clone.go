@@ -8,7 +8,7 @@ import (
 	"regexp"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
-	"github.com/178inaba/dotfiles/go/internal/gitfetch"
+	"github.com/178inaba/dotfiles/go/internal/gitlock"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -85,14 +85,14 @@ type Clone struct {
 // completed in a hidden temporary directory beside its destination and moved
 // into place in one step, so the destination only ever holds a finished clone,
 // and whoever loses the race adopts the winner's rather than replacing it. A
-// fetch into an existing clone goes through gitfetch, which makes concurrent
+// fetch into an existing clone goes through gitlock, which makes concurrent
 // fetches into one repository wait for each other.
 func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo OwnerRepo) (Clone, error) {
 	parent := filepath.Join(o.DataHome, Workspace, repo.Owner)
 	path := filepath.Join(parent, repo.Name)
 
 	if isRepo(path) {
-		if err := gitfetch.Fetch(ctx, r, path, "--prune"); err != nil {
+		if _, err := gitlock.Git(ctx, r, path, "fetch", "--prune"); err != nil {
 			return Clone{}, fmt.Errorf("failed to fetch %s: %w", repo, err)
 		}
 		return Clone{Path: path}, nil

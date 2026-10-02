@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/178inaba/dotfiles/go/internal/gitlock"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -119,7 +120,7 @@ func removeLeftover(ctx context.Context, r runner.Runner, root string, e Entry, 
 	// Only once the worktree is gone: a branch checked out in one cannot be
 	// deleted. -D because the branch was never merged anywhere; the commit
 	// check stands in for git's own.
-	if _, err := runner.Git(ctx, r, root, "branch", "-D", e.Branch); err != nil {
+	if _, err := gitlock.Git(ctx, r, root, "branch", "-D", e.Branch); err != nil {
 		return Detection{}, fmt.Errorf("git branch -D failed for %s: %s", e.Branch, runner.Message(err))
 	}
 	return Detection{Status: DetectRemoved, Path: &e.Path, Branch: &e.Branch}, nil

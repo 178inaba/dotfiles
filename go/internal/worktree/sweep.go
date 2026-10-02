@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/178inaba/dotfiles/go/internal/gitlock"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -236,7 +237,7 @@ func (s *sweeper) deleteBranch(ctx context.Context, branch string) bool {
 		})
 		return false
 	}
-	if _, err := runner.Git(ctx, s.r, s.dir, "branch", "-D", branch); err != nil {
+	if _, err := gitlock.Git(ctx, s.r, s.dir, "branch", "-D", branch); err != nil {
 		s.out.Failures = append(s.out.Failures, Failure{
 			Type: KindBranch, Target: branch, Error: runner.Message(err),
 		})

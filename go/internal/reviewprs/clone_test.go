@@ -37,7 +37,7 @@ type gitFake struct {
 }
 
 func (g *gitFake) Run(_ context.Context, c runner.Command) ([]byte, error) {
-	// The lookup gitfetch makes to find where its lock goes. Left out of calls,
+	// The lookup gitlock makes to find where its lock goes. Left out of calls,
 	// which records what the clone itself did; a clone's git directory is the
 	// .git that cloned creates.
 	if slices.Contains(c.Args, "--git-common-dir") {

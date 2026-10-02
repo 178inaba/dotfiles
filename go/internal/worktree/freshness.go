@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/178inaba/dotfiles/go/internal/gitfetch"
+	"github.com/178inaba/dotfiles/go/internal/gitlock"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -177,7 +177,7 @@ func (e *FetchError) Unwrap() error { return e.Err }
 func FetchPullHead(ctx context.Context, r runner.Runner, dir string, number int, headOID string, alongside ...string) error {
 	head := pullRef(number)
 	refs := append(append([]string{}, alongside...), head)
-	if err := gitfetch.Fetch(ctx, r, dir, append([]string{"-q", "origin"}, refs...)...); err != nil {
+	if _, err := gitlock.Git(ctx, r, dir, append([]string{"fetch", "-q", "origin"}, refs...)...); err != nil {
 		return &FetchError{Refs: refs, Dir: dir, Err: err}
 	}
 	if _, err := runner.Git(ctx, r, dir, "cat-file", "-e", headOID+"^{commit}"); err != nil {
