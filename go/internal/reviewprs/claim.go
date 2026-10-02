@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"time"
 
@@ -226,19 +225,35 @@ func writeClaim(path string, c claim) error {
 // A claim is removed only while it is still the one named. A pull request taken
 // over since — by another session, or by this one after its own claim went
 // stale — carries a different claim, which is left in place. A spec that names
-// no claim releases nothing.
+// no claim releases nothing, and says so when its pull request has a live
+// claim: a claim whose token was lost on the way would otherwise stay until it
+// went stale without anyone hearing of it.
 func Release(o ClaimOptions, specs []Spec) []string {
-	named := slices.DeleteFunc(slices.Clone(specs), func(s Spec) bool { return s.Claim == "" })
-	if len(named) == 0 {
-		return nil
+	var named []Spec
+	var warnings []string
+	for _, s := range specs {
+		if s.Claim != "" {
+			named = append(named, s)
+			continue
+		}
+		// Read only, as a pending without --claim reads: nothing is released
+		// here, so nothing needs the lock.
+		if o.StateHome == "" {
+			continue
+		}
+		if _, c, err := o.lookup(s.Owner, s.Repo, s.Number); err == nil && o.live(c) {
+			warnings = append(warnings, fmt.Sprintf("%s has a live claim, but no claim was named to release", s))
+		}
 	}
+	if len(named) == 0 {
+		return warnings
+	}
+
 	release, err := lockClaims(o.StateHome)
 	if err != nil {
-		return []string{fmt.Sprintf("no claim was released: %v", err)}
+		return append(warnings, fmt.Sprintf("no claim was released: %v", err))
 	}
 	defer release()
-
-	var warnings []string
 	for _, s := range named {
 		path, c, err := o.lookup(s.Owner, s.Repo, s.Number)
 		if err != nil {

@@ -314,9 +314,10 @@ func TestRelease(t *testing.T) {
 		state, c := t.TempDir(), asking(t)
 		take(t, c, holder(state, 10, "s1", epoch))
 
+		// The token was lost on the way, which a warning makes visible.
 		bare := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100}
-		if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{bare}); len(got) != 0 {
-			t.Errorf("Release warnings = %q, want none", got)
+		if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{bare}); len(got) != 1 || !strings.Contains(got[0], "acme/foo#100") {
+			t.Errorf("Release warnings = %q, want one line naming acme/foo#100", got)
 		}
 		if unclaimedNow(t, c, state, epoch) {
 			t.Error("a spec naming no claim released one")
@@ -326,9 +327,16 @@ func TestRelease(t *testing.T) {
 	t.Run("no claim is nothing to release", func(t *testing.T) {
 		t.Parallel()
 
-		spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: "x"}
-		if got := reviewprs.Release(holder(t.TempDir(), 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 0 {
-			t.Errorf("Release warnings = %q, want none", got)
+		for _, claim := range []string{"x", ""} {
+			state := t.TempDir()
+			spec := reviewprs.Spec{Owner: "acme", Repo: "foo", Number: 100, Claim: claim}
+			if got := reviewprs.Release(holder(state, 10, "s1", epoch), []reviewprs.Spec{spec}); len(got) != 0 {
+				t.Errorf("Release(%v) warnings = %q, want none", spec, got)
+			}
+			// Naming no claim only reads, as pending without --claim does.
+			if got := tree(t, state); claim == "" && len(got) != 0 {
+				t.Errorf("a release naming no claim wrote %v", got)
+			}
 		}
 	})
 

@@ -755,7 +755,8 @@ Before reading GitHub it releases each claim named, whether the review was
 posted or not. A pull request whose claim is no longer the one named — taken
 over since, by another session or by this one after the claim went stale —
 keeps its claim, and the argument is reported in warnings. An argument with no
-@<claim> releases nothing.`,
+@<claim> releases nothing, and is reported in warnings when its pull request
+has a live claim.`,
 		blocks:   []block{prints(reflect.TypeFor[reviewprs.Verification]())},
 		statuses: with(),
 	},
