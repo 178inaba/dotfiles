@@ -96,6 +96,8 @@ func read[T any](path, key string) (Record[T], bool) {
 //
 // Always atomically: a background refresh writes while a redraw may be reading,
 // and a torn read would show a half-built value rather than the previous one.
+// Never synced: a redraw writes this, and a record a crash leaves empty reads
+// as absent like any other that will not parse.
 func Write[T any](dir, key string, at time.Time, value T) error {
 	return write(dir, recordName, key, at, value)
 }
@@ -109,7 +111,7 @@ func write[T any](dir, name, key string, at time.Time, value T) error {
 		return err
 	}
 
-	return atomicfile.Write(filepath.Join(dir, name), 0o644, func(f *os.File) error {
+	return atomicfile.WriteNoSync(filepath.Join(dir, name), 0o644, func(f *os.File) error {
 		_, err := f.Write(b)
 		return err
 	})

@@ -24,6 +24,18 @@ import (
 // It is synced before the rename: without that, a crash after the rename can
 // leave path empty on a file system that orders the rename before the data.
 func Write(path string, perm os.FileMode, fill func(f *os.File) error) error {
+	return write(path, perm, true, fill)
+}
+
+// WriteNoSync is Write without the sync, for a file whose loss costs nothing:
+// a reader still never sees it torn, but a crash can leave it empty. The sync
+// is a full flush of the device on darwin, which a file rewritten on every
+// status line redraw should not pay.
+func WriteNoSync(path string, perm os.FileMode, fill func(f *os.File) error) error {
+	return write(path, perm, false, fill)
+}
+
+func write(path string, perm os.FileMode, sync bool, fill func(f *os.File) error) error {
 	f, err := create(path, perm)
 	if err != nil {
 		return err
@@ -31,7 +43,7 @@ func Write(path string, perm os.FileMode, fill func(f *os.File) error) error {
 	defer os.Remove(f.Name())
 
 	err = fill(f)
-	if err == nil {
+	if err == nil && sync {
 		err = f.Sync()
 	}
 	if cerr := f.Close(); err == nil {
