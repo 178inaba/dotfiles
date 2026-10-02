@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/gitfetch"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -181,7 +182,7 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 	if c.defaultBranch == "" {
 		c.defaultBranch = "main"
 	}
-	if _, err := c.git(ctx, "fetch", "origin", c.defaultBranch); err != nil {
+	if err := gitfetch.Fetch(ctx, c.r, c.dir, "origin", c.defaultBranch); err != nil {
 		c.warn("git fetch origin %s に失敗（ローカル %s が stale の可能性あり）", c.defaultBranch, c.defaultBranch)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/gitfetch"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -235,7 +236,7 @@ func evacuate(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.
 // push.autoSetupRemote create the local branch on the base repository.
 func setTracking(ctx context.Context, r runner.Runner, dir, branch string, pr ghapi.PullRequest, remote ghapi.RemoteOptions) ([]string, error) {
 	if !pr.IsCrossRepository {
-		if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", pr.HeadRefName}}); err != nil {
+		if err := gitfetch.Fetch(ctx, r, dir, "-q", "origin", pr.HeadRefName); err != nil {
 			return []string{fmt.Sprintf(
 				"%s is not on origin any more, so %s was left without an upstream", pr.HeadRefName, branch)}, nil
 		}

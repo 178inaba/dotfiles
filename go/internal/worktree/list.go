@@ -102,7 +102,7 @@ func DefaultBranch(ctx context.Context, r runner.Runner, dir string) string {
 // The common git directory is what makes that work: every worktree shares one,
 // and it sits inside the main worktree.
 func MainRoot(ctx context.Context, r runner.Runner, dir string) (string, error) {
-	out, err := runner.Git(ctx, r, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	out, err := runner.GitCommonDir(ctx, r, dir)
 	if err != nil {
 		return "", fmt.Errorf("not inside a git repository")
 	}

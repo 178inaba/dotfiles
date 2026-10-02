@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/gitfetch"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/worktree"
 )
@@ -339,7 +340,7 @@ func (p Preparation) localOnly(ctx context.Context, r runner.Runner, c *ghapi.Cl
 		branch = "main"
 	}
 	fetched := true
-	if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", dir, "fetch", "-q", "origin", branch}}); err != nil {
+	if err := gitfetch.Fetch(ctx, r, dir, "-q", "origin", branch); err != nil {
 		fetched = false
 	}
 

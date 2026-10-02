@@ -170,6 +170,12 @@ func Git(ctx context.Context, r Runner, dir string, args ...string) (string, err
 	return strings.TrimSpace(string(out)), nil
 }
 
+// GitCommonDir is the absolute path of the git directory dir's repository
+// shares across its worktrees: a linked worktree's main .git.
+func GitCommonDir(ctx context.Context, r Runner, dir string) (string, error) {
+	return Git(ctx, r, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+}
+
 // Stderr returns what a failed command wrote to standard error.
 func Stderr(err error) []byte {
 	if e, ok := errors.AsType[*Error](err); ok {

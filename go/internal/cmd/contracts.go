@@ -718,7 +718,25 @@ command itself.`,
 Somebody else's pull request, this user asked to review it, and this user has
 not reviewed it yet. A pull request another reviewer has already been through
 is left out, since the point of the loop this feeds is to get to the ones
-nobody has looked at.`,
+nobody has looked at.
+
+A pull request whose review is already running is listed in in_flight rather
+than prs. What says so is a claim, one file per pull request at
+
+    $XDG_STATE_HOME/ccx/review-claims/<owner>/<repo>/<number>.json
+
+with $XDG_STATE_HOME defaulting to ~/.local/state. A claim records the
+CLAUDE_PID and CLAUDE_CODE_SESSION_ID of the session that took it, and is live
+while that process runs and for at most an hour.
+
+With --claim, each pull request with no live claim is claimed for this session
+before it is printed, so prs holds exactly the pull requests this run is to
+review; of several runs racing for one pull request, one lists it in prs and
+the others in in_flight. A stale claim is taken over, with a warning naming
+the claim it replaced. Each pull request in prs carries the claim it got,
+which ` + "`ccx review verify`" + ` takes back to release it. Without --claim
+nothing is written: prs holds the pull requests with no live claim. --claim
+fails when there is no state directory to keep claims in.`,
 		blocks:   []block{prints(reflect.TypeFor[reviewprs.Pending]())},
 		statuses: with(),
 	},
@@ -730,7 +748,15 @@ The same judgement ` + "`ccx review pending`" + ` makes, asked from the other en
 subagent that reported posting a review and did not would otherwise leave the
 loop believing the work was done.
 
-Each argument names one pull request as <owner>/<repo>#<number>.`,
+Each argument names one pull request as <owner>/<repo>#<number>, and may add
+@<claim> — the claim ` + "`ccx review pending --claim`" + ` handed out for it.
+
+Before reading GitHub it releases each claim named, whether the review was
+posted or not. A pull request whose claim is no longer the one named — taken
+over since, by another session or by this one after the claim went stale —
+keeps its claim, and the argument is reported in warnings. An argument with no
+@<claim> releases nothing, and is reported in warnings when its pull request
+has a live claim.`,
 		blocks:   []block{prints(reflect.TypeFor[reviewprs.Verification]())},
 		statuses: with(),
 	},
@@ -747,10 +773,13 @@ keeps their own checkout, so that a worktree created for a review never turns
 up in the repository they are working in. Nothing here is ever cleaned up
 automatically; deleting the workspace is a person's to do.
 
-An existing clone is brought up to date with git fetch --prune. A new one is
-built in a hidden temporary directory beside its destination and moved into
-place, so two subagents racing to clone the same repository never see a
-half-finished one — the loser simply adopts the winner's. A crash that skips
+An existing clone is brought up to date with git fetch --prune, under a lock
+file in its .git directory that every ccx fetch into the repository takes, so
+two subagents fetching into the same clone wait for each other rather than
+failing on a ref lock. A new one is built in a hidden temporary directory
+beside its destination and moved into place, so two subagents racing to clone
+the same repository never see a half-finished one — the loser simply adopts
+the winner's. A crash that skips
 the cleanup can leave one of those temporary .<repo>.XXXXXX directories in the
 owner's directory; they are safe to remove.`,
 		blocks:   []block{prints(reflect.TypeFor[reviewprs.Clone]())},

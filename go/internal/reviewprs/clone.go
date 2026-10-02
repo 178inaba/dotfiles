@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/gitfetch"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -41,12 +42,21 @@ func ParseOwnerRepo(s string) (OwnerRepo, error) {
 	if m == nil {
 		return OwnerRepo{}, fmt.Errorf("invalid repo reference (expected <owner>/<repo>): %s", s)
 	}
-	for _, part := range m[1:] {
-		if part == "." || part == ".." {
-			return OwnerRepo{}, fmt.Errorf("invalid repo reference (dot components not allowed): %s", s)
-		}
+	if dotComponent(m[1], m[2]) {
+		return OwnerRepo{}, fmt.Errorf("invalid repo reference (dot components not allowed): %s", s)
 	}
 	return OwnerRepo{Owner: m[1], Name: m[2]}, nil
+}
+
+// dotComponent reports whether any of parts is . or .., which as a path
+// component under the workspace or the claim store would point outside it.
+func dotComponent(parts ...string) bool {
+	for _, part := range parts {
+		if part == "." || part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // CloneOptions are what the environment tells EnsureClone.
@@ -71,19 +81,19 @@ type Clone struct {
 // fetching into one that is already there.
 //
 // Safe to run for the same repository at the same time, which happens whenever
-// two subagents review two pull requests of one repository. There is no lock:
-// the clone is completed in a hidden temporary directory beside its
-// destination and moved into place in one step, so the destination only ever
-// holds a finished clone, and whoever loses the race adopts the winner's rather
-// than replacing it. macOS has no flock(1), and a lock built out of mkdir plus
-// stale detection would cost more than the one wasted clone it saves.
+// two subagents review two pull requests of one repository. A new clone is
+// completed in a hidden temporary directory beside its destination and moved
+// into place in one step, so the destination only ever holds a finished clone,
+// and whoever loses the race adopts the winner's rather than replacing it. A
+// fetch into an existing clone goes through gitfetch, which makes concurrent
+// fetches into one repository wait for each other.
 func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo OwnerRepo) (Clone, error) {
 	parent := filepath.Join(o.DataHome, Workspace, repo.Owner)
 	path := filepath.Join(parent, repo.Name)
 
 	if isRepo(path) {
-		if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", path, "fetch", "--prune"}}); err != nil {
-			return Clone{}, fmt.Errorf("failed to fetch %s", repo)
+		if err := gitfetch.Fetch(ctx, r, path, "--prune"); err != nil {
+			return Clone{}, fmt.Errorf("failed to fetch %s: %w", repo, err)
 		}
 		return Clone{Path: path}, nil
 	}

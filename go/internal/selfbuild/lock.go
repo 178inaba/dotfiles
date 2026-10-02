@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"golang.org/x/sys/unix"
+	"github.com/178inaba/dotfiles/go/internal/filelock"
 )
 
 // lock serialises rebuilds across the processes that start together — a
@@ -19,17 +19,5 @@ func lock(d Deps) (func(), bool) {
 	if err := os.MkdirAll(d.CacheDir, 0o755); err != nil {
 		return nil, false
 	}
-	f, err := os.OpenFile(filepath.Join(d.CacheDir, "build.lock"), os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return nil, false
-	}
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		f.Close()
-		return nil, false
-	}
-	return func() {
-		// Closing the descriptor releases the flock; the file itself stays so
-		// the next run locks the same inode.
-		f.Close()
-	}, true
+	return filelock.TryLock(filepath.Join(d.CacheDir, "build.lock"))
 }

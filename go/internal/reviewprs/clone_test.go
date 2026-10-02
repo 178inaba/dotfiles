@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -18,24 +20,48 @@ import (
 
 // gitFake stands in for git, so that a test can say what a clone does — finish,
 // fail, or fail after somebody else has published — without a server to clone
-// from.
+// from. Safe for concurrent use, since two subagents run EnsureClone at once.
 type gitFake struct {
 	// clone runs in place of `git clone <url> <dir>`.
 	clone func(dir string) error
 	// fetchErr is what `git -C <dir> fetch --prune` returns.
 	fetchErr error
+	// hold is how long a fetch takes, long enough for a concurrent one to
+	// overlap it if nothing serialises them.
+	hold time.Duration
 
-	calls [][]string
+	mu     sync.Mutex
+	calls  [][]string
+	active int
+	most   int
 }
 
 func (g *gitFake) Run(_ context.Context, c runner.Command) ([]byte, error) {
+	// The lookup gitfetch makes to find where its lock goes. Left out of calls,
+	// which records what the clone itself did; a clone's git directory is the
+	// .git that cloned creates.
+	if slices.Contains(c.Args, "--git-common-dir") {
+		return []byte(filepath.Join(c.Args[1], ".git")), nil
+	}
+
+	g.mu.Lock()
 	g.calls = append(g.calls, c.Args)
+	g.mu.Unlock()
 	if len(c.Args) > 0 && c.Args[0] == "clone" {
 		if g.clone == nil {
 			return nil, nil
 		}
 		return nil, g.clone(c.Args[2])
 	}
+
+	g.mu.Lock()
+	g.active++
+	g.most = max(g.most, g.active)
+	g.mu.Unlock()
+	time.Sleep(g.hold)
+	g.mu.Lock()
+	g.active--
+	g.mu.Unlock()
 	return nil, g.fetchErr
 }
 
@@ -137,6 +163,37 @@ func TestEnsureCloneExisting(t *testing.T) {
 	want := [][]string{{"-C", got.Path, "fetch", "--prune"}}
 	if diff := cmp.Diff(want, git.calls); diff != "" {
 		t.Errorf("commands run (-want +got):\n%s", diff)
+	}
+}
+
+// TestEnsureCloneSerialisesFetches is two subagents reviewing two pull
+// requests of one repository: both bring the existing clone up to date, one
+// after the other rather than racing for the same refs.
+func TestEnsureCloneSerialisesFetches(t *testing.T) {
+	t.Parallel()
+
+	o := options(t, "ssh")
+	if _, err := reviewprs.EnsureClone(t.Context(), &gitFake{clone: cloned}, o, acmeFoo); err != nil {
+		t.Fatalf("EnsureClone: %v", err)
+	}
+
+	git := &gitFake{hold: 50 * time.Millisecond}
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			if _, err := reviewprs.EnsureClone(t.Context(), git, o, acmeFoo); err != nil {
+				t.Errorf("EnsureClone: %v", err)
+			}
+		})
+	}
+	wg.Wait()
+
+	fetch := []string{"-C", wantPath(o), "fetch", "--prune"}
+	if diff := cmp.Diff([][]string{fetch, fetch}, git.calls); diff != "" {
+		t.Errorf("commands run (-want +got):\n%s", diff)
+	}
+	if git.most != 1 {
+		t.Errorf("%d fetches ran at once, want 1", git.most)
 	}
 }
 
