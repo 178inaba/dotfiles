@@ -1,11 +1,12 @@
 // Package gitfetch runs git fetch one at a time per repository.
 //
-// A fetch writes remote-tracking refs, and git takes a lock on each ref it
-// writes: two fetches that update the same ref at once — the default branch, a
-// pull request's base, or every stale ref under --prune — leave one of them
-// failing on that lock. Every ccx fetch goes through here, so that two
-// subagents working in one repository, or in two worktrees of it, queue
-// instead.
+// A fetch moves each remote-tracking ref only if it still holds the value the
+// fetch read when it began. Two fetches that update the same ref at once — the
+// default branch, a pull request's base, or every stale ref under --prune —
+// leave the later one failing with "cannot lock ref ...: is at X but expected
+// Y", which git's own lock timeouts do not retry: the ref is not held, it has
+// moved. Every ccx fetch goes through here, so that two subagents working in
+// one repository, or in two worktrees of it, queue instead.
 package gitfetch
 
 import (
