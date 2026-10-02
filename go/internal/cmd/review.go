@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/cli/go-gh/v2/pkg/config"
 	"github.com/spf13/cobra"
@@ -21,7 +23,8 @@ func newReviewCmd(deps Deps) *cobra.Command {
 }
 
 func reviewPendingCmd(deps Deps) *cobra.Command {
-	return &cobra.Command{
+	var take bool
+	c := &cobra.Command{
 		Use:   "pending",
 		Short: "List the pull requests waiting for this user's review",
 		Args:  cobra.NoArgs,
@@ -31,13 +34,15 @@ func reviewPendingCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			pending, err := reviewprs.ListPending(c.Context(), client)
+			pending, err := reviewprs.ListPending(c.Context(), client, claimOptions(), take)
 			if err != nil {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), pending))
 		},
 	}
+	c.Flags().BoolVar(&take, "claim", false, "claim each pull request listed in prs for this session before printing it")
+	return c
 }
 
 func reviewVerifyCmd(deps Deps) *cobra.Command {
@@ -56,6 +61,11 @@ func reviewVerifyCmd(deps Deps) *cobra.Command {
 				specs = append(specs, s)
 			}
 
+			// Released before GitHub is read: the review is over once the
+			// caller asks, and a claim kept through a failed read would park
+			// the pull request until it went stale.
+			released := reviewprs.Release(claimOptions(), specs)
+
 			client, err := deps.NewClient()
 			if err != nil {
 				return silent(err)
@@ -64,6 +74,7 @@ func reviewVerifyCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
+			verified.Warnings = append(verified.Warnings, released...)
 			return silent(renderJSON(c.OutOrStdout(), verified))
 		},
 	}
@@ -96,6 +107,26 @@ func reviewCloneCmd(deps Deps) *cobra.Command {
 // be used from a parallel test.
 func cloneOptions() reviewprs.CloneOptions {
 	return reviewprs.CloneOptions{DataHome: xdgDir("XDG_DATA_HOME", "share"), RemoteOptions: remoteOptions()}
+}
+
+// claimOptions reads who is claiming and where claims are kept, for the reason
+// cloneOptions reads the workspace here: t.Setenv cannot be used from a
+// parallel test.
+//
+// CLAUDE_PID and CLAUDE_CODE_SESSION_ID are what Claude Code sets in the
+// environment of every command it runs. Outside it both are empty, and a pid
+// that is missing or does not parse is recorded as none.
+func claimOptions() reviewprs.ClaimOptions {
+	pid, err := strconv.Atoi(os.Getenv("CLAUDE_PID"))
+	if err != nil || pid < 0 {
+		pid = 0
+	}
+	return reviewprs.ClaimOptions{
+		StateHome: stateHome(),
+		Holder:    reviewprs.Holder{PID: pid, SessionID: os.Getenv("CLAUDE_CODE_SESSION_ID")},
+		Now:       time.Now,
+		Alive:     reviewprs.ProcessAlive,
+	}
 }
 
 // remoteOptions reads what building a repository's url takes: gh's

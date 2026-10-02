@@ -26,13 +26,26 @@ type PR struct {
 	URL    string `json:"url"`
 }
 
+func (p PR) String() string { return fmt.Sprintf("%s/%s#%d", p.Owner, p.Repo, p.Number) }
+
 // Pending is the answer to "what should I review next".
 type Pending struct {
+	// The pull requests to review now. With --claim, the ones this run
+	// claimed, which are this caller's to review and to release through
+	// ccx review verify; without it, the ones nobody holds a live claim on.
 	PRs []PR `json:"prs"`
+	// The pull requests waiting for a review that somebody holds a live claim
+	// on — a review already running, this session's earlier ones included.
+	// They are not to be reviewed again until the claim is released or goes
+	// stale.
+	InFlight []PR `json:"in_flight"`
 	// Degraded says that at least one pull request could not be judged, so the
 	// list is a subset rather than the answer. The caller loops, and a loop
 	// that cannot tell a short list from a complete one stops reviewing.
-	Degraded bool     `json:"degraded"`
+	Degraded bool `json:"degraded"`
+	// What could not be judged, and each stale claim --claim took over, named
+	// with the pull request and the claim it replaced. A takeover alone does
+	// not make the run degraded.
 	Warnings []string `json:"warnings"`
 }
 
@@ -54,7 +67,9 @@ var pendingQuery = url.Values{
 	"per_page":        {"30"},
 }
 
-// ListPending returns the pull requests this user should review.
+// ListPending returns the pull requests this user should review, split by
+// their claims. With take, each one that has no live claim is claimed for o's
+// holder first; without it nothing is written.
 //
 // Two of them qualify: one nobody human has reviewed yet, and one this user has
 // already reviewed and been asked for again. A pull request somebody else
@@ -66,7 +81,7 @@ var pendingQuery = url.Values{
 // spells a bot copilot[bot] on both sides where GraphQL spells it copilot on
 // one — the two would stop matching, and every bot would start counting as a
 // person.
-func ListPending(ctx context.Context, c *ghapi.Client) (Pending, error) {
+func ListPending(ctx context.Context, c *ghapi.Client, o ClaimOptions, take bool) (Pending, error) {
 	me, err := c.Viewer(ctx, userTTL)
 	if err != nil {
 		return Pending{}, err
@@ -79,7 +94,8 @@ func ListPending(ctx context.Context, c *ghapi.Client) (Pending, error) {
 		return Pending{}, fmt.Errorf("search for review requests: %w", err)
 	}
 
-	out := Pending{PRs: []PR{}}
+	out := Pending{PRs: []PR{}, InFlight: []PR{}}
+	var wantedPRs []PR
 	for _, item := range found.Items {
 		pr := PR{Number: item.Number, URL: item.HTMLURL}
 		if from, err := ghapi.RepoFromAPIURL(item.RepositoryURL); err == nil {
@@ -100,8 +116,11 @@ func ListPending(ctx context.Context, c *ghapi.Client) (Pending, error) {
 			continue
 		}
 		if wanted(reviews, me, item.User.Login) {
-			out.PRs = append(out.PRs, pr)
+			wantedPRs = append(wantedPRs, pr)
 		}
+	}
+	if err := o.sortClaims(wantedPRs, take, &out); err != nil {
+		return Pending{}, err
 	}
 	return out, nil
 }
@@ -148,7 +167,10 @@ type Verification struct {
 	Results []Result `json:"results"`
 	// At least one pull request could not be checked, and it is absent from
 	// results rather than reported as unposted — not knowing is a third answer.
-	Degraded bool     `json:"degraded"`
+	Degraded bool `json:"degraded"`
+	// What could not be checked, and each claim that was not released: one
+	// another session holds is left in place. A claim left behind does not
+	// make the run degraded.
 	Warnings []string `json:"warnings"`
 }
 

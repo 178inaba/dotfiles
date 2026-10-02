@@ -169,7 +169,7 @@ func TestListPending(t *testing.T) {
 			}
 			_, c := serve(t, f)
 
-			got, err := reviewprs.ListPending(t.Context(), c)
+			got, err := reviewprs.ListPending(t.Context(), c, holder(t.TempDir(), 10, "s1", epoch), false)
 			if err != nil {
 				t.Fatalf("ListPending: %v", err)
 			}
@@ -180,7 +180,7 @@ func TestListPending(t *testing.T) {
 			} else {
 				want = []reviewprs.PR{}
 			}
-			if diff := cmp.Diff(reviewprs.Pending{PRs: want}, got); diff != "" {
+			if diff := cmp.Diff(reviewprs.Pending{PRs: want, InFlight: []reviewprs.PR{}}, got); diff != "" {
 				t.Errorf("ListPending (-want +got):\n%s", diff)
 			}
 		})
@@ -202,7 +202,7 @@ func TestListPendingReadsEveryReviewPage(t *testing.T) {
 		}},
 	})
 
-	got, err := reviewprs.ListPending(t.Context(), c)
+	got, err := reviewprs.ListPending(t.Context(), c, holder(t.TempDir(), 10, "s1", epoch), false)
 	if err != nil {
 		t.Fatalf("ListPending: %v", err)
 	}
@@ -215,12 +215,12 @@ func TestListPendingSearch(t *testing.T) {
 	t.Parallel()
 
 	server, c := serve(t, fixtures{login: "me"})
-	got, err := reviewprs.ListPending(t.Context(), c)
+	got, err := reviewprs.ListPending(t.Context(), c, holder(t.TempDir(), 10, "s1", epoch), false)
 	if err != nil {
 		t.Fatalf("ListPending: %v", err)
 	}
 
-	if diff := cmp.Diff(reviewprs.Pending{PRs: []reviewprs.PR{}}, got); diff != "" {
+	if diff := cmp.Diff(reviewprs.Pending{PRs: []reviewprs.PR{}, InFlight: []reviewprs.PR{}}, got); diff != "" {
 		t.Errorf("ListPending with no hits (-want +got):\n%s", diff)
 	}
 	// The server excludes drafts, because a draft is not asking for review and
@@ -261,7 +261,7 @@ func TestListPendingDegrades(t *testing.T) {
 			t.Parallel()
 
 			_, c := serve(t, fixtures{login: "me", items: tc.items, failReviews: tc.failReviews})
-			got, err := reviewprs.ListPending(t.Context(), c)
+			got, err := reviewprs.ListPending(t.Context(), c, holder(t.TempDir(), 10, "s1", epoch), false)
 			if err != nil {
 				t.Fatalf("ListPending: %v", err)
 			}
@@ -270,6 +270,7 @@ func TestListPendingDegrades(t *testing.T) {
 				// The pull request that could not be judged is left out, and
 				// the one before it is still answered for.
 				PRs:      []reviewprs.PR{{Owner: "acme", Repo: "foo", Number: 100, URL: "https://github.com/acme/foo/pull/100"}},
+				InFlight: []reviewprs.PR{},
 				Degraded: true,
 				Warnings: []string{tc.wantWarning},
 			}
@@ -296,7 +297,7 @@ func TestListPendingFails(t *testing.T) {
 			t.Parallel()
 
 			_, c := serve(t, tc.f)
-			if got, err := reviewprs.ListPending(t.Context(), c); err == nil {
+			if got, err := reviewprs.ListPending(t.Context(), c, holder(t.TempDir(), 10, "s1", epoch), false); err == nil {
 				t.Fatalf("ListPending = %+v, want a failure", got)
 			}
 		})
