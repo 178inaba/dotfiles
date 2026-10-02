@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/sys/unix"
 )
 
 var now = time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
@@ -156,6 +157,34 @@ func TestWriteLeavesNoTemporary(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Errorf("entry holds %v, want only %s", names, recordName)
+	}
+}
+
+// TestWriteMode pins the umask, so that the records are checked to be
+// readable by others exactly as os.WriteFile left them.
+//
+// Not parallel, because the umask belongs to the process: parallel tests are
+// held until the sequential ones are done.
+func TestWriteMode(t *testing.T) {
+	old := unix.Umask(0o022)
+	t.Cleanup(func() { unix.Umask(old) })
+
+	dir := filepath.Join(t.TempDir(), "entry")
+	if err := Write(dir, "k", now, value{Segment: "x"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if !ShouldAttempt(dir, now, time.Minute) {
+		t.Fatal("ShouldAttempt refused an entry with no attempt recorded")
+	}
+
+	for _, name := range []string{recordName, attemptName} {
+		fi, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("Stat: %v", err)
+		}
+		if fi.Mode().Perm() != 0o644 {
+			t.Errorf("%s's mode is %v, want %v", name, fi.Mode().Perm(), os.FileMode(0o644))
+		}
 	}
 }
 

@@ -12,8 +12,9 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
+
+	"github.com/178inaba/dotfiles/go/internal/atomicfile"
 )
 
 const (
@@ -108,16 +109,10 @@ func write[T any](dir, name, key string, at time.Time, value T) error {
 		return err
 	}
 
-	path := filepath.Join(dir, name)
-	tmp := path + "." + strconv.Itoa(os.Getpid())
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	return atomicfile.Write(filepath.Join(dir, name), 0o644, func(f *os.File) error {
+		_, err := f.Write(b)
 		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	})
 }
 
 // Fresh reports whether a record written at is still within maxAge. A clock

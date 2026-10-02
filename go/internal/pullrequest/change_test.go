@@ -190,6 +190,11 @@ func TestReadChange(t *testing.T) {
 		if want := fmt.Sprintf("%x", sha256.Sum256(content)); got.Diff.SHA256 != want {
 			t.Errorf("diff.sha256 = %q, want %q, the digest of the patch file", got.Diff.SHA256, want)
 		}
+		if fi, err := os.Stat(patch); err != nil {
+			t.Fatalf("stat the patch: %v", err)
+		} else if fi.Mode().Perm() != 0o600 {
+			t.Errorf("the patch's mode is %v, want %v", fi.Mode().Perm(), os.FileMode(0o600))
+		}
 		// The patch is written beside its final name and renamed onto it, and
 		// nothing of that is left behind for a reader of the work dir.
 		entries, err := os.ReadDir(filepath.Dir(patch))
