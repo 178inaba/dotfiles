@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/178inaba/dotfiles/go/internal/contract"
-	"github.com/178inaba/dotfiles/go/internal/gitlock"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -133,7 +132,7 @@ func (d *deleter) deleteBranch(ctx context.Context, branch string, verdict Verdi
 			return
 		}
 	}
-	if _, err := gitlock.Git(ctx, d.r, d.dir, "branch", flag, branch); err != nil {
+	if _, err := runner.Git(ctx, d.r, d.dir, "branch", flag, branch); err != nil {
 		d.refuse(branch, runner.Message(err))
 		return
 	}

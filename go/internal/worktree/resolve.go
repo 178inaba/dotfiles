@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
-	"github.com/178inaba/dotfiles/go/internal/gitlock"
+	"github.com/178inaba/dotfiles/go/internal/gitfetch"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -236,11 +236,11 @@ func evacuate(ctx context.Context, r runner.Runner, c *ghapi.Client, repo ghapi.
 // push.autoSetupRemote create the local branch on the base repository.
 func setTracking(ctx context.Context, r runner.Runner, dir, branch string, pr ghapi.PullRequest, remote ghapi.RemoteOptions) ([]string, error) {
 	if !pr.IsCrossRepository {
-		if _, err := gitlock.Git(ctx, r, dir, "fetch", "-q", "origin", pr.HeadRefName); err != nil {
+		if err := gitfetch.Fetch(ctx, r, dir, "-q", "origin", pr.HeadRefName); err != nil {
 			return []string{fmt.Sprintf(
 				"%s is not on origin any more, so %s was left without an upstream", pr.HeadRefName, branch)}, nil
 		}
-		if _, err := gitlock.Git(ctx, r, dir, "branch", "-q", "--set-upstream-to=origin/"+pr.HeadRefName, branch); err != nil {
+		if _, err := runner.Git(ctx, r, dir, "branch", "-q", "--set-upstream-to=origin/"+pr.HeadRefName, branch); err != nil {
 			return nil, fmt.Errorf("failed to set the upstream of %s to origin/%s: %v", branch, pr.HeadRefName, err)
 		}
 		return nil, nil
@@ -256,7 +256,7 @@ func setTracking(ctx context.Context, r runner.Runner, dir, branch string, pr gh
 	}
 	for _, kv := range [][2]string{{"remote", url}, {"pushRemote", url}, {"merge", merge}} {
 		key := "branch." + branch + "." + kv[0]
-		if _, err := gitlock.Git(ctx, r, dir, "config", key, kv[1]); err != nil {
+		if _, err := runner.Git(ctx, r, dir, "config", key, kv[1]); err != nil {
 			return nil, fmt.Errorf("failed to set %s: %v", key, err)
 		}
 	}

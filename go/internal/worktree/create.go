@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/178inaba/dotfiles/go/internal/gitlock"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -66,9 +65,10 @@ func Create(ctx context.Context, r runner.Runner, root, name, branch, base strin
 		return Created{}, err
 	}
 
-	// Under the lock: with branch.autoSetupMerge at git's default, creating a
-	// branch from a remote-tracking ref writes its upstream into .git/config.
-	if _, err := gitlock.Git(ctx, r, root, "worktree", "add", "--quiet", path, "-b", branch, startRef); err != nil {
+	if _, err := r.Run(ctx, runner.Command{
+		Name: "git",
+		Args: []string{"-C", root, "worktree", "add", "--quiet", path, "-b", branch, startRef},
+	}); err != nil {
 		return Created{}, fmt.Errorf("git worktree add failed for %s: %v", path, err)
 	}
 

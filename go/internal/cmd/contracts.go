@@ -774,12 +774,12 @@ up in the repository they are working in. Nothing here is ever cleaned up
 automatically; deleting the workspace is a person's to do.
 
 An existing clone is brought up to date with git fetch --prune, under a lock
-file in its .git directory that every ccx command writing the repository's
-shared refs or configuration takes, so two subagents working in the same clone
-wait for each other rather than failing on git's own locks. A new one is
-built in a hidden temporary directory beside its destination and moved into
-place, so two subagents racing to clone the same repository never see a
-half-finished one — the loser simply adopts the winner's. A crash that skips
+file in its .git directory that every ccx fetch into the repository takes, so
+two subagents fetching into the same clone wait for each other rather than
+failing on a ref lock. A new one is built in a hidden temporary directory
+beside its destination and moved into place, so two subagents racing to clone
+the same repository never see a half-finished one — the loser simply adopts
+the winner's. A crash that skips
 the cleanup can leave one of those temporary .<repo>.XXXXXX directories in the
 owner's directory; they are safe to remove.`,
 		blocks:   []block{prints(reflect.TypeFor[reviewprs.Clone]())},
