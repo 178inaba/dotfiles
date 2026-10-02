@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/178inaba/dotfiles/go/internal/atomicfile"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 	"github.com/178inaba/dotfiles/go/internal/worktree"
@@ -346,32 +347,20 @@ func readDiff(ctx context.Context, r runner.Runner, dir, from, to, patch string)
 // same pull request, which shares the work dir, and the document would then
 // vouch for a diff it was not written with.
 func writePatch(path string, write func(tmp string) error) (string, error) {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	var sum string
+	err := atomicfile.Write(path, 0o600, func(f *os.File) error {
+		if err := write(f.Name()); err != nil {
+			return err
+		}
+		// Read through f, which git wrote to by name: the same file, and
+		// still at its start. Streamed rather than read whole, since the
+		// digest is all that is wanted and the patch is unbounded.
+		var err error
+		sum, err = patchDigest(f)
+		return err
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to create a file for the patch beside %s: %v", path, err)
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err := tmp.Close(); err != nil {
-		return "", fmt.Errorf("failed to create a file for the patch beside %s: %v", path, err)
-	}
-
-	if err := write(name); err != nil {
-		return "", err
-	}
-	// Streamed rather than read whole: the digest is all that is wanted here,
-	// and the patch is unbounded.
-	f, err := os.Open(name)
-	if err != nil {
-		return "", fmt.Errorf("failed to read the patch back: %v", err)
-	}
-	sum, err := patchDigest(f)
-	f.Close()
-	if err != nil {
-		return "", fmt.Errorf("failed to read the patch back: %v", err)
-	}
-	if err := os.Rename(name, path); err != nil {
-		return "", fmt.Errorf("failed to move the patch to %s: %v", path, err)
+		return "", fmt.Errorf("failed to write the patch to %s: %v", path, err)
 	}
 	return sum, nil
 }

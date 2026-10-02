@@ -41,6 +41,13 @@ func TestStoreSeen(t *testing.T) {
 	if !strings.Contains(string(b), `"seen_at": "2026-01-10T00:00:00Z"`) {
 		t.Errorf("the record reads %s, want the instant under seen_at", b)
 	}
+	// The owner's alone, as the context document is: both go through
+	// storeJSON. 0600 holds under any umask that leaves the owner's bits.
+	if fi, err := os.Stat(path); err != nil {
+		t.Fatalf("Stat: %v", err)
+	} else if fi.Mode().Perm() != 0o600 {
+		t.Errorf("the record's mode is %v, want %v", fi.Mode().Perm(), os.FileMode(0o600))
+	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {

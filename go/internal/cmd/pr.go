@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/178inaba/dotfiles/go/internal/atomicfile"
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
 	"github.com/178inaba/dotfiles/go/internal/pullrequest"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -223,34 +224,18 @@ func contextPR(ctx context.Context, client *ghapi.Client, repo ghapi.Repo, dir s
 	return pr, nil
 }
 
-// storeJSON writes a document to the path it is given, through a temporary
-// file in the same directory, so that a run interrupted halfway leaves no
-// partial document where a complete one is expected.
-//
-// One implementation for every document this package writes: the sequence is
-// here precisely because getting it wrong leaves a torn file, and a second
-// copy is one a later hardening would silently miss.
-func storeJSON(path, tmpPrefix string, v any) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, tmpPrefix)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-
-	if err := renderJSON(tmp, v); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+// storeJSON writes a document to the path it is given, so that a run
+// interrupted halfway leaves no partial document where a complete one is
+// expected.
+func storeJSON(path string, v any) error {
+	return atomicfile.Write(path, 0o600, func(f *os.File) error {
+		return renderJSON(f, v)
+	})
 }
 
 // storeContext writes a fetched context to the path it is given.
 func storeContext(path string, c pullrequest.Context) error {
-	return storeJSON(path, ".pr-context.*", c)
+	return storeJSON(path, c)
 }
 
 // storeSeen writes one record of a judged pull request to the path it is
@@ -258,7 +243,7 @@ func storeContext(path string, c pullrequest.Context) error {
 // either the previous record or the new one, and never a torn value the next
 // run would read as nothing recorded.
 func storeSeen(path string, s pullrequest.Seen) error {
-	return storeJSON(path, ".seen.*", s)
+	return storeJSON(path, s)
 }
 
 // prSeenCmd builds `ccx pr seen`, which a skill runs at the end of a run that
