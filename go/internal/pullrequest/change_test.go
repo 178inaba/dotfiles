@@ -215,13 +215,14 @@ func TestReadChange(t *testing.T) {
 	})
 }
 
-// TestReadChangeReportsCopiesAndTypechanges covers the two statuses the main
-// fixture cannot produce.
+// TestReadChangeReportsCopiesAndTypechanges covers what the main fixture
+// cannot produce.
 //
-// A copy is only found where its source was itself touched in the range, and
-// only when copy detection is asked for — which is why the command asks for it
-// rather than leaving the two statuses the contract publishes unreachable. A
-// typechange has no name of its own among the five, and is a modification.
+// A copy of a file the same range modifies is the one git could match against
+// its source, and is reported as an added file all the same: GitHub's pull
+// request diff detects renames and not copies, and a review comment anchors to
+// the lines GitHub shows. A typechange has no name of its own among the
+// statuses, and is a modification.
 func TestReadChangeReportsCopiesAndTypechanges(t *testing.T) {
 	t.Parallel()
 
@@ -247,10 +248,9 @@ func TestReadChangeReportsCopiesAndTypechanges(t *testing.T) {
 		t.Fatalf("ReadChange: %v", err)
 	}
 
-	source := "old.txt"
 	want := []pullrequest.DiffFile{
 		{Path: "base.txt", Status: pullrequest.StatusModified, Additions: new(1), Deletions: new(1)},
-		{Path: "copy.txt", PreviousPath: &source, Status: pullrequest.StatusCopied, Additions: new(0), Deletions: new(0)},
+		{Path: "copy.txt", Status: pullrequest.StatusAdded, Additions: new(3), Deletions: new(0)},
 		{Path: "old.txt", Status: pullrequest.StatusModified, Additions: new(1), Deletions: new(0)},
 	}
 	if diff := cmp.Diff(want, got.Diff.Files); diff != "" {

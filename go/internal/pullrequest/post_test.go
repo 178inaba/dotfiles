@@ -486,52 +486,67 @@ func TestPostAnchorsToThePullRequestsRange(t *testing.T) {
 	}
 }
 
-// TestPostAnchorsToTheDocumentsPatch is a file copied from another the same
-// change edits, which the document's patch shows as a copy with one hunk
-// rather than as a new file whose every line was added. A line of the copy
-// that was not changed is not in the patch the reviewer read, so a comment on
-// it is refused, and the changed one is accepted.
-func TestPostAnchorsToTheDocumentsPatch(t *testing.T) {
+// TestPostAnchorsAsGitHubDoes is a change holding a copy of a file it also
+// edits and a rename with an edit, and each case is the answer GitHub's review
+// endpoint gave on a pull request built the same way: a rename keeps its old
+// lines out of the diff, and a copy, which GitHub does not detect, is a new
+// file whose every line was added.
+func TestPostAnchorsAsGitHubDoes(t *testing.T) {
 	t.Parallel()
 	gittest.SkipWithoutGit(t)
 
+	lines := func(name string) string {
+		var b strings.Builder
+		for i := 1; i <= 20; i++ {
+			fmt.Fprintf(&b, "%s line %d\n", name, i)
+		}
+		return b.String()
+	}
 	repo := t.TempDir()
 	gittest.Init(t, repo, "-b", "main")
-	var lines strings.Builder
-	for i := 1; i <= 20; i++ {
-		fmt.Fprintf(&lines, "line %d\n", i)
-	}
-	gittest.Write(t, filepath.Join(repo, "source.txt"), lines.String())
-	gittest.Run(t, repo, "add", "source.txt")
+	gittest.Write(t, filepath.Join(repo, "source.txt"), lines("source"))
+	gittest.Write(t, filepath.Join(repo, "moved.txt"), lines("moved"))
+	gittest.Run(t, repo, "add", ".")
 	gittest.Run(t, repo, "commit", "-qm", "init")
 
 	gittest.Run(t, repo, "switch", "-qc", "feature/x")
-	// The source is edited too: git looks for the origin of a copy only among
-	// the files a change modifies.
-	gittest.Write(t, filepath.Join(repo, "source.txt"), lines.String()+"line 21\n")
-	gittest.Write(t, filepath.Join(repo, "copy.txt"), strings.Replace(lines.String(), "line 20\n", "line twenty\n", 1))
-	gittest.Run(t, repo, "add", "source.txt", "copy.txt")
-	gittest.Run(t, repo, "commit", "-qm", "copy")
+	// The source is edited too: that is what makes the copy one git could
+	// match against it.
+	gittest.Write(t, filepath.Join(repo, "source.txt"), lines("source")+"source line 21\n")
+	gittest.Write(t, filepath.Join(repo, "copy.txt"), strings.Replace(lines("source"), "source line 20\n", "source line twenty\n", 1))
+	gittest.Run(t, repo, "mv", "moved.txt", "renamed.txt")
+	gittest.Write(t, filepath.Join(repo, "renamed.txt"), strings.Replace(lines("moved"), "moved line 20\n", "moved line twenty\n", 1))
+	gittest.Run(t, repo, "add", ".")
+	gittest.Run(t, repo, "commit", "-qm", "copy and rename")
 
 	target := documentTarget(t, repo, "main", "")
 	c := ghapitest.New(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"html_url":"https://example.com/r"}`)
 	}))
-	post := func(line int) error {
+
+	for _, tc := range []struct {
+		path     string
+		line     int
+		accepted bool
+	}{
+		{path: "copy.txt", line: 1, accepted: true},
+		{path: "copy.txt", line: 20, accepted: true},
+		{path: "renamed.txt", line: 1, accepted: false},
+		{path: "renamed.txt", line: 20, accepted: true},
+		{path: "source.txt", line: 1, accepted: false},
+	} {
+		at := fmt.Sprintf("%s:%d", tc.path, tc.line)
 		_, err := pullrequest.Post(t.Context(), runner.Exec{}, c, repo, target, pullrequest.Submission{
 			Assessment: pullrequest.AssessmentDiscuss, Body: ghapitest.Body(t, "x"),
-			Comments: []ghapi.ReviewComment{{Path: "copy.txt", Line: line, Body: ghapitest.Body(t, "y")}},
+			Comments: []ghapi.ReviewComment{{Path: tc.path, Line: tc.line, Body: ghapitest.Body(t, "y")}},
 		})
-		return err
-	}
-
-	if err := post(20); err != nil {
-		t.Errorf("a comment on copy.txt:20, which the patch changes, was refused: %v", err)
-	}
-	err := post(1)
-	if err == nil || !strings.Contains(err.Error(), "copy.txt:1") {
-		t.Errorf("Post error = %v, want it to refuse copy.txt:1, which the patch does not show", err)
+		switch {
+		case tc.accepted && err != nil:
+			t.Errorf("a comment on %s, which GitHub accepts, was refused: %v", at, err)
+		case !tc.accepted && (err == nil || !strings.Contains(err.Error(), at)):
+			t.Errorf("Post error = %v, want it to refuse %s, which GitHub refuses", err, at)
+		}
 	}
 }
 
