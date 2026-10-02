@@ -93,7 +93,7 @@ func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo Owne
 
 	if isRepo(path) {
 		if err := gitfetch.Fetch(ctx, r, path, "--prune"); err != nil {
-			return Clone{}, fmt.Errorf("failed to fetch %s", repo)
+			return Clone{}, fmt.Errorf("failed to fetch %s: %w", repo, err)
 		}
 		return Clone{Path: path}, nil
 	}
