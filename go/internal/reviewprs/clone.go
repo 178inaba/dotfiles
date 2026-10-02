@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"github.com/178inaba/dotfiles/go/internal/ghapi"
+	"github.com/178inaba/dotfiles/go/internal/gitfetch"
 	"github.com/178inaba/dotfiles/go/internal/runner"
 )
 
@@ -71,18 +72,18 @@ type Clone struct {
 // fetching into one that is already there.
 //
 // Safe to run for the same repository at the same time, which happens whenever
-// two subagents review two pull requests of one repository. There is no lock:
-// the clone is completed in a hidden temporary directory beside its
-// destination and moved into place in one step, so the destination only ever
-// holds a finished clone, and whoever loses the race adopts the winner's rather
-// than replacing it. macOS has no flock(1), and a lock built out of mkdir plus
-// stale detection would cost more than the one wasted clone it saves.
+// two subagents review two pull requests of one repository. A new clone is
+// completed in a hidden temporary directory beside its destination and moved
+// into place in one step, so the destination only ever holds a finished clone,
+// and whoever loses the race adopts the winner's rather than replacing it. A
+// fetch into an existing clone goes through gitfetch, which makes concurrent
+// fetches into one repository wait for each other.
 func EnsureClone(ctx context.Context, r runner.Runner, o CloneOptions, repo OwnerRepo) (Clone, error) {
 	parent := filepath.Join(o.DataHome, Workspace, repo.Owner)
 	path := filepath.Join(parent, repo.Name)
 
 	if isRepo(path) {
-		if _, err := r.Run(ctx, runner.Command{Name: "git", Args: []string{"-C", path, "fetch", "--prune"}}); err != nil {
+		if _, err := gitfetch.Fetch(ctx, r, path, "--prune"); err != nil {
 			return Clone{}, fmt.Errorf("failed to fetch %s", repo)
 		}
 		return Clone{Path: path}, nil
