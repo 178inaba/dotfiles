@@ -3,7 +3,7 @@ module github.com/178inaba/dotfiles/go
 go 1.27
 
 require (
-	github.com/bmatcuk/doublestar/v4 v4.10.3
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/cli/go-gh/v2 v2.17.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-cmp v0.7.0
