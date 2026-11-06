@@ -35,9 +35,9 @@
 // commit message that merely mentions one of the commands is judged too. And a
 // list the model has just written may not be flushed to the transcript yet
 // when the gate runs; that costs one extra block, and the retry passes. One
-// falls on the allowing side: a command whose text carries a gated command
-// directly followed by --help — a title quoting it — reads as a call for help
-// and is let through.
+// falls on the allowing side: a gated command whose own text also carries that
+// same command directly followed by --help — a PR title quoting
+// "gh pr create --help" — reads as a call for help and is let through.
 package findinglist
 
 import (
