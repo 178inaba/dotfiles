@@ -13,8 +13,8 @@
 // about the transcript; which bucket a finding belongs in is a judgment, and
 // this guard never makes it.
 //
-// It runs on PreToolUse for the two commands at which undisposed findings
-// leave the session — creating the pull request and marking it ready — and
+// It runs on PreToolUse for the commands at which undisposed findings leave
+// the session — creating the pull request and marking it ready — and
 // not on Stop. A Stop guard cannot tell a premature stop from a turn that
 // ends to wait for background agents or to ask the user, and blocks both of
 // those. Neither applies here: a run about to publish is not waiting and not
@@ -32,9 +32,12 @@
 // session that owes the list is not the one making that call. A line that is
 // not JSON is skipped and the rest still judged. Two known limits fall on the
 // blocking side. The gate matches the command as a substring, so a grep or a
-// commit message that merely mentions one of the two commands is judged too.
-// And a list the model has just written may not be flushed to the transcript
-// yet when the gate runs; that costs one extra block, and the retry passes.
+// commit message that merely mentions one of the commands is judged too. And a
+// list the model has just written may not be flushed to the transcript yet
+// when the gate runs; that costs one extra block, and the retry passes. One
+// falls on the allowing side: a command whose text carries a gated command
+// directly followed by --help — a title quoting it — reads as a call for help
+// and is let through.
 package findinglist
 
 import (
@@ -51,16 +54,15 @@ import (
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 )
 
-// Heading opens the list finding-severity asks for. The skill owns it; a test
+// heading opens the list finding-severity asks for. The skill owns it; a test
 // pins this copy to the skill's text.
-const Heading = "### 指摘事項の対応判断"
+const heading = "### 指摘事項の対応判断"
 
 const skill = "finding-severity"
 
-// gates are the commands at which findings leave the session. --help on
-// either publishes nothing, and issue-handle sends the run to ccx pr ready
-// --help for how to read its output.
-var gates = []string{"gh pr create", "ccx pr ready"}
+// gates are the commands at which findings leave the session: creating the
+// pull request, and either way of marking it ready.
+var gates = []string{"gh pr create", "ccx pr ready", "gh pr ready"}
 
 // message is what the model is told. It names no path: the file a launcher
 // reads for the Issue bucket exists under one launcher only.
@@ -93,15 +95,19 @@ func (Hook) Run(_ context.Context, in hooks.Payload) hooks.Result {
 	if err != nil || r.missing == 0 {
 		return hooks.Result{}
 	}
-	return hooks.Result{Decision: hooks.Block, Message: fmt.Sprintf(message, r.missing, r.last, Heading)}
+	return hooks.Result{Decision: hooks.Block, Message: fmt.Sprintf(message, r.missing, r.last, heading)}
 }
 
+// gated reports whether a command publishes through one of the gates. A gate
+// directly followed by --help only prints its usage, which issue-handle reads
+// for ccx pr ready's output; --help elsewhere, such as in a title, does not
+// stop the call. gh pr ready --undo puts a pull request back to draft.
 func gated(command string) bool {
-	if strings.Contains(command, "--help") {
-		return false
-	}
 	for _, g := range gates {
-		if strings.Contains(command, g) {
+		switch {
+		case !strings.Contains(command, g), strings.Contains(command, g+" --help"):
+		case g == "gh pr ready" && strings.Contains(command, "--undo"):
+		default:
 			return true
 		}
 	}
@@ -189,7 +195,7 @@ func scan(path string) (tally, error) {
 					open, cur = true, prev
 				case b.Type == "tool_use":
 					prev = describe(b)
-				case b.Type == "text" && open && startsALine(b.Text, Heading):
+				case b.Type == "text" && open && startsALine(b.Text, heading):
 					open = false
 				}
 			}

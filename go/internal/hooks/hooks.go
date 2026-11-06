@@ -26,7 +26,9 @@ const unknownSession = "unknown"
 type Payload struct {
 	// SessionID is unknownSession when the input names no session.
 	SessionID string
-	// AgentID is empty outside a subagent event.
+	// AgentID names the subagent an event belongs to: set on SubagentStart and
+	// SubagentStop, and on a tool call a subagent makes. It is empty for the
+	// main session.
 	AgentID  string
 	ToolName string
 	// Dir is the session's working directory, the payload's cwd.

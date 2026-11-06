@@ -42,11 +42,11 @@ func text(s string) string {
 
 // list is the assistant text that pairs a launch: the heading at the start of
 // a line, after whatever the model wrote before it.
-var list = text("Triage done.\n\n" + Heading + "\n\n#### 対応する指摘\n- a.go: x")
+var list = text("Triage done.\n\n" + heading + "\n\n#### 対応する指摘\n- a.go: x")
 
 // skillBody is the expanded SKILL.md. It quotes the heading inside a fence, and
 // that is not the model writing a list.
-var skillBody = `{"type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x/finding-severity\n\n` + "```markdown\\n" + Heading + "\\n```" + `"}]}}`
+var skillBody = `{"type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x/finding-severity\n\n` + "```markdown\\n" + heading + "\\n```" + `"}]}}`
 
 func transcript(t *testing.T, lines ...string) string {
 	t.Helper()
@@ -91,6 +91,27 @@ func TestRunBlocks(t *testing.T) {
 			count:   1, after: "Skill (simplify)",
 		},
 		{
+			name:    "a launch with no list, at gh pr ready",
+			command: "gh pr ready 12 -R o/r",
+			lines:   []string{skillCall("s1", "simplify"), launch("l1"), text("applying")},
+			count:   1, after: "Skill (simplify)",
+		},
+		{
+			// --help in the title is not --help on the command: this call
+			// creates the pull request.
+			name:    "a PR creation whose title mentions --help",
+			command: `gh pr create --title "Do not count reading --help" --body-file b.md`,
+			lines:   []string{skillCall("s1", "simplify"), launch("l1"), text("applying")},
+			count:   1, after: "Skill (simplify)",
+		},
+		{
+			// The list answers the launch before it, never one that follows.
+			name:    "a list written before the launch",
+			command: createPR,
+			lines:   []string{list, launch("l1"), text("applying")},
+			count:   1, after: "the start of the transcript",
+		},
+		{
 			name:    "the second of two launches has no list",
 			command: ready,
 			lines: []string{
@@ -127,14 +148,14 @@ func TestRunBlocks(t *testing.T) {
 			command: createPR,
 			lines: []string{
 				launch("l1"),
-				toolUse("w1", "Write", fmt.Sprintf(`{"file_path":"list.md","content":%q}`, Heading+"\n")),
+				toolUse("w1", "Write", fmt.Sprintf(`{"file_path":"list.md","content":%q}`, heading+"\n")),
 			},
 			count: 1, after: "the start of the transcript",
 		},
 		{
 			name:    "the heading in the middle of a line",
 			command: createPR,
-			lines:   []string{launch("l1"), text("I will write " + Heading + " later")},
+			lines:   []string{launch("l1"), text("I will write " + heading + " later")},
 			count:   1, after: "the start of the transcript",
 		},
 		{
@@ -157,7 +178,7 @@ func TestRunBlocks(t *testing.T) {
 			for _, want := range []string{
 				fmt.Sprintf("launches without a list: %d", tt.count),
 				"the most recent came right after: " + tt.after,
-				Heading,
+				heading,
 				"Issue 側の修正が要る指摘",
 				"run the blocked command again",
 			} {
@@ -166,7 +187,9 @@ func TestRunBlocks(t *testing.T) {
 				}
 			}
 			// issue-conflict.md exists under one launcher only; the other
-			// launcher's run would be sent to a file it does not have.
+			// launcher's run would be sent to a file it does not have. The
+			// check covers the described tool call too, so no fixture here
+			// gives an agent a description with a slash in it.
 			if strings.Contains(got.Message, "/") || strings.Contains(got.Message, "issue-conflict") {
 				t.Errorf("message names a path or issue-conflict.md:\n%s", got.Message)
 			}
@@ -206,7 +229,7 @@ func TestRunAllows(t *testing.T) {
 		// Outside the gate the transcript is never read: a missing file allows.
 		{"gh pr view", bash("gh pr view --json isDraft", missing)},
 		{"git commit", bash("git commit -m x", missing)},
-		{"gh pr ready, which is not a gate", bash("gh pr ready 12", missing)},
+		{"gh pr ready --undo, which puts the PR back to draft", bash("gh pr ready --undo 12 -R o/r", missing)},
 		{"ccx pr ready --help", bash("ccx pr ready --help", unpaired)},
 		{"gh pr create --help", bash("gh pr create --help", unpaired)},
 		{"a tool that is not Bash", hooks.Payload{ToolName: "Edit", Command: createPR, TranscriptPath: unpaired}},
@@ -243,7 +266,7 @@ func TestHeadingMatchesTheSkill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%q): %v", path, err)
 	}
-	if !startsALine(string(b), Heading) {
-		t.Errorf("%s does not start a line with %q, so the guard no longer recognises the list the skill asks for", path, Heading)
+	if !startsALine(string(b), heading) {
+		t.Errorf("%s does not start a line with %q, so the guard no longer recognises the list the skill asks for", path, heading)
 	}
 }
