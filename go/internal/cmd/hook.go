@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/findinglist"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
 	"github.com/178inaba/dotfiles/go/internal/hooks/notify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/skillcheck"
@@ -37,6 +38,8 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 func newHookCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
+		leafHookCmd("finding-list-guard", "Block PR creation and Ready while a finding-severity launch has no disposition list", deps,
+			func() hook { return findinglist.New() }),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", deps,
 			func() hook { return notify.NewIdle(notify.Default()) }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", deps,
