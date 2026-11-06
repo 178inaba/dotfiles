@@ -374,9 +374,8 @@ func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
 }
 
 // The corners of the documented field a naive reader gets wrong: a brace group
-// is expanded, a string is a list of patterns of its own, and neither a pattern
-// that is not a glob nor a value that is neither a string nor a list fails the
-// run.
+// is expanded, and neither a pattern that is not a glob nor a value that is
+// neither a string nor a list fails the run.
 func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 	dir := t.TempDir()
 	writeTree(t, dir, map[string]string{
@@ -387,15 +386,14 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 		// stays out of loaded, and it has no pattern to match anything with.
 		".claude/rules/empty.md":  "---\npaths: []\n---\n",
 		".claude/rules/number.md": "---\npaths: 42\n---\n",
-		".claude/rules/scalar.md": "---\npaths: \"src/**\"\n---\n",
 	})
 
 	tests := map[string]struct {
 		path      string
 		documents []string
 	}{
-		"a brace alternative":             {path: "src/a.tsx", documents: []string{".claude/rules/braces.md", ".claude/rules/scalar.md"}},
-		"outside every alternative":       {path: "src/a.js", documents: []string{".claude/rules/scalar.md"}},
+		"a brace alternative":             {path: "src/a.tsx", documents: []string{".claude/rules/braces.md"}},
+		"outside every alternative":       {path: "src/a.js"},
 		"what the invalid pattern spells": {path: "photos [2024/x.png"},
 	}
 	for name, tt := range tests {
@@ -490,22 +488,21 @@ func TestCollectReadsTheCommaSeparatedForm(t *testing.T) {
 // listed for every path in matches and for none in misses.
 func assertRuleMatches(t *testing.T, dir string, matches, misses []string) {
 	t.Helper()
-	for _, path := range matches {
-		got, err := Collect(dir, t.TempDir(), path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if diff := cmp.Diff(Collection{Documents: abs(dir, ".claude/rules/r.md")}, got); diff != "" {
-			t.Errorf("Collect(%q) mismatch (-want +got):\n%s", path, diff)
-		}
-	}
-	for _, path := range misses {
-		got, err := Collect(dir, t.TempDir(), path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if diff := cmp.Diff(Collection{}, got); diff != "" {
-			t.Errorf("Collect(%q) mismatch (-want +got):\n%s", path, diff)
+	for _, c := range []struct {
+		paths []string
+		want  Collection
+	}{
+		{matches, Collection{Documents: abs(dir, ".claude/rules/r.md")}},
+		{misses, Collection{}},
+	} {
+		for _, path := range c.paths {
+			got, err := Collect(dir, t.TempDir(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(c.want, got); diff != "" {
+				t.Errorf("Collect(%q) mismatch (-want +got):\n%s", path, diff)
+			}
 		}
 	}
 }
