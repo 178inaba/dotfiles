@@ -83,6 +83,15 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/go/bin/ccx hook finding-list-guard"
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write|NotebookEdit",
         "hooks": [
           {
