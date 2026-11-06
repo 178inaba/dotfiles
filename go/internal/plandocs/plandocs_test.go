@@ -421,7 +421,7 @@ func TestCollectMatchesTheDocumentationTable(t *testing.T) {
 	}{
 		"**/*.ts":              {matches: []string{"sub/a.ts"}, misses: []string{"sub/a.js"}},
 		"src/**/*":             {matches: []string{"src/x/a.go"}, misses: []string{"lib/a.go"}},
-		"*.md":                 {matches: []string{"README.md", "sub/c.md"}},
+		"*.md":                 {matches: []string{"README.md", "sub/c.md"}, misses: []string{"sub/c.txt"}},
 		"/*.md":                {matches: []string{"README.md"}, misses: []string{"sub/c.md"}},
 		"src/components/*.tsx": {matches: []string{"src/components/a.tsx"}, misses: []string{"src/components/x/a.tsx"}},
 	}

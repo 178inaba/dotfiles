@@ -481,7 +481,7 @@ type rule struct {
 	// Whether the frontmatter declares a paths field, which is the whole of
 	// what decides when the harness loads the rule.
 	scoped bool
-	// The patterns that field holds, as written. A scoped rule can have none —
+	// The patterns that field holds, before anchoring. A scoped rule can have none —
 	// the field can be empty, or hold something that is neither a string nor a
 	// list — and it is still scoped, since the key is what the harness reads.
 	patterns []string
