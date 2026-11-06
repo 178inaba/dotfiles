@@ -373,9 +373,10 @@ func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
 	}
 }
 
-// The two corners of the documented pattern syntax a naive matcher gets wrong:
-// a brace group is expanded, and a pattern that is not a glob at all matches
-// nothing rather than failing the run.
+// The corners of the documented field a naive reader gets wrong: a brace group
+// is expanded, a string is a list of patterns of its own, and neither a pattern
+// that is not a glob nor a value that is neither a string nor a list fails the
+// run.
 func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 	dir := t.TempDir()
 	writeTree(t, dir, map[string]string{
@@ -385,6 +386,7 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 		// A paths key holding nothing usable is still a scoped rule, so it
 		// stays out of loaded, and it has no pattern to match anything with.
 		".claude/rules/empty.md":  "---\npaths: []\n---\n",
+		".claude/rules/number.md": "---\npaths: 42\n---\n",
 		".claude/rules/scalar.md": "---\npaths: \"src/**\"\n---\n",
 	})
 
@@ -392,8 +394,8 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 		path      string
 		documents []string
 	}{
-		"a brace alternative":             {path: "src/a.tsx", documents: []string{".claude/rules/braces.md"}},
-		"outside every alternative":       {path: "src/a.js"},
+		"a brace alternative":             {path: "src/a.tsx", documents: []string{".claude/rules/braces.md", ".claude/rules/scalar.md"}},
+		"outside every alternative":       {path: "src/a.js", documents: []string{".claude/rules/scalar.md"}},
 		"what the invalid pattern spells": {path: "photos [2024/x.png"},
 	}
 	for name, tt := range tests {
@@ -408,6 +410,77 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// A string value is a comma-separated list of patterns, and so is each entry of
+// a list. The split is at a comma outside a brace group, since the comma inside
+// one separates the alternatives of a single pattern.
+func TestCollectReadsTheCommaSeparatedForm(t *testing.T) {
+	tests := map[string]struct {
+		paths   string
+		matches []string
+		misses  []string
+	}{
+		"a string of one pattern": {
+			paths:   `"src/**"`,
+			matches: []string{"src/a.ts"},
+			misses:  []string{"lib/b.ts"},
+		},
+		"a string of several patterns": {
+			paths:   `"src/**, lib/**"`,
+			matches: []string{"src/a.ts", "lib/b.ts"},
+			misses:  []string{"docs/c.md"},
+		},
+		"no space after the comma": {
+			paths:   `"src/**,lib/**"`,
+			matches: []string{"src/a.ts", "lib/b.ts"},
+			misses:  []string{"docs/c.md"},
+		},
+		"a brace group beside a comma": {
+			paths:   `"src/*.{ts,tsx}, lib/**"`,
+			matches: []string{"src/a.tsx", "lib/b.ts"},
+			misses:  []string{"src/a.js"},
+		},
+		"a comma inside a list entry": {
+			paths:   "\n  - \"src/**, lib/**\"",
+			matches: []string{"src/a.ts", "lib/b.ts"},
+			misses:  []string{"docs/c.md"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTree(t, dir, map[string]string{
+				".git/HEAD":          "ref: refs/heads/main\n",
+				".claude/rules/r.md": "---\npaths: " + tt.paths + "\n---\n",
+			})
+			assertRuleMatches(t, dir, tt.matches, tt.misses)
+		})
+	}
+}
+
+// assertRuleMatches checks that the fixture's one rule, .claude/rules/r.md, is
+// listed for every path in matches and for none in misses.
+func assertRuleMatches(t *testing.T, dir string, matches, misses []string) {
+	t.Helper()
+	for _, path := range matches {
+		got, err := Collect(dir, t.TempDir(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(Collection{Documents: abs(dir, ".claude/rules/r.md")}, got); diff != "" {
+			t.Errorf("Collect(%q) mismatch (-want +got):\n%s", path, diff)
+		}
+	}
+	for _, path := range misses {
+		got, err := Collect(dir, t.TempDir(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(Collection{}, got); diff != "" {
+			t.Errorf("Collect(%q) mismatch (-want +got):\n%s", path, diff)
+		}
 	}
 }
 

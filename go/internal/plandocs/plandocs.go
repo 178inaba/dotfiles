@@ -461,9 +461,9 @@ type rule struct {
 	// Whether the frontmatter declares a paths field, which is the whole of
 	// what decides when the harness loads the rule.
 	scoped bool
-	// The patterns that field holds. A scoped rule can have none — the field
-	// can be empty, or hold something that is not a list of strings — and it
-	// is still scoped, since the key is what the harness reads.
+	// The patterns that field holds, as written. A scoped rule can have none —
+	// the field can be empty, or hold something that is neither a string nor a
+	// list — and it is still scoped, since the key is what the harness reads.
 	patterns []string
 }
 
@@ -492,17 +492,57 @@ func declaredPaths(path string) ([]string, bool, error) {
 		return nil, false, nil
 	}
 
-	// Anything the field holds that is not a string is no pattern, and the
-	// rule stays scoped either way: the key is what decides that the harness
-	// does not load it at launch.
-	list, _ := declared.([]any)
+	// The documentation accepts a list or a comma-separated string, and the
+	// harness splits a list's entries at their commas too. Anything else the
+	// field holds is no pattern, and the rule stays scoped either way: the key
+	// is what decides that the harness does not load it at launch.
 	var patterns []string
-	for _, entry := range list {
-		if pattern, ok := entry.(string); ok {
-			patterns = append(patterns, pattern)
+	switch v := declared.(type) {
+	case string:
+		patterns = splitPatterns(v)
+	case []any:
+		for _, entry := range v {
+			if s, ok := entry.(string); ok {
+				patterns = append(patterns, splitPatterns(s)...)
+			}
 		}
 	}
 	return patterns, true, nil
+}
+
+// splitPatterns cuts a comma-separated list of patterns at each comma outside
+// a brace group, where a comma separates the alternatives of one pattern
+// instead. Whitespace around a pattern is trimmed and an empty one dropped.
+//
+// Braces are the only grouping tracked. A comma inside a bracket expression is
+// a separator here, and a backslash escapes nothing, so \{ opens a group: the
+// documentation gives no example of either, and the harness was measured only
+// on braces.
+func splitPatterns(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i, r := range s {
+		switch r {
+		case '{':
+			depth++
+		case '}':
+			depth = max(depth-1, 0)
+		case ',':
+			if depth == 0 {
+				out = appendPattern(out, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return appendPattern(out, s[start:])
+}
+
+// appendPattern adds a piece of a pattern list unless it is blank.
+func appendPattern(out []string, piece string) []string {
+	if p := strings.TrimSpace(piece); p != "" {
+		return append(out, p)
+	}
+	return out
 }
 
 // hasGitEntry reports whether a directory is a checkout of its own, which is
