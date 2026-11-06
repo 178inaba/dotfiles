@@ -413,6 +413,32 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 	}
 }
 
+// Every row of the documentation's pattern table, each with a path it matches
+// and one it does not. A leading slash anchors a pattern to the basis, and a
+// pattern with no slash matches at any depth below it.
+func TestCollectMatchesTheDocumentationTable(t *testing.T) {
+	tests := map[string]struct {
+		matches []string
+		misses  []string
+	}{
+		"**/*.ts":              {matches: []string{"sub/a.ts"}, misses: []string{"sub/a.js"}},
+		"src/**/*":             {matches: []string{"src/x/a.go"}, misses: []string{"lib/a.go"}},
+		"*.md":                 {matches: []string{"README.md", "sub/c.md"}},
+		"/*.md":                {matches: []string{"README.md"}, misses: []string{"sub/c.md"}},
+		"src/components/*.tsx": {matches: []string{"src/components/a.tsx"}, misses: []string{"src/components/x/a.tsx"}},
+	}
+	for pattern, tt := range tests {
+		t.Run(pattern, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTree(t, dir, map[string]string{
+				".git/HEAD":          "ref: refs/heads/main\n",
+				".claude/rules/r.md": "---\npaths:\n  - \"" + pattern + "\"\n---\n",
+			})
+			assertRuleMatches(t, dir, tt.matches, tt.misses)
+		})
+	}
+}
+
 // A string value is a comma-separated list of patterns, and so is each entry of
 // a list. The split is at a comma outside a brace group, since the comma inside
 // one separates the alternatives of a single pattern.

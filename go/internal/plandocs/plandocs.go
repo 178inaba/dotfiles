@@ -390,10 +390,11 @@ func (c *collector) matched(dirs []string, scoped map[string][]rule, paths []str
 // matchesAny reports whether any pattern matches any of the paths, each made
 // relative to the basis.
 //
-// A pattern that is not a valid glob matches nothing and does not fail the
-// run, as the documentation says of one the harness cannot read. The one
-// documented difference in the syntax is the brace-expansion budget, which is
-// not reproduced here.
+// Each pattern goes through anchored first, which gives it the meaning the
+// documentation's table does. A pattern that is not a valid glob matches
+// nothing and does not fail the run, as the documentation says of one the
+// harness cannot read. The one documented difference in the syntax is the
+// brace-expansion budget, which is not reproduced here.
 func matchesAny(patterns []string, basis string, paths []string) bool {
 	for _, path := range paths {
 		rel, err := filepath.Rel(basis, path)
@@ -401,12 +402,31 @@ func matchesAny(patterns []string, basis string, paths []string) bool {
 			continue
 		}
 		for _, pattern := range patterns {
-			if ok, err := doublestar.Match(pattern, filepath.ToSlash(rel)); err == nil && ok {
+			if ok, err := doublestar.Match(anchored(pattern), filepath.ToSlash(rel)); err == nil && ok {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// anchored turns a pattern as the documentation writes it into one doublestar
+// matches the same way against a path relative to the basis. A leading slash
+// anchors the pattern to the basis, which a whole-path match already does once
+// the slash is gone. A pattern with no slash at all matches at any depth, which
+// a leading **/ gives it, since **/ matches zero directories too. Anything
+// else already means what doublestar takes it to.
+//
+// The slash is looked for in the pattern as written, before doublestar expands
+// any brace group in it.
+func anchored(pattern string) string {
+	if rest, ok := strings.CutPrefix(pattern, "/"); ok {
+		return rest
+	}
+	if !strings.Contains(pattern, "/") {
+		return "**/" + pattern
+	}
+	return pattern
 }
 
 // rulesIn lists the rules under a .claude/rules/, recursively, saying of each
