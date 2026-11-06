@@ -12,6 +12,8 @@ package hooks
 
 import (
 	"encoding/json/v2"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -37,6 +39,10 @@ type Payload struct {
 	// notebook_path and the others file_path; no hook cares which key it came
 	// from, only what is being edited.
 	FilePath string
+	// TranscriptPath names the session's transcript, ready to be opened: the
+	// reference's own examples spell it with a leading ~, so Parse resolves
+	// that here rather than leaving each reader to discover it.
+	TranscriptPath string
 	// Source is what triggered a SessionStart event: startup, resume, clear,
 	// compact, or fork.
 	Source string
@@ -57,7 +63,8 @@ type wire struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 	} `json:"tool_input"`
-	Source string `json:"source"`
+	TranscriptPath string `json:"transcript_path"`
+	Source         string `json:"source"`
 }
 
 // Parse reads the hook input.
@@ -83,6 +90,7 @@ func Parse(in []byte) Payload {
 		NotificationType: w.NotificationType,
 		Command:          w.ToolInput.Command,
 		FilePath:         w.ToolInput.FilePath,
+		TranscriptPath:   expandHome(w.TranscriptPath),
 		Source:           w.Source,
 	}
 	if p.SessionID == "" {
@@ -107,6 +115,20 @@ func fileSafe(id string) string {
 		}
 		return -1
 	}, id)
+}
+
+// expandHome resolves a leading ~, which is how the reference's examples
+// spell transcript_path. os.Open cannot follow it, and a hook that fails to
+// open the transcript falls open and never fires — a failure with no symptom.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, strings.TrimPrefix(p, "~"))
 }
 
 // IsEditTool reports whether a tool call writes a file. The three names are
