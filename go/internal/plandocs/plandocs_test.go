@@ -373,9 +373,9 @@ func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
 	}
 }
 
-// The two corners of the documented pattern syntax a naive matcher gets wrong:
-// a brace group is expanded, and a pattern that is not a glob at all matches
-// nothing rather than failing the run.
+// The corners of the documented field a naive reader gets wrong: a brace group
+// is expanded, and neither a pattern that is not a glob nor a value that is
+// neither a string nor a list fails the run.
 func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 	dir := t.TempDir()
 	writeTree(t, dir, map[string]string{
@@ -385,7 +385,7 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 		// A paths key holding nothing usable is still a scoped rule, so it
 		// stays out of loaded, and it has no pattern to match anything with.
 		".claude/rules/empty.md":  "---\npaths: []\n---\n",
-		".claude/rules/scalar.md": "---\npaths: \"src/**\"\n---\n",
+		".claude/rules/number.md": "---\npaths: 42\n---\n",
 	})
 
 	tests := map[string]struct {
@@ -408,6 +408,102 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Every row of the documentation's pattern table, each with a path it matches
+// and one it does not. A leading slash anchors a pattern to the basis, and a
+// pattern with no slash matches at any depth below it.
+func TestCollectMatchesTheDocumentationTable(t *testing.T) {
+	tests := map[string]struct {
+		matches []string
+		misses  []string
+	}{
+		"**/*.ts":              {matches: []string{"sub/a.ts"}, misses: []string{"sub/a.js"}},
+		"src/**/*":             {matches: []string{"src/x/a.go"}, misses: []string{"lib/a.go"}},
+		"*.md":                 {matches: []string{"README.md", "sub/c.md"}, misses: []string{"sub/c.txt"}},
+		"/*.md":                {matches: []string{"README.md"}, misses: []string{"sub/c.md"}},
+		"src/components/*.tsx": {matches: []string{"src/components/a.tsx"}, misses: []string{"src/components/x/a.tsx"}},
+	}
+	for pattern, tt := range tests {
+		t.Run(pattern, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTree(t, dir, map[string]string{
+				".git/HEAD":          "ref: refs/heads/main\n",
+				".claude/rules/r.md": "---\npaths:\n  - \"" + pattern + "\"\n---\n",
+			})
+			assertRuleMatches(t, dir, tt.matches, tt.misses)
+		})
+	}
+}
+
+// A string value is a comma-separated list of patterns, and so is each entry of
+// a list. The split is at a comma outside a brace group, since the comma inside
+// one separates the alternatives of a single pattern.
+func TestCollectReadsTheCommaSeparatedForm(t *testing.T) {
+	tests := map[string]struct {
+		paths   string
+		matches []string
+		misses  []string
+	}{
+		"a string of one pattern": {
+			paths:   `"src/**"`,
+			matches: []string{"src/a.ts"},
+			misses:  []string{"lib/b.ts"},
+		},
+		"a string of several patterns": {
+			paths:   `"src/**, lib/**"`,
+			matches: []string{"src/a.ts", "lib/b.ts"},
+			misses:  []string{"docs/c.md"},
+		},
+		"no space after the comma": {
+			paths:   `"src/**,lib/**"`,
+			matches: []string{"src/a.ts", "lib/b.ts"},
+			misses:  []string{"docs/c.md"},
+		},
+		"a brace group beside a comma": {
+			paths:   `"src/*.{ts,tsx}, lib/**"`,
+			matches: []string{"src/a.tsx", "lib/b.ts"},
+			misses:  []string{"src/a.js"},
+		},
+		"a comma inside a list entry": {
+			paths:   "\n  - \"src/**, lib/**\"",
+			matches: []string{"src/a.ts", "lib/b.ts"},
+			misses:  []string{"docs/c.md"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTree(t, dir, map[string]string{
+				".git/HEAD":          "ref: refs/heads/main\n",
+				".claude/rules/r.md": "---\npaths: " + tt.paths + "\n---\n",
+			})
+			assertRuleMatches(t, dir, tt.matches, tt.misses)
+		})
+	}
+}
+
+// assertRuleMatches checks that the fixture's one rule, .claude/rules/r.md, is
+// listed for every path in matches and for none in misses.
+func assertRuleMatches(t *testing.T, dir string, matches, misses []string) {
+	t.Helper()
+	for _, c := range []struct {
+		paths []string
+		want  Collection
+	}{
+		{matches, Collection{Documents: abs(dir, ".claude/rules/r.md")}},
+		{misses, Collection{}},
+	} {
+		for _, path := range c.paths {
+			got, err := Collect(dir, t.TempDir(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(c.want, got); diff != "" {
+				t.Errorf("Collect(%q) mismatch (-want +got):\n%s", path, diff)
+			}
+		}
 	}
 }
 
