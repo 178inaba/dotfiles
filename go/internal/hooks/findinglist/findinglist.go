@@ -39,8 +39,8 @@ package findinglist
 
 import (
 	"bufio"
+	"cmp"
 	"context"
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -116,14 +116,22 @@ type tally struct {
 	last string
 }
 
+// close settles the launch that is open, if any, as one without a list.
+func (t *tally) close(open bool, cur string) {
+	if open {
+		t.missing++
+		t.last = cur
+	}
+}
+
 // record is a transcript line, read only as far as this guard needs it.
 type record struct {
 	Type    string `json:"type"`
 	Message struct {
-		// Content is a string on a prompt and an array of blocks on a tool
-		// call or a reply, so it arrives raw and is decoded once its shape
-		// is known.
-		Content jsontext.Value `json:"content"`
+		// Content is an array on every assistant record. A prompt carries a
+		// string there instead, fails to decode, and is skipped with the
+		// other lines this guard does not read.
+		Content []block `json:"content"`
 	} `json:"message"`
 }
 
@@ -174,13 +182,10 @@ func scan(path string) (tally, error) {
 		// before it. A tail with no newline is a write in progress and lands
 		// here too unless it is already whole.
 		if json.Unmarshal(line, &rec) == nil && rec.Type == "assistant" {
-			for _, b := range blocks(rec) {
+			for _, b := range rec.Message.Content {
 				switch {
 				case b.Type == "tool_use" && b.Name == "Skill" && b.Input.Skill == skill:
-					if open {
-						t.missing++
-						t.last = cur
-					}
+					t.close(open, cur)
 					open, cur = true, prev
 				case b.Type == "tool_use":
 					prev = describe(b)
@@ -191,10 +196,7 @@ func scan(path string) (tally, error) {
 		}
 
 		if err != nil {
-			if open {
-				t.missing++
-				t.last = cur
-			}
+			t.close(open, cur)
 			return t, nil
 		}
 	}
@@ -204,27 +206,17 @@ func scan(path string) (tally, error) {
 // launched without a type — the reviewers a quality pass fans out — is told
 // apart by its description instead.
 func describe(b block) string {
-	switch {
-	case b.Name == "Agent" && b.Input.SubagentType != "":
-		return fmt.Sprintf("Agent (%s)", b.Input.SubagentType)
-	case b.Name == "Agent" && b.Input.Description != "":
-		return fmt.Sprintf("Agent (%s)", b.Input.Description)
-	case b.Name == "Skill" && b.Input.Skill != "":
-		return fmt.Sprintf("Skill (%s)", b.Input.Skill)
+	var detail string
+	switch b.Name {
+	case "Agent":
+		detail = cmp.Or(b.Input.SubagentType, b.Input.Description)
+	case "Skill":
+		detail = b.Input.Skill
 	}
-	return b.Name
-}
-
-// blocks reads an array content, and nothing at all from any other shape.
-func blocks(rec record) []block {
-	if rec.Message.Content.Kind() != '[' {
-		return nil
+	if detail == "" {
+		return b.Name
 	}
-	var bs []block
-	if err := json.Unmarshal(rec.Message.Content, &bs); err != nil {
-		return nil
-	}
-	return bs
+	return fmt.Sprintf("%s (%s)", b.Name, detail)
 }
 
 // startsALine reports whether some line of s opens with prefix. The skill
