@@ -79,10 +79,6 @@
           {
             "type": "command",
             "command": "~/go/bin/ccx hook no-op-wait-guard"
-          },
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook finding-list-guard"
           }
         ]
       },
