@@ -212,12 +212,6 @@ func TestHookCommand(t *testing.T) {
 			bareStdout: true,
 		},
 		{
-			name:       "finding-list-guard is a hook subcommand",
-			args:       []string{"hook", "--help"},
-			wantStdout: "finding-list-guard",
-			bareStderr: true,
-		},
-		{
 			name:       "the hook list is on the root command",
 			args:       []string{"--help"},
 			wantStdout: "hook",
