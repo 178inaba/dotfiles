@@ -15,7 +15,7 @@ $ cd ~/.dotfiles
 $ make setup
 $ zsh -l
 $ gh auth login
-$ cflio auth login
+$ atlio auth login
 $ rdsh auth login
 $ slio auth login
 ```
@@ -24,12 +24,12 @@ $ slio auth login
 `Makefile`, fetches the golangci-lint version `go/.tool-versions` pins, and builds
 `ccx` and the `gh` shim — see `Makefile` and `Brewfile` for what each step does and
 why. `zsh -l` must come before the `auth login` commands: it is what puts the
-just-installed `gh`, `cflio`, `rdsh` and `slio` on `PATH` (`zsh/.zprofile` only
+just-installed `gh`, `atlio`, `rdsh` and `slio` on `PATH` (`zsh/.zprofile` only
 takes effect in a shell started after `stow`).
 
 ### Claude Code plugins
 
-`cflio`, `rdsh` and `slio` each back a Claude Code skill (`/cflio:cflio`, `/rdsh:rdsh`,
+`atlio`, `rdsh` and `slio` each back a Claude Code skill (`/atlio:atlio`, `/rdsh:rdsh`,
 `/slio:slio`) supplied by their own plugin through `claude/.claude/settings.json`, not
 copied into this repo. Claude Code registers and installs each plugin itself in the
 background, so on a new machine the skills appear over the first couple of sessions

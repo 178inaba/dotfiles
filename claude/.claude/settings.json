@@ -186,7 +186,7 @@
     "figma@claude-plugins-official": true,
     "rdsh@rdsh": true,
     "slio@slio": true,
-    "cflio@cflio": true,
+    "atlio@atlio": true,
     "asana@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
@@ -204,10 +204,10 @@
       },
       "autoUpdate": true
     },
-    "cflio": {
+    "atlio": {
       "source": {
         "source": "github",
-        "repo": "178inaba/cflio"
+        "repo": "178inaba/atlio"
       },
       "autoUpdate": true
     }
