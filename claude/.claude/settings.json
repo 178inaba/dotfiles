@@ -1,5 +1,6 @@
 {
   "respectGitignore": true,
+  "syncClaudeAiSkills": false,
   "attribution": {
     "commit": "",
     "pr": "",
@@ -180,6 +181,14 @@
     "command": "~/go/bin/ccx statusline",
     "refreshInterval": 5
   },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true,
+    "figma@claude-plugins-official": true,
+    "rdsh@rdsh": true,
+    "slio@slio": true,
+    "cflio@cflio": true,
+    "asana@claude-plugins-official": true
+  },
   "extraKnownMarketplaces": {
     "rdsh": {
       "source": {
@@ -203,20 +212,12 @@
       "autoUpdate": true
     }
   },
-  "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true,
-    "figma@claude-plugins-official": true,
-    "rdsh@rdsh": true,
-    "slio@slio": true,
-    "cflio@cflio": true
-  },
+  "outputStyle": "Concise",
   "language": "japanese",
   "feedbackSurveyRate": 0,
+  "advisorModel": "fable",
   "tui": "fullscreen",
   "preferredNotifChannel": "notifications_disabled",
   "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true,
-  "advisorModel": "fable",
-  "outputStyle": "Concise",
-  "syncClaudeAiSkills": false
+  "skipAutoPermissionPrompt": true
 }
