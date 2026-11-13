@@ -186,8 +186,7 @@
     "figma@claude-plugins-official": true,
     "rdsh@rdsh": true,
     "slio@slio": true,
-    "atlio@atlio": true,
-    "asana@claude-plugins-official": true
+    "atlio@atlio": true
   },
   "extraKnownMarketplaces": {
     "rdsh": {
