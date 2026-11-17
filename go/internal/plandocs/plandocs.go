@@ -30,8 +30,9 @@ type Collection struct {
 	// instruction files, everything their @ imports reach, and the project
 	// rules that carry no paths field. The user's own unscoped rules are not
 	// here: they belong to the user rather than to the project. A non-empty
-	// list names what is already in context and must not be read again; with
-	// rules empty too, the project states no instructions at all.
+	// list names what is already in context and must not be read again. Empty
+	// means the project loads nothing at launch; it may still hold scoped
+	// rules, which rules lists only for a path one of them matches.
 	Loaded []string `json:"loaded"`
 	// The path-scoped rules at least one given path matches, absolute and
 	// sorted by path: the files left to read, so nothing to read is this one

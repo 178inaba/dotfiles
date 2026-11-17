@@ -39,7 +39,7 @@ func abs(dir string, names ...string) []string {
 // A Markdown link is no reference, wherever it is written: in an instruction
 // file, in a file one imports, in a document it links, or in a rule. Nothing
 // it reaches is listed and a link to a file that is not there warns about
-// nothing, while the imports beside the links are expanded as before.
+// nothing, while the imports beside the links are still expanded.
 func TestCollectFollowsNoLink(t *testing.T) {
 	dir := t.TempDir()
 	writeTree(t, dir, map[string]string{
@@ -120,10 +120,11 @@ func TestCollectClosesOverImportsOfAnyExtension(t *testing.T) {
 }
 
 // @~/ resolves against the home directory, which is why Collect is given one
-// rather than reading the environment.
+// rather than reading the environment. A missing one written twice in a file
+// is one warning.
 func TestCollectResolvesHomeImports(t *testing.T) {
 	dir, home := t.TempDir(), t.TempDir()
-	writeTree(t, dir, map[string]string{"CLAUDE.md": "@~/imported.md\n@~/gone.md\n"})
+	writeTree(t, dir, map[string]string{"CLAUDE.md": "@~/imported.md\n@~/gone.md\n@~/gone.md\n"})
 	writeTree(t, home, map[string]string{"imported.md": ""})
 
 	got, err := Collect(dir, home)

@@ -83,8 +83,9 @@ stood rather than of the rule's scope.
 
 Nothing about a repository is a failure here. One with no instruction file at
 all and no rule a given path matches answers with three empty lists and exit 0.
-Nothing to read is rules empty, since what loaded holds is already in context;
-loaded empty as well is a project that states no instructions at all. An @ import
+Nothing to read is rules empty, since what loaded holds is already in context.
+Both empty says only that nothing loads at launch and no rule matches the paths
+given; a project may still hold scoped rules for other paths. An @ import
 of a file that is not there is reported as a warning and the rest carries on;
 nothing else produces one. External imports are assumed to have been approved,
 since whether they were is not observable from here.`,

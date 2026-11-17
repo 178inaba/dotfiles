@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 このリポジトリは178inaba氏の個人dotfilesコレクションです。GNU Stowを使用してシンボリックリンクベースで設定ファイルを管理しています。
 
-セットアップ手順・パッケージ一覧は README.md を参照。
+セットアップ手順・パッケージ一覧は [README.md](README.md) を参照。
 
 ## ローカル設定
 
