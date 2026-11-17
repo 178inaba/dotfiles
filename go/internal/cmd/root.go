@@ -60,7 +60,7 @@ type Deps struct {
 	// ghapi.PullRequestForCurrentBranch documents of its own dir — a default
 	// of the process's directory is one a test forgets to override — and with
 	// the half this package adds: overriding it moves every test at once.
-	// Always absolute, which is what plan docs needs to walk up from it.
+	// Always absolute, which is what plan rules needs to walk up from it.
 	//
 	// The process's checkout rather than the session's. A command handed a
 	// payload has the better answer in it — hooks.Payload.Dir, the status
@@ -80,7 +80,7 @@ type Deps struct {
 //
 // A directory that cannot be read stops the run here rather than travelling as
 // an empty one. Empty is not a failure anywhere downstream: git reads it as
-// "do not change directory" and plan docs walks up from the process's own,
+// "do not change directory" and plan rules walks up from the process's own,
 // which is the ambient answer this field exists to stop giving.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	build := selfbuild.Run(ctx, selfbuild.NewDeps(args))

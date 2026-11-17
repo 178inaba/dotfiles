@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 このリポジトリは178inaba氏の個人dotfilesコレクションです。GNU Stowを使用してシンボリックリンクベースで設定ファイルを管理しています。
 
-セットアップ手順・パッケージ一覧は README.md を参照。
+セットアップ手順・パッケージ一覧は [README.md](README.md) を参照。
 
 ## ローカル設定
 
@@ -31,13 +31,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Hooks
 
-各フックの設計意図（何を防ぐために存在するか）は `claude/.claude/rules/hooks-design.md` を参照（フック・`settings.json` 編集時に自動ロードされる）。
+各フックの設計意図（何を防ぐために存在するか）は [claude/.claude/rules/hooks-design.md](claude/.claude/rules/hooks-design.md) を参照（フック・`settings.json` 編集時に自動ロードされる）。
 
 ### スキル配管（ccx サブコマンド）
-- スキル内の決定的処理（収集・判定・正規化）は `ccx` のサブコマンドに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: `claude/.claude/skills/skill-authoring/SKILL.md` の「配管の分離」）
+- スキル内の決定的処理（収集・判定・正規化）は `ccx` のサブコマンドに分離し、判断が必要な処理だけを SKILL.md の指示として残す（規約: [claude/.claude/skills/skill-authoring/SKILL.md](claude/.claude/skills/skill-authoring/SKILL.md) の「配管の分離」）
 - 実装は `go/internal/<domain>/`（`issue` / `pullrequest` / `worktree` / `reviewprs` / `skill` / `plandocs`）、cobra 定義は `go/internal/cmd/<group>.go`
 - **契約の正は `ccx <cmd> --help`**。手で書かれてはおらず、型・json タグ・doc comment から `go/internal/contract/` が生成する。フィールドの意味を変えるにはそのフィールドの doc comment を編集して `go -C go generate ./internal/contract/...` を実行する
-- **編集時は必ずテストを走らせる**: `claude/.claude/rules/script-testing.md` を参照
+- **編集時は必ずテストを走らせる**: [claude/.claude/rules/script-testing.md](claude/.claude/rules/script-testing.md) を参照
 
 ### 通知チャンネル
 - `preferredNotifChannel` は `"notifications_disabled"` を指定（組み込み通知を停止）。組み込み通知は「タスク完了・permission prompt」で発火しタイプ別フィルタ不可のため、サブエージェントのバックグラウンド起動でターンを終えた一時的アイドルでも鳴り、`ccx hook idle-notify` のガード（人間の入力が必要な時だけ通知）を素通りする。通知は Notification フック側（端末ベル `ccx hook terminal-bell`・Ping 音・Slack）に一本化し、ベルもガード済みタイミングで鳴る（過去の `"terminal_bell"` 指定はこの素通り問題があったため撤去）
@@ -59,7 +59,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## ドキュメント
 
 ### チートシート
-- **tmux**: `docs/tmux-cheatsheet.md` - 初心者向け包括的リファレンス
+- **tmux**: [docs/tmux-cheatsheet.md](docs/tmux-cheatsheet.md) - 初心者向け包括的リファレンス
 - **参照方法**: `tmux-help` コマンドで色付きページング表示
 
 ## 重要な注意事項

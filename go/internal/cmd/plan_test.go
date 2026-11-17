@@ -16,7 +16,7 @@ import (
 // The paths a caller gives reach the package, and nothing else does: the home
 // the command reads is the process's, so the test gives it one of its own
 // rather than letting the machine's answer decide what the rules are.
-func TestPlanDocsPassesItsArgumentsThrough(t *testing.T) {
+func TestPlanRulesPassesItsArgumentsThrough(t *testing.T) {
 	dir, home := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
 	gittest.Write(t, filepath.Join(dir, ".git", "HEAD"), "ref: refs/heads/main\n")
@@ -24,19 +24,19 @@ func TestPlanDocsPassesItsArgumentsThrough(t *testing.T) {
 	gittest.Write(t, filepath.Join(home, ".claude", "rules", "user.md"), "---\npaths:\n  - \"**/go/**\"\n---\n")
 
 	tests := map[string]struct {
-		args      []string
-		documents []string
+		args  []string
+		rules []string
 	}{
 		"with a path the rules match": {
-			args: []string{"plan", "docs", "go/x.go"},
-			documents: []string{
+			args: []string{"plan", "rules", "go/x.go"},
+			rules: []string{
 				filepath.Join(dir, ".claude", "rules", "scoped.md"),
 				filepath.Join(home, ".claude", "rules", "user.md"),
 			},
 		},
 		// Empty rather than nil: the list crossed the wire, where the absence
-		// of a document is the empty array the skills read.
-		"with no path at all": {args: []string{"plan", "docs"}, documents: []string{}},
+		// of a rule is the empty array the skills read.
+		"with no path at all": {args: []string{"plan", "rules"}, rules: []string{}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -50,8 +50,8 @@ func TestPlanDocsPassesItsArgumentsThrough(t *testing.T) {
 			if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 				t.Fatalf("decode: %v\n%s", err, stdout.String())
 			}
-			if diff := cmp.Diff(tt.documents, got.Documents); diff != "" {
-				t.Errorf("documents mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.rules, got.Rules); diff != "" {
+				t.Errorf("rules mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

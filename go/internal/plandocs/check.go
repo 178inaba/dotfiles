@@ -117,7 +117,7 @@ func RecordedResultForms() []string { return slices.Clone(recordedResultForms) }
 // it is a plan for.
 //
 // dir is where the command was run and may be anywhere inside the repository,
-// as it is for the collection walk: the top is found from it here rather than
+// as it is for Collect: the top is found from it here rather than
 // taken as given, because a relative path in a plan is written from the top
 // and a caller standing in a subdirectory would otherwise resolve it and walk
 // from there.
@@ -135,8 +135,8 @@ func Check(planFile, dir, home string) (Checked, error) {
 
 	// Outside a repository the walk up finds no top and answers with the
 	// directory it started in, which here would mean searching whatever
-	// happens to be under it and calling a plan clean on that evidence. The
-	// collection walk can degrade to it — its answer is then "no documents" —
+	// happens to be under it and calling a plan clean on that evidence.
+	// Collect can degrade to it — it then answers for that directory alone —
 	// but a gate may not: this is a precondition, and a precondition that
 	// does not hold is a failure with a reason rather than an answer.
 	top := directories(dir)[0]

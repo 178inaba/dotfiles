@@ -1,7 +1,7 @@
 // Package frontmatter reads the YAML block at the top of a markdown file.
 //
 // Two commands need it and had a copy each: ccx skill frontmatter reads a
-// SKILL.md for the fields a skill is loaded by, and ccx plan docs reads a
+// SKILL.md for the fields a skill is loaded by, and ccx plan rules reads a
 // rule for the paths it is scoped to. The copies drifted, and the drift was
 // only visible from outside — plandocs normalised CRLF before looking for the
 // fences, skill did not, so a SKILL.md saved with CRLF found no fence at all

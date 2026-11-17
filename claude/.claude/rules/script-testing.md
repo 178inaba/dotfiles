@@ -27,7 +27,7 @@ Go モジュール `go/` を編集したら、対応するリグレッション�
 
 **CI（`.github/workflows/ci.yml`）は `go vet`・golangci-lint・`go test -race` の 3 つだけを実行する**ので、CI の失敗はローカルで再現できる。**lint も push 前に回す**: `cd go && golangci-lint run`。`go test` が通っても `revive` の exported ルール等は落ちるので、テストだけでは代替にならない。バージョンは `go/.tool-versions` のピンを mise が解決するので、新しいマシンでは `mise install`（`go/` で実行。または `mise -C go install`）で取得する。
 
-`ccx statusline`（`go/internal/statusline/`）は `claude/.claude/rules/statusline.md` を参照（テスト + 実画面確認が必要なため別ルール）。
+`ccx statusline`（`go/internal/statusline/`）は [statusline.md](statusline.md) を参照（テスト + 実画面確認が必要なため別ルール）。
 
 ## テストの設計制約
 

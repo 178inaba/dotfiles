@@ -10,14 +10,14 @@ import (
 
 func newPlanCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("plan", "Read what a plan has to be drafted against")
-	c.AddCommand(newPlanDocsCmd(deps), newPlanCheckCmd(deps))
+	c.AddCommand(newPlanRulesCmd(deps), newPlanCheckCmd(deps))
 	return c
 }
 
 // newPlanCheckCmd builds `ccx plan check`, which reads a drafted plan against
 // the repository it is a plan for.
 //
-// Exactly one argument, unlike the docs command beside it: that one takes the
+// Exactly one argument, unlike the rules command beside it: that one takes the
 // subjects of a pattern match, of which none is a legitimate run, while this
 // one reads a file and there is no plan to read without being told which.
 //
@@ -52,20 +52,20 @@ func newPlanCheckCmd(deps Deps) *cobra.Command {
 	}
 }
 
-// newPlanDocsCmd builds `ccx plan docs`, which lists the documents a planner
-// reads before drafting.
+// newPlanRulesCmd builds `ccx plan rules`, which lists what the harness loaded
+// at launch and the path-scoped rules a planner reads before drafting.
 //
 // The arguments are the paths the task touches, and they are patterns' subjects
 // rather than files to open, so any number of them is a legitimate run: none
-// asks only what the walk finds, and cobra has no validator for that.
+// asks only what was loaded, and cobra has no validator for that.
 //
 // It runs from anywhere inside the repository: the instruction files a session
-// has in context are decided by where it was started, and the walk reads that
+// has in context are decided by where it was started, and Collect reads that
 // off the checkout it was given upwards.
-func newPlanDocsCmd(deps Deps) *cobra.Command {
+func newPlanRulesCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "docs [<path>...]",
-		Short: "List the documents a plan has to be drafted against",
+		Use:   "rules [<path>...]",
+		Short: "List the loaded instruction files and the rules the given paths bring in",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			reportBuild(c, deps.Build)
