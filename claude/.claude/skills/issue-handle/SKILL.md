@@ -110,7 +110,6 @@ Issue と PR の対応は、Skill ツールで `github-sub-issues` を起動し�
 
 1. **参照文書の読込**
    - `ccx plan rules` を、Issue の `affected_code` 節が挙げるパスを引数にして実行する（出力の読み方は `ccx plan rules --help`）。渡すのは**バッククォートで囲まれたパスだけ**にする。`--file` 指定時は仕様ファイルが挙げるパスを同じ形で渡す
-   - `loaded[]` と `rules[]` の両方が空なら、この読込は対象なしとして飛ばす
    - `rules[]` の各パスを Read で読み、`warnings[]` の各項目を報告して続行する（`loaded[]` は読み直さない）
    - 読み込んだ制約を以降の計画起案の前提として扱う
 

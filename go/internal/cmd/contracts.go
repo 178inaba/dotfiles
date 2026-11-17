@@ -50,7 +50,8 @@ four-hop limit.
 
 Imports are read out of the text the way the import parser reads it: an @ has
 to open a word, code spans and fenced blocks are skipped, a #fragment comes off
-before a target is resolved, and a URL or a mailto: names no file. A link's
+before a target is resolved, and a URL or a mailto: names no file. One rule
+here is this command's own, since the harness was not measured on it: a link's
 label is not read as prose, so an @ inside one is no import.
 
 The arguments are the paths the task touches. A relative one is read from the
@@ -82,9 +83,8 @@ stood rather than of the rule's scope.
 
 Nothing about a repository is a failure here. One with no instruction file at
 all and no rule a given path matches answers with three empty lists and exit 0.
-Nothing to read is loaded and rules both empty, and neither says it alone:
-a matched rule is to read in a project that states nothing at all, and without
-a path an instruction file leaves loaded full and rules empty. An @ import
+Nothing to read is rules empty, since what loaded holds is already in context;
+loaded empty as well is a project that states no instructions at all. An @ import
 of a file that is not there is reported as a warning and the rest carries on;
 nothing else produces one. External imports are assumed to have been approved,
 since whether they were is not observable from here.`,

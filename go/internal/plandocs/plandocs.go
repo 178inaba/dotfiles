@@ -30,14 +30,12 @@ type Collection struct {
 	// instruction files, everything their @ imports reach, and the project
 	// rules that carry no paths field. The user's own unscoped rules are not
 	// here: they belong to the user rather than to the project. A non-empty
-	// list names what is already in context and must not be read again.
-	// Nothing to read is this and rules both empty, and neither list says
-	// it alone: with a given path a scoped rule is to read in a repository
-	// that states no instructions at all, and without one an instruction file
-	// leaves this one full and rules empty.
+	// list names what is already in context and must not be read again; with
+	// rules empty too, the project states no instructions at all.
 	Loaded []string `json:"loaded"`
 	// The path-scoped rules at least one given path matches, absolute and
-	// sorted by path; empty when no path is given. What loaded already holds
+	// sorted by path: the files left to read, so nothing to read is this one
+	// empty. Empty when no path is given. What loaded already holds
 	// does not appear again, and a rule found under two spellings of the same
 	// file is one entry.
 	Rules []string `json:"rules"`
@@ -130,6 +128,9 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 			c.load(r.path)
 		}
 	}
+	if len(absolute) == 0 {
+		return c.out, nil
+	}
 
 	// Only the user's scoped rules are taken: a scoped rule is a constraint the
 	// harness loads for the project's files, while the unscoped ones are the
@@ -142,18 +143,13 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 	// rule's scope. Keyed there rather than under the home directory also puts
 	// their spelling ahead of any deeper project directory's when the two
 	// reach one file, which is how this repository's stow symlink resolves.
-	//
-	// Read at all only when there is a path to match, since nothing else here
-	// looks at the user's rules.
-	if len(absolute) > 0 {
-		userRules, err := rulesIn(filepath.Join(home, ".claude", "rules"))
-		if err != nil {
-			return Collection{}, err
-		}
-		for _, r := range userRules {
-			if r.scoped {
-				scoped[top] = append(scoped[top], r)
-			}
+	userRules, err := rulesIn(filepath.Join(home, ".claude", "rules"))
+	if err != nil {
+		return Collection{}, err
+	}
+	for _, r := range userRules {
+		if r.scoped {
+			scoped[top] = append(scoped[top], r)
 		}
 	}
 
@@ -196,13 +192,15 @@ type collector struct {
 	warned map[Warning]bool
 }
 
-// load records a file as one the harness already has in context.
-func (c *collector) load(path string) {
+// load records a file as one the harness already has in context, and reports
+// whether it was not recorded before.
+func (c *collector) load(path string) bool {
 	if c.seen[path] {
-		return
+		return false
 	}
 	c.seen[path] = true
 	c.out.Loaded = append(c.out.Loaded, path)
+	return true
 }
 
 // expand adds a root and everything its imports reach to the loaded set.
@@ -224,11 +222,7 @@ func (c *collector) expand(root string) error {
 	for len(queue) > 0 {
 		at := queue[0]
 		queue = queue[1:]
-		if c.seen[at.path] {
-			continue
-		}
-		c.load(at.path)
-		if at.hop == importHops {
+		if !c.load(at.path) || at.hop == importHops {
 			continue
 		}
 
@@ -245,10 +239,6 @@ func (c *collector) expand(root string) error {
 
 // targets resolves the imports written in file, dropping the ones that name no
 // file at all and warning about the ones whose file is not there.
-//
-// A path already answered for is dropped rather than stated again: everything
-// in seen was found to exist when it was added, so it can neither warn now
-// nor be loaded a second time.
 func (c *collector) targets(file string) ([]string, error) {
 	b, err := os.ReadFile(file)
 	if err != nil {
@@ -259,7 +249,7 @@ func (c *collector) targets(file string) ([]string, error) {
 	for _, written := range imports(string(b)) {
 		target, ok := resolve(written, file, c.home)
 		switch {
-		case !ok, c.seen[target]:
+		case !ok:
 		case !isFile(target):
 			c.warn(written, file)
 		default:
@@ -296,10 +286,6 @@ func (c *collector) warn(target, source string) {
 // directory's and the answer stays the same from wherever the command was
 // run.
 func (c *collector) matched(dirs []string, scoped map[string][]rule, paths []string) []string {
-	if len(paths) == 0 {
-		return nil
-	}
-
 	// Seeded with the loaded set, since a rule an instruction file imports is
 	// in it whatever its frontmatter says, and a given path can match that
 	// rule under another spelling.

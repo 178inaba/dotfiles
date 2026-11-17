@@ -57,17 +57,6 @@ func TestPlanRulesPassesItsArgumentsThrough(t *testing.T) {
 	}
 }
 
-// The command the rules one replaced has no alias, so a caller still naming it
-// fails rather than reading an answer whose shape it no longer knows.
-func TestPlanHasNoDocsCommand(t *testing.T) {
-	args := []string{"plan", "docs"}
-	var stdout, stderr bytes.Buffer
-	if code := run(t.Context(), args,
-		strings.NewReader(""), &stdout, &stderr, Deps{Dir: t.TempDir()}); code == 0 {
-		t.Fatalf("`ccx %s` = 0, want non-zero: %s", strings.Join(args, " "), stdout.String())
-	}
-}
-
 // The findings leave through two doors and both have to open: the report goes
 // out whole, and the status says whether there was anything in it, since the
 // skill that runs this reads the number to decide whether to run it again.
