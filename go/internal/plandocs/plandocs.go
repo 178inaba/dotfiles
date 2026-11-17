@@ -1,4 +1,7 @@
-// Package plandocs collects the documents a plan has to be drafted against.
+// Package plandocs reads what a plan is drafted against and checks a drafted
+// plan against the repository: Collect answers with the instruction files the
+// harness loaded at launch and the path-scoped rules a task's paths bring in,
+// and Check reads the plan's paths, names and recorded commands.
 package plandocs
 
 import (
@@ -17,19 +20,11 @@ import (
 // importHops is how far Claude Code expands @ imports from a memory file:
 // "Imported files can recursively import other files, with a maximum depth of
 // four hops". A file at the limit is loaded; the imports written in it are
-// not, so this walk delivers them like any other link.
+// not, and so they are listed nowhere.
 const importHops = 4
 
-// walkDepth is how far past the already-loaded set the walk goes. Depth
-// correlates with relevance in a hand-written document tree — an index links
-// its rationale, and the rationale links the convention bodies — and two
-// levels is where that ends: a third reaches whatever the conventions cite,
-// which is generated reference material more often than anything a planner
-// needs. The measurement behind the number is in the command's help.
-const walkDepth = 2
-
-// Collection is what a planner reads, and what the harness already read for
-// it.
+// Collection is what the harness already read for a planner, and the rules it
+// has still to read.
 type Collection struct {
 	// The files Claude Code loaded at launch, absolute: the project
 	// instruction files, everything their @ imports reach, and the project
@@ -37,27 +32,27 @@ type Collection struct {
 	// here: they belong to the user rather than to the project. A non-empty
 	// list names what is already in context and must not be read again.
 	// Nothing to read is this and documents both empty, and neither list says
-	// it alone: with a given path a scoped rule is a document in a repository
-	// that states no instructions at all, and a CLAUDE.md whose paths are all
-	// backticked mentions leaves this one full and documents empty.
+	// it alone: with a given path a scoped rule is to read in a repository
+	// that states no instructions at all, and without one an instruction file
+	// leaves this one full and documents empty.
 	Loaded []string `json:"loaded"`
-	// The files to read, absolute: first the linked documents in walk order,
-	// then the path-scoped rules a given path matched, sorted by path. Neither
-	// what loaded already holds nor anything listed once already appears
-	// twice, and a rule found under two spellings of the same file is one
-	// entry.
+	// The path-scoped rules at least one given path matches, absolute and
+	// sorted by path; empty when no path is given. What loaded already holds
+	// does not appear again, and a rule found under two spellings of the same
+	// file is one entry.
 	Documents []string `json:"documents"`
-	// A link whose target is not there. Reported rather than raised: one
-	// broken link is a document to fix, not a reason to collect nothing.
+	// An @ import in the launch closure whose target is not there. Reported
+	// rather than raised: one broken import is a file to fix, not a reason to
+	// collect nothing.
 	Warnings []Warning `json:"warnings"`
 }
 
-// Warning is a link that leads nowhere.
+// Warning is an import that leads nowhere.
 type Warning struct {
-	// The path as the link writes it, minus any fragment, so that it can be
-	// found in the file named below and corrected there.
+	// The path as the import writes it, minus the @ and any fragment, so that
+	// it can be found in the file named below and corrected there.
 	Target string `json:"target"`
-	// The file the link is written in, absolute.
+	// The file the import is written in, absolute.
 	Source string `json:"source"`
 }
 
@@ -65,8 +60,12 @@ type Warning struct {
 // order it loads them.
 var roots = []string{"CLAUDE.md", filepath.Join(".claude", "CLAUDE.md"), "CLAUDE.local.md"}
 
-// Collect walks the project's instruction files and answers with the
-// documents a planner has to read.
+// Collect replays what the harness loaded at launch and answers with it and
+// the path-scoped rules the given paths match.
+//
+// A Markdown link, in any file, is no reference here and is never followed,
+// and neither is a path in backticks: the harness gives neither a meaning, so
+// how a document refers to another decides nothing in the answer.
 //
 // dir is where the command was run, which may be anywhere inside the
 // repository: Claude Code loads instruction files from the working directory
@@ -85,14 +84,13 @@ var roots = []string{"CLAUDE.md", filepath.Join(".claude", "CLAUDE.md"), "CLAUDE
 // input a caller reading them through the shell never gets.
 //
 // Nothing about the repository is an error: no instruction file at all, a
-// scoped rule nobody links, a link to a file that was deleted — each is an
-// ordinary answer. Only a filesystem that cannot be read is returned as one.
+// scoped rule no path matches, an import of a file that was deleted — each is
+// an ordinary answer. Only a filesystem that cannot be read is returned as one.
 func Collect(dir, home string, paths ...string) (Collection, error) {
 	c := collector{
 		home:   home,
 		seen:   map[string]bool{},
 		warned: map[Warning]bool{},
-		cache:  map[string][]reference{},
 	}
 
 	dirs := directories(dir)
@@ -133,9 +131,9 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 		}
 	}
 
-	// The user's own rules are matched but never walked: a scoped rule is a
-	// constraint the harness loads for the project's files, while the unscoped
-	// ones are the user's memory and no part of what the project states. They
+	// Only the user's scoped rules are taken: a scoped rule is a constraint the
+	// harness loads for the project's files, while the unscoped ones are the
+	// user's memory and no part of what the project states. They
 	// are keyed at the top of the repository, and that basis is the one
 	// deliberate difference from the harness — it matches them against the
 	// directory the session was started in, so a session started in a
@@ -159,17 +157,7 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 		}
 	}
 
-	frontier := c.out.Loaded
-	for range walkDepth {
-		next, err := c.follow(frontier)
-		if err != nil {
-			return Collection{}, err
-		}
-		c.out.Documents = append(c.out.Documents, next...)
-		frontier = next
-	}
-
-	c.out.Documents = append(c.out.Documents, c.matched(dirs, scoped, absolute)...)
+	c.out.Documents = c.matched(dirs, scoped, absolute)
 	return c.out, nil
 }
 
@@ -206,10 +194,6 @@ type collector struct {
 	out    Collection
 	seen   map[string]bool
 	warned map[Warning]bool
-	// Every loaded file is scanned twice — once to replay the harness's
-	// closure, once as the first frontier of the walk — and the second scan
-	// finds what the first one did.
-	cache map[string][]reference
 }
 
 // load records a file as one the harness already has in context.
@@ -229,8 +213,8 @@ func (c *collector) load(path string) {
 // one. Measured, since the documentation says nothing either way: a project
 // holding a CLAUDE.md importing @y.md, an unscoped .claude/rules/r.md
 // importing @x.md, and an InstructionsLoaded hook logging what loads, reports
-// CLAUDE.md, y.md and r.md — and not x.md. So a rule's import reaches a
-// planner through the walk instead.
+// CLAUDE.md, y.md and r.md — and not x.md. So a rule's import is listed
+// nowhere.
 func (c *collector) expand(root string) error {
 	type step struct {
 		path string
@@ -248,7 +232,7 @@ func (c *collector) expand(root string) error {
 			continue
 		}
 
-		imported, err := c.targets(at.path, func(r reference) bool { return r.isImport })
+		imported, err := c.targets(at.path)
 		if err != nil {
 			return err
 		}
@@ -259,49 +243,25 @@ func (c *collector) expand(root string) error {
 	return nil
 }
 
-// follow reads one depth's files and answers with the next depth: every
-// document they link that nothing has listed yet, in the order the files were
-// read and, within a file, the order the links appear.
-func (c *collector) follow(files []string) ([]string, error) {
-	var out []string
-	for _, file := range files {
-		linked, err := c.targets(file, func(r reference) bool { return isDocument(r.target) })
-		if err != nil {
-			return nil, err
-		}
-		for _, path := range linked {
-			if !c.seen[path] {
-				c.seen[path] = true
-				out = append(out, path)
-			}
-		}
-	}
-	return out, nil
-}
-
-// targets resolves the references in file that keep accepts, dropping the
-// ones that name no file at all and warning about the ones whose file is not
-// there.
+// targets resolves the imports written in file, dropping the ones that name no
+// file at all and warning about the ones whose file is not there.
 //
 // A path already answered for is dropped rather than stated again: everything
 // in seen was found to exist when it was added, so it can neither warn now
-// nor be listed a second time.
-func (c *collector) targets(file string, keep func(reference) bool) ([]string, error) {
-	refs, err := c.refs(file)
+// nor be loaded a second time.
+func (c *collector) targets(file string) ([]string, error) {
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
 
 	var out []string
-	for _, ref := range refs {
-		if !keep(ref) {
-			continue
-		}
-		target, ok := resolve(ref.target, file, c.home)
+	for _, written := range imports(string(b)) {
+		target, ok := resolve(written, file, c.home)
 		switch {
 		case !ok, c.seen[target]:
 		case !isFile(target):
-			c.warn(ref.target, file)
+			c.warn(written, file)
 		default:
 			out = append(out, target)
 		}
@@ -309,23 +269,9 @@ func (c *collector) targets(file string, keep func(reference) bool) ([]string, e
 	return out, nil
 }
 
-// refs reads a file's links and imports, once per file.
-func (c *collector) refs(path string) ([]reference, error) {
-	if refs, ok := c.cache[path]; ok {
-		return refs, nil
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	refs := references(string(b))
-	c.cache[path] = refs
-	return refs, nil
-}
-
-// warn records a broken link once per place it is written, so that the same
-// missing file linked from two documents is two things to fix and the same
-// link seen by both the closure and the walk is one.
+// warn records a broken import once per place it is written, so that the same
+// missing file imported from two files is two things to fix and the same
+// import written twice in one file is one.
 func (c *collector) warn(target, source string) {
 	w := Warning{Target: target, Source: source}
 	if c.warned[w] {
@@ -345,22 +291,20 @@ func (c *collector) warn(target, source string) {
 // spelling: this repository's own rules are reached both as
 // <repo>/claude/.claude/rules/x.md and as ~/.claude/rules/x.md through a stow
 // symlink, and they are one file to read. The spelling that survives is the
-// first the walk reaches, which is why the bases are taken in the walk's own
-// order — the user's rules are keyed at the top, so their spelling wins over a
-// deeper project directory's and the answer stays the same from wherever the
-// command was run.
+// first one reached, which is why the bases are taken top first — the user's
+// rules are keyed at the top, so their spelling wins over a deeper project
+// directory's and the answer stays the same from wherever the command was
+// run.
 func (c *collector) matched(dirs []string, scoped map[string][]rule, paths []string) []string {
 	if len(paths) == 0 {
 		return nil
 	}
 
-	// Seeded with everything already answered for, since a rule a document
-	// links — or one an instruction file imports, which puts it in the loaded
-	// set whatever its frontmatter says — is a rule a given path can match
-	// under another spelling.
-	answered := slices.Concat(c.out.Loaded, c.out.Documents)
-	listed := make([]os.FileInfo, 0, len(answered))
-	for _, path := range answered {
+	// Seeded with the loaded set, since a rule an instruction file imports is
+	// in it whatever its frontmatter says, and a given path can match that
+	// rule under another spelling.
+	listed := make([]os.FileInfo, 0, len(c.out.Loaded))
+	for _, path := range c.out.Loaded {
 		if info, err := os.Stat(path); err == nil {
 			listed = append(listed, info)
 		}
@@ -434,8 +378,8 @@ func anchored(pattern string) string {
 // come from one walk because they come from one parse.
 //
 // Only an unscoped rule is loaded at launch. A scoped one is left out of that
-// set because the harness has not loaded it, which is what makes it a document
-// to read — when something links it, or when a given path matches it.
+// set because the harness has not loaded it, which is what makes it a rule to
+// read when a given path matches it.
 //
 // The directory is descended through its link target, since sharing one set
 // of rules across projects by symlinking .claude/rules is a documented
@@ -492,8 +436,8 @@ type rule struct {
 // Frontmatter that does not parse declares nothing, and so does a file with
 // no frontmatter at all: both are rules that load unconditionally. That is
 // what makes the reader's tolerance of line endings matter here — a scoped
-// rule read as an unscoped one is loaded at launch in this walk's model and
-// never listed as a document in either.
+// rule read as an unscoped one is loaded at launch in this replay and never
+// listed as a rule a path matches.
 func declaredPaths(path string) ([]string, bool, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -574,8 +518,8 @@ func hasGitEntry(dir string) bool {
 	return err == nil
 }
 
-// isFile reports whether path is there and is not a directory, since a link
-// to a directory is not a document to read.
+// isFile reports whether path is there and is not a directory, since a
+// directory is not an instruction file or an import to load.
 func isFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()

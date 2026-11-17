@@ -26,14 +26,14 @@ import (
 // inventory this arrangement exists to delete.
 var contracts = map[string]help{
 	"plan docs": {
-		intro: `List the documents a plan has to be drafted against.
+		intro: `List what Claude Code loaded at launch and the rules the given paths bring in.
 
-A path written in a memory file belongs to one of three tiers, and how it is
-written is what chooses the tier. An @ import is expanded at launch and costs
-context in every session afterwards. A [text](path.md) link is read only here,
-by a planner about to draft against it. A path in backticks is a mention and
-loads nowhere. The mention is the default, so putting a document in front of a
-planner is something an author opts into.
+Two questions a planner has before drafting, both answered from the loading
+rules Claude Code documents and nothing else: which instruction files are
+already in context, and which path-scoped rules govern the files the task
+touches. A Markdown link and a path in backticks carry no meaning here, in any
+file, and nothing is followed through either: how a document refers to another
+decides nothing in the answer.
 
 Runs from anywhere inside the repository. Claude Code loads instruction files
 from the working directory and every directory above it, so the already-loaded
@@ -42,45 +42,32 @@ CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md where they exist, everything
 their @ imports reach within the four hops the harness expands, and every .md
 under a .claude/rules/ of those directories that declares no paths field. A
 session started in a subdirectory still has the repository's own CLAUDE.md in
-context, and this says so. Those are never listed to read again. Above the top
-of the repository is somebody else's project, and the user's own memory files
-are not roots of this walk either — a scoped one of theirs is matched below,
-not walked. An import written inside a rule is not expanded at launch, so it is
-followed as a link like the rest.
+context, and this says so. Above the top of the repository is somebody else's
+project, and the user's own memory files are not part of this set — a scoped
+rule of theirs is matched below. Two imports the harness does not expand are
+listed nowhere: one written inside a rule, and one written in a file at the
+four-hop limit.
 
-From there the walk goes two levels: the targets found in the already-loaded
-files, then the targets found in those, and it stops. Both forms count as one
-kind of link, and both are read out of the text the way the import parser
-reads it, with code spans and fenced blocks skipped, so a backticked path
-stays a mention. A #fragment comes off before a target is resolved and
-deduplicated. A URL, a mailto: and a bare #anchor name no file here; a
-reference-style link, the [text][ref] form, is out of scope and ignored. A
-path-scoped rule is listed like any other target when a document links it,
-which is how the conventions for one file area reach a planner.
+Imports are read out of the text the way the import parser reads it: an @ has
+to open a word, code spans and fenced blocks are skipped, a #fragment comes off
+before a target is resolved, and a URL or a mailto: names no file. A link's
+label is not read as prose, so an @ inside one is no import.
 
-Two levels rather than a fixpoint, measured on the deepest tree to hand: that
-CLAUDE.md links 10 documents, those link 13 more — 8 of them the path-scoped
-rules a planner has to know before touching a file — and one level further
-adds 93, almost all of them generated table definitions reached through the
-README. The whole closure is 117 files. The stop lands after the convention
-bodies and before the reference material.
-
-The arguments are the paths the task touches, and they are what reaches the
-rules nothing links. A relative one is read from the top of the repository
-rather than from the working directory, because a given path is a subject for
-pattern matching and not a file to open — the same spelling an issue's affected
-code uses, so that the answer is the repository's rather than that of wherever
-the caller happened to stand. An absolute one is taken as it is. None has to
-exist, since a task may be about to create it. Given any, documents also holds
-every path-scoped rule at least one of them matches: the .md files declaring a
-paths field under a .claude/rules/ of any directory on the walk above, and
-under the user's own ~/.claude/rules/. A project rule's patterns are matched
-against the path made relative to the directory holding that .claude/, and a
-user-level rule's against the top of the repository for the reason below; a
-path outside a basis matches nothing there. Those rules follow the linked
-documents, sorted by path, and one file found under two spellings — this
-repository reaches its own rules both ways, through a symlink — is one entry.
-What loaded holds is unchanged: a scoped rule was never in it.
+The arguments are the paths the task touches. A relative one is read from the
+top of the repository rather than from the working directory, because a given
+path is a subject for pattern matching and not a file to open — the same
+spelling an issue's affected code uses, so that the answer is the repository's
+rather than that of wherever the caller happened to stand. An absolute one is
+taken as it is. None has to exist, since a task may be about to create it.
+documents holds every path-scoped rule at least one of them matches: the .md
+files declaring a paths field under a .claude/rules/ of any directory from here
+up to the top, and under the user's own ~/.claude/rules/. A project rule's
+patterns are matched against the path made relative to the directory holding
+that .claude/, and a user-level rule's against the top of the repository for the
+reason below; a path outside a basis matches nothing there. The rules are
+sorted by path, and one file found under two spellings — this repository
+reaches its own rules both ways, through a symlink — is one entry. A rule
+already in loaded is not listed again. With no path given, documents is empty.
 
 The patterns are the paths field's documented syntax — **, brace expansion,
 bracket expressions — and a pattern that is not a valid glob matches nothing
@@ -96,11 +83,11 @@ stood rather than of the rule's scope.
 Nothing about a repository is a failure here. One with no instruction file at
 all and no rule a given path matches answers with three empty lists and exit 0.
 Nothing to read is loaded and documents both empty, and neither says it alone:
-a matched rule is a document in a project that states nothing at all, and a
-CLAUDE.md whose paths are all mentions leaves loaded full and documents empty.
-A link to a file that is not there is reported and the walk carries on. External
-imports are assumed to have been approved, since whether they were is not
-observable from here.`,
+a matched rule is to read in a project that states nothing at all, and without
+a path an instruction file leaves loaded full and documents empty. An @ import
+of a file that is not there is reported as a warning and the rest carries on;
+nothing else produces one. External imports are assumed to have been approved,
+since whether they were is not observable from here.`,
 		blocks:   []block{prints(reflect.TypeFor[plandocs.Collection]())},
 		statuses: with(),
 	},
