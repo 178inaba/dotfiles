@@ -1,6 +1,6 @@
 ---
 name: check-plan-compliance
-description: プロジェクトCLAUDE.mdとリンク先文書を読み込んで計画との準拠/乖離をチェックし、計画修正と plan モード復帰まで自動実行（--no-exit 指定時は計画修正まで）
+description: プロジェクトCLAUDE.mdと計画が触るパスのルールを読み込んで計画との準拠/乖離をチェックし、計画修正と plan モード復帰まで自動実行（--no-exit 指定時は計画修正まで）
 argument-hint: "[--no-exit]"
 ---
 
@@ -17,10 +17,10 @@ argument-hint: "[--no-exit]"
 ## 実行内容
 
 ### 1. 参照文書の収集
-1. `ccx plan docs` を、計画が名指すファイルのパスを引数にして実行する（出力の読み方は `ccx plan docs --help`）
-2. `loaded[]` と `documents[]` の両方が空なら「対象なし」として終了する
-3. `documents[]` の各パスを Read で読む
-4. `warnings[]` の各項目を報告して続行する（リンク切れは停止理由ではない）
+1. `ccx plan rules` を、計画が名指すファイルのパスを引数にして実行する（出力の読み方は `ccx plan rules --help`）
+2. `loaded[]` と `rules[]` の両方が空なら「対象なし」として終了する
+3. `rules[]` の各パスを Read で読む
+4. `warnings[]` の各項目を報告して続行する（import 先の欠落は停止理由ではない）
 5. `loaded[]` のファイルは既にコンテキストにあるので読み直さない
 
 ### 2. 計画との突合

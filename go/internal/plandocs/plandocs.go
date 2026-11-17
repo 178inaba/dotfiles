@@ -31,16 +31,16 @@ type Collection struct {
 	// rules that carry no paths field. The user's own unscoped rules are not
 	// here: they belong to the user rather than to the project. A non-empty
 	// list names what is already in context and must not be read again.
-	// Nothing to read is this and documents both empty, and neither list says
+	// Nothing to read is this and rules both empty, and neither list says
 	// it alone: with a given path a scoped rule is to read in a repository
 	// that states no instructions at all, and without one an instruction file
-	// leaves this one full and documents empty.
+	// leaves this one full and rules empty.
 	Loaded []string `json:"loaded"`
 	// The path-scoped rules at least one given path matches, absolute and
 	// sorted by path; empty when no path is given. What loaded already holds
 	// does not appear again, and a rule found under two spellings of the same
 	// file is one entry.
-	Documents []string `json:"documents"`
+	Rules []string `json:"rules"`
 	// An @ import in the launch closure whose target is not there. Reported
 	// rather than raised: one broken import is a file to fix, not a reason to
 	// collect nothing.
@@ -157,7 +157,7 @@ func Collect(dir, home string, paths ...string) (Collection, error) {
 		}
 	}
 
-	c.out.Documents = c.matched(dirs, scoped, absolute)
+	c.out.Rules = c.matched(dirs, scoped, absolute)
 	return c.out, nil
 }
 

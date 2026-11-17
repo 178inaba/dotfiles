@@ -188,8 +188,8 @@ func TestCollectReadsRulesWrittenTheOtherWays(t *testing.T) {
 	want := Collection{
 		// Named under .claude/rules, the spelling the project uses, rather
 		// than under the directory the link points at.
-		Loaded:    abs(dir, "CLAUDE.md", ".claude/rules/unscoped.md"),
-		Documents: abs(dir, ".claude/rules/scoped.md"),
+		Loaded: abs(dir, "CLAUDE.md", ".claude/rules/unscoped.md"),
+		Rules:  abs(dir, ".claude/rules/scoped.md"),
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
@@ -229,14 +229,14 @@ func TestCollectFromASubdirectory(t *testing.T) {
 func TestCollectOnRepositoriesWithNothingToList(t *testing.T) {
 	tests := map[string]struct {
 		files map[string]string
-		// The only thing these cases vary: documents and warnings are empty
+		// The only thing these cases vary: rules and warnings are empty
 		// in all of them, which is the point.
 		loaded []string
 	}{
 		// Both lists empty is the 「対象なし」 signal, and no project
 		// instruction file of any kind is one way to reach it.
 		"no instruction file at all": {files: map[string]string{"README.md": "[x](x.md)\n"}},
-		// An empty documents list says nothing about the roots, which is why
+		// An empty rules list says nothing about the roots, which is why
 		// neither list is the signal on its own.
 		"instructions and no path": {
 			files:  map[string]string{"CLAUDE.md": "see [a](docs/a.md) and `docs/b.md`\n"},
@@ -268,7 +268,7 @@ func TestCollectOnRepositoriesWithNothingToList(t *testing.T) {
 
 // scopedTree is the fixture the path cases below run against. Its CLAUDE.md
 // links a document, which no case lists: a given path is the only way anything
-// reaches documents.
+// reaches rules.
 func scopedTree(t *testing.T) (dir, home string) {
 	t.Helper()
 	dir, home = t.TempDir(), t.TempDir()
@@ -289,7 +289,7 @@ func scopedTree(t *testing.T) (dir, home string) {
 	return dir, home
 }
 
-// A given path is what makes a scoped rule a document: the project's and the
+// A given path is what makes a scoped rule one to read: the project's and the
 // user's alike, and only when the path is one their patterns match.
 func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
 	dir, home := scopedTree(t)
@@ -297,24 +297,24 @@ func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
 	userRule := filepath.Join(home, ".claude", "rules", "user-scoped.md")
 
 	tests := map[string]struct {
-		paths     []string
-		documents []string
+		paths []string
+		rules []string
 	}{
 		// The leading ** matches zero segments, which is what every rule in
 		// the repository this serves relies on.
 		"a path the patterns match": {
-			paths:     []string{"go/internal/x.go"},
-			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
+			paths: []string{"go/internal/x.go"},
+			rules: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
 		},
 		"the same path spelled absolutely": {
-			paths:     []string{filepath.Join(dir, "go", "internal", "x.go")},
-			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
+			paths: []string{filepath.Join(dir, "go", "internal", "x.go")},
+			rules: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
 		},
 		// One match is enough, and it is looked for in every path given
 		// rather than only in the first.
 		"several paths of which the last one matches": {
-			paths:     []string{"README.md", "docs/x.md", "go/internal/x.go"},
-			documents: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
+			paths: []string{"README.md", "docs/x.md", "go/internal/x.go"},
+			rules: []string{filepath.Join(dir, ".claude", "rules", "scoped.md"), userRule},
 		},
 		// A relative path is read from the top of the repository, not from the
 		// working directory, and it need not exist to be matched.
@@ -330,8 +330,8 @@ func TestCollectMatchesScopedRulesAgainstTheGivenPaths(t *testing.T) {
 			}
 
 			want := Collection{
-				Loaded:    abs(dir, "CLAUDE.md", ".claude/rules/unscoped.md"),
-				Documents: tt.documents,
+				Loaded: abs(dir, "CLAUDE.md", ".claude/rules/unscoped.md"),
+				Rules:  tt.rules,
 			}
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
@@ -356,10 +356,10 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 	})
 
 	tests := map[string]struct {
-		path      string
-		documents []string
+		path  string
+		rules []string
 	}{
-		"a brace alternative":             {path: "src/a.tsx", documents: []string{".claude/rules/braces.md"}},
+		"a brace alternative":             {path: "src/a.tsx", rules: []string{".claude/rules/braces.md"}},
 		"outside every alternative":       {path: "src/a.js"},
 		"what the invalid pattern spells": {path: "photos [2024/x.png"},
 	}
@@ -370,7 +370,7 @@ func TestCollectMatchesTheDocumentedPatternSyntax(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			want := Collection{Documents: abs(dir, tt.documents...)}
+			want := Collection{Rules: abs(dir, tt.rules...)}
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
 			}
@@ -459,7 +459,7 @@ func assertRuleMatches(t *testing.T, dir string, matches, misses []string) {
 		paths []string
 		want  Collection
 	}{
-		{matches, Collection{Documents: abs(dir, ".claude/rules/r.md")}},
+		{matches, Collection{Rules: abs(dir, ".claude/rules/r.md")}},
 		{misses, Collection{}},
 	} {
 		for _, path := range c.paths {
@@ -510,7 +510,7 @@ func TestCollectListsOneFileFoundTwiceOnce(t *testing.T) {
 		// Named under the spelling the match found them by, which says which
 		// entry matched: the link naming linked.md is no earlier spelling of
 		// it.
-		Documents: []string{
+		Rules: []string{
 			filepath.Join(home, ".claude", "rules", "linked.md"),
 			filepath.Join(home, ".claude", "rules", "other.md"),
 		},
@@ -537,7 +537,7 @@ func TestCollectMatchesEachProjectRuleAgainstItsOwnDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := Collection{Documents: abs(dir, ".claude/rules/top.md", "go/.claude/rules/near.md")}
+	want := Collection{Rules: abs(dir, ".claude/rules/top.md", "go/.claude/rules/near.md")}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Collect() mismatch (-want +got):\n%s", diff)
 	}

@@ -10,7 +10,7 @@
     "allow": [
       "Bash(ccx issue sections:*)",
       "Bash(ccx issue tree:*)",
-      "Bash(ccx plan docs:*)",
+      "Bash(ccx plan rules:*)",
       "Bash(ccx pr context:*)",
       "Bash(ccx review pending:*)",
       "Bash(ccx review verify:*)",

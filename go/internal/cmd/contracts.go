@@ -25,7 +25,7 @@ import (
 // against. A second command-to-type mapping for the latter would be the very
 // inventory this arrangement exists to delete.
 var contracts = map[string]help{
-	"plan docs": {
+	"plan rules": {
 		intro: `List what Claude Code loaded at launch and the rules the given paths bring in.
 
 Two questions a planner has before drafting, both answered from the loading
@@ -59,7 +59,7 @@ path is a subject for pattern matching and not a file to open — the same
 spelling an issue's affected code uses, so that the answer is the repository's
 rather than that of wherever the caller happened to stand. An absolute one is
 taken as it is. None has to exist, since a task may be about to create it.
-documents holds every path-scoped rule at least one of them matches: the .md
+rules holds every path-scoped rule at least one of them matches: the .md
 files declaring a paths field under a .claude/rules/ of any directory from here
 up to the top, and under the user's own ~/.claude/rules/. A project rule's
 patterns are matched against the path made relative to the directory holding
@@ -67,7 +67,7 @@ that .claude/, and a user-level rule's against the top of the repository for the
 reason below; a path outside a basis matches nothing there. The rules are
 sorted by path, and one file found under two spellings — this repository
 reaches its own rules both ways, through a symlink — is one entry. A rule
-already in loaded is not listed again. With no path given, documents is empty.
+already in loaded is not listed again. With no path given, rules is empty.
 
 The patterns are the paths field's documented syntax — **, brace expansion,
 bracket expressions — and a pattern that is not a valid glob matches nothing
@@ -82,9 +82,9 @@ stood rather than of the rule's scope.
 
 Nothing about a repository is a failure here. One with no instruction file at
 all and no rule a given path matches answers with three empty lists and exit 0.
-Nothing to read is loaded and documents both empty, and neither says it alone:
+Nothing to read is loaded and rules both empty, and neither says it alone:
 a matched rule is to read in a project that states nothing at all, and without
-a path an instruction file leaves loaded full and documents empty. An @ import
+a path an instruction file leaves loaded full and rules empty. An @ import
 of a file that is not there is reported as a warning and the rest carries on;
 nothing else produces one. External imports are assumed to have been approved,
 since whether they were is not observable from here.`,
