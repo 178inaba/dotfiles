@@ -1,6 +1,7 @@
 tap "178inaba/tap"
 
 brew "tmux"
+brew "herdr"
 brew "git"
 brew "vim"
 brew "go"
