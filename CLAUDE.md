@@ -60,8 +60,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### チートシート
 - **tmux**: [docs/tmux-cheatsheet.md](docs/tmux-cheatsheet.md) - 初心者向け包括的リファレンス
-- **herdr**: [docs/herdr-cheatsheet.md](docs/herdr-cheatsheet.md) - 既定キーバインドの早見表
-- **参照方法**: `tmux-help` / `herdr-help` コマンドで色付きページング表示
+- **参照方法**: `tmux-help` コマンドで色付きページング表示
 
 ## 重要な注意事項
 
