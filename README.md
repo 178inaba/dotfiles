@@ -54,6 +54,7 @@ both, so no manual step is needed for them either.
 - `claude`: Claude Code configuration
 - `ghostty`: Ghostty terminal configuration
 - `git`: Git configuration
+- `herdr`: herdr configuration
 - `tmux`: tmux configuration
 - `vim`: Vim configuration
 - `zsh`: Zsh configuration
