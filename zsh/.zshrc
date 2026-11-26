@@ -59,15 +59,18 @@ alias gfp='git fetch --prune'
 alias gpp='git pull --prune'
 alias gsu='git submodule update'
 
-# Tmux cheatsheet
-tmux-help() {
-  local sheet="${HOME}/.dotfiles/docs/tmux-cheatsheet.md"
+# Cheatsheets
+tmux-help() { _cheatsheet tmux }
+herdr-help() { _cheatsheet herdr }
+
+_cheatsheet() {
+  local sheet="${HOME}/.dotfiles/docs/${1}-cheatsheet.md"
   if ! command -v ccat >/dev/null; then
-    echo 'tmux-help: ccat not found' >&2
+    echo "${1}-help: ccat not found" >&2
     return 1
   fi
   if [[ ! -r "${sheet}" ]]; then
-    echo "tmux-help: cannot read ${sheet}" >&2
+    echo "${1}-help: cannot read ${sheet}" >&2
     return 1
   fi
   # Plain text off a terminal: a pipe or redirect should get neither escapes nor a pager.
