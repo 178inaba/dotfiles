@@ -10,3 +10,6 @@ claude = [
   ["terminal_title_stripped"],
   ["agent"],
 ]
+
+[ui.sidebar.spaces]
+rows = [["state_icon", "workspace"]]
