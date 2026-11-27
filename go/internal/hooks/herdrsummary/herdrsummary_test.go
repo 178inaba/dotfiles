@@ -372,6 +372,11 @@ func TestClear(t *testing.T) {
 		if diff := cmp.Diff([]call{report("--clear-token", "summary")}, f.calls, ignoreDeadline); diff != "" {
 			t.Errorf("reportErr=%v: calls mismatch (-want +got):\n%s", reportErr, diff)
 		}
+		// SessionStart waits for the clear, and SessionEnd allows its hooks
+		// 1.5 seconds in all.
+		if d := f.calls[0].Deadline; d <= 0 || d > time.Second {
+			t.Errorf("reportErr=%v: clear deadline = %v, want within 1s", reportErr, d)
+		}
 	}
 }
 

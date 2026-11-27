@@ -102,7 +102,7 @@ func herdrSummaryCmd(deps Deps) *cobra.Command {
 			return herdrsummary.New(herdrsummary.Default(), mode)
 		})
 	c.Flags().BoolVar(&prompt, "prompt", false, "a prompt was submitted")
-	c.Flags().BoolVar(&clearSummary, "clear", false, "the conversation was cleared or the session ended")
+	c.Flags().BoolVar(&clearSummary, "clear", false, "a session started or ended")
 	c.MarkFlagsMutuallyExclusive("prompt", "clear")
 	c.MarkFlagsOneRequired("prompt", "clear")
 	return c

@@ -37,6 +37,9 @@ const (
 	// both herdr calls. Claude Code does not enforce a hook's timeout on an
 	// async command hook, so nothing else would.
 	promptTimeout = 60 * time.Second
+	// clearTimeout bounds the clear. SessionStart runs it synchronously and
+	// would wait out herdr; SessionEnd gives all its hooks 1.5 seconds.
+	clearTimeout = time.Second
 	// maxInstruction is as much of a prompt as the model is shown. The
 	// subject of the work is at the start; a long paste after it only costs.
 	maxInstruction = 2000
@@ -141,6 +144,8 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 		// matcher listing the sources that clear, so that a source Claude
 		// Code adds later clears instead of quietly leaving residue behind.
 		if in.Source != "compact" {
+			ctx, cancel := context.WithTimeout(ctx, clearTimeout)
+			defer cancel()
 			_ = h.report(ctx, pane, seq, "--clear-token", token)
 		}
 	}
