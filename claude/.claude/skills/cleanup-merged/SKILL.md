@@ -40,11 +40,13 @@ ccx worktree cleanup
   - no-op（EnterWorktree セッションでない）なら再実行せず、「この worktree はセッションのカレントのため削除できません。メインツリーで再実行してください」と案内する
 - **branch**: `git switch <default_branch>` でカレントブランチを切り替えてから手順 1 を再実行する（`<default_branch>` は出力の `default_branch`）。失敗（未コミット変更等）したら再実行せず、その旨を報告する
 
-再実行した場合、完了報告の `removed` は 2 回分を連結し、`skipped`・`failures`・`degraded`・`warnings` は 2 回目のものを使う（1 回目に残ったものは 2 回目で再判定されるため）。
+2 回目にも `is_current` が出たら（メイン worktree のカレントブランチが完了済みだった等）、それ以上は退避・再実行せずスキップとして報告する。
+
+再実行した場合、完了報告の `removed` と `warnings` は 2 回分を連結し、`degraded` はどちらかの回が true なら true とする。`skipped`・`failures` は 2 回目のものを使う（1 回目に残ったものは 2 回目で再判定されるため）。
 
 ### 3. 完了報告
 
-出力の `removed`・`skipped`・`failures`・`degraded`・`warnings` を以下のフォーマットで報告する。0 件の節は省き、削除もスキップも無ければその旨だけを報告する:
+出力の `removed`・`skipped`・`failures`・`degraded`・`warnings` を以下のフォーマットで報告する。0 件の節は省く。`removed`・`skipped`・`failures` がすべて空なら対象が無かった旨を報告する（オフライン判定の警告と `warnings` は件数にかかわらず出す）:
 
 ```
 ## クリーンアップ結果

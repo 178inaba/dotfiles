@@ -52,13 +52,7 @@ type Deletion struct {
 // A failure of one is recorded and the rest go on, because the list is one
 // batch: stopping at the first refusal would leave the caller to work out which
 // half happened. Only a broken premise — no repository, no lsof — fails the
-// command itself.
-//
-// It exists as a command rather than as a loop the model writes each time for
-// two reasons. The shell that runs those loops is zsh, where assigning to a
-// variable named path destroys PATH, and a candidate field called path invites
-// exactly that. And the choice between -d and -D belongs somewhere it can be
-// tested.
+// call itself.
 func Delete(ctx context.Context, r runner.Runner, dir string, candidates Candidates) (Deletion, error) {
 	if _, err := runner.Git(ctx, r, dir, "rev-parse", "--git-dir"); err != nil {
 		return Deletion{}, fmt.Errorf("not a git repository")

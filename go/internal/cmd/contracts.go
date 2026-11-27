@@ -634,6 +634,7 @@ judged finished but held back and why, and what failed.
 A branch with an open pull request is left out entirely rather than reported
 as skipped: it is in flight, not finished. Everything judged finished but held
 back for a reason appears under skipped, so that nothing disappears silently.
+
 Never considered at all: main, master, develop, the remote's default branch,
 and the main worktree, which cannot be removed anyway.
 
@@ -647,6 +648,7 @@ broken premise — no repository, no lsof — fails the command itself.
 
 Judging asks GitHub about every branch, so the processes holding a worktree as
 their working directory are checked again immediately before its removal.
+
 Only a merged_no_pr branch is deleted with git branch -d, so git's own merged
 check is a second safety net under the judgement. A pr_closed or pr_merged
 branch is deleted with -D, and only after its head is checked again against

@@ -70,6 +70,32 @@ func TestCleanup(t *testing.T) {
 	}
 }
 
+// TestCleanupReportsAFailedRemoval covers what reaches the report when a
+// removal fails after the judgement passed it: a locked worktree is judged
+// like any other, and git refuses to remove it.
+func TestCleanupReportsAFailedRemoval(t *testing.T) {
+	t.Parallel()
+
+	repo, prs := cleanupFixture(t)
+	wtMerged := filepath.Join(realDir(t, filepath.Dir(repo)), "wt-merged")
+	gittest.Run(t, repo, "worktree", "lock", wtMerged)
+
+	got, err := Cleanup(t.Context(), runner.Exec{}, cleanupGitHub(t, prs, false), repo)
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if !slices.ContainsFunc(got.Failures, func(f Failure) bool { return f.Type == KindWorktree && f.Target == wtMerged && f.Error != "" }) {
+		t.Errorf("the locked worktree's failure is not reported; failures were %+v", got.Failures)
+	}
+	if _, err := os.Stat(wtMerged); err != nil {
+		t.Errorf("the locked worktree was removed: %v", err)
+	}
+	// The rest still goes.
+	if !slices.Contains(removedBranchNames(got), "merged-nopr") {
+		t.Errorf("merged-nopr was not removed; removed branches were %v", removedBranchNames(got))
+	}
+}
+
 // TestCleanupLeavesWhereTheCallerStands covers the step the caller takes
 // between runs: what it stands in is reported rather than removed, so that it
 // can leave and run the command again.

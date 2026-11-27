@@ -30,6 +30,12 @@ type CleanupReport struct {
 // What the caller stands in is reported as is_current rather than removed:
 // leaving it is a step only the caller can take — a session leaves a worktree
 // through the harness, not through git — so the command runs again once it has.
+//
+// It exists as a command rather than as a loop the model writes each time for
+// two reasons. The shell that runs those loops is zsh, where assigning to a
+// variable named path destroys PATH, and a candidate field called path invites
+// exactly that. And the choice between -d and -D belongs somewhere it can be
+// tested.
 func Cleanup(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string) (CleanupReport, error) {
 	col, err := Collect(ctx, r, c, dir)
 	if err != nil {
@@ -49,7 +55,7 @@ func Cleanup(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string) 
 	for _, w := range col.Candidates.Worktrees {
 		if w.IsCurrent {
 			out.Skipped = append(out.Skipped, Skipped{
-				Type: KindWorktree, Target: w.Path, Branch: w.Branch, Reason: SkipCurrent, Detail: skipDetails[SkipCurrent],
+				Type: KindWorktree, Target: w.Path, Branch: w.Branch, Reason: SkipCurrent, Detail: currentDetail(w.Detail),
 			})
 			continue
 		}
@@ -58,7 +64,7 @@ func Cleanup(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string) 
 	for _, b := range col.Candidates.Branches {
 		if b.IsCurrent {
 			out.Skipped = append(out.Skipped, Skipped{
-				Type: KindBranch, Target: b.Branch, Reason: SkipCurrent, Detail: skipDetails[SkipCurrent],
+				Type: KindBranch, Target: b.Branch, Reason: SkipCurrent, Detail: currentDetail(b.Detail),
 			})
 			continue
 		}
@@ -76,4 +82,10 @@ func Cleanup(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string) 
 	}
 	out.Removed, out.Failures = deleted.Removed, deleted.Failures
 	return out, nil
+}
+
+// currentDetail keeps the judgement behind an is_current skip, which is the
+// only line a caller who cannot leave gets to read about it.
+func currentDetail(judged string) string {
+	return skipDetails[SkipCurrent] + ": " + judged
 }
