@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
 	"github.com/178inaba/dotfiles/go/internal/runner"
@@ -30,6 +32,9 @@ type call struct {
 	// its context had no deadline.
 	Deadline time.Duration
 }
+
+// ignoreDeadline leaves the deadline to the test that is about it.
+var ignoreDeadline = cmpopts.IgnoreFields(call{}, "Deadline")
 
 // fakeRunner answers herdr and claude by name and records every call.
 type fakeRunner struct {
@@ -135,7 +140,7 @@ func TestPromptPublishesTheSummary(t *testing.T) {
 			f := &fakeRunner{paneGet: tt.paneGet, model: modelSays(false, "herdr の作業要約表示")}
 			run(t, f, pane, Prompt, hooks.Payload{Prompt: "/issue-handle 391"})
 
-			if diff := cmp.Diff([]call{{Name: "herdr", Args: []string{"pane", "get", pane}}}, f.named("herdr")[:1]); diff != "" {
+			if diff := cmp.Diff([]call{{Name: "herdr", Args: []string{"pane", "get", pane}}}, f.named("herdr")[:1], ignoreDeadline); diff != "" {
 				t.Errorf("pane get mismatch (-want +got):\n%s", diff)
 			}
 
@@ -155,7 +160,7 @@ func TestPromptPublishesTheSummary(t *testing.T) {
 			}
 
 			want := []call{report("--token", "summary=herdr の作業要約表示")}
-			if diff := cmp.Diff(want, f.named("herdr")[1:]); diff != "" {
+			if diff := cmp.Diff(want, f.named("herdr")[1:], ignoreDeadline); diff != "" {
 				t.Errorf("report mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -163,8 +168,9 @@ func TestPromptPublishesTheSummary(t *testing.T) {
 }
 
 // The child must not run this hook again on its own UserPromptSubmit, must not
-// leave a session behind in /resume, and is bounded by the hook itself because
-// Claude Code does not time out an async hook.
+// leave a session behind in /resume, and must have nothing to act on but the
+// one request: with tools, MCP servers or settings it reads the instruction as
+// a task and carries the whole session's context into every call.
 func TestModelCall(t *testing.T) {
 	t.Parallel()
 
@@ -175,19 +181,79 @@ func TestModelCall(t *testing.T) {
 	if len(models) != 1 {
 		t.Fatalf("model calls = %d, want 1", len(models))
 	}
-	m := models[0]
 	for _, want := range [][]string{
 		{"-p"},
 		{"--model", "haiku"},
 		{"--settings", `{"disableAllHooks": true}`},
 		{"--no-session-persistence"},
+		{"--setting-sources", ""},
+		{"--strict-mcp-config"},
+		{"--tools", ""},
+		{"--output-format", "json"},
+		{"--system-prompt", systemPrompt},
+		{"--json-schema", schema},
 	} {
-		if !containsRun(m.Args, want) {
-			t.Errorf("model args %q lack %q", m.Args, want)
+		if !containsRun(models[0].Args, want) {
+			t.Errorf("model args %q lack %q", models[0].Args, want)
 		}
 	}
-	if m.Deadline <= 0 || m.Deadline > 60*time.Second {
-		t.Errorf("model call deadline = %v, want within 60s", m.Deadline)
+}
+
+// Claude Code does not time out an async hook, so every command a prompt
+// starts is bounded by the hook itself.
+func TestPromptCommandsAreBounded(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeRunner{paneGet: paneWithoutTokens, model: modelSays(false, "x")}
+	run(t, f, pane, Prompt, hooks.Payload{Prompt: "p"})
+
+	if len(f.calls) != 3 {
+		t.Fatalf("calls = %d, want pane get, the model and a report", len(f.calls))
+	}
+	for _, c := range f.calls {
+		if c.Deadline <= 0 || c.Deadline > 60*time.Second {
+			t.Errorf("%s %q deadline = %v, want within 60s", c.Name, c.Args, c.Deadline)
+		}
+	}
+}
+
+// The seq is the moment the prompt arrived. Taken after the model call, an
+// older prompt whose generation finished late would outrank a newer one.
+func TestSeqIsTakenBeforeAnyCommand(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeRunner{paneGet: paneWithoutTokens, model: modelSays(false, "x")}
+	callsAtNow := -1
+	d := Deps{
+		Runner: f,
+		Getenv: func(string) string { return pane },
+		Now: func() time.Time {
+			callsAtNow = len(f.calls)
+			return now
+		},
+	}
+	New(d, Prompt).Run(t.Context(), hooks.Payload{Prompt: "p"})
+
+	if callsAtNow != 0 {
+		t.Errorf("Now was read after %d commands, want before any", callsAtNow)
+	}
+}
+
+func TestLongPromptIsCut(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("あ", maxInstruction+10)
+	f := &fakeRunner{paneGet: paneWithoutTokens, model: modelSays(false, "x")}
+	run(t, f, pane, Prompt, hooks.Payload{Prompt: long})
+
+	var input struct {
+		Instruction string `json:"instruction"`
+	}
+	if err := json.Unmarshal([]byte(f.named("claude")[0].Stdin), &input); err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.Repeat("あ", maxInstruction); input.Instruction != want {
+		t.Errorf("instruction has %d runes, want the first %d", len([]rune(input.Instruction)), maxInstruction)
 	}
 }
 
@@ -291,7 +357,7 @@ func TestSummaryIsOneLine(t *testing.T) {
 	run(t, f, pane, Prompt, hooks.Payload{Prompt: "p"})
 
 	want := []call{report("--token", "summary=herdr の 作業要約")}
-	if diff := cmp.Diff(want, f.named("herdr")[1:]); diff != "" {
+	if diff := cmp.Diff(want, f.named("herdr")[1:], ignoreDeadline); diff != "" {
 		t.Errorf("report mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -303,7 +369,7 @@ func TestClear(t *testing.T) {
 		f := &fakeRunner{reportErr: reportErr}
 		run(t, f, pane, Clear, hooks.Payload{})
 
-		if diff := cmp.Diff([]call{report("--clear-token", "summary")}, f.calls); diff != "" {
+		if diff := cmp.Diff([]call{report("--clear-token", "summary")}, f.calls, ignoreDeadline); diff != "" {
 			t.Errorf("reportErr=%v: calls mismatch (-want +got):\n%s", reportErr, diff)
 		}
 	}
