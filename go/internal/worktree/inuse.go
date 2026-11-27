@@ -15,10 +15,10 @@ import (
 )
 
 // Removing a worktree that a process has as its working directory kills that
-// process's every later command, and git does not refuse to do it. Both halves
-// of /cleanup-merged need the same check — collect to leave such a worktree out
-// of the candidates, delete to refuse it at the last moment — so it lives here
-// once.
+// process's every later command, and git does not refuse to do it. Judging and
+// removing both need the same check — Collect to leave such a worktree out of
+// the candidates, Delete to refuse it at the last moment — and so does Sweep,
+// so it lives here once.
 //
 // Working directories rather than open files: an editor reads a file and closes
 // it again, so `lsof +D` would cost time proportional to the tree for almost no

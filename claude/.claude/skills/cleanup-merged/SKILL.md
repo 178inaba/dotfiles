@@ -19,53 +19,32 @@ description: マージ済み・完了済みのworktreeとlocal branchをまと�
 
 ## 実行内容
 
-削除前にユーザーへ確認を取らない。削除してよいかの判定と安全検査はコマンドが持ち、本スキルは削除後に結果を 1 回報告する。
+削除前にユーザーへ確認を取らない。削除してよいかの判定と安全検査はコマンドが持ち、本スキルは削除後に結果を報告する。
 
-### 1. 候補収集
+### 1. 判定と削除
 
 ```bash
-ccx worktree collect
+ccx worktree cleanup
 ```
 
-事前準備（デフォルトブランチ取得・`git fetch`・保護 branch 除外）、worktree/branch の収集、マージ判定、セーフティチェックを一括実行し、JSON を stdout に出力する。候補と判断した理由は各要素の `verdict` / `detail` に載る。
-
-出力の読み方は `ccx worktree collect --help` にある。本スキルがそれに対して行うこと:
-
-- `detail` はそのまま完了報告の各行に使う（手順 4）
-- `is_current: true` の候補があれば、削除実行の前に「カレント処理」を行う（手順 2）
-- `head_oid` はカレント処理で候補を外す際も落とさず渡す（`ccx worktree delete` が `-D` の直前に再照合するため）
-- `in_use_by_process` でスキップされた対象は、`detail` のプロセス名と PID を見て手動で判断する
-- `degraded: true` なら完了報告の冒頭に「オフライン判定（PR 情報なし）」と警告を出す
-- `warnings` が空でなければ完了報告に併記する
-
-削除候補（`candidates` の worktree・branch）が 0 件の場合は、その旨を報告して終了する（スキップ・オフライン判定の警告・`warnings` があればあわせて報告する）。
+事前準備（デフォルトブランチ取得・`git fetch`・保護 branch 除外）、マージ判定、セーフティチェック、削除を一括実行し、結果を JSON で stdout に出力する。出力の読み方は `ccx worktree cleanup --help` にある。
 
 コマンドが非ゼロ終了した場合（git リポジトリ外・lsof 欠如等）は stderr のメッセージを提示して停止する。
 
-### 2. カレント処理（`is_current: true` の候補がある場合のみ）
+### 2. カレントからの退避と再実行（`skipped` に `is_current` がある場合のみ）
 
-- **worktree 候補**: `ExitWorktree(action: "keep")` を呼んでセッションを worktree から抜く
-  - 抜けられたら、その候補もそのまま削除実行に含める（セッションは起動元ディレクトリに戻っている）
-  - no-op（EnterWorktree セッションでない）なら、その候補を削除セットから外し「この worktree はセッションのカレントのため削除できません。メインツリーで再実行してください」と案内（`ccx worktree delete` は cwd 保持プロセスの居る worktree を拒否するため、外し忘れも failures に出る）
-- **branch 候補**: `git switch <default_branch>` でカレントブランチを切り替える。失敗（未コミット変更等）したらその候補を削除セットから外す
+セッションが立っている worktree と、メイン worktree のカレントブランチは削除されず `is_current` でスキップされる。退避してから手順 1 をもう 1 回だけ実行する:
 
-外した候補は完了報告のスキップ欄に理由付きで載せる。外した結果、削除セットが空になったら手順 3 を行わず完了報告に進む。
+- **worktree**: `ExitWorktree(action: "keep")` を呼んでセッションを worktree から抜く
+  - 抜けられたら手順 1 を再実行する（セッションは起動元ディレクトリに戻っている）
+  - no-op（EnterWorktree セッションでない）なら再実行せず、「この worktree はセッションのカレントのため削除できません。メインツリーで再実行してください」と案内する
+- **branch**: `git switch <default_branch>` でカレントブランチを切り替えてから手順 1 を再実行する（`<default_branch>` は出力の `default_branch`）。失敗（未コミット変更等）したら再実行せず、その旨を報告する
 
-### 3. 削除実行
+再実行した場合、完了報告は 2 回の実行の結果を合わせたものにする。
 
-```bash
-ccx worktree delete < <(手順 1 の出力 JSON)
-```
+### 3. 完了報告
 
-手順 1 の出力 JSON をそのまま stdin に渡す。カレント処理で外した候補があれば jq でその要素だけを `candidates` から取り除いて渡す（**アドホックなシェルループで削除を再実装しない**。zsh の `path` 特殊変数事故の再発防止としてコマンドに固定している）。
-
-出力の読み方は `ccx worktree delete --help` にある。個別の削除失敗は処理を止めない。
-
-`WorktreeRemove` hook がプロジェクトに設定されていれば、`git worktree remove` の発火に合わせて実行される（per-worktree DB のクリーンアップ等）。
-
-### 4. 完了報告
-
-`ccx worktree delete` の `removed` はパスとブランチ名だけを持つので、各行の `detail` は手順 1 の出力から引く。以下のフォーマットで報告し、0 件の節は省く:
+出力の `removed`・`skipped`・`failures`・`degraded`・`warnings` を以下のフォーマットで報告する。0 件の節は省き、削除もスキップも無ければその旨だけを報告する:
 
 ```
 ## クリーンアップ結果
@@ -73,7 +52,7 @@ ccx worktree delete < <(手順 1 の出力 JSON)
 
 ### 削除した Worktree (N 件)
 1. <path>
-   branch: <branch>（削除できなかった場合は「残存」と添える）
+   branch: <branch>（branch_removed: false なら「残存」と添える）
    判定: <detail>
 
 ### 削除した Branch (M 件)
@@ -89,17 +68,17 @@ ccx worktree delete < <(手順 1 の出力 JSON)
 - <warnings の各項目>
 ```
 
-- 削除した Worktree: `removed.worktrees` の各パス
-- 削除した Branch: `removed.branches` のうち、手順 1 の `candidates` の branch 側にあったもの（worktree 候補のブランチは Worktree 節の `branch:` で示す）
-- スキップ: 手順 1 の `skipped` と、カレント処理で外した候補
-- 失敗: `failures` の各要素を 1 件ずつ、`error` を添えて
+- `in_use_by_process` でスキップされた対象は、`detail` のプロセス名と PID を見て手動で判断するよう添える
+- 退避して再実行した `is_current` の対象は、2 回目で削除されていればスキップ欄に載せない
+
+`WorktreeRemove` hook がプロジェクトに設定されていれば、`git worktree remove` の発火に合わせて実行される（per-worktree DB のクリーンアップ等）。
 
 ## 注意事項
 
 削除の分岐（`-d` / `-D` の使い分け、保護 branch とメイン worktree の除外、使用中 worktree の拒否、
 オフライン時の縮退）はすべてコマンドに集約されている。挙動を確かめるときは
-`ccx worktree collect --help` と `ccx worktree delete --help` を読む。ここに残すのは、このリポジトリの
-運用に固有のことだけ:
+`ccx worktree cleanup --help` を読む。削除をアドホックなシェルループで再実装しない（zsh の `path`
+特殊変数事故の再発防止としてコマンドに固定している）。ここに残すのは、このリポジトリの運用に固有のことだけ:
 
 1. **`main` 直行運用との整合**: PR を作らずに `main` へ入れる変更があるため、`merged_no_pr` 判定が
    そのぶんをカバーする。判定が出ても不安がる必要はない
