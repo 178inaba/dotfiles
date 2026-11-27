@@ -40,6 +40,8 @@ type Payload struct {
 	// Source is what triggered a SessionStart event: startup, resume, clear,
 	// compact, or fork.
 	Source string
+	// Prompt is what the user submitted, on UserPromptSubmit.
+	Prompt string
 }
 
 // wire is the input as it arrives. Keeping it separate from Payload is what
@@ -58,6 +60,7 @@ type wire struct {
 		NotebookPath string `json:"notebook_path"`
 	} `json:"tool_input"`
 	Source string `json:"source"`
+	Prompt string `json:"prompt"`
 }
 
 // Parse reads the hook input.
@@ -84,6 +87,7 @@ func Parse(in []byte) Payload {
 		Command:          w.ToolInput.Command,
 		FilePath:         w.ToolInput.FilePath,
 		Source:           w.Source,
+		Prompt:           w.Prompt,
 	}
 	if p.SessionID == "" {
 		p.SessionID = unknownSession

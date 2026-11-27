@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/178inaba/dotfiles/go/internal/hooks"
+	"github.com/178inaba/dotfiles/go/internal/hooks/herdrsummary"
 	"github.com/178inaba/dotfiles/go/internal/hooks/noopwait"
 	"github.com/178inaba/dotfiles/go/internal/hooks/notify"
 	"github.com/178inaba/dotfiles/go/internal/hooks/skillcheck"
@@ -37,6 +38,7 @@ func (c exitCode) Error() string { return "exit status " + strconv.Itoa(int(c)) 
 func newHookCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("hook", "Run a Claude Code hook")
 	c.AddCommand(
+		herdrSummaryCmd(deps),
 		leafHookCmd("idle-notify", "Notify unless a subagent is still running", deps,
 			func() hook { return notify.NewIdle(notify.Default()) }),
 		leafHookCmd("no-op-wait-guard", "Block a Bash call whose only purpose is to wait", deps,
@@ -82,6 +84,27 @@ func subagentTrackerCmd(deps Deps) *cobra.Command {
 	// track nothing and exit 0, and the only symptom would be idle-notify
 	// falling silent — the failure this pair exists to prevent.
 	c.MarkFlagsOneRequired("start", "stop", "session-end", "session-start")
+	return c
+}
+
+// herdrSummaryCmd is registered on UserPromptSubmit with --prompt and on
+// SessionStart (clear) and SessionEnd with --clear. Exactly one is required,
+// for the same reason as subagent-tracker's flags: a registration that lost its
+// flag must fail at startup rather than quietly do the other event's job.
+func herdrSummaryCmd(deps Deps) *cobra.Command {
+	var prompt, clearSummary bool
+	c := leafHookCmd("herdr-summary", "Show what this pane is working on in the herdr sidebar", deps,
+		func() hook {
+			mode := herdrsummary.Prompt
+			if clearSummary {
+				mode = herdrsummary.Clear
+			}
+			return herdrsummary.New(herdrsummary.Default(), mode)
+		})
+	c.Flags().BoolVar(&prompt, "prompt", false, "a prompt was submitted")
+	c.Flags().BoolVar(&clearSummary, "clear", false, "the conversation was cleared or the session ended")
+	c.MarkFlagsMutuallyExclusive("prompt", "clear")
+	c.MarkFlagsOneRequired("prompt", "clear")
 	return c
 }
 
