@@ -56,9 +56,9 @@ Set "continues" to true whenever the instruction names no subject of its own: "O
 Otherwise set "continues" to false and write "summary": a Japanese noun phrase of about 20 characters naming the subject of the work. Not a sentence, no trailing verb, no quotes, one line.`
 
 // schema is the answer the model has to give. continues is separate from the
-// summary because a follow-up must publish nothing: re-sending the previous
-// summary under the follow-up's newer seq would roll the row back past a newer
-// summary still being generated.
+// summary because a prompt with no subject of its own must publish nothing:
+// re-sending the previous summary under that prompt's newer seq would roll the
+// row back past a newer summary still being generated.
 const schema = `{"type":"object","properties":{"continues":{"type":"boolean"},"summary":{"type":"string"}},"required":["continues","summary"]}`
 
 // modelArgs is the model call.
@@ -171,8 +171,8 @@ func (h Hook) previous(ctx context.Context, pane string) (string, error) {
 	return got.Result.Pane.Tokens[token], nil
 }
 
-// generate returns the new summary, or "" when the prompt continues the
-// previous work.
+// generate returns the new summary, or "" when the prompt names no subject of
+// its own.
 func (h Hook) generate(ctx context.Context, previous, prompt string) (string, error) {
 	if r := []rune(prompt); len(r) > maxInstruction {
 		prompt = string(r[:maxInstruction])
