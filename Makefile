@@ -1,24 +1,18 @@
 # Homebrew isn't on PATH yet on a fresh machine (zsh/.zprofile applies only after
-# `stow`), so add it here for `make setup` itself.
+# `stow`), so add it here for `make install` itself.
 export PATH := /opt/homebrew/bin:$(PATH)
 
 PACKAGES := tmux git vim zsh claude ghostty herdr
 
-.PHONY: setup update bundle stow mise build
+.PHONY: install bundle stow mise build
 
-setup: bundle
+# Every step is idempotent, so the same target serves a fresh machine and a pull.
+install: bundle
 	$(MAKE) -j stow mise build
 
-# --no-upgrade: a routine update shouldn't also upgrade every outdated formula.
 bundle:
-	brew bundle install --no-upgrade
+	brew bundle install
 
-update: bundle
-	$(MAKE) -j stow mise
-
-# stow -R is idempotent, so update always runs it -- no need to judge whether a
-# pull actually added new dotfiles state.
-#
 # herdr keeps its sockets, logs and session state next to config.toml, so
 # ~/.config/herdr has to be a real directory: stow would otherwise fold it into
 # a symlink and herdr would write all of that into this repository.

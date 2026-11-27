@@ -12,7 +12,7 @@ This is my dotfiles.
 ```zsh
 $ git clone git@github.com:178inaba/dotfiles.git ~/.dotfiles
 $ cd ~/.dotfiles
-$ make setup
+$ make install
 $ zsh -l
 $ gh auth login
 $ atlio auth login
@@ -20,12 +20,12 @@ $ rdsh auth login
 $ slio auth login
 ```
 
-`make setup` installs the Brewfile packages, stows the packages listed in the
-`Makefile`, fetches the golangci-lint version `go/.tool-versions` pins, and builds
-`ccx` and the `gh` shim — see `Makefile` and `Brewfile` for what each step does and
-why. `zsh -l` must come before the `auth login` commands: it is what puts the
-just-installed `gh`, `atlio`, `rdsh` and `slio` on `PATH` (`zsh/.zprofile` only
-takes effect in a shell started after `stow`).
+`make install` installs or upgrades the Brewfile packages, stows the packages
+listed in the `Makefile`, fetches the golangci-lint version `go/.tool-versions`
+pins, and builds `ccx` and the `gh` shim — see `Makefile` and `Brewfile` for what
+each step does and why. `zsh -l` must come before the `auth login` commands: it is
+what puts the just-installed `gh`, `atlio`, `rdsh` and `slio` on `PATH`
+(`zsh/.zprofile` only takes effect in a shell started after `stow`).
 
 ### Claude Code plugins
 
@@ -42,12 +42,8 @@ Applying changes on a machine that is already set up:
 ```zsh
 $ cd ~/.dotfiles
 $ git pull
-$ make update
+$ make install
 ```
-
-`ccx` and the `gh` shim aren't rebuilt by `make update`: the first invocation of
-either after a pull notices the source is newer than the binary and reinstalls
-both, so no manual step is needed for them either.
 
 ## Packages
 
