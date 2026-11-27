@@ -4,6 +4,9 @@ onboarding = false
 name = "solarized"
 auto_switch = false
 
+[ui]
+sidebar_max_width = 60
+
 [ui.sidebar.agents.rows_by_agent]
 claude = [
   ["state_icon", "machine", "workspace", "tab"],
