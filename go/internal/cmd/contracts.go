@@ -625,55 +625,45 @@ session did not create it — /cleanup-merged is what collects it.`,
 		statuses: with(),
 	},
 
-	"worktree collect": {
-		intro: `List the worktrees and branches whose work is finished.
+	"worktree cleanup": {
+		intro: `Remove the worktrees and branches whose work is finished.
 
-Deletes nothing. The list goes to a person for approval, and
-` + "`ccx worktree delete`" + ` takes back whatever survives that.
+Judges and deletes in one run, and reports both halves: what went, what was
+judged finished but held back and why, and what failed.
 
 A branch with an open pull request is left out entirely rather than reported
 as skipped: it is in flight, not finished. Everything judged finished but held
-back for a reason appears under skipped, so that nothing disappears silently
-between the two commands.
+back for a reason appears under skipped, so that nothing disappears silently.
 
 Never considered at all: main, master, develop, the remote's default branch,
-and the main worktree, which cannot be removed anyway.`,
-		blocks:   []block{prints(reflect.TypeFor[worktree.Collection]())},
-		statuses: with(),
-	},
+and the main worktree, which cannot be removed anyway.
 
-	"worktree delete": {
-		intro: `Delete the approved worktrees and branches read from standard input.
+The worktree the caller stands in, and the main worktree's current branch, are
+skipped as is_current rather than removed. Leaving them is the caller's step;
+once it has, running this again removes them.
 
-One deletion failing is recorded and the rest go on, because the list is a
-batch a person approved and stopping at the first refusal would leave them to
-work out which half happened. Only a broken premise — no repository, no lsof,
-nothing approved — fails the command itself.
+One deletion failing is recorded and the rest go on, because stopping at the
+first refusal would leave the caller to work out which half happened. Only a
+broken premise — no repository, no lsof — fails the command itself.
 
-The processes holding a worktree as their working directory are checked again
-here, immediately before the removal, so that somebody entering one between
-the approval and the deletion does not lose it.
+Judging asks GitHub about every branch, so the processes holding a worktree as
+their working directory are checked again immediately before its removal.
 
 Only a merged_no_pr branch is deleted with git branch -d, so git's own merged
-check is a second safety net under the judgement that put it on the list. A
-pr_closed or pr_merged branch is deleted with -D, and only after its head is
-checked again against the pull request head recorded at collection time:
-pr_closed must still equal it, and pr_merged must still be an ancestor of it
-or equal to it. --force is never used.`,
-		blocks: []block{
-			reads("Input (JSON on standard input)", reflect.TypeFor[worktree.DeleteInput]()),
-			prints(reflect.TypeFor[worktree.Deletion]()),
-		},
+check is a second safety net under the judgement. A pr_closed or pr_merged
+branch is deleted with -D, and only after its head is checked again against
+the pull request head it was judged on: pr_closed must still equal it, and
+pr_merged must still be an ancestor of it or equal to it. --force is never
+used.`,
+		blocks:   []block{prints(reflect.TypeFor[worktree.CleanupReport]())},
 		statuses: with(),
 	},
 
 	"worktree sweep": {
 		intro: `Remove the worktrees the harness's isolated agents left behind.
 
-The unattended counterpart of ` + "`ccx worktree collect`" + ` and
-` + "`ccx worktree delete`" + `: this runs in the middle of another procedure, so
-nothing is asked between finding and removing, and the safety is in the checks
-instead of in an approval.
+It runs unattended in the middle of another procedure, so the safety is in
+the checks.
 
 Recognised only by the names the harness gives an isolated agent's worktree
 and branch. A linked worktree qualifies when its path ends in

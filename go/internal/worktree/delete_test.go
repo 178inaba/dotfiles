@@ -39,6 +39,12 @@ func deleteFixture(t *testing.T) string {
 	gittest.Run(t, wt, "commit", "-q", "--allow-empty", "-m", "a")
 	gittest.Run(t, repo, "merge", "-q", "wt-del")
 
+	// A clean worktree whose branch is unmerged under a verdict that says
+	// merged: the worktree goes and -d keeps the branch.
+	kept := filepath.Join(base, "wt-kept-branch")
+	gittest.Run(t, repo, "worktree", "add", "-q", kept, "-b", "wt-kept-branch", "main")
+	gittest.Run(t, kept, "commit", "-q", "--allow-empty", "-m", "unmerged")
+
 	// Unmerged, so only -D can remove it.
 	branch("closed-br")
 	// Unmerged with a verdict that says merged: -d refuses, which is the
@@ -76,26 +82,27 @@ func TestDelete(t *testing.T) {
 
 	repo := deleteFixture(t)
 	base := filepath.Dir(repo)
-	busy, del := filepath.Join(base, "wt-busy"), filepath.Join(base, "wt-del")
+	busy, del, kept := filepath.Join(base, "wt-busy"), filepath.Join(base, "wt-del"), filepath.Join(base, "wt-kept-branch")
 	pid := hold(t, busy)
 
 	candidates := Candidates{
 		Worktrees: []Candidate{
 			{Path: busy, Branch: "wt-busy", Verdict: VerdictMergedNoPR},
-			{Path: del, Branch: "wt-del", Verdict: VerdictMergedNoPR},
+			{Path: del, Branch: "wt-del", Verdict: VerdictMergedNoPR, Detail: "wt-del detail"},
+			{Path: kept, Branch: "wt-kept-branch", Verdict: VerdictMergedNoPR, Detail: "wt-kept-branch detail"},
 		},
 		Branches: []BranchCandidate{
 			{Branch: "fake-merged", Verdict: VerdictMergedNoPR},
-			{Branch: "closed-br", Verdict: VerdictPRClosed, HeadOID: gittest.Rev(t, repo, "refs/heads/closed-br")},
+			{Branch: "closed-br", Verdict: VerdictPRClosed, Detail: "closed-br detail", HeadOID: gittest.Rev(t, repo, "refs/heads/closed-br")},
 			// A head that is not the branch's, standing in for a commit made
-			// between the verdict and the approval.
+			// while the branches were being judged.
 			{Branch: "closed-stale", Verdict: VerdictPRClosed, HeadOID: gittest.Rev(t, repo, "main")},
 			{Branch: "live-br", Verdict: VerdictMergedNoPR},
-			{Branch: "merged-br", Verdict: VerdictMergedNoPR},
-			{Branch: "squashed-br", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-br")},
+			{Branch: "merged-br", Verdict: VerdictMergedNoPR, Detail: "merged-br detail"},
+			{Branch: "squashed-br", Verdict: VerdictPRMerged, Detail: "squashed-br detail", HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-br")},
 			// An ancestor of the recorded head is enough: equality is the
 			// closed pull request's rule, not the merged one's.
-			{Branch: "squashed-behind", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-behind@{1}")},
+			{Branch: "squashed-behind", Verdict: VerdictPRMerged, Detail: "squashed-behind detail", HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-behind@{1}")},
 			// The branch has moved past the head that merged.
 			{Branch: "squashed-moved", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/squashed-moved~1")},
 			{Branch: "squashed-unrelated", Verdict: VerdictPRMerged, HeadOID: gittest.Rev(t, repo, "refs/heads/closed-br")},
@@ -108,9 +115,23 @@ func TestDelete(t *testing.T) {
 	}
 
 	// The worktree in use is refused, and everything after it still happens:
-	// the list is a batch somebody approved, and stopping at the first refusal
-	// would leave them working out which half ran.
-	wantRemoved := Removed{Worktrees: []string{del}, Branches: []string{"wt-del", "closed-br", "merged-br", "squashed-br", "squashed-behind"}}
+	// the list is one batch, and stopping at the first refusal would leave the
+	// caller working out which half ran.
+	// Each removed item carries the verdict and detail it was deleted on, and a
+	// worktree's branch is reported on the worktree rather than among the
+	// branch candidates.
+	wantRemoved := Removed{
+		Worktrees: []RemovedWorktree{
+			{Path: del, Branch: "wt-del", BranchRemoved: true, Verdict: VerdictMergedNoPR, Detail: "wt-del detail"},
+			{Path: kept, Branch: "wt-kept-branch", BranchRemoved: false, Verdict: VerdictMergedNoPR, Detail: "wt-kept-branch detail"},
+		},
+		Branches: []RemovedBranch{
+			{Branch: "closed-br", Verdict: VerdictPRClosed, Detail: "closed-br detail"},
+			{Branch: "merged-br", Verdict: VerdictMergedNoPR, Detail: "merged-br detail"},
+			{Branch: "squashed-br", Verdict: VerdictPRMerged, Detail: "squashed-br detail"},
+			{Branch: "squashed-behind", Verdict: VerdictPRMerged, Detail: "squashed-behind detail"},
+		},
+	}
 	if diff := cmp.Diff(wantRemoved, got.Removed); diff != "" {
 		t.Errorf("removed (-want +got):\n%s", diff)
 	}
@@ -148,6 +169,7 @@ func TestDelete(t *testing.T) {
 			wantContains: "no longer contained",
 		},
 		{name: "an unmerged branch called merged", target: "fake-merged", wantKind: KindBranch},
+		{name: "the unmerged branch of a removed worktree", target: "wt-kept-branch", wantKind: KindBranch},
 		{name: "a branch checked out elsewhere", target: "live-br", wantKind: KindBranch},
 	}
 
@@ -170,12 +192,12 @@ func TestDelete(t *testing.T) {
 		})
 	}
 
-	for _, branch := range []string{"closed-stale", "fake-merged", "live-br", "squashed-moved", "squashed-unrelated"} {
+	for _, branch := range []string{"closed-stale", "fake-merged", "live-br", "squashed-moved", "squashed-unrelated", "wt-kept-branch"} {
 		if !branchExists(t, repo, branch) {
 			t.Errorf("%s was deleted despite its failure", branch)
 		}
 	}
-	for _, branch := range wantRemoved.Branches {
+	for _, branch := range []string{"wt-del", "closed-br", "merged-br", "squashed-br", "squashed-behind"} {
 		if branchExists(t, repo, branch) {
 			t.Errorf("%s survived its deletion", branch)
 		}
@@ -208,62 +230,6 @@ func TestDeleteWithoutAHeadToVerify(t *testing.T) {
 			}
 			if !branchExists(t, repo, tc.candidate.Branch) {
 				t.Errorf("%s was deleted despite its failure", tc.candidate.Branch)
-			}
-		})
-	}
-}
-
-func TestParseCandidates(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		in      string
-		want    Candidates
-		wantErr string
-	}{
-		{
-			name: "what collect wrote",
-			in:   `{"candidates":{"worktrees":[{"path":"/w","branch":"b","verdict":"merged_no_pr","head_oid":""}],"branches":[]}}`,
-			want: Candidates{
-				Worktrees: []Candidate{{Path: "/w", Branch: "b", Verdict: VerdictMergedNoPR}},
-				Branches:  []BranchCandidate{},
-			},
-		},
-		{name: "not json at all", in: "not json", wantErr: "invalid JSON in stdin JSON"},
-		// The root has no field to name, so the document is what is named.
-		{name: "the root is not an object", in: `"x"`, wantErr: "stdin JSON must be an object"},
-		{name: "candidates is not an object", in: `{"candidates":"x"}`, wantErr: "candidates must be an object in stdin JSON"},
-		// An empty object would otherwise read as an approved list of nothing,
-		// and the command would report a successful deletion of none.
-		{name: "no candidates", in: `{}`, wantErr: "stdin JSON is missing candidates"},
-		// An explicit null is the same statement as leaving the key out.
-		{name: "null candidates", in: `{"candidates":null}`, wantErr: "stdin JSON is missing candidates"},
-		// An approved list that is empty is different from a missing one: it
-		// is what a person leaves after taking everything out, and deleting
-		// nothing is the right answer to it.
-		{name: "an empty candidates object", in: `{"candidates":{}}`, want: Candidates{}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := ParseCandidates([]byte(tc.in))
-			if tc.wantErr != "" {
-				// Substring rather than equality: a refusal the decoder's own
-				// words are appended to says what it names, and quoting the
-				// decoder back at itself would pin its wording rather than ours.
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("ParseCandidates = %+v, %v; want an error mentioning %q", got, err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ParseCandidates: %v", err)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ParseCandidates (-want +got):\n%s", diff)
 			}
 		})
 	}

@@ -86,7 +86,7 @@ func TestContractsNameRealCommands(t *testing.T) {
 // the table, which is what the hook on the root is for.
 func TestHelpRendersTheContract(t *testing.T) {
 	var out bytes.Buffer
-	if code := run(t.Context(), []string{"worktree", "collect", "--help"}, nil, &out, io.Discard, Deps{}); code != 0 {
+	if code := run(t.Context(), []string{"worktree", "cleanup", "--help"}, nil, &out, io.Discard, Deps{}); code != 0 {
 		t.Fatalf("--help exited %d", code)
 	}
 	for _, want := range []string{"Output (JSON on standard output)", "in_use_by_process", "Exit status:"} {
@@ -108,7 +108,7 @@ func TestEverySkillFacingCommandHasAContract(t *testing.T) {
 		"pr context", "pr seen", "pr freshness", "pr ready", "pr prepare-review", "pr post-review", "pr reply-threads",
 		"pr comment", "pr body-append", "pr request-review",
 		"worktree detect", "worktree create", "worktree resolve", "worktree checkout",
-		"worktree collect", "worktree delete", "worktree sweep",
+		"worktree cleanup", "worktree sweep",
 		"review pending", "review verify", "review clone",
 		"skill frontmatter", "skill contract", "skill size",
 	}

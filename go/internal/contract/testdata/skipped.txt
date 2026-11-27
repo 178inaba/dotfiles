@@ -25,6 +25,8 @@
     in_use_by_process         A worktree some process is still standing in — another
                               Claude Code session, a shell. detail names the process and
                               its pid. The worktree the caller is standing in is exempt
-                              from the check and becomes an is_current candidate
-                              instead.
+                              from the check and is reported as is_current instead.
+    is_current                Finished work the caller is standing in: its own worktree,
+                              or the main worktree's current branch. It goes once the
+                              caller has left it and runs the command again.
   detail                      string

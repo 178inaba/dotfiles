@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/spf13/cobra"
 
@@ -18,7 +17,7 @@ import (
 func newWorktreeCmd(deps Deps) *cobra.Command {
 	c := newParentCmd("worktree", "Create and resolve the worktrees the skills work in")
 	c.AddCommand(worktreeDetectCmd(deps), worktreeCreateCmd(deps), worktreeResolveCmd(deps), worktreeCheckoutCmd(deps),
-		worktreeCollectCmd(deps), worktreeDeleteCmd(deps), worktreeSweepCmd(deps))
+		worktreeCleanupCmd(deps), worktreeSweepCmd(deps))
 	return c
 }
 
@@ -143,13 +142,12 @@ func worktreeCheckoutCmd(deps Deps) *cobra.Command {
 	}
 }
 
-// worktreeCollectCmd builds `ccx worktree collect`, the first half of
-// /cleanup-merged. It deletes nothing: the list goes to a person for approval,
-// and worktreeDeleteCmd takes back whatever survives that.
-func worktreeCollectCmd(deps Deps) *cobra.Command {
+// worktreeCleanupCmd builds `ccx worktree cleanup`, the whole of what
+// /cleanup-merged runs.
+func worktreeCleanupCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "collect",
-		Short: "List the worktrees and branches whose work is finished",
+		Use:   "cleanup",
+		Short: "Remove the worktrees and branches whose work is finished",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, deps.Build)
@@ -157,18 +155,17 @@ func worktreeCollectCmd(deps Deps) *cobra.Command {
 			if err != nil {
 				return silent(err)
 			}
-			collected, err := worktree.Collect(c.Context(), runner.Exec{}, client, deps.Dir)
+			report, err := worktree.Cleanup(c.Context(), runner.Exec{}, client, deps.Dir)
 			if err != nil {
 				return silent(err)
 			}
-			return silent(renderJSON(c.OutOrStdout(), collected))
+			return silent(renderJSON(c.OutOrStdout(), report))
 		},
 	}
 }
 
-// worktreeSweepCmd builds `ccx worktree sweep`, the unattended counterpart of
-// the pair above: it runs in the middle of another procedure, so nothing is
-// asked of the caller between finding and removing.
+// worktreeSweepCmd builds `ccx worktree sweep`, which runs unattended in the
+// middle of another procedure.
 func worktreeSweepCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sweep",
@@ -181,30 +178,6 @@ func worktreeSweepCmd(deps Deps) *cobra.Command {
 				return silent(err)
 			}
 			return silent(renderJSON(c.OutOrStdout(), swept))
-		},
-	}
-}
-
-func worktreeDeleteCmd(deps Deps) *cobra.Command {
-	return &cobra.Command{
-		Use:   "delete",
-		Short: "Delete the approved worktrees and branches read from standard input",
-		Args:  cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			reportBuild(c, deps.Build)
-			in, err := io.ReadAll(c.InOrStdin())
-			if err != nil {
-				return silent(err)
-			}
-			candidates, err := worktree.ParseCandidates(in)
-			if err != nil {
-				return silent(err)
-			}
-			deleted, err := worktree.Delete(c.Context(), runner.Exec{}, deps.Dir, candidates)
-			if err != nil {
-				return silent(err)
-			}
-			return silent(renderJSON(c.OutOrStdout(), deleted))
 		},
 	}
 }

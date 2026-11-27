@@ -67,8 +67,12 @@ const (
 	// SkipInUseByProcess is a worktree some process is still standing in —
 	// another Claude Code session, a shell. detail names the process and its
 	// pid. The worktree the caller is standing in is exempt from the check and
-	// becomes an is_current candidate instead.
+	// is reported as is_current instead.
 	SkipInUseByProcess SkipReason = "in_use_by_process"
+	// SkipCurrent is finished work the caller is standing in: its own worktree,
+	// or the main worktree's current branch. It goes once the caller has left
+	// it and runs the command again.
+	SkipCurrent SkipReason = "is_current"
 )
 
 // Candidate is a worktree that can be removed. A branch with no worktree of
@@ -114,7 +118,7 @@ type Skipped struct {
 }
 
 // Candidates is the two lists of what may be deleted, and is also what Delete
-// takes back.
+// takes.
 type Candidates struct {
 	Worktrees []Candidate       `json:"worktrees"`
 	Branches  []BranchCandidate `json:"branches"`
@@ -124,11 +128,10 @@ type Candidates struct {
 type Collection struct {
 	// GitHub could not be reached, so the judgement fell back to
 	// what git alone knows and no pull request was consulted.
-	Degraded        bool       `json:"degraded"`
-	DefaultBranch   string     `json:"default_branch"`
-	CurrentWorktree string     `json:"current_worktree"`
-	Candidates      Candidates `json:"candidates"`
-	Skipped         []Skipped  `json:"skipped"`
+	Degraded      bool       `json:"degraded"`
+	DefaultBranch string     `json:"default_branch"`
+	Candidates    Candidates `json:"candidates"`
+	Skipped       []Skipped  `json:"skipped"`
 	// Worktrees on no branch, reported rather than judged: with no branch there
 	// is nothing to compare against a pull request.
 	Detached []string `json:"detached"`
@@ -140,9 +143,7 @@ var protectedBranches = []string{"main", "master", "develop"}
 
 // Collect finds the worktrees and branches whose work is finished.
 //
-// It deletes nothing. The list goes to a person for approval first, and Delete
-// takes back whatever survives that — which is why the two are separate
-// commands rather than one.
+// It deletes nothing; Cleanup hands what it finds to Delete.
 func Collect(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string) (Collection, error) {
 	col := &collector{r: r, c: c, dir: dir}
 	return col.collect(ctx)
@@ -218,11 +219,10 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 	}
 
 	out := Collection{
-		DefaultBranch:   c.defaultBranch,
-		CurrentWorktree: currentWorktree,
-		Candidates:      Candidates{Worktrees: []Candidate{}, Branches: []BranchCandidate{}},
-		Skipped:         []Skipped{},
-		Detached:        []string{},
+		DefaultBranch: c.defaultBranch,
+		Candidates:    Candidates{Worktrees: []Candidate{}, Branches: []BranchCandidate{}},
+		Skipped:       []Skipped{},
+		Detached:      []string{},
 	}
 
 	// The first entry is the main worktree even where it is bare and has no
@@ -266,8 +266,8 @@ func (c *collector) collect(ctx context.Context) (Collection, error) {
 			reason, detail = c.safety(ctx, e.Path, "HEAD", j.verdict)
 		}
 		// The caller's own worktree is exempt from the in-use check, since the
-		// session asking the question is the process holding it. The procedure
-		// is to leave first, and Delete checks again at the moment of removal.
+		// session asking the question is the process holding it. Cleanup
+		// reports it as is_current for the caller to leave first.
 		if reason == "" && !isCurrent {
 			if holders := c.table.holders(e.Path); holders != "" {
 				reason, detail = SkipInUseByProcess, inUseDetail(holders)
@@ -510,6 +510,7 @@ var skipDetails = map[SkipReason]string{
 	SkipUncommittedChanges:    "未コミット変更あり",
 	SkipUnpushedCommits:       "未 push commit あり",
 	SkipNoUpstreamWithCommits: "upstream 未設定 & 自前 commit あり",
+	SkipCurrent:               "呼び出し元のカレント（離れてから再実行で削除）",
 }
 
 // branchPR is a pull request of one branch, as much of it as the judgement
