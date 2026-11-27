@@ -313,7 +313,7 @@ func TestOutsideHerdrDoesNothing(t *testing.T) {
 	t.Parallel()
 
 	for _, mode := range []Mode{Prompt, Clear} {
-		f := &fakeRunner{paneGet: paneWithoutTokens, model: modelSays(false, "x")}
+		f := &fakeRunner{}
 		run(t, f, "", mode, hooks.Payload{Prompt: "p"})
 
 		if len(f.calls) != 0 {

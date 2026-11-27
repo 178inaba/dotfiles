@@ -77,7 +77,7 @@ type Mode int
 const (
 	// Prompt summarises the prompt just submitted.
 	Prompt Mode = iota
-	// Clear removes the summary, on /clear and when the session ends. It
+	// Clear removes the summary when the session ends, /clear included. It
 	// makes no model call: SessionEnd hooks have 1.5 seconds.
 	Clear
 )
@@ -118,7 +118,9 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 	}
 	switch h.mode {
 	case Prompt:
-		_ = h.summarise(ctx, pane, seq, in.Prompt)
+		if in.Prompt != "" {
+			_ = h.summarise(ctx, pane, seq, in.Prompt)
+		}
 	case Clear:
 		_ = h.report(ctx, pane, seq, "--clear-token", token)
 	}
@@ -126,9 +128,6 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 }
 
 func (h Hook) summarise(ctx context.Context, pane, seq, prompt string) error {
-	if prompt == "" {
-		return errors.New("no prompt in the payload")
-	}
 	previous, err := h.previous(ctx, pane)
 	if err != nil {
 		return err

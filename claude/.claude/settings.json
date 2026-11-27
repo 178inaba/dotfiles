@@ -123,15 +123,6 @@
             "command": "~/go/bin/ccx hook subagent-tracker --session-start"
           }
         ]
-      },
-      {
-        "matcher": "clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/go/bin/ccx hook herdr-summary --clear"
-          }
-        ]
       }
     ],
     "SubagentStart": [
