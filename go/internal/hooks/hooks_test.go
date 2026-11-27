@@ -20,12 +20,13 @@ func TestParse(t *testing.T) {
 			in: `{"session_id":"s-1","agent_id":"a-1","tool_name":"Edit","cwd":"/w",
 			      "message":"hello","notification_type":"idle_prompt",
 			      "tool_input":{"command":"ls","file_path":"/w/SKILL.md"},
-			      "source":"startup"}`,
+			      "source":"startup","prompt":"fix the typo"}`,
 			want: Payload{
 				SessionID: "s-1", AgentID: "a-1", ToolName: "Edit", Dir: "/w",
 				Message: "hello", NotificationType: "idle_prompt",
 				Command: "ls", FilePath: "/w/SKILL.md",
 				Source: "startup",
+				Prompt: "fix the typo",
 			},
 		},
 		{

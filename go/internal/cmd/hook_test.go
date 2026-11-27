@@ -212,6 +212,20 @@ func TestHookCommand(t *testing.T) {
 			bareStdout: true,
 		},
 		{
+			name:       "herdr-summary asked for both events fails",
+			args:       []string{"hook", "herdr-summary", "--prompt", "--clear"},
+			wantCode:   1,
+			wantStderr: []string{"were all set", "Usage:"},
+			bareStdout: true,
+		},
+		{
+			name:       "herdr-summary asked for no event fails",
+			args:       []string{"hook", "herdr-summary"},
+			wantCode:   1,
+			wantStderr: []string{"at least one of the flags", "Usage:"},
+			bareStdout: true,
+		},
+		{
 			name:       "the hook list is on the root command",
 			args:       []string{"--help"},
 			wantStdout: "hook",
