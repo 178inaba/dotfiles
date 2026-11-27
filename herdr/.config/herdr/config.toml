@@ -7,7 +7,7 @@ auto_switch = false
 [ui.sidebar.agents.rows_by_agent]
 claude = [
   ["state_icon", "machine", "workspace", "tab"],
-  ["terminal_title_stripped"],
+  ["$summary"],
   ["agent"],
 ]
 

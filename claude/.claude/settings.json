@@ -104,12 +104,32 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/go/bin/ccx hook herdr-summary --prompt",
+            "async": true
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "~/go/bin/ccx hook subagent-tracker --session-start"
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/go/bin/ccx hook herdr-summary --clear"
           }
         ]
       }
@@ -140,6 +160,10 @@
           {
             "type": "command",
             "command": "~/go/bin/ccx hook subagent-tracker --session-end"
+          },
+          {
+            "type": "command",
+            "command": "~/go/bin/ccx hook herdr-summary --clear"
           }
         ]
       }
