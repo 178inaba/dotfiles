@@ -88,7 +88,7 @@ func subagentTrackerCmd(deps Deps) *cobra.Command {
 }
 
 // herdrSummaryCmd is registered on UserPromptSubmit with --prompt and on
-// SessionEnd, which /clear fires as well, with --clear. Exactly one is required,
+// SessionStart and SessionEnd with --clear. Exactly one is required,
 // for the same reason as subagent-tracker's flags: a registration that lost its
 // flag must fail at startup rather than quietly do the other event's job.
 func herdrSummaryCmd(deps Deps) *cobra.Command {

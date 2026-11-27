@@ -87,8 +87,10 @@ type Mode int
 const (
 	// Prompt summarises the prompt just submitted.
 	Prompt Mode = iota
-	// Clear removes the summary when the session ends, /clear included. It
-	// makes no model call: SessionEnd hooks have 1.5 seconds.
+	// Clear removes the summary when the session ends, /clear included, and
+	// when one starts, which is where a session that ended without SessionEnd
+	// (a crash, a kill) is cleaned up after. It makes no model call:
+	// SessionEnd hooks have 1.5 seconds.
 	Clear
 )
 
@@ -134,7 +136,13 @@ func (h Hook) Run(ctx context.Context, in hooks.Payload) hooks.Result {
 			_ = h.summarise(ctx, pane, seq, in.Prompt)
 		}
 	case Clear:
-		_ = h.report(ctx, pane, seq, "--clear-token", token)
+		// Compaction starts a session in the middle of one, whose summary is
+		// still the current one. The exclusion is here rather than in a
+		// matcher listing the sources that clear, so that a source Claude
+		// Code adds later clears instead of quietly leaving residue behind.
+		if in.Source != "compact" {
+			_ = h.report(ctx, pane, seq, "--clear-token", token)
+		}
 	}
 	return hooks.Result{}
 }

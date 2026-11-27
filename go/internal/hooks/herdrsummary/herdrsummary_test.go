@@ -375,6 +375,41 @@ func TestClear(t *testing.T) {
 	}
 }
 
+// Below a session that is only now starting, a summary is the residue of one
+// that ended without SessionEnd. Compaction happens mid-session, so its summary
+// is still the current one; every other source, an unknown one included, clears.
+func TestClearOnSessionStart(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		source    string
+		wantClear bool
+	}{
+		{source: "startup", wantClear: true},
+		{source: "resume", wantClear: true},
+		{source: "clear", wantClear: true},
+		{source: "fork", wantClear: true},
+		{source: "something-new", wantClear: true},
+		{source: "compact", wantClear: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			t.Parallel()
+
+			f := &fakeRunner{}
+			run(t, f, pane, Clear, hooks.Payload{Source: tt.source})
+
+			var want []call
+			if tt.wantClear {
+				want = []call{report("--clear-token", "summary")}
+			}
+			if diff := cmp.Diff(want, f.calls, ignoreDeadline); diff != "" {
+				t.Errorf("calls mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestOutsideHerdrDoesNothing(t *testing.T) {
 	t.Parallel()
 
