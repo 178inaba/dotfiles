@@ -8,7 +8,6 @@ auto_switch = false
 claude = [
   ["state_icon", "machine", "workspace", "tab"],
   ["$summary"],
-  ["agent"],
 ]
 
 [ui.sidebar.spaces]
