@@ -88,7 +88,7 @@ func TestDelete(t *testing.T) {
 			{Branch: "fake-merged", Verdict: VerdictMergedNoPR},
 			{Branch: "closed-br", Verdict: VerdictPRClosed, HeadOID: gittest.Rev(t, repo, "refs/heads/closed-br")},
 			// A head that is not the branch's, standing in for a commit made
-			// between the verdict and the approval.
+			// between collect and delete.
 			{Branch: "closed-stale", Verdict: VerdictPRClosed, HeadOID: gittest.Rev(t, repo, "main")},
 			{Branch: "live-br", Verdict: VerdictMergedNoPR},
 			{Branch: "merged-br", Verdict: VerdictMergedNoPR},
@@ -108,8 +108,8 @@ func TestDelete(t *testing.T) {
 	}
 
 	// The worktree in use is refused, and everything after it still happens:
-	// the list is a batch somebody approved, and stopping at the first refusal
-	// would leave them working out which half ran.
+	// the list is one batch, and stopping at the first refusal would leave the
+	// caller working out which half ran.
 	wantRemoved := Removed{Worktrees: []string{del}, Branches: []string{"wt-del", "closed-br", "merged-br", "squashed-br", "squashed-behind"}}
 	if diff := cmp.Diff(wantRemoved, got.Removed); diff != "" {
 		t.Errorf("removed (-want +got):\n%s", diff)
@@ -234,13 +234,13 @@ func TestParseCandidates(t *testing.T) {
 		// The root has no field to name, so the document is what is named.
 		{name: "the root is not an object", in: `"x"`, wantErr: "stdin JSON must be an object"},
 		{name: "candidates is not an object", in: `{"candidates":"x"}`, wantErr: "candidates must be an object in stdin JSON"},
-		// An empty object would otherwise read as an approved list of nothing,
+		// An empty object would otherwise read as a list of nothing,
 		// and the command would report a successful deletion of none.
 		{name: "no candidates", in: `{}`, wantErr: "stdin JSON is missing candidates"},
 		// An explicit null is the same statement as leaving the key out.
 		{name: "null candidates", in: `{"candidates":null}`, wantErr: "stdin JSON is missing candidates"},
-		// An approved list that is empty is different from a missing one: it
-		// is what a person leaves after taking everything out, and deleting
+		// A list that is empty is different from a missing one: it is what
+		// is left when the model takes every candidate out, and deleting
 		// nothing is the right answer to it.
 		{name: "an empty candidates object", in: `{"candidates":{}}`, want: Candidates{}},
 	}

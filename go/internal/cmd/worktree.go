@@ -144,8 +144,8 @@ func worktreeCheckoutCmd(deps Deps) *cobra.Command {
 }
 
 // worktreeCollectCmd builds `ccx worktree collect`, the first half of
-// /cleanup-merged. It deletes nothing: the list goes to a person for approval,
-// and worktreeDeleteCmd takes back whatever survives that.
+// /cleanup-merged. It deletes nothing: the model leaves any current worktree or
+// branch, and worktreeDeleteCmd takes back the candidates it could leave.
 func worktreeCollectCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "collect",
@@ -166,9 +166,9 @@ func worktreeCollectCmd(deps Deps) *cobra.Command {
 	}
 }
 
-// worktreeSweepCmd builds `ccx worktree sweep`, the unattended counterpart of
-// the pair above: it runs in the middle of another procedure, so nothing is
-// asked of the caller between finding and removing.
+// worktreeSweepCmd builds `ccx worktree sweep`, which unlike the pair above
+// judges and removes in one command: it runs in the middle of another
+// procedure, with no step in which the caller leaves a current worktree.
 func worktreeSweepCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sweep",
@@ -188,7 +188,7 @@ func worktreeSweepCmd(deps Deps) *cobra.Command {
 func worktreeDeleteCmd(deps Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete",
-		Short: "Delete the approved worktrees and branches read from standard input",
+		Short: "Delete the worktrees and branches read from standard input",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			reportBuild(c, deps.Build)

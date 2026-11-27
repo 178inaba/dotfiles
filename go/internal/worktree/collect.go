@@ -140,9 +140,9 @@ var protectedBranches = []string{"main", "master", "develop"}
 
 // Collect finds the worktrees and branches whose work is finished.
 //
-// It deletes nothing. The list goes to a person for approval first, and Delete
-// takes back whatever survives that — which is why the two are separate
-// commands rather than one.
+// It deletes nothing. Between this and Delete the model leaves any current
+// worktree or branch and takes out the candidates it could not leave, which is
+// why the two are separate commands rather than one.
 func Collect(ctx context.Context, r runner.Runner, c *ghapi.Client, dir string) (Collection, error) {
 	col := &collector{r: r, c: c, dir: dir}
 	return col.collect(ctx)

@@ -29,18 +29,17 @@ type Deletion struct {
 
 // DeleteInput is the document `ccx worktree delete` reads from standard input.
 //
-// What `ccx worktree collect` wrote, minus whatever the person or the model
-// took out of it. The two commands are separate so that a person sees the list
-// before anything is deleted, and this document is the boundary approval
-// passes through.
+// What `ccx worktree collect` wrote, minus the current worktree or branch the
+// model could not leave. The two commands are separate so that the model can
+// leave them in between, which no single command could do for it.
 type DeleteInput struct {
-	// The approved lists, in the shape collect printed them. A document
+	// The lists to delete, in the shape collect printed them. A document
 	// without the field is a failure rather than an empty list quietly
-	// deleting nothing; an empty object is an approved list of nothing.
+	// deleting nothing; an empty object is a list of nothing.
 	Candidates *Candidates `json:"candidates" contract:"required"`
 }
 
-// ParseCandidates reads the approved candidates.
+// ParseCandidates reads the candidates to delete.
 func ParseCandidates(b []byte) (Candidates, error) {
 	var wire DeleteInput
 	if err := contract.Unmarshal(b, &wire, "stdin JSON"); err != nil {
@@ -49,12 +48,12 @@ func ParseCandidates(b []byte) (Candidates, error) {
 	return *wire.Candidates, nil
 }
 
-// Delete removes the approved worktrees and branches.
+// Delete removes the given worktrees and branches.
 //
-// A failure of one is recorded and the rest go on, because the list is a batch
-// a person approved: stopping at the first refusal would leave them to work out
-// which half happened. Only a broken premise — no repository, no lsof, no
-// candidates — fails the command itself.
+// A failure of one is recorded and the rest go on, because the list is one
+// batch: stopping at the first refusal would leave the caller to work out which
+// half happened. Only a broken premise — no repository, no lsof, no candidates
+// field — fails the command itself.
 //
 // It exists as a command rather than as a loop the model writes each time for
 // two reasons. The shell that runs those loops is zsh, where assigning to a
@@ -67,8 +66,8 @@ func Delete(ctx context.Context, r runner.Runner, dir string, candidates Candida
 	}
 	// git will remove a worktree somebody is sitting in — it succeeds, and
 	// every command that process runs afterwards fails. Checked here as well as
-	// in Collect because approval takes time, and somebody may have entered it
-	// since.
+	// in Collect because time passes between the two commands, and somebody
+	// may have entered it since.
 	table, err := loadCWDTable(ctx, r)
 	if err != nil {
 		return Deletion{}, err
@@ -113,8 +112,8 @@ type deleter struct {
 // -d only for merged_no_pr, where git's own merge check is what the verdict
 // rests on and stays as a second opinion. -D for the pull request verdicts,
 // whose head was checked against the pull request's, and only after checking
-// it again: approval takes time, and a commit made in between would be deleted
-// with nothing to restore it from. A closed pull request needs the exact head;
+// it again: time passes between collect and delete, and a commit made in
+// between would be deleted with nothing to restore it from. A closed pull request needs the exact head;
 // a merged one needs the branch contained in the head that merged, since a
 // squash or rebase merge leaves the branch out of the default branch for good.
 func (d *deleter) deleteBranch(ctx context.Context, branch string, verdict Verdict, headOID string) {

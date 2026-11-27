@@ -628,8 +628,9 @@ session did not create it — /cleanup-merged is what collects it.`,
 	"worktree collect": {
 		intro: `List the worktrees and branches whose work is finished.
 
-Deletes nothing. The list goes to a person for approval, and
-` + "`ccx worktree delete`" + ` takes back whatever survives that.
+Deletes nothing. Between this and ` + "`ccx worktree delete`" + ` the caller leaves
+any current worktree or branch, and takes out the candidates it could not
+leave before handing the rest over.
 
 A branch with an open pull request is left out entirely rather than reported
 as skipped: it is in flight, not finished. Everything judged finished but held
@@ -643,16 +644,16 @@ and the main worktree, which cannot be removed anyway.`,
 	},
 
 	"worktree delete": {
-		intro: `Delete the approved worktrees and branches read from standard input.
+		intro: `Delete the worktrees and branches read from standard input.
 
-One deletion failing is recorded and the rest go on, because the list is a
-batch a person approved and stopping at the first refusal would leave them to
-work out which half happened. Only a broken premise — no repository, no lsof,
-nothing approved — fails the command itself.
+One deletion failing is recorded and the rest go on, because the list is one
+batch and stopping at the first refusal would leave the caller to work out
+which half happened. Only a broken premise — no repository, no lsof, no
+candidates field — fails the command itself.
 
 The processes holding a worktree as their working directory are checked again
 here, immediately before the removal, so that somebody entering one between
-the approval and the deletion does not lose it.
+collection and deletion does not lose it.
 
 Only a merged_no_pr branch is deleted with git branch -d, so git's own merged
 check is a second safety net under the judgement that put it on the list. A
@@ -670,10 +671,10 @@ or equal to it. --force is never used.`,
 	"worktree sweep": {
 		intro: `Remove the worktrees the harness's isolated agents left behind.
 
-The unattended counterpart of ` + "`ccx worktree collect`" + ` and
-` + "`ccx worktree delete`" + `: this runs in the middle of another procedure, so
-nothing is asked between finding and removing, and the safety is in the checks
-instead of in an approval.
+Unlike ` + "`ccx worktree collect`" + ` and ` + "`ccx worktree delete`" + `, this judges and
+removes in one command, with no step between the two in which the caller
+leaves a current worktree or branch: it runs in the middle of another
+procedure, and the safety is in the checks.
 
 Recognised only by the names the harness gives an isolated agent's worktree
 and branch. A linked worktree qualifies when its path ends in

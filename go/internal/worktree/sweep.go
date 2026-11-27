@@ -95,12 +95,12 @@ type SweepReport struct {
 
 // Sweep removes the worktrees the harness's isolated agents left behind.
 //
-// The unattended counterpart of Collect and Delete: nothing is asked of the
-// caller between finding and removing, because this runs in the middle of
-// another procedure. Its safety is in the checks instead — the harness's lock
-// tells a running agent from a leftover, the working-directory table refuses
-// one somebody is standing in, and a branch goes only where the working
-// directory's own head already holds its commits.
+// Unlike Collect and Delete it judges and removes in one command, with no step
+// between the two in which the caller leaves a current worktree or branch,
+// because this runs in the middle of another procedure. Its safety is in the
+// checks — the harness's lock tells a running agent from a leftover, the
+// working-directory table refuses one somebody is standing in, and a branch
+// goes only where the working directory's own head already holds its commits.
 //
 // It runs against the repository of dir rather than resolving the main
 // worktree, since that head is what a branch is measured against.
